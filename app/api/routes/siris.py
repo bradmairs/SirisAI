@@ -172,6 +172,7 @@ async def _execute_tool_call(
     model_role: str = "general",
     messages: list[dict[str, Any]] | None = None,
     llm_client: LLMClient | None = None,
+    trigger: str = "chat: model chose this tool while responding to the user's request",
 ) -> ChatResponse:
     """Shared by POST /chat and POST /chat/confirm: run a tool, persist the
     exchange, and shape the response -- including the ConfirmationRequired
@@ -184,9 +185,14 @@ async def _execute_tool_call(
     either or both. Falls back to the tool-call-only shape (`response` left
     unset) if no LLM client is available, or if the follow-up call fails or
     the model doesn't produce text -- callers should already treat a raw
-    tool result as an acceptable response, this is a best-effort upgrade."""
+    tool result as an acceptable response, this is a best-effort upgrade.
+
+    `trigger` (milestone 28) is recorded to the audit log alongside the
+    call -- POST /chat/confirm passes its own, since a confirmed action's
+    trigger is meaningfully different (a human explicitly approved it,
+    not the model deciding on its own)."""
     try:
-        output = siris.run_tool(name, arguments, conversation_id=conversation_id, confirmed=confirmed)
+        output = siris.run_tool(name, arguments, conversation_id=conversation_id, confirmed=confirmed, trigger=trigger)
     except ConfirmationRequired:
         return ChatResponse(
             conversation_id=conversation_id,
@@ -389,6 +395,7 @@ async def confirm_tool_call(request: ConfirmToolRequest, siris: SirisAI = Depend
         confirmed=True,
         messages=messages,
         llm_client=siris.llm,
+        trigger="chat: user explicitly confirmed a previously-proposed action",
     )
 
 
@@ -416,6 +423,12 @@ class ActivityEntryResponse(BaseModel):
     error: str | None
     confirmation_required: bool
     duration_ms: float
+    # Explainable autonomy (milestone 28) -- all three are None for calls
+    # that predate this milestone, or that had nothing meaningful to
+    # record (most plain READ lookups).
+    trigger: str | None
+    evidence: Any
+    policy: str | None
     created_at: str
 
 
@@ -468,7 +481,12 @@ def run_tool_directly(name: str, request: RunToolRequest, siris: SirisAI = Depen
         return RunToolResponse(tool_call=ToolCallResult(name=name, arguments=request.arguments, result=output))
 
     try:
-        output = siris.run_tool(name, request.arguments, confirmed=request.confirmed)
+        output = siris.run_tool(
+            name,
+            request.arguments,
+            confirmed=request.confirmed,
+            trigger="direct API request: a human explicitly asked for exactly this tool",
+        )
     except ConfirmationRequired:
         return RunToolResponse(confirmation_required=PendingToolCall(name=name, arguments=request.arguments))
     except PermissionError as exc:

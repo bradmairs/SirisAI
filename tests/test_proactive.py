@@ -35,7 +35,7 @@ class _FakeSirisForProactive:
         self._health_result = health_result
         self.notify_calls: list[dict[str, Any]] = []
 
-    def run_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    def run_tool(self, name: str, arguments: dict[str, Any], **kwargs: Any) -> Any:
         if name == "server_health_check":
             return self._health_result
         if name == "notify":

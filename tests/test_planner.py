@@ -33,7 +33,15 @@ class _FakeSiris:
         self._run_tool_fn = run_tool_fn
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def run_tool(self, name: str, arguments: dict[str, Any], conversation_id: str | None = None, confirmed: bool = False) -> Any:
+    def run_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        conversation_id: str | None = None,
+        confirmed: bool = False,
+        trigger: str | None = None,
+        evidence: Any = None,
+    ) -> Any:
         self.calls.append((name, arguments))
         return self._run_tool_fn(name, arguments, conversation_id, confirmed)
 

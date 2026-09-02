@@ -55,6 +55,20 @@ class ToolExecution(Base):
     # its own separate row.
     confirmation_required: Mapped[bool] = mapped_column(Boolean, default=False)
     duration_ms: Mapped[float] = mapped_column(Float)
+    # Explainable autonomy (milestone 28) -- all three nullable since most
+    # calls before this milestone (and plenty since, e.g. a plain READ
+    # lookup) have nothing meaningful to say here. trigger: what caused
+    # this call ("chat: model chose this tool", "planner: step 2 of an
+    # in-progress plan", "proactive check: automated schedule", "direct
+    # API request"). evidence: JSON-encoded supporting data that justified
+    # it, when there was any (e.g. a planner's prior step results, or the
+    # health-check warnings that led to a notify call). policy: what
+    # allowed it to run without asking first, derived from the tool's own
+    # ToolPermission by SirisAI.run_tool() -- not something callers
+    # invent themselves.
+    trigger: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
+    policy: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 

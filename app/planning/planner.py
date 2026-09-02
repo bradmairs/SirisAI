@@ -85,8 +85,20 @@ class Planner:
                 return PlanResult(steps=steps, final_text=result.text)
 
             call = result.tool_calls[0]
+            step_number = len(steps) + 1
+            # Evidence (milestone 28) is every prior step's result -- the
+            # accumulated data that led the model to choose this next
+            # call, not just this one call's own arguments.
+            evidence = [{"tool": s.name, "result": s.result} for s in steps] or None
             try:
-                output = siris.run_tool(call.name, call.arguments, conversation_id=conversation_id, confirmed=False)
+                output = siris.run_tool(
+                    call.name,
+                    call.arguments,
+                    conversation_id=conversation_id,
+                    confirmed=False,
+                    trigger=f"planner: step {step_number} of an in-progress plan",
+                    evidence=evidence,
+                )
             except ConfirmationRequired:
                 return PlanResult(steps=steps, pending_confirmation=(call.name, call.arguments))
             except PermissionError as exc:
