@@ -35,6 +35,8 @@ app/
     service.py    # MemoryStore -- SirisAI's long-term memory (SQLite-backed)
   conversation/
     service.py    # ConversationStore -- per-conversation turn history (SQLite-backed)
+  audit/
+    service.py    # AuditLogStore -- every SirisAI.run_tool() call (SQLite-backed)
   voice/          # Model-agnostic speech interface (STT + TTS)
     base.py       # SpeechToTextClient/TextToSpeechClient ABCs + Null placeholders
     openai_compatible.py  # client for any server speaking OpenAI's audio API shape
@@ -148,16 +150,24 @@ Deliberately tiny, each one a working state:
     The built-in web UI now carries a conversation across turns within a
     page session, with a "New chat" button to reset it.
 
+11. **Done** -- Tool execution audit log (`app/audit/service.py`,
+    `AuditLogStore`, backed by a `tool_executions` SQLite table). Wired
+    into `SirisAI.run_tool()` itself rather than the chat route, so
+    *every* call goes through it -- including an unknown tool name, and
+    including callers other than `/siris/chat` once those exist (e.g.
+    skills, milestone 15). Each entry records the tool name, arguments,
+    result or error, duration, and (when known) the `conversation_id`
+    that triggered it. `GET /siris/activity?limit=50` reads it back, most
+    recent first; the web UI's new Activity tab renders it as a feed
+    (✓/✗, tool call + args, result or error, timestamp, duration).
+    Deliberately built before tools gain any real power -- see the next
+    milestone.
+
 The rest of this list is proposed, not built -- captured here so the next
 round of work has a concrete order rather than an open-ended brainstorm.
 Same rule as everything above: tiny, working-state milestones, each one
 extending an existing pattern rather than introducing a parallel one.
 
-11. Tool execution audit log -- every tool call (what was asked, tool
-    name, arguments, result, duration, timestamp) recorded to a SQLite
-    table and exposed via `GET /siris/activity`, surfaced in the web UI as
-    an activity feed. Worth building before tools gain any real power --
-    makes it possible to see exactly what SirisAI did and why.
 12. Tool permission levels -- extend `Tool` with a level (`READ` /
     `SAFE_ACTION` / `CONFIRM_REQUIRED` / `RESTRICTED`). `SirisAI.run_tool()`
     executes `READ`/`SAFE_ACTION` immediately; `CONFIRM_REQUIRED` returns a
@@ -233,6 +243,9 @@ uvicorn app.main:app --reload
 - `GET /siris/conversations/{conversation_id}` -- the full stored history
   for a conversation (including tool exchanges), most recent last. 404 if
   the id is unknown.
+- `GET /siris/activity?limit=50` -- recent tool executions, most recent
+  first: tool name, arguments, result or error, duration, and the
+  triggering `conversation_id` when there was one.
 - `POST /siris/memory` -- save a memory directly, e.g. `{"content": "..."}`.
 - `GET /siris/memory?query=...&limit=20` -- list/search saved memories,
   most recent first.

@@ -10,10 +10,12 @@ FastAPI gets a single shared instance via `get_siris()`, used as a
 dependency, so routes never construct their own.
 """
 
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
+from app.audit.service import AuditLogStore
 from app.conversation.service import ConversationStore
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
@@ -44,6 +46,7 @@ class SirisAI:
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
+    audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -69,13 +72,27 @@ class SirisAI:
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
             self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client))
 
-    def run_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    def run_tool(self, name: str, arguments: dict[str, Any], conversation_id: str | None = None) -> Any:
         """Look up and invoke a registered tool by name. Raises ValueError
-        if no tool with that name is registered."""
-        tool = self.tools.get(name)
-        if tool is None:
-            raise ValueError(f"Unknown tool: {name}")
-        return tool.run(**arguments)
+        if no tool with that name is registered. Every call -- successful,
+        raised, or against an unknown name -- is recorded to the audit log
+        (app/audit/service.py), including how long it took."""
+        start = time.monotonic()
+        try:
+            tool = self.tools.get(name)
+            if tool is None:
+                raise ValueError(f"Unknown tool: {name}")
+            result = tool.run(**arguments)
+        except Exception as exc:
+            duration_ms = (time.monotonic() - start) * 1000
+            self.audit.record(
+                name, arguments, error=str(exc), duration_ms=duration_ms, conversation_id=conversation_id
+            )
+            raise
+
+        duration_ms = (time.monotonic() - start) * 1000
+        self.audit.record(name, arguments, result=result, duration_ms=duration_ms, conversation_id=conversation_id)
+        return result
 
     def status(self) -> dict[str, object]:
         """A snapshot of the core service's state, for the status endpoint."""

@@ -172,6 +172,23 @@
   .memory-entry { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; }
   .memory-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
 
+  /* Activity */
+  #activity-view { padding: 1rem; overflow-y: auto; }
+  #activity-view button { margin-bottom: 1rem; }
+  .activity-entry {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .activity-entry.error { border-color: var(--error); }
+  .activity-entry .tool-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+  .activity-entry .tool-name.error { color: var(--error); }
+  .activity-entry .detail { color: var(--muted); font-size: 0.8rem; margin-top: 0.3rem; white-space: pre-wrap; word-wrap: break-word; }
+  .activity-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+
   /* Status */
   #status-view { padding: 1rem; overflow-y: auto; }
   #status-view button { margin-bottom: 1rem; }
@@ -190,6 +207,7 @@
   <nav>
     <button data-view="chat" class="active">Chat</button>
     <button data-view="memory">Memory</button>
+    <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
   </nav>
 </header>
@@ -222,6 +240,11 @@
       <button class="action-btn" type="submit">Add</button>
     </form>
     <div id="memory-list"></div>
+  </section>
+
+  <section id="activity-view" class="view">
+    <button class="action-btn" id="activity-refresh">Refresh</button>
+    <div id="activity-list"></div>
   </section>
 
   <section id="status-view" class="view">
@@ -275,6 +298,7 @@
       btn.classList.add("active");
       document.getElementById(`${btn.dataset.view}-view`).classList.add("active");
       if (btn.dataset.view === "memory") loadMemory();
+      if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
     });
   });
@@ -463,6 +487,48 @@
       memoryList.innerHTML = `<p class="empty">${err.message}</p>`;
     }
   });
+
+  // --- Activity ---
+  const activityList = document.getElementById("activity-list");
+
+  async function loadActivity() {
+    activityList.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const entries = await api("/siris/activity?limit=50");
+      activityList.innerHTML = "";
+      if (!entries.length) {
+        activityList.innerHTML = '<p class="empty">No tool calls yet.</p>';
+        return;
+      }
+      for (const entry of entries) {
+        const div = document.createElement("div");
+        div.className = entry.error ? "activity-entry error" : "activity-entry";
+
+        const name = document.createElement("div");
+        name.className = entry.error ? "tool-name error" : "tool-name";
+        name.textContent = `${entry.error ? "✗" : "✓"} ${entry.tool_name}(${JSON.stringify(entry.arguments)})`;
+        div.appendChild(name);
+
+        const detail = document.createElement("div");
+        detail.className = "detail";
+        detail.textContent = entry.error ? entry.error : JSON.stringify(entry.result);
+        div.appendChild(detail);
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent =
+          `${new Date(entry.created_at).toLocaleString()} · ${entry.duration_ms.toFixed(0)}ms` +
+          (entry.conversation_id ? ` · conversation ${entry.conversation_id.slice(0, 8)}` : "");
+        div.appendChild(meta);
+
+        activityList.appendChild(div);
+      }
+    } catch (err) {
+      activityList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("activity-refresh").addEventListener("click", loadActivity);
 
   // --- Status ---
   const statusBody = document.getElementById("status-body");

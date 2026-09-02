@@ -81,7 +81,7 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     if result.tool_calls:
         call = result.tool_calls[0]
         try:
-            output = siris.run_tool(call.name, call.arguments)
+            output = siris.run_tool(call.name, call.arguments, conversation_id=conversation_id)
         except Exception:
             logger.exception("Tool '%s' failed", call.name)
             raise HTTPException(status_code=502, detail=f"Tool '{call.name}' failed.") from None
@@ -115,3 +115,20 @@ def get_conversation(conversation_id: str, siris: SirisAI = Depends(get_siris)) 
     if not siris.conversation.conversation_exists(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return [MessageResponse(**m) for m in siris.conversation.get_messages(conversation_id)]
+
+
+class ActivityEntryResponse(BaseModel):
+    id: int
+    conversation_id: str | None
+    tool_name: str
+    arguments: dict[str, Any]
+    result: Any
+    error: str | None
+    duration_ms: float
+    created_at: str
+
+
+@router.get("/activity", response_model=list[ActivityEntryResponse])
+def get_activity(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[ActivityEntryResponse]:
+    """Recent tool executions (successful or not), most recent first."""
+    return [ActivityEntryResponse(**entry) for entry in siris.audit.list_recent(limit=limit)]
