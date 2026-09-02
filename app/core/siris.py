@@ -22,6 +22,7 @@ from app.conversation.service import ConversationStore
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.docker.client import DockerClient
+from app.goals.service import GoalStore
 from app.home_assistant.client import HomeAssistantClient
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
@@ -35,6 +36,13 @@ from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolReg
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
 from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
+from app.plugins.builtin.goals import (
+    AddGoalObjectiveTool,
+    CompleteGoalObjectiveTool,
+    CreateGoalTool,
+    ListGoalsTool,
+    UpdateGoalStatusTool,
+)
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
     HomeAssistantGetStateTool,
@@ -87,6 +95,11 @@ _CATEGORY_NAMES: dict[str, str] = {
     "recall_events": "memory",
     "notify": "notify",
     "system_info": "system",
+    "create_goal": "goals",
+    "list_goals": "goals",
+    "update_goal_status": "goals",
+    "add_goal_objective": "goals",
+    "complete_goal_objective": "goals",
 }
 
 
@@ -113,6 +126,7 @@ class SirisAI:
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
     entities: EntityMemoryStore = field(default_factory=lambda: EntityMemoryStore(SessionLocal))
     events: EventMemoryStore = field(default_factory=lambda: EventMemoryStore(SessionLocal))
+    goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
 
@@ -156,6 +170,11 @@ class SirisAI:
         self.tools.register(RecallEntityRelationshipsTool(self.entities))
         self.tools.register(LogEventTool(self.events))
         self.tools.register(RecallEventsTool(self.events))
+        self.tools.register(CreateGoalTool(self.goals))
+        self.tools.register(ListGoalsTool(self.goals))
+        self.tools.register(UpdateGoalStatusTool(self.goals))
+        self.tools.register(AddGoalObjectiveTool(self.goals))
+        self.tools.register(CompleteGoalObjectiveTool(self.goals))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:

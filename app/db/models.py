@@ -112,3 +112,37 @@ class Event(Base):
     source: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Goal(Base):
+    """Something the user wants worked toward that survives past one
+    conversation (milestone 23), e.g. "reduce homelab power consumption"
+    -- so it doesn't need re-explaining every session. `status` is free
+    text (recommended: "active"/"completed"/"abandoned") rather than an
+    enum, same reasoning as EntityFact's free-text `fact` and
+    EntityRelationship's free-text `relation` elsewhere in this codebase.
+    Deliberately just persistent state -- nothing here works a goal
+    autonomously in the background; that's the planner (24)."""
+
+    __tablename__ = "goals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+
+class GoalObjective(Base):
+    """One step toward a Goal. Several rows share a goal_id -- together
+    they're that goal's objective list, each independently markable done."""
+
+    __tablename__ = "goal_objectives"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    goal_id: Mapped[int] = mapped_column(ForeignKey("goals.id"), index=True)
+    description: Mapped[str] = mapped_column(Text)
+    done: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

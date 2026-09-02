@@ -85,6 +85,29 @@ def system_state(siris: SirisAI = Depends(get_siris)) -> SystemStateResponse:
     return SystemStateResponse(**siris.system_state())
 
 
+class GoalObjectiveInfo(BaseModel):
+    id: int
+    description: str
+    done: bool
+
+
+class GoalInfo(BaseModel):
+    id: int
+    title: str
+    status: str
+    created_at: str
+    updated_at: str
+    objectives: list[GoalObjectiveInfo]
+
+
+@router.get("/goals", response_model=list[GoalInfo])
+def list_goals(status: str | None = None, siris: SirisAI = Depends(get_siris)) -> list[GoalInfo]:
+    """Goals (milestone 23), most recently created first -- the direct-read
+    equivalent of the list_goals tool, same relationship as
+    GET /siris/events has to the recall_events tool."""
+    return [GoalInfo(**g) for g in siris.goals.list_goals(status=status)]
+
+
 class ChatRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None

@@ -454,14 +454,35 @@ noted inline rather than building the same thing twice under two names.
     capability category, and that a fact-less relationship-only entity
     still appears in system state), plus a live `uvicorn` run exercising
     all four against a real request. Full suite: 116 passed.
-23. Goals. A goal (e.g. "reduce homelab power consumption") persists
-    across conversations with a status and a list of objectives, so it
-    doesn't need re-explaining every session. New `GoalStore`, same
-    SQLite-backed pattern as `MemoryStore`/`EntityMemoryStore`; a
-    `manage_goals` tool for the model to create/update/list them
-    mid-conversation, same shape as the existing `remember`/`recall`
-    tools. Deliberately just persistent state at this stage, not a
-    planner that autonomously works goals in the background -- that's 24.
+23. **Done** -- Goals. A goal (e.g. "reduce homelab power consumption")
+    persists across conversations with a status and a list of objectives,
+    so it doesn't need re-explaining every session. New `GoalStore`
+    (`app/goals/service.py`), same SQLite-backed "own short-lived session
+    per call" pattern as `MemoryStore`/`EntityMemoryStore`, backed by two
+    tables (`Goal`, `GoalObjective`) rather than one -- a goal has a real
+    lifecycle (objectives added over time, individually completable,
+    overall status changed independently) that a single free-text row
+    like `EntityFact` can't represent. Five tools rather than a
+    remember/recall pair, for the same reason: `create_goal`,
+    `list_goals`, `update_goal_status`, `add_goal_objective`,
+    `complete_goal_objective` -- each single-purpose, the roadmap entry's
+    proposed single `manage_goals` tool would've meant one tool with a
+    pile of mutually-exclusive optional arguments, which the rest of
+    `app/plugins/builtin/` deliberately avoids. `status` is free text
+    (recommended: active/completed/abandoned), same reasoning as
+    `EntityFact.fact` and `EntityRelationship.relation` -- SirisAI stores
+    and filters on whatever the model picks rather than enforcing a fixed
+    vocabulary. `GET /siris/goals` added alongside, same relationship to
+    `list_goals` as `GET /siris/events` already has to `recall_events`.
+    Deliberately just persistent state at this stage -- completing every
+    objective does not auto-complete the goal, and nothing here works a
+    goal autonomously in the background; that's the planner (24).
+    Verified: unit tests (creation with/without objectives, status
+    filtering and ordering, unknown-id handling, completing an objective
+    doesn't touch the goal's own status), endpoint tests, and a live
+    `uvicorn` run through the full lifecycle (create with three
+    objectives, complete one, list filtered by status). Full suite: 126
+    passed.
 24. Task planner. Today a chat turn is: model picks zero or one tool call,
     SirisAI runs it, done. This introduces a
     request -> plan -> execute each step -> verify -> respond loop for
