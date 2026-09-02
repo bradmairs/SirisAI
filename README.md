@@ -93,12 +93,13 @@ Deliberately tiny, each one a working state:
    and `POST /siris/voice/speak` expose them directly; nothing composes
    them into a full voice-chat loop server-side yet -- see the next
    milestone.
-8. Wire voice into the web UI: a mic button (browser `MediaRecorder`)
-   records audio, posts it to `/siris/voice/transcribe`, and fills the chat
-   input for the user to review/send; a speaker icon on assistant replies
-   calls `/siris/voice/speak` and plays the result. Client-side composition
-   of the two primitives above plus the existing chat endpoint -- no new
-   backend surface needed.
+8. **Done** -- Wired voice into the web UI: a mic button (top-left of the
+   chat input) records via the browser's `MediaRecorder`, posts the clip to
+   `/siris/voice/transcribe`, and fills the chat input with the transcript
+   for the user to review/send (deliberately not auto-sent); a speaker icon
+   on every assistant reply calls `/siris/voice/speak` and plays the
+   result. Pure client-side composition of the two primitives from
+   milestone 7 plus the existing chat endpoint -- no new backend surface.
 9. Homelab/home-automation tools (Home Assistant, etc.).
 
 ## Running locally

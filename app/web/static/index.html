@@ -123,6 +123,28 @@
     font-size: 0.9rem;
   }
   #chat-form button:disabled { opacity: 0.5; cursor: default; }
+  #mic-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    width: 2.6rem;
+    cursor: pointer;
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+  #mic-btn.recording { background: var(--error); border-color: var(--error); color: #1a0d0d; }
+  .speak-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin-left: 0.4rem;
+    padding: 0;
+    vertical-align: middle;
+  }
+  .speak-btn:disabled { opacity: 0.4; cursor: default; }
 
   /* Memory */
   #memory-view { padding: 1rem; overflow-y: auto; gap: 0.75rem; }
@@ -180,6 +202,7 @@
   <section id="chat-view" class="view active">
     <div id="messages"></div>
     <form id="chat-form">
+      <button type="button" id="mic-btn" title="Record a voice message">&#127908;</button>
       <input id="chat-input" type="text" placeholder="Ask SirisAI..." autocomplete="off" />
       <button type="submit">Send</button>
     </form>
@@ -219,7 +242,10 @@
 
   async function api(path, options = {}) {
     const key = localStorage.getItem(KEY_STORAGE);
-    const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
+    // Skip Content-Type for FormData -- the browser sets its own multipart
+    // boundary, and overriding it breaks the upload.
+    const isFormData = options.body instanceof FormData;
+    const headers = Object.assign({}, isFormData ? {} : { "Content-Type": "application/json" }, options.headers || {});
     if (key) headers["Authorization"] = `Bearer ${key}`;
     const response = await fetch(path, Object.assign({}, options, { headers }));
     if (response.status === 401) {
@@ -231,6 +257,7 @@
       const body = await response.json().catch(() => ({}));
       throw new Error(body.detail || `request failed (${response.status})`);
     }
+    if (options.raw) return response;
     return response.status === 204 ? null : response.json();
   }
 
@@ -256,11 +283,89 @@
   function addMessage(text, cls) {
     const div = document.createElement("div");
     div.className = `msg ${cls}`;
-    div.textContent = text;
+    const span = document.createElement("span");
+    span.textContent = text;
+    div.appendChild(span);
+    if (cls === "assistant") {
+      const speakBtn = document.createElement("button");
+      speakBtn.type = "button";
+      speakBtn.className = "speak-btn";
+      speakBtn.title = "Play";
+      speakBtn.textContent = "\u{1f50a}";
+      speakBtn.addEventListener("click", () => speak(text, speakBtn));
+      div.appendChild(speakBtn);
+    }
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
     return div;
   }
+
+  async function speak(text, btn) {
+    btn.disabled = true;
+    try {
+      const response = await api("/siris/voice/speak", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+        raw: true,
+      });
+      const blob = await response.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      await audio.play();
+    } catch (err) {
+      addMessage(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // --- Voice input (mic -> transcribe -> fill chat input for review) ---
+  const micBtn = document.getElementById("mic-btn");
+  let mediaRecorder = null;
+  let recordedChunks = [];
+
+  micBtn.addEventListener("click", async () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      addMessage(`Microphone unavailable: ${err.message}`, "error");
+      return;
+    }
+
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.addEventListener("dataavailable", (e) => {
+      if (e.data.size > 0) recordedChunks.push(e.data);
+    });
+    mediaRecorder.addEventListener("stop", async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      micBtn.classList.remove("recording");
+
+      const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+      const formData = new FormData();
+      formData.append("file", blob, "recording.webm");
+      const originalPlaceholder = chatInput.placeholder;
+      chatInput.placeholder = "Transcribing...";
+      micBtn.disabled = true;
+      try {
+        const result = await api("/siris/voice/transcribe", { method: "POST", body: formData });
+        chatInput.value = result.text;
+      } catch (err) {
+        addMessage(err.message, "error");
+      } finally {
+        chatInput.placeholder = originalPlaceholder;
+        micBtn.disabled = false;
+        chatInput.focus();
+      }
+    });
+
+    mediaRecorder.start();
+    micBtn.classList.add("recording");
+  });
 
   chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -353,6 +458,8 @@
         ["App", status.app_name],
         ["Environment", status.environment],
         ["LLM provider", status.llm_provider],
+        ["STT provider", status.stt_provider],
+        ["TTS provider", status.tts_provider],
       ];
       for (const [label, value] of rows) {
         const dt = document.createElement("dt");
