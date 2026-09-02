@@ -19,7 +19,10 @@ app/
     siris.py     # The SirisAI core service -- everything hangs off this
   api/routes/     # FastAPI routers (thin; delegate to SirisAI)
   db/             # SQLAlchemy engine/session + declarative Base (SQLite)
-  llm/base.py     # Model-agnostic LLM client interface (no backend yet)
+  llm/            # Model-agnostic LLM client interface
+    base.py       # LLMClient ABC + NullLLMClient placeholder
+    ollama.py     # OllamaClient -- the first real backend
+    factory.py    # Picks a backend from settings.llm_provider
   plugins/        # Tool/plugin interface + registry
     base.py       # Tool ABC + ToolRegistry
     builtin/      # Reference/first-party tools (echo.py proves the pattern)
@@ -28,9 +31,9 @@ app/
 **Extension points, by design:**
 - **New tool** -- subclass `Tool` in `app/plugins/builtin/` (or your own
   package), register it in `SirisAI._register_builtin_tools`.
-- **New LLM backend** -- implement `LLMClient` in `app/llm/`, wire it into
-  `SirisAI` based on `settings.llm_provider`. Nothing outside `app/llm/`
-  should know which backend is active.
+- **New LLM backend** -- implement `LLMClient` in `app/llm/`, add a case for
+  it in `app/llm/factory.py`. Nothing outside `app/llm/` should know which
+  backend is active.
 - **New route** -- add a router under `app/api/routes/`, include it in
   `app/main.py`. Keep routes thin; put logic on `SirisAI` or a tool.
 
@@ -38,11 +41,14 @@ app/
 
 Deliberately tiny, each one a working state:
 
-1. **This scaffold** -- FastAPI app in Docker, SQLite wired up, config +
-   logging, `SirisAI` core service, `/health` and `/siris/status`.
-2. Add a real LLM call (Ollama-backed `LLMClient`).
-3. Wire the tool interface into an actual endpoint (LLM decides to call a
-   tool, tool result comes back in the response).
+1. **Done** -- FastAPI app in Docker, SQLite wired up, config + logging,
+   `SirisAI` core service, `/health` and `/siris/status`.
+2. **Done** -- Ollama-backed `LLMClient` (`app/llm/ollama.py`) and a
+   `POST /siris/chat` endpoint that calls it. Off by default
+   (`SIRISAI_LLM_PROVIDER=none`); set it to `ollama` and point
+   `SIRISAI_OLLAMA_BASE_URL` at your Ollama instance to enable.
+3. Wire the tool interface into `/siris/chat` (LLM decides to call a tool,
+   tool result comes back in the response).
 4. Memory subsystem -- SirisAI records/recalls what it learns about you.
 5. Auth.
 6. Homelab/home-automation tools (Home Assistant, etc.).
@@ -59,6 +65,9 @@ uvicorn app.main:app --reload
 - `GET /health` -- liveness + DB connectivity check.
 - `GET /siris/status` -- core service status: app name, environment, LLM
   provider, registered tools.
+- `POST /siris/chat` -- single-turn passthrough to the configured LLM
+  backend, e.g. `{"prompt": "hello"}` -> `{"response": "..."}`. Returns 502
+  if no backend is configured/reachable.
 
 ## Running with Docker
 

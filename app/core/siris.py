@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 
 from app.core.config import Settings, get_settings
-from app.llm.base import LLMClient, NullLLMClient
+from app.llm.base import LLMClient
+from app.llm.factory import build_llm_client
 from app.plugins.base import ToolRegistry
 from app.plugins.builtin.echo import EchoTool
 
@@ -24,10 +25,12 @@ class SirisAI:
     """The core service. Thin today, the anchor point for everything later."""
 
     settings: Settings
-    llm: LLMClient = field(default_factory=NullLLMClient)
+    llm: LLMClient | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
 
     def __post_init__(self) -> None:
+        if self.llm is None:
+            self.llm = build_llm_client(self.settings)
         self._register_builtin_tools()
 
     def _register_builtin_tools(self) -> None:
@@ -41,6 +44,12 @@ class SirisAI:
             "llm_provider": self.settings.llm_provider,
             "tools": [tool.name for tool in self.tools.list()],
         }
+
+    async def aclose(self) -> None:
+        """Release resources held by the core service (e.g. the LLM client's
+        connection pool). Call once, at app shutdown."""
+        assert self.llm is not None
+        await self.llm.aclose()
 
 
 @lru_cache

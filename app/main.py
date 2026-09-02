@@ -28,9 +28,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Base.metadata.create_all(bind=engine)
     # Warm the shared SirisAI instance (and its tool registry) at boot
     # rather than on first request.
-    get_siris()
+    siris = get_siris()
 
     yield
+
+    await siris.aclose()
 
 
 def create_app() -> FastAPI:

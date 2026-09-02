@@ -21,6 +21,9 @@ class LLMClient(ABC):
         """Return a completion for `prompt`. Raises on backend failure."""
         raise NotImplementedError
 
+    async def aclose(self) -> None:
+        """Release any resources (connections, etc). No-op by default."""
+
 
 class NullLLMClient(LLMClient):
     """Placeholder client used until a real backend is configured."""
