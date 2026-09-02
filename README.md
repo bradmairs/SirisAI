@@ -5,6 +5,11 @@ and control things on the home network, and eventually let it remember what
 it learns about you along the way. This repo is the scaffold -- solid
 foundations first, capability added in small, shippable steps.
 
+SirisAI is meant to be the orchestration layer, not the model: LLMs, tools,
+memory, and (eventually) event handling all sit behind it, model- and
+frontend-agnostic. The built-in web UI (milestone 6) is one frontend, not
+the only one -- any client that can call `/siris/chat` works.
+
 ## Architecture at a glance
 
 Everything hangs off one core service, `SirisAI` (`app/core/siris.py`).
@@ -121,6 +126,72 @@ Deliberately tiny, each one a working state:
    long-lived access token, from your Home Assistant profile -> Security)
    and restart; no code changes needed. Until then these tools simply
    aren't offered to the model, and won't show up in `/siris/status`.
+
+The rest of this list is proposed, not built -- captured here so the next
+round of work has a concrete order rather than an open-ended brainstorm.
+Same rule as everything above: tiny, working-state milestones, each one
+extending an existing pattern rather than introducing a parallel one.
+
+10. Conversation persistence -- `/siris/chat` is currently single-turn and
+    stateless (each call is independent; only what the model chooses to
+    `remember` survives). Store each exchange (user/assistant/tool
+    messages) against a conversation id in SQLite so a client can carry
+    context across turns without resending history itself. Foundational
+    for memory categories (14) and the context engine (16) below.
+11. Tool execution audit log -- every tool call (what was asked, tool
+    name, arguments, result, duration, timestamp) recorded to a SQLite
+    table and exposed via `GET /siris/activity`, surfaced in the web UI as
+    an activity feed. Worth building before tools gain any real power --
+    makes it possible to see exactly what SirisAI did and why.
+12. Tool permission levels -- extend `Tool` with a level (`READ` /
+    `SAFE_ACTION` / `CONFIRM_REQUIRED` / `RESTRICTED`). `SirisAI.run_tool()`
+    executes `READ`/`SAFE_ACTION` immediately; `CONFIRM_REQUIRED` returns a
+    pending action for the caller to confirm before it actually runs;
+    `RESTRICTED` requires an explicit opt-in in config. Needed before the
+    tool library below gains anything destructive (restarting containers,
+    applying updates).
+13. Expand the tool library, one tool at a time, each gated by the
+    permission levels above: Docker (container status/restart/update),
+    system info (disk/CPU/temperature), Plex, UniFi, weather, calendar.
+    Same `Tool` pattern as `echo`/`remember`/`recall`/`home_assistant_*` --
+    no new mechanism, just more tools.
+14. Memory categories -- split the current flat `MemoryStore` into entity
+    memory (people/things: "Brad", "Plex", "the NAS") and event memory
+    (things that happened: "Plex crashed", "backup failed"), alongside the
+    existing free-text long-term memory. Lets SirisAI answer "has Plex
+    been playing up lately?" from actual event history instead of just
+    current state.
+15. Skills -- composable workflows that chain multiple tool calls into one
+    reusable unit (e.g. a health-check skill running several system/Docker
+    checks and summarizing the result), invocable by the model like a tool
+    or triggered directly. Worth more once the tool library (13) actually
+    has enough to compose.
+16. Context engine -- before calling the LLM, assemble a small curated
+    context package (recent events, system health, relevant memories)
+    instead of sending just the raw prompt, so an answer to "how's
+    everything looking?" has real situational awareness without every
+    prompt carrying the whole database.
+17. Event bus -- inbound webhook endpoint(s) so external systems (Docker,
+    Home Assistant, UniFi, Plex, calendar) can push events into SirisAI
+    instead of only being polled through tools. Logged as event memory
+    (14); SirisAI decides whether to ignore, log, investigate, or notify.
+18. Model router -- support multiple configured LLM backends at once
+    (building on the existing `LLMClient` interface) with policy-based
+    selection -- a fast local model for simple asks, a larger one for
+    general conversation, a coding model, an optional cloud model -- plus
+    a "keep private data local" routing policy.
+19. Proactive notifications -- anomaly detection over the event/metric
+    history from milestones 14 and 17 (e.g. "the backup normally finishes
+    by 3am but hasn't today"), surfaced unprompted through a notification
+    channel rather than waiting to be asked. The furthest-out item on this
+    list -- depends on the event bus and event memory actually
+    accumulating real history first, and stops well short of SirisAI
+    taking autonomous action on its own; that's deliberately not planned
+    yet.
+20. Voice satellites -- extend the existing STT/TTS primitives
+    (milestones 7-8) beyond the built-in web UI to standalone
+    always-listening devices (mic + speaker + wake word) around the
+    house, talking to the central SirisAI server.
 
 ## Running locally
 
