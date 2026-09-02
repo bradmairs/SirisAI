@@ -23,6 +23,8 @@ class MemoryEntryResponse(BaseModel):
     id: int
     content: str
     created_at: str
+    recall_count: int
+    last_recalled_at: str | None
 
 
 @router.post("", response_model=MemoryEntryResponse)

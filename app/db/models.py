@@ -17,6 +17,12 @@ class MemoryEntry(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    # Usage tracking (milestone 30) -- bumped every time this entry is
+    # returned by MemoryStore.recall(), so the self_maintenance_check
+    # skill can flag memories that have genuinely never come back up
+    # ("unused"), not just old ones.
+    recall_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_recalled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Conversation(Base):

@@ -763,14 +763,56 @@ noted inline rather than building the same thing twice under two names.
     again, and confirming `explain_recent_action` showed the exact
     `"routine: 'overnight_server_watch' (nightly)"` trigger for the
     resulting `server_health_check` call. Full suite: 185 passed.
-30. Reflection / maintenance cycle. A self-inspection skill (same `Skill`
-    pattern as 15's `server_health_check`) that reports on SirisAI itself:
-    unused/duplicate memories, tools that fail often, integrations
-    erroring. The one worth calling out specifically is "frequently
-    requested action without a matching skill" -- if the same multi-step
-    request keeps coming through the planner (24) instead of a reusable
-    skill, that's a concrete, data-backed suggestion ("you've asked this
-    5 times, want a skill for it?") instead of a vague one.
+30. **Done** -- Reflection / maintenance cycle. A self-inspection skill,
+    `self_maintenance_check` (`app/skills/builtin/self_maintenance.py`,
+    same `Skill` pattern as 15's `server_health_check`), that reports on
+    SirisAI itself rather than the server it runs on. Merged two of the
+    roadmap's listed signals rather than building two mechanisms that say
+    the same thing: this codebase has no separate notion of "integration
+    health" apart from tool execution -- a repeatedly-failing UniFi
+    client or an unreachable Docker socket already shows up as a flaky
+    tool in the audit log, so "tools that fail often" and "integrations
+    erroring" are one stat, `AuditLogStore.failure_counts_by_tool()`.
+    "Unused memories" needed real usage tracking that didn't exist yet:
+    `MemoryEntry` gained `recall_count`/`last_recalled_at`, bumped every
+    time `MemoryStore.recall()` actually returns an entry (not by
+    `list_all()`, the read path this skill itself uses to inspect
+    everything -- that's not the model finding something relevant, so it
+    shouldn't count as a use). A memory younger than 7 days never counts
+    as unused -- it hasn't had a real chance to come up yet, an arbitrary
+    but documented floor, same as this project's other threshold
+    constants. "Duplicate memories" is exact-content grouping -- no
+    fuzzy/semantic matching, consistent with `recall()` itself still
+    being substring-based.
+
+    The standout capability, called out specifically in the roadmap:
+    `AuditLogStore.repeated_planner_sequences()` mines the audit log for
+    tool-call sequences the planner (24) has repeated across at least 3
+    distinct plans, and turns each one into a concrete suggestion
+    ("'system_info -> echo' has run as a plan 3 times -- consider turning
+    it into a reusable skill") instead of a vague one. There's no
+    separate "plan id" stored anywhere, so a "sequence" is inferred from
+    the trigger field's own step counter (28) resetting to 1, or the
+    conversation changing -- documented as a heuristic over existing data
+    rather than a new stored concept. Every finding in this skill is
+    data-backed this way, not an LLM's impression of what seems off.
+
+    Verified: unit tests for memory usage tracking (recall bumps it,
+    `list_all()` doesn't, only matching entries count),
+    `failure_counts_by_tool` (only tools with real failures, sorted worst
+    first), `repeated_planner_sequences` (detected across distinct
+    conversations, below-threshold not reported, single-step "sequences"
+    excluded, two separate plans in the same conversation correctly kept
+    apart, a non-planner call in between doesn't merge sequences across
+    it), and the skill's own report shape; plus a live `uvicorn` run that
+    seeded two real duplicate memories with one recalled, two genuine
+    tool failures (`update_goal_status` on unknown ids), and three
+    identical two-step plans across three separate conversations driven
+    through a real mock Ollama backend -- confirmed
+    `self_maintenance_check` correctly reported the duplicate pair, the
+    real failure count, the repeated sequence at exactly 3 occurrences,
+    and the resulting skill suggestion, with `unused_memories` correctly
+    empty since nothing was old enough yet. Full suite: 199 passed.
 31. Capability gap detection. When a request needs something SirisAI has
     no tool for, report *what's missing* instead of just failing --
     ideally naming a plausible data source/integration and a concrete
