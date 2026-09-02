@@ -11,15 +11,24 @@ the explain_recent_action tool (app/plugins/builtin/audit.py) answer "why
 did you restart Plex last night" from this same log instead of a parallel
 one -- extending what's already recorded rather than inventing a second
 record of autonomous actions.
+
+Self-maintenance (milestone 30): `failure_counts_by_tool()` and
+`repeated_planner_sequences()` mine this same log for the
+self_maintenance_check skill (app/skills/builtin/self_maintenance.py) --
+again, extending what's already recorded rather than a parallel analytics
+store.
 """
 
 import json
+import re
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import ToolExecution
+
+_PLANNER_STEP_TRIGGER = re.compile(r"^planner: step (\d+) of an in-progress plan$")
 
 
 class AuditLogStore:
@@ -86,6 +95,87 @@ class AuditLogStore:
         if argument_contains:
             entries = [e for e in entries if argument_contains in json.dumps(e["arguments"])]
         return entries[:limit]
+
+    def failure_counts_by_tool(self, limit: int = 500) -> list[dict[str, Any]]:
+        """Tools with at least one failure among the most recent `limit`
+        entries, most failures first -- "tools that fail often" AND
+        "integrations erroring" for self_maintenance_check (30): this
+        codebase doesn't track integration health separately from tool
+        execution, so a repeatedly-erroring integration (bad UniFi
+        credentials, an unreachable Docker socket) shows up here exactly
+        the same way any other flaky tool would, rather than needing a
+        second mechanism to say the same thing."""
+        with self._session_factory() as session:
+            stmt = select(ToolExecution.tool_name, ToolExecution.error).order_by(ToolExecution.id.desc()).limit(limit)
+            rows = session.execute(stmt).all()
+
+        counts: dict[str, dict[str, int]] = {}
+        for tool_name, error in rows:
+            entry = counts.setdefault(tool_name, {"total": 0, "failures": 0})
+            entry["total"] += 1
+            if error is not None:
+                entry["failures"] += 1
+
+        return sorted(
+            [{"tool_name": name, **stats} for name, stats in counts.items() if stats["failures"] > 0],
+            key=lambda e: e["failures"],
+            reverse=True,
+        )
+
+    def repeated_planner_sequences(self, min_occurrences: int = 3, limit: int = 2000) -> list[dict[str, Any]]:
+        """Tool-call sequences the planner (24) has repeated at least
+        `min_occurrences` times -- a concrete, data-backed "you've asked
+        for this N times, want a skill for it?" signal instead of a vague
+        one. A "sequence" is one plan's full ordered list of tool names;
+        plan boundaries are inferred from the trigger field's own step
+        counter (see Planner) resetting to 1, or the conversation
+        changing -- there's no separate plan-id in the audit log, so this
+        is a heuristic over trigger text and conversation_id, not a
+        stored concept of "a plan" in its own right."""
+        with self._session_factory() as session:
+            stmt = (
+                select(ToolExecution.conversation_id, ToolExecution.tool_name, ToolExecution.trigger)
+                .order_by(ToolExecution.id)
+                .limit(limit)
+            )
+            rows = session.execute(stmt).all()
+
+        plans: list[list[str]] = []
+        current_plan: list[str] = []
+        current_conversation_id: object = object()  # sentinel, never equal to a real id
+        for conversation_id, tool_name, trigger in rows:
+            match = _PLANNER_STEP_TRIGGER.match(trigger or "")
+            new_conversation = conversation_id != current_conversation_id
+            if match is None or new_conversation:
+                if current_plan:
+                    plans.append(current_plan)
+                    current_plan = []
+                current_conversation_id = conversation_id
+            if match is None:
+                continue
+            if int(match.group(1)) == 1 and current_plan:
+                plans.append(current_plan)
+                current_plan = []
+            current_plan.append(tool_name)
+        if current_plan:
+            plans.append(current_plan)
+
+        sequence_counts: dict[tuple[str, ...], int] = {}
+        for plan in plans:
+            if len(plan) < 2:
+                continue
+            key = tuple(plan)
+            sequence_counts[key] = sequence_counts.get(key, 0) + 1
+
+        return sorted(
+            (
+                {"actions": list(seq), "occurrences": count}
+                for seq, count in sequence_counts.items()
+                if count >= min_occurrences
+            ),
+            key=lambda e: e["occurrences"],
+            reverse=True,
+        )
 
     @staticmethod
     def _serialize(row: ToolExecution) -> dict[str, Any]:

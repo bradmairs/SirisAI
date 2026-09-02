@@ -68,6 +68,7 @@ from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.routines.service import RoutineStore
 from app.skills.base import SkillTool
+from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
@@ -265,6 +266,7 @@ class SirisAI:
 
     def _register_builtin_skills(self) -> None:
         self.tools.register(SkillTool(ServerHealthSkill(), self))
+        self.tools.register(SkillTool(SelfMaintenanceSkill(), self))
 
     def restricted_tool_names_to_exclude(self) -> set[str]:
         """RESTRICTED-permission tool names not in the allowlist -- these

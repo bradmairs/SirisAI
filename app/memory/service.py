@@ -7,6 +7,7 @@ using FastAPI's `get_db` dependency, since it's called both from HTTP
 routes and from tool invocations that don't have a request in scope.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -33,8 +34,32 @@ class MemoryStore:
             if query:
                 stmt = stmt.where(MemoryEntry.content.ilike(f"%{query}%"))
             entries = session.scalars(stmt).all()
+
+            # Usage tracking (milestone 30): every entry actually returned
+            # counts as "used", regardless of whether the caller passed a
+            # query or just asked for the most recent ones.
+            now = datetime.now(UTC)
+            for entry in entries:
+                entry.recall_count += 1
+                entry.last_recalled_at = now
+            session.commit()
+
             return [self._serialize(entry) for entry in entries]
+
+    def list_all(self) -> list[dict[str, Any]]:
+        """Every memory, for the self_maintenance_check skill -- unlike
+        recall(), does NOT count as a use (it's an inspection pass over
+        everything, not the model actually recalling something relevant)."""
+        with self._session_factory() as session:
+            stmt = select(MemoryEntry).order_by(MemoryEntry.created_at.desc())
+            return [self._serialize(entry) for entry in session.scalars(stmt).all()]
 
     @staticmethod
     def _serialize(entry: MemoryEntry) -> dict[str, Any]:
-        return {"id": entry.id, "content": entry.content, "created_at": entry.created_at.isoformat()}
+        return {
+            "id": entry.id,
+            "content": entry.content,
+            "created_at": entry.created_at.isoformat(),
+            "recall_count": entry.recall_count,
+            "last_recalled_at": entry.last_recalled_at.isoformat() if entry.last_recalled_at else None,
+        }
