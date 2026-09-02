@@ -43,9 +43,11 @@ from app.plugins.builtin.home_assistant import (
 from app.plugins.builtin.memory import (
     LogEventTool,
     RecallEntityFactsTool,
+    RecallEntityRelationshipsTool,
     RecallEventsTool,
     RecallTool,
     RememberEntityFactTool,
+    RememberEntityRelationshipTool,
     RememberTool,
 )
 from app.plugins.builtin.notify import NotifyTool
@@ -114,6 +116,8 @@ class SirisAI:
         self.tools.register(RecallTool(self.memory))
         self.tools.register(RememberEntityFactTool(self.entities))
         self.tools.register(RecallEntityFactsTool(self.entities))
+        self.tools.register(RememberEntityRelationshipTool(self.entities))
+        self.tools.register(RecallEntityRelationshipsTool(self.entities))
         self.tools.register(LogEventTool(self.events))
         self.tools.register(RecallEventsTool(self.events))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))

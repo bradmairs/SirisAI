@@ -58,3 +58,57 @@ def test_entity_and_event_tools_always_registered(client: TestClient) -> None:
     tools = response.json()["tools"]
     for name in ("remember_entity_fact", "recall_entity_facts", "log_event", "recall_events"):
         assert name in tools
+
+
+def test_relationship_tools_always_registered(client: TestClient) -> None:
+    response = client.get("/siris/status")
+    tools = response.json()["tools"]
+    for name in ("remember_entity_relationship", "recall_entity_relationships"):
+        assert name in tools
+
+
+def test_relationships_for_returns_outgoing_and_incoming_edges() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    plex, server, storage = f"Plex-{uuid.uuid4()}", f"Server-{uuid.uuid4()}", f"Storage-{uuid.uuid4()}"
+
+    siris.entities.add_relationship(plex, "RUNS_ON", server)
+    siris.entities.add_relationship(plex, "DEPENDS_ON", storage)
+    siris.entities.add_relationship(server, "HOSTS", plex)
+
+    plex_edges = siris.entities.relationships_for(plex)
+    assert {(e["relation"], e["object_entity"]) for e in plex_edges["outgoing"]} == {
+        ("RUNS_ON", server),
+        ("DEPENDS_ON", storage),
+    }
+    assert {(e["subject_entity"], e["relation"]) for e in plex_edges["incoming"]} == {(server, "HOSTS")}
+
+    # The reverse lookup this milestone is for: "what would shutting down
+    # storage affect" is answered by storage's incoming edges.
+    storage_edges = siris.entities.relationships_for(storage)
+    assert storage_edges["outgoing"] == []
+    assert [e["subject_entity"] for e in storage_edges["incoming"]] == [plex]
+
+
+def test_relationships_for_unknown_entity_is_empty() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    edges = siris.entities.relationships_for(f"Nobody-{uuid.uuid4()}")
+    assert edges == {"outgoing": [], "incoming": []}
+
+
+def test_chat_can_record_and_recall_a_relationship_via_tools(client: TestClient) -> None:
+    subject, obj = f"Plex-{uuid.uuid4()}", f"Server-{uuid.uuid4()}"
+
+    remember = client.post(
+        "/siris/tools/remember_entity_relationship/run",
+        json={"arguments": {"subject_entity": subject, "relation": "RUNS_ON", "object_entity": obj}},
+    )
+    assert remember.status_code == 200
+
+    recall = client.post(
+        "/siris/tools/recall_entity_relationships/run",
+        json={"arguments": {"entity_name": subject}},
+    )
+    assert recall.status_code == 200
+    result = recall.json()["tool_call"]["result"]
+    assert result["outgoing"][0]["relation"] == "RUNS_ON"
+    assert result["outgoing"][0]["object_entity"] == obj

@@ -1,5 +1,5 @@
 """Memory tools -- how the LLM reads and writes SirisAI's memory during a
-conversation. Three categories, each with its own storage
+conversation. Four categories, each with its own storage
 (app/memory/service.py, app/memory/entities.py, app/memory/events.py) and
 its own pair of tools below:
 
@@ -12,6 +12,10 @@ its own pair of tools below:
 - Event memory (`log_event`/`recall_events`) -- things that happened,
   optionally tagged to an entity, so "has Plex been playing up lately?"
   can be answered from history instead of just current state.
+- Entity relationships (`remember_entity_relationship`/
+  `recall_entity_relationships`) -- the world model (milestone 21): typed
+  edges between entities (e.g. Plex RUNS_ON main-server), so SirisAI can
+  answer "what depends on X" instead of only "what do you know about X".
 """
 
 from typing import Any
@@ -158,3 +162,56 @@ class RecallEventsTool(Tool):
 
     def run(self, entity_name: str | None = None, limit: int = 20, **kwargs: Any) -> Any:
         return self._events.recent_events(entity_name=entity_name, limit=limit)
+
+
+class RememberEntityRelationshipTool(Tool):
+    name = "remember_entity_relationship"
+    description = (
+        "Record a typed relationship between two entities, e.g. "
+        "(subject_entity='Plex', relation='RUNS_ON', object_entity='main-server') or "
+        "(subject_entity='Plex', relation='DEPENDS_ON', object_entity='media-storage'). "
+        "relation is free text you choose -- common ones are RUNS_ON, USES, DEPENDS_ON, "
+        "EXPOSED_THROUGH -- but use whatever best describes the connection. This builds up "
+        "a world model SirisAI can later query with recall_entity_relationships, e.g. to "
+        "answer 'what would shutting down X affect'."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "subject_entity": {"type": "string", "description": "The entity the relationship starts from."},
+            "relation": {"type": "string", "description": "How subject_entity relates to object_entity, e.g. 'RUNS_ON'."},
+            "object_entity": {"type": "string", "description": "The entity the relationship points to."},
+        },
+        "required": ["subject_entity", "relation", "object_entity"],
+    }
+
+    def __init__(self, entities: EntityMemoryStore) -> None:
+        self._entities = entities
+
+    def run(self, subject_entity: str = "", relation: str = "", object_entity: str = "", **kwargs: Any) -> Any:
+        return self._entities.add_relationship(subject_entity, relation, object_entity)
+
+
+class RecallEntityRelationshipsTool(Tool):
+    name = "recall_entity_relationships"
+    description = (
+        "Get every known relationship touching a named entity, split into 'outgoing' "
+        "(this entity is the subject, e.g. what it RUNS_ON or USES) and 'incoming' (this "
+        "entity is the object -- what points at it, e.g. what DEPENDS_ON it). Use the "
+        "incoming list to answer 'what would shutting down X affect'."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "entity_name": {"type": "string", "description": "The entity to look up relationships for, e.g. 'Plex'."},
+        },
+        "required": ["entity_name"],
+    }
+
+    def __init__(self, entities: EntityMemoryStore) -> None:
+        self._entities = entities
+
+    def run(self, entity_name: str = "", **kwargs: Any) -> Any:
+        return self._entities.relationships_for(entity_name)
