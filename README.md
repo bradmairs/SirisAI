@@ -383,6 +383,145 @@ Deliberately tiny, each one a working state:
     See `satellite/README.md` for Raspberry Pi setup, `.env` configuration,
     and wake-word customization.
 
+The roadmap below (21-33) is a second batch, from a further brainstorm --
+same rule as the first: nothing here is committed to until its own
+milestone lands, and each one gets the same "what was deliberately left
+out, and why" treatment on completion. It's a shift in kind, not just more
+of the same: milestones 1-20 built an assistant that responds well to one
+request at a time. These aim at something that persists and reasons across
+requests -- goals it remembers without re-explaining, a model of what's
+actually running and how it depends together, plans it can verify rather
+than trust, and enough self-inspection to notice its own gaps. A couple of
+the source ideas overlapped with each other or with what already exists;
+noted inline rather than building the same thing twice under two names.
+
+21. World model / knowledge graph. The brainstorm proposed these as two
+    separate ideas ("system state" and "knowledge graph") but they're the
+    same concept from two angles -- typed entities with typed
+    relationships (`Plex RUNS_ON main-server`, `main-server RUNS ollama`)
+    -- so one milestone, not two. Extends `EntityMemoryStore` (14) rather
+    than replacing it: today it holds flat facts about a named entity;
+    this adds relationships between entities so SirisAI can answer
+    "what depends on X" or "what would shutting down Y affect" instead of
+    only "what do you know about X". Foundational for 24 (planner),
+    26 (notification correlation), and 31 (capability gaps) -- worth
+    doing early in this batch for that reason, even though it doesn't
+    look like much on its own.
+22. Developer/introspection API -- `/api/tools`, `/api/skills`,
+    `/api/capabilities`, `/api/system/state`, and equivalents for whatever
+    22-30 add (`/api/goals`, `/api/tasks`, `/api/integrations`). Mostly
+    read-only exposure of state that already exists on `SirisAI` (the
+    tool registry, skill registry, world model once 21 lands) -- low risk,
+    and doing it early means every later milestone in this batch gets an
+    inspection endpoint for free instead of it being an afterthought.
+23. Goals. A goal (e.g. "reduce homelab power consumption") persists
+    across conversations with a status and a list of objectives, so it
+    doesn't need re-explaining every session. New `GoalStore`, same
+    SQLite-backed pattern as `MemoryStore`/`EntityMemoryStore`; a
+    `manage_goals` tool for the model to create/update/list them
+    mid-conversation, same shape as the existing `remember`/`recall`
+    tools. Deliberately just persistent state at this stage, not a
+    planner that autonomously works goals in the background -- that's 24.
+24. Task planner. Today a chat turn is: model picks zero or one tool call,
+    SirisAI runs it, done. This introduces a
+    request -> plan -> execute each step -> verify -> respond loop for
+    requests that need more than one tool call ("figure out why Plex is
+    slow" -> check container health, check CPU/RAM, check disk I/O,
+    compare against baseline). The verifier is the actual point of this
+    milestone: check whether a step's result means what it looks like it
+    means (a 200 OK isn't success), not just chain tool calls. Single
+    biggest architectural change in this batch -- everything else in 25-33
+    is additive, this one changes how a chat turn works, so it gets
+    written carefully and behind whatever's necessary to not break the
+    existing single-tool-call path.
+25. Simulation / dry-run mode. `Tool` gets an optional `dry_run()`
+    alongside `run()` -- for a restart/update-shaped tool, reports what
+    it *would* do (which containers restart, active Plex sessions that'd
+    drop) without doing it. Sequenced before 24 finishes maturing rather
+    than after, deliberately: a planner that can chain multiple
+    SAFE_ACTION/CONFIRM_REQUIRED tool calls is exactly where a dry run
+    matters most, so it should exist by the time the planner is trusted
+    with real chains, not bolted on afterward.
+26. Notification intelligence. Replaces the flat "unhealthy -> send one
+    ntfy message" logic in `POST /siris/proactive/check` (19) with a
+    `NotificationManager` that scores each event (severity, confidence,
+    category) and decides ignore / log / daily-briefing / notify / urgent,
+    plus correlates related events into one message ("Plex is down,
+    likely the media disk's I/O latency") instead of three separate ones.
+    Depends on 21 (the world model is what makes "Plex down + disk
+    latency up" a correlated pair instead of two unrelated facts).
+27. Personalized thresholds. `server_health_check` (15) hard-codes
+    CPU/memory/disk >90%. This replaces that with learned per-metric
+    baselines (mean/spread over recent history) so "67% CPU" can be
+    flagged as unusual for *this* server without an arbitrary global
+    cutoff. Same shape as milestone 19's honest scope-cut: a fresh install
+    has no history to learn a baseline from, so this needs a metrics
+    history table accumulating first -- likely ships with a documented
+    "needs N days of data before it's meaningfully different from the old
+    fixed threshold" caveat rather than pretending day-one baselines mean
+    anything.
+28. Explainable autonomy. Every autonomous action (anything a
+    CONFIRM_REQUIRED/SAFE_ACTION tool does without a human directly typing
+    "do X right now") gets its trigger, evidence, and the policy that
+    permitted it recorded alongside the existing audit entry (11) --
+    enough to actually answer "why did you restart Plex last night" from
+    stored data instead of the model guessing after the fact. Extends
+    `AuditLogStore` with these fields rather than inventing a parallel
+    log.
+29. Routine engine. Natural-language routines ("every night, check my
+    server and tell me tomorrow if anything went wrong") stored as
+    structured data (name, trigger, ordered actions, output), introspectable
+    via 22, rather than living only as a prompt. Open design question,
+    flagged rather than silently decided: milestone 19 deliberately kept
+    SirisAI without an in-process scheduler, so an external cron/systemd
+    timer decides *when* things run and SirisAI just decides *what*
+    happens when asked. Structured routines make "what is SirisAI
+    scheduled to do" answerable, but *running* them on a schedule either
+    means teaching the external trigger to enumerate stored routines
+    (keeps 19's boundary) or adding a real in-process scheduler (reverses
+    it). Worth deciding explicitly when this milestone starts rather than
+    drifting into a scheduler by accretion.
+30. Reflection / maintenance cycle. A self-inspection skill (same `Skill`
+    pattern as 15's `server_health_check`) that reports on SirisAI itself:
+    unused/duplicate memories, tools that fail often, integrations
+    erroring. The one worth calling out specifically is "frequently
+    requested action without a matching skill" -- if the same multi-step
+    request keeps coming through the planner (24) instead of a reusable
+    skill, that's a concrete, data-backed suggestion ("you've asked this
+    5 times, want a skill for it?") instead of a vague one.
+31. Capability gap detection. When a request needs something SirisAI has
+    no tool for, report *what's missing* instead of just failing --
+    ideally naming a plausible data source/integration and a concrete
+    tool spec shape (e.g. asked about UPS battery health, no tool exists,
+    but Network UPS Tools' API is a known fit for `ups.get_status()`).
+    Depends on 22 (capabilities are only knowable to compare against once
+    introspectable) and benefits from 23/24 (a goal or plan is what
+    surfaces the gap in the first place, not just a bare chat message).
+    The output is a spec a human (or Claude Code, working this same repo)
+    can act on -- this milestone stops at generating that spec, it
+    doesn't attempt to write and load its own tools at runtime.
+32. Automatic tool discovery. A generic integration layer that ingests an
+    OpenAPI spec (`POST /integrations` with a spec URL) and generates
+    `Tool` instances from it, rather than every integration being a
+    hand-written `app/<service>/client.py` + `app/plugins/builtin/<service>.py`
+    pair like 13's six. Realistic scope cut to flag now, before it starts:
+    auto-generated tools should default to READ permission unless a
+    human explicitly upgrades one, since a generated tool has no
+    hand-reviewed judgment behind it the way 12's permission levels
+    assumed every tool would.
+33. Cortex. A capstone, not a new capability: once 21/23/24/28 exist, the
+    request -> context -> plan -> memory/world-model -> tools -> verify ->
+    memory -> response pipeline described in the brainstorm is mostly
+    already sitting across `ContextEngine` (16), the planner (24), and
+    `SirisAI.run_tool()` (11) -- this milestone is naming and consolidating
+    that flow into one orchestration path so `/siris/chat` calls into it
+    instead of assembling context, calling the model, and handling tool
+    calls inline the way it does today. The point isn't a new subsystem,
+    it's making the LLM client visibly swappable infrastructure behind a
+    stable orchestration surface, which is really an outcome of 1-32
+    being done rather than an independent milestone -- sequenced last on
+    purpose.
+
 ## Running locally
 
 ```bash
