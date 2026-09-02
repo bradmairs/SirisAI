@@ -80,6 +80,17 @@ class EntityMemoryStore:
             stmt = select(EntityRelationship).order_by(EntityRelationship.id)
             return [self._serialize_relationship(row) for row in session.scalars(stmt).all()]
 
+    def all_entity_names(self) -> list[str]:
+        """Every entity name known to the world model -- the union of
+        entities with at least one fact (list_entities) and entities that
+        only appear as a relationship's subject/object (e.g. "main-server"
+        might never get an explicit fact, only edges pointing at it)."""
+        with self._session_factory() as session:
+            fact_names = set(session.scalars(select(EntityFact.entity_name).distinct()).all())
+            subject_names = set(session.scalars(select(EntityRelationship.subject_entity).distinct()).all())
+            object_names = set(session.scalars(select(EntityRelationship.object_entity).distinct()).all())
+            return sorted(fact_names | subject_names | object_names)
+
     @staticmethod
     def _serialize(row: EntityFact) -> dict[str, Any]:
         return {

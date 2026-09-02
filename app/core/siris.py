@@ -31,7 +31,7 @@ from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
 from app.notify.client import NotifyClient
 from app.plex.client import PlexClient
-from app.plugins.base import ConfirmationRequired, ToolPermission, ToolRegistry
+from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
 from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
@@ -61,6 +61,42 @@ from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
 from app.weather.client import WeatherClient
+
+# Prefix -> capability category, checked longest-first so "home_assistant_"
+# doesn't fall through to a shorter accidental match. New builtin tools
+# follow this "<integration>_<action>" naming convention (see
+# app/plugins/builtin/), so this stays accurate without a per-tool
+# declaration -- add a new integration's prefix here when its client
+# lands, same as every other tool wiring in this file.
+_CATEGORY_PREFIXES: list[tuple[str, str]] = [
+    ("home_assistant_", "home_assistant"),
+    ("docker_", "docker"),
+    ("plex_", "plex"),
+    ("unifi_", "unifi"),
+    ("weather_", "weather"),
+    ("calendar_", "calendar"),
+]
+_CATEGORY_NAMES: dict[str, str] = {
+    "remember": "memory",
+    "recall": "memory",
+    "remember_entity_fact": "memory",
+    "recall_entity_facts": "memory",
+    "remember_entity_relationship": "memory",
+    "recall_entity_relationships": "memory",
+    "log_event": "memory",
+    "recall_events": "memory",
+    "notify": "notify",
+    "system_info": "system",
+}
+
+
+def _categorize_tool(tool: Tool) -> str:
+    if isinstance(tool, SkillTool):
+        return "skills"
+    for prefix, category in _CATEGORY_PREFIXES:
+        if tool.name.startswith(prefix):
+            return category
+    return _CATEGORY_NAMES.get(tool.name, "misc")
 
 
 @dataclass
@@ -190,6 +226,63 @@ class SirisAI:
         """Tool specs to offer the model: everything registered except
         disabled RESTRICTED tools."""
         return self.tools.specs(exclude=self.restricted_tool_names_to_exclude())
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        """Every registered tool -- including skills, which are just tools
+        whose implementation happens to chain other tool calls (see
+        app/skills/base.py) -- with the full detail `/siris/status`'s bare
+        name list doesn't carry: description, parameters, permission
+        level. For developer/UI introspection (milestone 22), not offered
+        to the model (that's `available_tool_specs`, which also excludes
+        disabled RESTRICTED tools -- this list doesn't filter anything)."""
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+                "permission": tool.permission.value,
+            }
+            for tool in self.tools.list()
+        ]
+
+    def list_skills(self) -> list[dict[str, Any]]:
+        """The subset of `list_tools()` that are skills (SkillTool-wrapped)
+        rather than a plain single-purpose tool."""
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+                "permission": tool.permission.value,
+            }
+            for tool in self.tools.list()
+            if isinstance(tool, SkillTool)
+        ]
+
+    def capabilities(self) -> dict[str, list[str]]:
+        """Registered tool names grouped by category -- "what can SirisAI
+        do", coarser than the full detail in `list_tools()`. Categories are
+        derived from each tool's name (the `docker_`/`plex_`/etc prefix
+        convention every builtin tool follows) rather than declared
+        per-tool, so this stays accurate without a second place to update
+        when a tool is added. A skill is its own "skills" category rather
+        than whatever prefix its name happens to have, since composing
+        other tools is what makes it a skill."""
+        result: dict[str, list[str]] = {}
+        for tool in self.tools.list():
+            category = _categorize_tool(tool)
+            result.setdefault(category, []).append(tool.name)
+        return {category: sorted(names) for category, names in sorted(result.items())}
+
+    def system_state(self) -> dict[str, Any]:
+        """The world model (milestone 21) in full: every known entity and
+        every relationship between them. For introspection/UI -- to ask
+        about one entity specifically, recall_entity_relationships (or the
+        recall_entity_relationships tool) is the targeted query."""
+        return {
+            "entities": self.entities.all_entity_names(),
+            "relationships": self.entities.all_relationships(),
+        }
 
     def available_model_roles(self) -> list[str]:
         assert self.model_router is not None

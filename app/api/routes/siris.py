@@ -27,6 +27,64 @@ def status(siris: SirisAI = Depends(get_siris)) -> dict[str, object]:
     return siris.status()
 
 
+class ToolInfo(BaseModel):
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    permission: str
+
+
+@router.get("/tools", response_model=list[ToolInfo])
+def list_tools(siris: SirisAI = Depends(get_siris)) -> list[ToolInfo]:
+    """Every registered tool, including skills -- full detail (description,
+    parameters, permission), not just the bare names `/siris/status` lists.
+    Developer/UI introspection (milestone 22); unlike `available_tool_specs`
+    this doesn't hide disabled RESTRICTED tools, since the point here is
+    showing what's actually installed, not what the model is currently
+    allowed to call."""
+    return [ToolInfo(**entry) for entry in siris.list_tools()]
+
+
+@router.get("/skills", response_model=list[ToolInfo])
+def list_skills(siris: SirisAI = Depends(get_siris)) -> list[ToolInfo]:
+    """The subset of `/siris/tools` that are skills -- a multi-step
+    workflow over other tools (app/skills/base.py) rather than a single
+    action."""
+    return [ToolInfo(**entry) for entry in siris.list_skills()]
+
+
+@router.get("/capabilities")
+def capabilities(siris: SirisAI = Depends(get_siris)) -> dict[str, list[str]]:
+    """Registered tool names grouped by category, e.g.
+    {"docker": ["docker_list_containers", ...], "weather": [...]}. Coarser
+    than `/siris/tools` -- "what can SirisAI do" at a glance, the shape
+    milestone 31 (capability gap detection) will compare a request
+    against."""
+    return siris.capabilities()
+
+
+class EntityRelationshipInfo(BaseModel):
+    id: int
+    subject_entity: str
+    relation: str
+    object_entity: str
+    created_at: str
+
+
+class SystemStateResponse(BaseModel):
+    entities: list[str]
+    relationships: list[EntityRelationshipInfo]
+
+
+@router.get("/system/state", response_model=SystemStateResponse)
+def system_state(siris: SirisAI = Depends(get_siris)) -> SystemStateResponse:
+    """The full world model (milestone 21): every known entity and every
+    relationship between them. To ask about one entity specifically, use
+    the recall_entity_relationships tool (POST /siris/tools/{name}/run)
+    instead of filtering this."""
+    return SystemStateResponse(**siris.system_state())
+
+
 class ChatRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None
