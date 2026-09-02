@@ -11,11 +11,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/siris", tags=["siris"])
+router = APIRouter(prefix="/siris", tags=["siris"], dependencies=[Depends(require_api_key)])
 
 
 @router.get("/status")

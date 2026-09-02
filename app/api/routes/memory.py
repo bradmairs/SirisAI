@@ -9,9 +9,10 @@ inspecting and seeding memory directly -- without going through a chat turn.
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 
-router = APIRouter(prefix="/siris/memory", tags=["memory"])
+router = APIRouter(prefix="/siris/memory", tags=["memory"], dependencies=[Depends(require_api_key)])
 
 
 class MemoryCreateRequest(BaseModel):

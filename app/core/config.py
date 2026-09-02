@@ -22,6 +22,12 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/sirisai.db"
 
+    # Bearer token required on /siris/* routes (Authorization: Bearer <key>).
+    # None/empty = auth disabled -- fine for local-only dev, not for anything
+    # reachable off localhost. /health is never gated, so infra probes work
+    # regardless.
+    api_key: str | None = None
+
     # LLM settings are model-agnostic at the app layer; a specific backend
     # (e.g. Ollama) is wired up behind app/llm/base.py in a later milestone.
     llm_provider: str = "none"
