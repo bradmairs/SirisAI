@@ -16,14 +16,19 @@ from functools import lru_cache
 from typing import Any
 
 from app.audit.service import AuditLogStore
+from app.calendar.client import CalendarClient
 from app.conversation.service import ConversationStore
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
+from app.docker.client import DockerClient
 from app.home_assistant.client import HomeAssistantClient
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
 from app.memory.service import MemoryStore
+from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, ToolPermission, ToolRegistry
+from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
+from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
@@ -31,8 +36,14 @@ from app.plugins.builtin.home_assistant import (
     HomeAssistantListEntitiesTool,
 )
 from app.plugins.builtin.memory import RecallTool, RememberTool
+from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
+from app.plugins.builtin.system_info import SystemInfoTool
+from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
+from app.plugins.builtin.weather import WeatherCurrentTool
+from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
+from app.weather.client import WeatherClient
 
 
 @dataclass
@@ -56,12 +67,17 @@ class SirisAI:
         if self.tts is None:
             self.tts = build_tts_client(self.settings)
         self._home_assistant_client: HomeAssistantClient | None = None
+        self._docker_client: DockerClient | None = None
+        self._plex_client: PlexClient | None = None
+        self._unifi_client: UniFiClient | None = None
+        self._weather_client: WeatherClient | None = None
         self._register_builtin_tools()
 
     def _register_builtin_tools(self) -> None:
         self.tools.register(EchoTool())
         self.tools.register(RememberTool(self.memory))
         self.tools.register(RecallTool(self.memory))
+        self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
             self._home_assistant_client = HomeAssistantClient(
@@ -71,6 +87,42 @@ class SirisAI:
             self.tools.register(HomeAssistantListEntitiesTool(self._home_assistant_client))
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
             self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client))
+
+        if self.settings.docker_base_url:
+            self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
+            self.tools.register(DockerListContainersTool(self._docker_client))
+            self.tools.register(DockerRestartContainerTool(self._docker_client))
+
+        if self.settings.plex_base_url and self.settings.plex_token:
+            self._plex_client = PlexClient(base_url=self.settings.plex_base_url, token=self.settings.plex_token)
+            self.tools.register(PlexNowPlayingTool(self._plex_client))
+            self.tools.register(PlexLibrarySectionsTool(self._plex_client))
+
+        if self.settings.unifi_base_url and self.settings.unifi_api_key:
+            self._unifi_client = UniFiClient(
+                base_url=self.settings.unifi_base_url,
+                api_key=self.settings.unifi_api_key,
+                site=self.settings.unifi_site,
+                verify_ssl=self.settings.unifi_verify_ssl,
+            )
+            self.tools.register(UniFiListDevicesTool(self._unifi_client))
+            self.tools.register(UniFiListClientsTool(self._unifi_client))
+
+        if self.settings.weather_latitude is not None and self.settings.weather_longitude is not None:
+            self._weather_client = WeatherClient(
+                base_url=self.settings.weather_base_url,
+                latitude=self.settings.weather_latitude,
+                longitude=self.settings.weather_longitude,
+            )
+            self.tools.register(WeatherCurrentTool(self._weather_client))
+
+        if self.settings.caldav_url:
+            calendar_client = CalendarClient(
+                url=self.settings.caldav_url,
+                username=self.settings.caldav_username,
+                password=self.settings.caldav_password,
+            )
+            self.tools.register(CalendarUpcomingEventsTool(calendar_client))
 
     def restricted_tool_names_to_exclude(self) -> set[str]:
         """RESTRICTED-permission tool names not in the allowlist -- these
@@ -163,8 +215,16 @@ class SirisAI:
         await self.llm.aclose()
         await self.stt.aclose()
         await self.tts.aclose()
-        if self._home_assistant_client is not None:
-            self._home_assistant_client.close()
+        sync_clients = (
+            self._home_assistant_client,
+            self._docker_client,
+            self._plex_client,
+            self._unifi_client,
+            self._weather_client,
+        )
+        for client in sync_clients:
+            if client is not None:
+                client.close()
 
 
 @lru_cache

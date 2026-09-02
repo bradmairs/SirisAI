@@ -6,6 +6,11 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      # Uncomment to enable the docker_* tools (see README) -- gives this
+      # container full control over the host's Docker. Only do this if
+      # you're comfortable with that; it's the whole reason
+      # docker_restart_container is SAFE_ACTION rather than READ.
+      # - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
     environment:

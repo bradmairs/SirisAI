@@ -29,8 +29,9 @@ app/
     ollama.py     # OllamaClient -- the first real backend
     factory.py    # Picks a backend from settings.llm_provider
   plugins/        # Tool/plugin interface + registry
-    base.py       # Tool ABC + ToolRegistry
-    builtin/      # Reference/first-party tools (echo.py, memory.py)
+    base.py       # Tool ABC (+ ToolPermission) + ToolRegistry
+    builtin/      # Every tool: echo, memory, home_assistant, system_info,
+                  # docker, plex, unifi, weather, calendar
   memory/
     service.py    # MemoryStore -- SirisAI's long-term memory (SQLite-backed)
   conversation/
@@ -43,6 +44,16 @@ app/
     factory.py    # Picks backends from settings.stt_provider/tts_provider
   home_assistant/
     client.py     # Thin sync REST client for Home Assistant's HTTP API
+  docker/
+    client.py     # Thin sync client for the Docker Engine API
+  plex/
+    client.py     # Thin sync client for Plex Media Server's API
+  unifi/
+    client.py     # Thin sync client for UniFi's Network Integration API
+  weather/
+    client.py     # Thin sync client for Open-Meteo
+  calendar/
+    client.py     # CalDAV client (wraps the `caldav` library)
   web/static/
     index.html    # Built-in web UI: chat, memory, status. No build step.
 ```
@@ -180,11 +191,50 @@ Deliberately tiny, each one a working state:
     whether a given call is routine or has real physical consequences).
     Every path -- confirmation requested, restricted-and-blocked,
     executed -- is recorded to the audit log from milestone 11.
-13. Expand the tool library, one tool at a time, each gated by the
-    permission levels above: Docker (container status/restart/update),
-    system info (disk/CPU/temperature), Plex, UniFi, weather, calendar.
-    Same `Tool` pattern as `echo`/`remember`/`recall`/`home_assistant_*` --
-    no new mechanism, just more tools.
+13. **Done** -- Expanded the tool library. Same `Tool` pattern as
+    `echo`/`remember`/`recall`/`home_assistant_*` throughout -- no new
+    mechanism, just more tools, each with its own thin client and each
+    conditionally registered from its own `.env` settings (see
+    `.env.example`):
+    - **System info** (`app/plugins/builtin/system_info.py`) -- CPU,
+      memory, disk, temperatures via `psutil`. The one tool here with no
+      external service and no credentials -- always registered. Reflects
+      this *container's* view unless you give it the host's PID namespace
+      and mounts; reports on `/` by default.
+    - **Docker** (`app/docker/client.py`) -- talks to the Docker Engine
+      API directly (no docker-py dependency), over a Unix socket (mount
+      the host's `/var/run/docker.sock` in, see `docker-compose.yml`) or
+      TCP. `docker_list_containers` (`READ`), `docker_restart_container`
+      (`SAFE_ACTION`). "Update all containers" from the original
+      brainstorm isn't implemented -- meaningfully more complex than a
+      REST call (pull, stop, remove, recreate) and a better fit for a
+      dedicated tool like Watchtower than for this scaffold.
+    - **Plex** (`app/plex/client.py`) -- `plex_now_playing`,
+      `plex_library_sections`, both `READ`.
+    - **UniFi** (`app/unifi/client.py`) -- the modern API-key-based
+      Network "Integration API", not the legacy cookie-based controller
+      login. `unifi_list_devices`, `unifi_list_clients`, both `READ`.
+      Flagged in code as the least-verified integration here -- exact
+      paths can shift across controller/UniFi OS versions and this
+      couldn't be tested against a live controller; read-only so a path
+      mismatch just 404s instead of doing anything destructive.
+    - **Weather** (`app/weather/client.py`) -- Open-Meteo, free, no API
+      key, just a latitude/longitude. `weather_current`, `READ`.
+    - **Calendar** (`app/calendar/client.py`) -- CalDAV via the `caldav`
+      library (works with Nextcloud, Radicale, Baikal, iCloud, etc.)
+      rather than hand-rolled protocol code -- recurrence expansion and
+      PROPFIND/REPORT XML are exactly the kind of thing worth trusting to
+      a maintained library, the same reasoning behind using SQLAlchemy and
+      httpx elsewhere. `calendar_upcoming_events`, `READ`.
+
+    None of the five external integrations above could be tested against
+    a live service in development (no reachable Docker daemon, Plex
+    server, UniFi controller, or CalDAV server) -- each is covered by
+    tests against its own client using `httpx.MockTransport` (or mocking
+    the `caldav` library for Calendar), verifying request shapes and
+    response mapping, same rigor as the Home Assistant integration.
+    `system_info` is the exception and is tested for real, since it reads
+    local `psutil` data with no external dependency.
 14. Memory categories -- split the current flat `MemoryStore` into entity
     memory (people/things: "Brad", "Plex", "the NAS") and event memory
     (things that happened: "Plex crashed", "backup failed"), alongside the
