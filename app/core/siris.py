@@ -62,9 +62,11 @@ from app.plugins.builtin.memory import (
 )
 from app.plugins.builtin.notify import NotifyTool
 from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
+from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
 from app.plugins.builtin.system_info import SystemInfoTool
 from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
 from app.plugins.builtin.weather import WeatherCurrentTool
+from app.routines.service import RoutineStore
 from app.skills.base import SkillTool
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.unifi.client import UniFiClient
@@ -103,6 +105,9 @@ _CATEGORY_NAMES: dict[str, str] = {
     "update_goal_status": "goals",
     "add_goal_objective": "goals",
     "complete_goal_objective": "goals",
+    "create_routine": "routines",
+    "list_routines": "routines",
+    "set_routine_enabled": "routines",
 }
 
 
@@ -147,6 +152,7 @@ class SirisAI:
     entities: EntityMemoryStore = field(default_factory=lambda: EntityMemoryStore(SessionLocal))
     events: EventMemoryStore = field(default_factory=lambda: EventMemoryStore(SessionLocal))
     goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
+    routines: RoutineStore = field(default_factory=lambda: RoutineStore(SessionLocal))
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
@@ -196,6 +202,9 @@ class SirisAI:
         self.tools.register(UpdateGoalStatusTool(self.goals))
         self.tools.register(AddGoalObjectiveTool(self.goals))
         self.tools.register(CompleteGoalObjectiveTool(self.goals))
+        self.tools.register(CreateRoutineTool(self.routines, self.tools))
+        self.tools.register(ListRoutinesTool(self.routines))
+        self.tools.register(SetRoutineEnabledTool(self.routines))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
         self.tools.register(ExplainRecentActionTool(self.audit))
 

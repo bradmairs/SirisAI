@@ -712,19 +712,57 @@ noted inline rather than building the same thing twice under two names.
     confirming it returned the real trigger ("planner: step 2..."), real
     evidence (the exited-container reading from step 1), and real policy
     for that specific restart. Full suite: 172 passed.
-29. Routine engine. Natural-language routines ("every night, check my
-    server and tell me tomorrow if anything went wrong") stored as
-    structured data (name, trigger, ordered actions, output), introspectable
-    via 22, rather than living only as a prompt. Open design question,
-    flagged rather than silently decided: milestone 19 deliberately kept
-    SirisAI without an in-process scheduler, so an external cron/systemd
-    timer decides *when* things run and SirisAI just decides *what*
-    happens when asked. Structured routines make "what is SirisAI
-    scheduled to do" answerable, but *running* them on a schedule either
-    means teaching the external trigger to enumerate stored routines
-    (keeps 19's boundary) or adding a real in-process scheduler (reverses
-    it). Worth deciding explicitly when this milestone starts rather than
-    drifting into a scheduler by accretion.
+29. **Done** -- Routine engine. Natural-language routines ("every night,
+    check my server and tell me tomorrow if anything went wrong") stored
+    as structured data -- name, trigger description, an ordered list of
+    existing tool names, an optional output note -- via `RoutineStore`
+    (`app/routines/service.py`), rather than living only as a prompt.
+    The open design question this entry flagged (whether running a
+    routine on schedule means teaching an external trigger to enumerate
+    stored routines, keeping milestone 19's no-in-process-scheduler
+    boundary, or adding a real scheduler and reversing it) was put to the
+    user rather than picked silently -- answer: keep the boundary.
+    `POST /siris/routines/run_due` is the endpoint an external cron/
+    systemd timer calls (same relationship `POST /siris/proactive/check`
+    already has to `server_health_check`); SirisAI decides which stored
+    routines are currently due (`RoutineStore.due_routines()`,
+    interval-based -- "at least every N minutes since it last ran", not a
+    full cron expression, so "nightly" works but "nightly at 2am
+    specifically" doesn't) and `RoutineRunner`
+    (`app/routines/runner.py`) runs each due routine's actions in order
+    through the normal `SirisAI.run_tool()` path -- full permission
+    gating and audit logging apply per action, and each action's own
+    `trigger` records which routine caused it (composes directly with 28:
+    `explain_recent_action` on a routine-triggered call shows exactly
+    that). One broken action doesn't stop the rest of a routine or block
+    it from being marked run -- a nightly check with one failing step
+    still runs its other steps, and isn't retried every cron tick until
+    fixed. Three tools (`create_routine`, `list_routines`,
+    `set_routine_enabled`) rather than a single do-everything one, same
+    convention as goals (23) -- `create_routine` validates every action
+    name against the live tool registry up front, so a routine can't be
+    created referencing a tool that doesn't exist. `GET /siris/routines`
+    added alongside, same relationship to `list_routines` as `GET
+    /siris/events`/`/siris/goals` already have to their own tools.
+    A real gotcha caught before it shipped: SQLite silently drops tzinfo
+    on a stored `datetime.now(UTC)` when read back, so comparing a
+    freshly tz-aware "now" against a routine's stored `last_run_at`
+    raises a naive/aware `TypeError` -- fixed by normalizing to naive UTC
+    for the comparison and documenting why, rather than papering over it
+    with a try/except.
+
+    Verified: unit tests against `RoutineStore` (creation, enabled
+    filtering, the due/not-due/became-due-after-interval-elapsed cases,
+    a disabled routine never being due), the `create_routine` tool
+    rejecting an unknown action name or a non-positive interval,
+    `RoutineRunner` (actions run in order, a failed action doesn't stop
+    the rest, still marked run), and endpoint tests including a full
+    create -> run_due -> not-immediately-due-again round trip; plus a
+    live `uvicorn` run creating a real routine, running it via
+    `POST /siris/routines/run_due`, confirming it wasn't immediately due
+    again, and confirming `explain_recent_action` showed the exact
+    `"routine: 'overnight_server_watch' (nightly)"` trigger for the
+    resulting `server_health_check` call. Full suite: 185 passed.
 30. Reflection / maintenance cycle. A self-inspection skill (same `Skill`
     pattern as 15's `server_health_check`) that reports on SirisAI itself:
     unused/duplicate memories, tools that fail often, integrations
