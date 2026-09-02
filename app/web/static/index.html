@@ -324,6 +324,13 @@
     chatInput.focus();
   });
 
+  function addToolCallDetail(toolCall) {
+    return addMessage(
+      `\u{1f527} ${toolCall.name}(${JSON.stringify(toolCall.arguments)}) -> ${JSON.stringify(toolCall.result)}`,
+      "tool"
+    );
+  }
+
   function addMessage(text, cls) {
     const div = document.createElement("div");
     div.className = `msg ${cls}`;
@@ -373,12 +380,8 @@
           body: JSON.stringify({ conversation_id: conversationId, tool_name: name, arguments: args }),
         });
         div.remove();
-        if (result.tool_call) {
-          addMessage(
-            `\u{1f527} ${result.tool_call.name}(${JSON.stringify(result.tool_call.arguments)}) -> ${JSON.stringify(result.tool_call.result)}`,
-            "tool"
-          );
-        }
+        if (result.tool_call) addToolCallDetail(result.tool_call);
+        if (result.response) addMessage(result.response, "assistant");
       } catch (err) {
         addMessage(err.message, "error");
       }
@@ -479,13 +482,13 @@
       conversationId = result.conversation_id;
       if (result.confirmation_required) {
         addConfirmationPrompt(result.confirmation_required.name, result.confirmation_required.arguments);
-      } else if (result.tool_call) {
-        addMessage(
-          `\u{1f527} ${result.tool_call.name}(${JSON.stringify(result.tool_call.arguments)}) -> ${JSON.stringify(result.tool_call.result)}`,
-          "tool"
-        );
       } else {
-        addMessage(result.response ?? "(no response)", "assistant");
+        // A tool call's result is shown as a small detail line; the
+        // model's natural-language answer (if the follow-up summarize
+        // call produced one) is the main assistant bubble. If synthesis
+        // didn't produce text, the tool detail is all there is to show.
+        if (result.tool_call) addToolCallDetail(result.tool_call);
+        if (result.response) addMessage(result.response, "assistant");
       }
     } catch (err) {
       addMessage(err.message, "error");

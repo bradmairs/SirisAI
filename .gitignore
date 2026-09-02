@@ -4,6 +4,7 @@ __pycache__/
 .venv*/
 venv/
 .env
+.env.test
 data/*.db
 data/*.db-journal
 !data/.gitkeep

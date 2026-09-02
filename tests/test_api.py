@@ -40,6 +40,27 @@ class _FakeTextLLMClient:
 
 
 class _FakeToolCallingLLMClient:
+    """Calls the `echo` tool on the first turn (when offered tools), then
+    answers in text on the follow-up call SirisAI makes to summarize the
+    tool result (recognizable because `tools` is omitted on that call --
+    see `_execute_tool_call` in app/api/routes/siris.py)."""
+
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        if tools:
+            return LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": messages[-1]["content"]})])
+        return LLMResponse(text="Done -- the tool said: " + messages[-1]["content"])
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _FakeToolCallingNoFollowUpTextLLMClient:
+    """Always calls a tool, even on the follow-up call -- exercises the
+    fallback where synthesis doesn't produce text (only `tool_call` is set,
+    same as before follow-up synthesis existed)."""
+
     async def generate(
         self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
     ) -> LLMResponse:
@@ -70,7 +91,30 @@ def test_chat_with_backend_configured(client: TestClient) -> None:
 
 
 def test_chat_executes_tool_call_chosen_by_llm(client: TestClient) -> None:
+    """The tool result is fed back to the model for a final natural-language
+    answer (`response`) -- the raw call+result is still exposed as
+    `tool_call` alongside it, not replaced."""
     _override_llm(_FakeToolCallingLLMClient())
+    try:
+        response = client.post("/siris/chat", json={"prompt": "please echo this"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["tool_call"] == {
+            "name": "echo",
+            "arguments": {"message": "please echo this"},
+            "result": {"echo": "please echo this"},
+        }
+        assert body["response"] == 'Done -- the tool said: {"echo": "please echo this"}'
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+def test_chat_tool_call_without_follow_up_text_falls_back_to_tool_call_only(client: TestClient) -> None:
+    """If the follow-up synthesis call doesn't produce text (e.g. the model
+    calls another tool instead, which SirisAI doesn't chain into a loop),
+    the response degrades to the pre-synthesis shape: `tool_call` set,
+    `response` left unset -- still a usable response, not an error."""
+    _override_llm(_FakeToolCallingNoFollowUpTextLLMClient())
     try:
         response = client.post("/siris/chat", json={"prompt": "please echo this"})
         assert response.status_code == 200

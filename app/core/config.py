@@ -5,6 +5,7 @@ variables (or a `.env` file). Nothing else in the app should call
 `os.environ` directly -- add new settings here instead.
 """
 
+import os
 from functools import lru_cache
 from typing import Any
 
@@ -13,7 +14,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="SIRISAI_", extra="ignore")
+    # env_file is itself overridable via SIRISAI_ENV_FILE (not SIRISAI_*
+    # prefixed on purpose -- it configures where to look for the prefixed
+    # vars, so it has to be read before that prefix applies) so
+    # tests/conftest.py can point it at a file that doesn't exist and get
+    # deterministic defaults regardless of a real local `.env` -- otherwise
+    # a dev's own `.env` (e.g. real LLM/Home Assistant settings) leaks into
+    # every test run just by existing in the repo root.
+    model_config = SettingsConfigDict(
+        env_file=os.environ.get("SIRISAI_ENV_FILE", ".env"), env_prefix="SIRISAI_", extra="ignore"
+    )
 
     app_name: str = "SirisAI"
     environment: str = "development"
