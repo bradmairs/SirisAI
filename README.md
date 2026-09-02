@@ -39,6 +39,8 @@ app/
   skills/
     base.py       # Skill ABC + SkillTool (adapts a Skill to the Tool interface)
     builtin/      # server_health.py -- reference skill
+  notify/
+    client.py     # NotifyClient -- push notifications via ntfy.sh
   memory/
     service.py    # MemoryStore -- free-text long-term memory (SQLite-backed)
     entities.py   # EntityMemoryStore -- facts about named entities
@@ -324,14 +326,28 @@ Deliberately tiny, each one a working state:
     itself -- it's passed into `pick()` from `SirisAI.llm` on every call
     -- specifically so it keeps working with whatever `SirisAI.llm`
     currently is.
-19. Proactive notifications -- anomaly detection over the event/metric
-    history from milestones 14 and 17 (e.g. "the backup normally finishes
-    by 3am but hasn't today"), surfaced unprompted through a notification
-    channel rather than waiting to be asked. The furthest-out item on this
-    list -- depends on the event bus and event memory actually
-    accumulating real history first, and stops well short of SirisAI
-    taking autonomous action on its own; that's deliberately not planned
-    yet.
+19. **Done**, in reduced scope -- Proactive notifications. The roadmap
+    entry originally on this line described true anomaly detection over
+    accumulated event/metric history (e.g. "the backup normally finishes
+    by 3am but hasn't today") -- that genuinely needs real history to
+    have accumulated first, which a fresh install doesn't have, so it's
+    still not built. What ships instead is the other half of "proactive":
+    a notification channel (`app/notify/client.py`, ntfy.sh --
+    self-hostable, no account needed, just a topic) and a `notify` tool,
+    composed with the *existing* `server_health_check` skill (15, which
+    already does real deterministic threshold checks -- CPU/memory/disk,
+    non-running containers) behind `POST /siris/proactive/check`: run the
+    check, and if it's unhealthy and a notify channel is configured, send
+    one notification summarizing the warnings. Deliberately not a
+    background scheduler inside this process -- SirisAI doesn't decide on
+    its own when to check; something external (a cron job, a systemd
+    timer -- see `.env.example` for a crontab line) decides the cadence,
+    and the decision to notify is the same deterministic logic
+    `server_health_check` already had, not fuzzy LLM judgment. That's the
+    "stops well short of autonomous action" boundary this entry always
+    intended to draw, just reached by composing what already existed
+    rather than inventing historical-trend detection with no history yet
+    to detect trends in.
 20. Voice satellites -- extend the existing STT/TTS primitives
     (milestones 7-8) beyond the built-in web UI to standalone
     always-listening devices (mic + speaker + wake word) around the
@@ -387,6 +403,12 @@ uvicorn app.main:app --reload
   `CONFIRM_REQUIRED` tool -- pass `"confirmed": true` in a second call
   with the same arguments to actually run it. 404 for an unknown tool
   name, 403 for a blocked `RESTRICTED` tool.
+- `POST /siris/proactive/check` -- run `server_health_check` and, if it's
+  unhealthy and `SIRISAI_NTFY_TOPIC` is set, send one notification
+  summarizing the warnings. `{"result": {...}, "notified": true|false}`.
+  Meant to be called on a schedule from outside this process (see
+  `.env.example` for a crontab line), not something SirisAI triggers
+  itself.
 - `POST /siris/memory` -- save a memory directly, e.g. `{"content": "..."}`.
 - `GET /siris/memory?query=...&limit=20` -- list/search saved memories,
   most recent first.

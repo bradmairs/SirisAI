@@ -118,6 +118,14 @@ class Settings(BaseSettings):
     fast_llm_ollama_base_url: str = "http://localhost:11434"
     fast_llm_ollama_model: str = "llama3.2:1b"
 
+    # Proactive notifications (app/notify/client.py,
+    # app/plugins/builtin/notify.py, POST /siris/proactive/check) via
+    # ntfy.sh -- self-hostable, no account needed, just a topic. Empty
+    # topic = the notify tool isn't registered and /siris/proactive/check
+    # still runs the health check but never sends anything.
+    ntfy_base_url: str = "https://ntfy.sh"
+    ntfy_topic: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

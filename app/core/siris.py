@@ -29,6 +29,7 @@ from app.llm.router import ModelRouter
 from app.memory.entities import EntityMemoryStore
 from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
+from app.notify.client import NotifyClient
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, ToolPermission, ToolRegistry
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
@@ -47,6 +48,7 @@ from app.plugins.builtin.memory import (
     RememberEntityFactTool,
     RememberTool,
 )
+from app.plugins.builtin.notify import NotifyTool
 from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
 from app.plugins.builtin.system_info import SystemInfoTool
 from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
@@ -103,6 +105,7 @@ class SirisAI:
         self._plex_client: PlexClient | None = None
         self._unifi_client: UniFiClient | None = None
         self._weather_client: WeatherClient | None = None
+        self._notify_client: NotifyClient | None = None
         self._register_builtin_tools()
 
     def _register_builtin_tools(self) -> None:
@@ -159,6 +162,10 @@ class SirisAI:
                 password=self.settings.caldav_password,
             )
             self.tools.register(CalendarUpcomingEventsTool(calendar_client))
+
+        if self.settings.ntfy_topic:
+            self._notify_client = NotifyClient(base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic)
+            self.tools.register(NotifyTool(self._notify_client))
 
         self._register_builtin_skills()
 
@@ -270,6 +277,7 @@ class SirisAI:
             self._plex_client,
             self._unifi_client,
             self._weather_client,
+            self._notify_client,
         )
         for client in sync_clients:
             if client is not None:
