@@ -664,14 +664,54 @@ noted inline rather than building the same thing twice under two names.
     ticked up to 4.6%, nowhere near the old 90% threshold, which is
     exactly the kind of catch a fixed global cutoff can't make. Full
     suite: 162 passed.
-28. Explainable autonomy. Every autonomous action (anything a
-    CONFIRM_REQUIRED/SAFE_ACTION tool does without a human directly typing
-    "do X right now") gets its trigger, evidence, and the policy that
-    permitted it recorded alongside the existing audit entry (11) --
-    enough to actually answer "why did you restart Plex last night" from
-    stored data instead of the model guessing after the fact. Extends
-    `AuditLogStore` with these fields rather than inventing a parallel
-    log.
+28. **Done** -- Explainable autonomy. `ToolExecution` (11) gained three
+    nullable columns -- `trigger` (what caused the call, e.g. "chat: model
+    chose this tool", "planner: step 2 of an in-progress plan", "proactive
+    check: automated schedule", "direct API request: a human explicitly
+    asked for exactly this tool"), `evidence` (JSON-encoded supporting
+    data, when there was any -- a planner's prior step results, or the
+    classified warnings that justified a proactive notification), and
+    `policy` (what allowed it to run without asking first) -- extending
+    the existing audit entry rather than a parallel log, per the roadmap's
+    own instruction. `policy` isn't a caller-supplied field: `SirisAI.run_tool()`
+    derives it itself from the tool's own `ToolPermission` plus whether it
+    was confirmed (`_describe_policy()`), since that's determined by
+    SirisAI, not by whoever's calling -- keeps it consistent regardless of
+    which of the four call sites (`/siris/chat`, `/siris/chat/confirm`,
+    the planner, `POST /siris/tools/{name}/run`) triggered it. `trigger`/
+    `evidence` are each call site's to supply, and now are: chat threads
+    through which of the two confirm/non-confirm flows it came from,
+    the planner records each step's number and everything the prior
+    steps returned as evidence for the next one, and
+    `POST /siris/proactive/check`'s notify call carries the classified
+    `NotificationManager` (26) items that justified sending as evidence
+    -- while direct tool invocation is explicitly labeled a *non*-autonomous
+    trigger, matching the milestone's own framing that a human asking for
+    exactly this tool by name isn't the kind of action this needed to
+    explain.
+
+    The actual "answer 'why did you restart Plex last night'" capability
+    is a new `explain_recent_action` tool (`app/plugins/builtin/audit.py`,
+    always registered): pass a `tool_name` (and an optional
+    `argument_contains` substring filter, e.g. "plex") and it returns the
+    matching recent audit entries -- trigger, evidence, and policy
+    included -- via a new `AuditLogStore.find_recent()`. Without this, the
+    richer audit data would sit in a table nobody queries; with it, the
+    model can actually answer the question conversationally from stored
+    fact instead of guessing from whatever's still in context.
+
+    Verified: unit tests for each policy string (READ/SAFE_ACTION/
+    CONFIRM_REQUIRED before and after confirmation), trigger/evidence
+    round-tripping through `run_tool()` directly, chat- and
+    direct-invocation-driven calls each recording their own distinct
+    trigger, `explain_recent_action`'s argument-substring filtering, and
+    the proactive-check notify call's evidence; plus a live `uvicorn` run
+    against real mock Docker and Ollama backends driving the actual
+    "figure out why Plex is down and fix it" scenario through the planner
+    (24) end to end, then asking `explain_recent_action` afterward and
+    confirming it returned the real trigger ("planner: step 2..."), real
+    evidence (the exited-container reading from step 1), and real policy
+    for that specific restart. Full suite: 172 passed.
 29. Routine engine. Natural-language routines ("every night, check my
     server and tell me tomorrow if anything went wrong") stored as
     structured data (name, trigger, ordered actions, output), introspectable

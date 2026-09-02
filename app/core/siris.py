@@ -34,6 +34,7 @@ from app.metrics.service import MetricsStore
 from app.notify.client import NotifyClient
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
+from app.plugins.builtin.audit import ExplainRecentActionTool
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
 from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
@@ -96,6 +97,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "recall_events": "memory",
     "notify": "notify",
     "system_info": "system",
+    "explain_recent_action": "audit",
     "create_goal": "goals",
     "list_goals": "goals",
     "update_goal_status": "goals",
@@ -111,6 +113,23 @@ def _categorize_tool(tool: Tool) -> str:
         if tool.name.startswith(prefix):
             return category
     return _CATEGORY_NAMES.get(tool.name, "misc")
+
+
+def _describe_policy(tool: Tool, confirmed: bool) -> str:
+    """What allowed (or blocked) this call, for the audit log's `policy`
+    field (milestone 28) -- derived from the tool's own ToolPermission,
+    not something a caller of run_tool() invents itself."""
+    if tool.permission is ToolPermission.READ:
+        return "READ: no side effects, always runs"
+    if tool.permission is ToolPermission.SAFE_ACTION:
+        return "SAFE_ACTION: routine and reversible, runs immediately without confirmation"
+    if tool.permission is ToolPermission.CONFIRM_REQUIRED:
+        return (
+            "CONFIRM_REQUIRED: explicitly confirmed before running"
+            if confirmed
+            else "CONFIRM_REQUIRED: blocked pending confirmation"
+        )
+    return "RESTRICTED: blocked unless explicitly enabled via SIRISAI_RESTRICTED_TOOLS_ENABLED"
 
 
 @dataclass
@@ -178,6 +197,7 @@ class SirisAI:
         self.tools.register(AddGoalObjectiveTool(self.goals))
         self.tools.register(CompleteGoalObjectiveTool(self.goals))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
+        self.tools.register(ExplainRecentActionTool(self.audit))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
             self._home_assistant_client = HomeAssistantClient(
@@ -319,6 +339,8 @@ class SirisAI:
         arguments: dict[str, Any],
         conversation_id: str | None = None,
         confirmed: bool = False,
+        trigger: str | None = None,
+        evidence: Any = None,
     ) -> Any:
         """Look up and invoke a registered tool by name.
 
@@ -329,19 +351,47 @@ class SirisAI:
         /siris/chat/confirm`). Every call, whichever of those it hits, is
         recorded to the audit log (app/audit/service.py) along with how
         long it took.
+
+        Explainable autonomy (milestone 28): `trigger` (what caused this
+        call, e.g. "chat: model chose this tool") and `evidence` (JSON-
+        serializable supporting data, if any) are the caller's to supply
+        and just get carried through to the audit entry -- `policy` isn't
+        a parameter, it's derived here from the tool's own permission
+        level plus `confirmed`, since that's determined by SirisAI, not by
+        whoever's calling. Together they're what
+        `explain_recent_action` reads back later.
         """
         start = time.monotonic()
 
         tool = self.tools.get(name)
         if tool is None:
             duration_ms = (time.monotonic() - start) * 1000
-            self.audit.record(name, arguments, error="Unknown tool", duration_ms=duration_ms, conversation_id=conversation_id)
+            self.audit.record(
+                name,
+                arguments,
+                error="Unknown tool",
+                duration_ms=duration_ms,
+                conversation_id=conversation_id,
+                trigger=trigger,
+                evidence=evidence,
+            )
             raise ValueError(f"Unknown tool: {name}")
+
+        policy = _describe_policy(tool, confirmed)
 
         if tool.permission is ToolPermission.RESTRICTED and name not in self.settings.restricted_tools_allowlist():
             duration_ms = (time.monotonic() - start) * 1000
             error = "Restricted tool not enabled (SIRISAI_RESTRICTED_TOOLS_ENABLED)"
-            self.audit.record(name, arguments, error=error, duration_ms=duration_ms, conversation_id=conversation_id)
+            self.audit.record(
+                name,
+                arguments,
+                error=error,
+                duration_ms=duration_ms,
+                conversation_id=conversation_id,
+                trigger=trigger,
+                evidence=evidence,
+                policy=policy,
+            )
             raise PermissionError(f"Tool '{name}' is restricted and not enabled.")
 
         if tool.permission is ToolPermission.CONFIRM_REQUIRED and not confirmed:
@@ -352,6 +402,9 @@ class SirisAI:
                 duration_ms=duration_ms,
                 conversation_id=conversation_id,
                 confirmation_required=True,
+                trigger=trigger,
+                evidence=evidence,
+                policy=policy,
             )
             raise ConfirmationRequired(name, arguments)
 
@@ -360,12 +413,28 @@ class SirisAI:
         except Exception as exc:
             duration_ms = (time.monotonic() - start) * 1000
             self.audit.record(
-                name, arguments, error=str(exc), duration_ms=duration_ms, conversation_id=conversation_id
+                name,
+                arguments,
+                error=str(exc),
+                duration_ms=duration_ms,
+                conversation_id=conversation_id,
+                trigger=trigger,
+                evidence=evidence,
+                policy=policy,
             )
             raise
 
         duration_ms = (time.monotonic() - start) * 1000
-        self.audit.record(name, arguments, result=result, duration_ms=duration_ms, conversation_id=conversation_id)
+        self.audit.record(
+            name,
+            arguments,
+            result=result,
+            duration_ms=duration_ms,
+            conversation_id=conversation_id,
+            trigger=trigger,
+            evidence=evidence,
+            policy=policy,
+        )
         return result
 
     def status(self) -> dict[str, object]:
