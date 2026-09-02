@@ -1,0 +1,36 @@
+"""Direct access to SirisAI's memory store.
+
+The primary way memory gets written and read is the LLM calling the
+`remember`/`recall` tools mid-conversation (see
+app/plugins/builtin/memory.py). These endpoints exist alongside that for
+inspecting and seeding memory directly -- without going through a chat turn.
+"""
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+
+from app.core.siris import SirisAI, get_siris
+
+router = APIRouter(prefix="/siris/memory", tags=["memory"])
+
+
+class MemoryCreateRequest(BaseModel):
+    content: str
+
+
+class MemoryEntryResponse(BaseModel):
+    id: int
+    content: str
+    created_at: str
+
+
+@router.post("", response_model=MemoryEntryResponse)
+def create_memory(request: MemoryCreateRequest, siris: SirisAI = Depends(get_siris)) -> MemoryEntryResponse:
+    return MemoryEntryResponse(**siris.memory.remember(request.content))
+
+
+@router.get("", response_model=list[MemoryEntryResponse])
+def list_memory(
+    query: str | None = None, limit: int = 20, siris: SirisAI = Depends(get_siris)
+) -> list[MemoryEntryResponse]:
+    return [MemoryEntryResponse(**entry) for entry in siris.memory.recall(query=query, limit=limit)]

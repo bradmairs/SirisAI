@@ -25,7 +25,9 @@ app/
     factory.py    # Picks a backend from settings.llm_provider
   plugins/        # Tool/plugin interface + registry
     base.py       # Tool ABC + ToolRegistry
-    builtin/      # Reference/first-party tools (echo.py proves the pattern)
+    builtin/      # Reference/first-party tools (echo.py, memory.py)
+  memory/
+    service.py    # MemoryStore -- SirisAI's long-term memory (SQLite-backed)
 ```
 
 **Extension points, by design:**
@@ -54,7 +56,13 @@ Deliberately tiny, each one a working state:
    for now -- feeding the tool result back to the model for a final
    natural-language answer is a natural next step, not required for this
    milestone.
-4. Memory subsystem -- SirisAI records/recalls what it learns about you.
+4. **Done** -- Memory subsystem (`app/memory/service.py`, `MemoryStore`,
+   backed by a `memories` SQLite table). The model reads/writes it itself
+   mid-conversation via the `remember`/`recall` tools
+   (`app/plugins/builtin/memory.py`); `GET`/`POST /siris/memory` give
+   direct access for inspecting or seeding it outside a chat turn. Recall
+   is a plain substring match for now -- semantic/vector search is a
+   drop-in replacement behind the same `MemoryStore.recall()` later.
 5. Auth.
 6. Homelab/home-automation tools (Home Assistant, etc.).
 
@@ -76,6 +84,9 @@ uvicorn app.main:app --reload
   "tool_call": {"name": ..., "arguments": {...}, "result": ...}}`. Pass
   `"use_tools": false` to disable tool offering. Returns 502 if no backend
   is configured/reachable, or if the chosen tool call fails.
+- `POST /siris/memory` -- save a memory directly, e.g. `{"content": "..."}`.
+- `GET /siris/memory?query=...&limit=20` -- list/search saved memories,
+  most recent first.
 
 ## Running with Docker
 

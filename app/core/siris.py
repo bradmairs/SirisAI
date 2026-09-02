@@ -15,10 +15,13 @@ from functools import lru_cache
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.db.session import SessionLocal
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
+from app.memory.service import MemoryStore
 from app.plugins.base import ToolRegistry
 from app.plugins.builtin.echo import EchoTool
+from app.plugins.builtin.memory import RecallTool, RememberTool
 
 
 @dataclass
@@ -28,6 +31,7 @@ class SirisAI:
     settings: Settings
     llm: LLMClient | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
+    memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -36,6 +40,8 @@ class SirisAI:
 
     def _register_builtin_tools(self) -> None:
         self.tools.register(EchoTool())
+        self.tools.register(RememberTool(self.memory))
+        self.tools.register(RecallTool(self.memory))
 
     def run_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Look up and invoke a registered tool by name. Raises ValueError

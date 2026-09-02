@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.api.routes import health, siris
+from app.api.routes import health, memory, siris
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.siris import get_siris
@@ -40,6 +40,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(siris.router)
+    app.include_router(memory.router)
 
     return app
 

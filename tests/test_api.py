@@ -6,10 +6,8 @@ from app.core.siris import SirisAI, get_siris
 from app.llm.base import LLMResponse, ToolCall
 from app.main import app
 
-client = TestClient(app)
 
-
-def test_health_ok() -> None:
+def test_health_ok(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     body = response.json()
@@ -17,7 +15,7 @@ def test_health_ok() -> None:
     assert body["database"] == "ok"
 
 
-def test_siris_status() -> None:
+def test_siris_status(client: TestClient) -> None:
     response = client.get("/siris/status")
     assert response.status_code == 200
     body = response.json()
@@ -25,7 +23,7 @@ def test_siris_status() -> None:
     assert "echo" in body["tools"]
 
 
-def test_chat_without_llm_backend_returns_502() -> None:
+def test_chat_without_llm_backend_returns_502(client: TestClient) -> None:
     # Default test config has llm_provider="none" -> NullLLMClient.
     response = client.post("/siris/chat", json={"prompt": "hello"})
     assert response.status_code == 502
@@ -54,7 +52,7 @@ def _override_llm(llm: object) -> SirisAI:
     return fake_siris
 
 
-def test_chat_with_backend_configured() -> None:
+def test_chat_with_backend_configured(client: TestClient) -> None:
     _override_llm(_FakeTextLLMClient())
     try:
         response = client.post("/siris/chat", json={"prompt": "hello"})
@@ -64,7 +62,7 @@ def test_chat_with_backend_configured() -> None:
         app.dependency_overrides.pop(get_siris, None)
 
 
-def test_chat_executes_tool_call_chosen_by_llm() -> None:
+def test_chat_executes_tool_call_chosen_by_llm(client: TestClient) -> None:
     _override_llm(_FakeToolCallingLLMClient())
     try:
         response = client.post("/siris/chat", json={"prompt": "please echo this"})
