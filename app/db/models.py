@@ -221,3 +221,24 @@ class Routine(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
+
+
+class CapabilityGap(Base):
+    """A recorded "SirisAI can't do this yet" (milestone 31) -- what the
+    model itself reported it couldn't fulfill with any currently
+    registered tool (see `/siris/capabilities`), plus whatever it could
+    propose from its own general knowledge: a plausible real-world
+    integration and a sketch of a tool that would provide it. Detection
+    is deliberately NOT a separate mechanism here -- the model already
+    sees the full tool list on every chat turn, so recognizing a gap is
+    just the model's own reasoning; this table exists so that recognition
+    turns into a persisted, queryable development spec instead of
+    evaporating at the end of one chat reply."""
+
+    __tablename__ = "capability_gaps"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    requested_capability: Mapped[str] = mapped_column(Text)
+    suggested_integration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_tool_spec: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

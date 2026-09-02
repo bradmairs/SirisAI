@@ -109,6 +109,22 @@ def list_goals(status: str | None = None, siris: SirisAI = Depends(get_siris)) -
     return [GoalInfo(**g) for g in siris.goals.list_goals(status=status)]
 
 
+class CapabilityGapInfo(BaseModel):
+    id: int
+    requested_capability: str
+    suggested_integration: str | None
+    suggested_tool_spec: dict[str, Any] | None
+    created_at: str
+
+
+@router.get("/capability_gaps", response_model=list[CapabilityGapInfo])
+def list_capability_gaps(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[CapabilityGapInfo]:
+    """Every "SirisAI can't do this yet" the model has reported (milestone
+    31, report_capability_gap tool), most recent first -- a development
+    backlog someone (or Claude Code, working this same repo) can act on."""
+    return [CapabilityGapInfo(**g) for g in siris.capability_gaps.list_gaps(limit=limit)]
+
+
 class ChatRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None
