@@ -4,6 +4,7 @@ up lately?" from actual history instead of just current state. Same "own
 short-lived session per call" pattern as MemoryStore.
 """
 
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -16,9 +17,20 @@ class EventMemoryStore:
     def __init__(self, session_factory: sessionmaker) -> None:
         self._session_factory = session_factory
 
-    def log_event(self, description: str, entity_name: str | None = None) -> dict[str, Any]:
+    def log_event(
+        self,
+        description: str,
+        entity_name: str | None = None,
+        source: str | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         with self._session_factory() as session:
-            row = Event(description=description, entity_name=entity_name)
+            row = Event(
+                description=description,
+                entity_name=entity_name,
+                source=source,
+                data=json.dumps(data) if data is not None else None,
+            )
             session.add(row)
             session.commit()
             return self._serialize(row)
@@ -37,5 +49,7 @@ class EventMemoryStore:
             "id": row.id,
             "entity_name": row.entity_name,
             "description": row.description,
+            "source": row.source,
+            "data": json.loads(row.data) if row.data is not None else None,
             "created_at": row.created_at.isoformat(),
         }

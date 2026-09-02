@@ -288,10 +288,21 @@ Deliberately tiny, each one a working state:
     something in it fails) and deliberately doesn't show up in the audit
     log -- it's background situational awareness, not a decision SirisAI
     made. Not persisted to the conversation transcript either.
-17. Event bus -- inbound webhook endpoint(s) so external systems (Docker,
-    Home Assistant, UniFi, Plex, calendar) can push events into SirisAI
-    instead of only being polled through tools. Logged as event memory
-    (14); SirisAI decides whether to ignore, log, investigate, or notify.
+17. **Done** -- Event bus: `POST /siris/events` is an inbound webhook so
+    external systems (Docker, Home Assistant, UniFi, Plex, calendar, a
+    cron job, ...) can push events into SirisAI instead of it only
+    discovering things by being asked. `{"source": "docker", "description":
+    "container unhealthy", "entity_name": "Plex", "data": {...}}` -- logged
+    straight to event memory (14), which now carries `source`/`data`
+    alongside `entity_name`/`description`. Deliberately does nothing
+    beyond that for now -- deciding whether to ignore, investigate, or
+    notify is milestone 19, not this one; the roadmap's own note on that
+    milestone already flags full autonomous action as out of scope for
+    now. Still immediately useful without any of that: a pushed event is
+    picked up automatically by both `recall_events` and the context
+    engine (16) on the very next chat call, with no extra wiring --
+    verified live by pushing a Docker-style event and watching it appear
+    in the system message a subsequent `/siris/chat` call sent to Ollama.
 18. Model router -- support multiple configured LLM backends at once
     (building on the existing `LLMClient` interface) with policy-based
     selection -- a fast local model for simple asks, a larger one for
@@ -347,6 +358,10 @@ uvicorn app.main:app --reload
 - `GET /siris/activity?limit=50` -- recent tool executions, most recent
   first: tool name, arguments, result or error, duration, and the
   triggering `conversation_id` when there was one.
+- `POST /siris/events` -- push an event in from an external system:
+  `{"source": ..., "description": ..., "entity_name": null, "data": null}`.
+- `GET /siris/events?entity_name=...&limit=50` -- recent events, most
+  recent first, same shape as `recall_events`.
 - `POST /siris/tools/{name}/run` -- invoke any registered tool or skill
   directly, bypassing the LLM. `{"arguments": {...}}` ->
   `{"tool_call": {...}}`, or `{"confirmation_required": {...}}` for a

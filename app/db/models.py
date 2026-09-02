@@ -78,11 +78,18 @@ class Event(Base):
     etc -- optionally tagged to an entity. Distinct from an EntityFact
     (a standing fact) and from ToolExecution (an internal record of what
     SirisAI itself did): an Event is a thing that happened, which may or
-    may not have come from a tool call."""
+    may not have come from a tool call.
+
+    `source` and `data` are populated for events pushed in through the
+    event bus (POST /siris/events, see app/api/routes/events.py) --
+    which system it came from and any extra structured payload; both are
+    None for events the model logs itself via the log_event tool."""
 
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     entity_name: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     description: Mapped[str] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
