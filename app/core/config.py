@@ -29,10 +29,22 @@ class Settings(BaseSettings):
     api_key: str | None = None
 
     # LLM settings are model-agnostic at the app layer; a specific backend
-    # (e.g. Ollama) is wired up behind app/llm/base.py in a later milestone.
+    # is wired up behind app/llm/base.py.
     llm_provider: str = "none"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3"
+
+    # Speech (app/voice/base.py). "openai_compatible" points at any local
+    # server speaking OpenAI's audio API shape (whisper.cpp server,
+    # speaches/faster-whisper-server, openedai-speech, ...).
+    stt_provider: str = "none"
+    stt_base_url: str = "http://localhost:8081"
+    stt_model: str = "whisper-1"
+
+    tts_provider: str = "none"
+    tts_base_url: str = "http://localhost:8082"
+    tts_model: str = "tts-1"
+    tts_voice: str = "default"
 
 
 @lru_cache

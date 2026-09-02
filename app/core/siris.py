@@ -22,6 +22,8 @@ from app.memory.service import MemoryStore
 from app.plugins.base import ToolRegistry
 from app.plugins.builtin.echo import EchoTool
 from app.plugins.builtin.memory import RecallTool, RememberTool
+from app.voice.base import SpeechToTextClient, TextToSpeechClient
+from app.voice.factory import build_stt_client, build_tts_client
 
 
 @dataclass
@@ -30,12 +32,18 @@ class SirisAI:
 
     settings: Settings
     llm: LLMClient | None = None
+    stt: SpeechToTextClient | None = None
+    tts: TextToSpeechClient | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
             self.llm = build_llm_client(self.settings)
+        if self.stt is None:
+            self.stt = build_stt_client(self.settings)
+        if self.tts is None:
+            self.tts = build_tts_client(self.settings)
         self._register_builtin_tools()
 
     def _register_builtin_tools(self) -> None:
@@ -57,14 +65,20 @@ class SirisAI:
             "app_name": self.settings.app_name,
             "environment": self.settings.environment,
             "llm_provider": self.settings.llm_provider,
+            "stt_provider": self.settings.stt_provider,
+            "tts_provider": self.settings.tts_provider,
             "tools": [tool.name for tool in self.tools.list()],
         }
 
     async def aclose(self) -> None:
-        """Release resources held by the core service (e.g. the LLM client's
-        connection pool). Call once, at app shutdown."""
+        """Release resources held by the core service (e.g. the LLM/STT/TTS
+        clients' connection pools). Call once, at app shutdown."""
         assert self.llm is not None
+        assert self.stt is not None
+        assert self.tts is not None
         await self.llm.aclose()
+        await self.stt.aclose()
+        await self.tts.aclose()
 
 
 @lru_cache

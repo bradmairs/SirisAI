@@ -28,6 +28,10 @@ app/
     builtin/      # Reference/first-party tools (echo.py, memory.py)
   memory/
     service.py    # MemoryStore -- SirisAI's long-term memory (SQLite-backed)
+  voice/          # Model-agnostic speech interface (STT + TTS)
+    base.py       # SpeechToTextClient/TextToSpeechClient ABCs + Null placeholders
+    openai_compatible.py  # client for any server speaking OpenAI's audio API shape
+    factory.py    # Picks backends from settings.stt_provider/tts_provider
   web/static/
     index.html    # Built-in web UI: chat, memory, status. No build step.
 ```
@@ -79,10 +83,23 @@ Deliberately tiny, each one a working state:
    makes are same-origin so no CORS setup was needed. It reads the API
    key from a field on the page (stored in the browser's `localStorage`)
    and sends it as the `Authorization` header.
-7. Voice: a `SpeechToTextClient`/`TextToSpeechClient` pair (same
-   model-agnostic pattern as `LLMClient`), local Whisper/Piper as the
-   default backends.
-8. Homelab/home-automation tools (Home Assistant, etc.).
+7. **Done** -- Voice primitives: `SpeechToTextClient`/`TextToSpeechClient`
+   (`app/voice/base.py`, same model-agnostic pattern as `LLMClient`), with
+   an `openai_compatible.py` backend that talks to any local server
+   speaking OpenAI's audio API shape -- whisper.cpp's server, speaches /
+   faster-whisper-server for STT, openedai-speech (Piper) for TTS. Kept
+   external over HTTP rather than embedding model weights, same as Ollama,
+   so SirisAI's own container stays lightweight. `POST /siris/voice/transcribe`
+   and `POST /siris/voice/speak` expose them directly; nothing composes
+   them into a full voice-chat loop server-side yet -- see the next
+   milestone.
+8. Wire voice into the web UI: a mic button (browser `MediaRecorder`)
+   records audio, posts it to `/siris/voice/transcribe`, and fills the chat
+   input for the user to review/send; a speaker icon on assistant replies
+   calls `/siris/voice/speak` and plays the result. Client-side composition
+   of the two primitives above plus the existing chat endpoint -- no new
+   backend surface needed.
+9. Homelab/home-automation tools (Home Assistant, etc.).
 
 ## Running locally
 
@@ -105,6 +122,12 @@ uvicorn app.main:app --reload
 - `POST /siris/memory` -- save a memory directly, e.g. `{"content": "..."}`.
 - `GET /siris/memory?query=...&limit=20` -- list/search saved memories,
   most recent first.
+- `POST /siris/voice/transcribe` -- multipart file upload (`file`) ->
+  `{"text": "..."}`. Off by default (`SIRISAI_STT_PROVIDER=none`); returns
+  502 if no backend is configured/reachable.
+- `POST /siris/voice/speak` -- `{"text": "..."}` -> `audio/mpeg` bytes. Off
+  by default (`SIRISAI_TTS_PROVIDER=none`); returns 502 if no backend is
+  configured/reachable.
 - `GET /` -- the web UI.
 
 All `/siris/*` routes require `Authorization: Bearer <SIRISAI_API_KEY>` once
