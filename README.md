@@ -424,13 +424,36 @@ noted inline rather than building the same thing twice under two names.
     `POST /siris/tools/{name}/run`, and a live `uvicorn` run confirming
     the reverse lookup actually surfaces "Plex depends on media-storage"
     when queried from media-storage's side.
-22. Developer/introspection API -- `/api/tools`, `/api/skills`,
-    `/api/capabilities`, `/api/system/state`, and equivalents for whatever
-    22-30 add (`/api/goals`, `/api/tasks`, `/api/integrations`). Mostly
-    read-only exposure of state that already exists on `SirisAI` (the
-    tool registry, skill registry, world model once 21 lands) -- low risk,
-    and doing it early means every later milestone in this batch gets an
-    inspection endpoint for free instead of it being an afterthought.
+22. **Done** -- Developer/introspection API: `GET /siris/tools`,
+    `/siris/skills`, `/siris/capabilities`, `/siris/system/state`.
+    Deviates from the brainstorm's suggested `/api/*` paths on purpose --
+    every existing route lives under `/siris/*` (`/siris/status`,
+    `/siris/chat`, `/siris/events`, ...), so a parallel `/api/` namespace
+    would just fragment the API surface for no benefit; these four are
+    added to the existing `siris.router` instead. `/siris/tools` is
+    `SirisAI.list_tools()` -- every registered tool (skills included, per
+    `Skill`'s existing "not a new registry" design from 15) with full
+    detail (description, parameters, permission) that `/siris/status`'s
+    bare name list doesn't carry, and unlike `available_tool_specs()` it
+    doesn't hide disabled RESTRICTED tools, since the point is showing
+    what's installed, not what the model can currently call.
+    `/siris/skills` is the `SkillTool` subset of the same list.
+    `/siris/capabilities` groups tool names by category (`{"docker": [...],
+    "weather": [...], "memory": [...], "skills": [...]}`) -- categories
+    are derived from each builtin tool's existing `<integration>_<action>`
+    naming convention rather than declared per-tool, so adding a new
+    integration's tools doesn't require also remembering to register them
+    in a second place. `/siris/system/state` exposes the whole world model
+    (21) at once: `EntityMemoryStore` gained `all_entity_names()`, the
+    union of entities with a fact *and* entities that only ever appear as
+    a relationship's subject/object (e.g. "main-server" from a `RUNS_ON`
+    edge, with no fact of its own) -- otherwise an entity that's purely a
+    dependency target would be invisible to this endpoint despite being
+    very much part of the graph. Verified: unit and endpoint tests for all
+    four routes (including that every tool lands in exactly one
+    capability category, and that a fact-less relationship-only entity
+    still appears in system state), plus a live `uvicorn` run exercising
+    all four against a real request. Full suite: 116 passed.
 23. Goals. A goal (e.g. "reduce homelab power consumption") persists
     across conversations with a status and a list of objectives, so it
     doesn't need re-explaining every session. New `GoalStore`, same
