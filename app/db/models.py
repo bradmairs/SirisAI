@@ -1,0 +1,95 @@
+"""ORM models. Import this module wherever `Base.metadata.create_all` runs
+so tables get registered -- `app/core/siris.py` pulls it in transitively via
+`app.memory.service`."""
+
+import uuid
+from datetime import UTC, datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class MemoryEntry(Base):
+    __tablename__ = "memories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=lambda: str(uuid.uuid4()))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
+    role: Mapped[str] = mapped_column(Text)  # "user" | "assistant" | "tool"
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_arguments: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class ToolExecution(Base):
+    """One SirisAI.run_tool() call, successful or not."""
+
+    __tablename__ = "tool_executions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), nullable=True, index=True)
+    tool_name: Mapped[str] = mapped_column(Text)
+    arguments: Mapped[str] = mapped_column(Text)  # JSON-encoded
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded; unset if error is set
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # True when this row is a CONFIRM_REQUIRED tool's pending proposal --
+    # the tool did NOT actually run (see app/plugins/base.py's
+    # ConfirmationRequired). A later confirmed run of the same tool gets
+    # its own separate row.
+    confirmation_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    duration_ms: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class EntityFact(Base):
+    """One fact about a named entity -- a person, service, device, project,
+    etc. Several rows can share an entity_name; together they're everything
+    SirisAI knows about that entity. Distinct from the free-text
+    `memories` table: this is for information clearly about one named
+    thing, looked up per-entity rather than by substring search."""
+
+    __tablename__ = "entity_facts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_name: Mapped[str] = mapped_column(Text, index=True)
+    fact: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Event(Base):
+    """A point-in-time occurrence -- a status change, failure, completion,
+    etc -- optionally tagged to an entity. Distinct from an EntityFact
+    (a standing fact) and from ToolExecution (an internal record of what
+    SirisAI itself did): an Event is a thing that happened, which may or
+    may not have come from a tool call.
+
+    `source` and `data` are populated for events pushed in through the
+    event bus (POST /siris/events, see app/api/routes/events.py) --
+    which system it came from and any extra structured payload; both are
+    None for events the model logs itself via the log_event tool."""
+
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_name: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    description: Mapped[str] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

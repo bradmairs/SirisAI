@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SirisAI</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #14161a;
+    --panel: #1c1f26;
+    --border: #2a2e37;
+    --text: #e6e8eb;
+    --muted: #8b91a0;
+    --accent: #5b9dff;
+    --user-bubble: #2b3550;
+    --assistant-bubble: #22262f;
+    --tool-bubble: #24301f;
+    --error: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header h1 {
+    font-size: 1.1rem;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  header h1 span { color: var(--accent); }
+  nav { display: flex; gap: 0.25rem; }
+  nav button {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  nav button.active { background: var(--panel); color: var(--text); border-color: var(--border); }
+
+  #key-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  #key-bar input {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
+    width: 16rem;
+  }
+  #key-bar button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  #key-status.ok { color: #6fbf73; }
+  #key-status.error { color: var(--error); }
+
+  main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  /* Each active view fills main's remaining height and scrolls its own
+     overflow. Chat additionally needs flex-column (scrolling message list
+     + pinned input row) -- plain block flow elsewhere so buttons don't get
+     stretched full-width by flex's default align-items: stretch. */
+  section.view { display: none; }
+  section.view.active { display: block; flex: 1; overflow-y: auto; }
+  #chat-view.active { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Chat */
+  #chat-toolbar { display: flex; justify-content: flex-end; padding: 0.4rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  #new-chat-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 0.25rem 0.6rem; cursor: pointer; font-size: 0.78rem; }
+  #new-chat-btn:hover { color: var(--text); }
+  #messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .msg { max-width: 70%; padding: 0.55rem 0.8rem; border-radius: 10px; line-height: 1.4; font-size: 0.92rem; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); }
+  .msg.assistant { align-self: flex-start; background: var(--assistant-bubble); }
+  .msg.tool { align-self: flex-start; background: var(--tool-bubble); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
+  .msg.error { align-self: flex-start; background: #3a2222; color: var(--error); }
+  .msg.confirm { align-self: flex-start; background: #3a2f14; border: 1px solid #7a5a1a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
+  .confirm-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .confirm-actions button { border: none; border-radius: 6px; padding: 0.25rem 0.7rem; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+  .confirm-actions .confirm-yes { background: #e0a83a; color: #1a1206; }
+  .confirm-actions .confirm-no { background: var(--panel); color: var(--text); border: 1px solid var(--border) !important; }
+  .confirm-actions button:disabled { opacity: 0.5; cursor: default; }
+  #chat-form { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); flex-shrink: 0; }
+  #chat-form input {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.92rem;
+  }
+  #chat-form button, .action-btn {
+    background: var(--accent);
+    border: none;
+    color: #0b1220;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 0 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+  #chat-form button:disabled { opacity: 0.5; cursor: default; }
+  #mic-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    width: 2.6rem;
+    cursor: pointer;
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+  #mic-btn.recording { background: var(--error); border-color: var(--error); color: #1a0d0d; }
+  .speak-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.85rem;
+    margin-left: 0.4rem;
+    padding: 0;
+    vertical-align: middle;
+  }
+  .speak-btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* Memory */
+  #memory-view { padding: 1rem; overflow-y: auto; gap: 0.75rem; }
+  #memory-search { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  #memory-search input {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+  }
+  #memory-add { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  #memory-add input {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+  }
+  .memory-entry { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; }
+  .memory-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
+
+  /* Activity */
+  #activity-view { padding: 1rem; overflow-y: auto; }
+  #activity-view button { margin-bottom: 1rem; }
+  .activity-entry {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .activity-entry.error { border-color: var(--error); }
+  .activity-entry .tool-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+  .activity-entry .tool-name.error { color: var(--error); }
+  .activity-entry .detail { color: var(--muted); font-size: 0.8rem; margin-top: 0.3rem; white-space: pre-wrap; word-wrap: break-word; }
+  .activity-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+
+  /* Status */
+  #status-view { padding: 1rem; overflow-y: auto; }
+  #status-view button { margin-bottom: 1rem; }
+  dl.status-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.4rem 1rem; margin: 0; }
+  dl.status-grid dt { color: var(--muted); }
+  dl.status-grid dd { margin: 0; }
+  .tag { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.6rem; margin: 0.15rem 0.3rem 0.15rem 0; font-size: 0.8rem; }
+
+  .empty { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Siris<span>AI</span></h1>
+  <nav>
+    <button data-view="chat" class="active">Chat</button>
+    <button data-view="memory">Memory</button>
+    <button data-view="activity">Activity</button>
+    <button data-view="status">Status</button>
+  </nav>
+</header>
+
+<div id="key-bar">
+  <span>API key:</span>
+  <input id="key-input" type="password" placeholder="leave blank if auth is disabled" />
+  <button id="key-save">Save</button>
+  <span id="key-status"></span>
+</div>
+
+<main>
+  <section id="chat-view" class="view active">
+    <div id="chat-toolbar"><button type="button" id="new-chat-btn">New chat</button></div>
+    <div id="messages"></div>
+    <form id="chat-form">
+      <button type="button" id="mic-btn" title="Record a voice message">&#127908;</button>
+      <input id="chat-input" type="text" placeholder="Ask SirisAI..." autocomplete="off" />
+      <button type="submit" id="chat-send-btn">Send</button>
+    </form>
+  </section>
+
+  <section id="memory-view" class="view">
+    <form id="memory-search">
+      <input id="memory-query" type="text" placeholder="Search memories..." />
+      <button class="action-btn" type="submit">Search</button>
+    </form>
+    <form id="memory-add">
+      <input id="memory-content" type="text" placeholder="Save a new memory directly..." />
+      <button class="action-btn" type="submit">Add</button>
+    </form>
+    <div id="memory-list"></div>
+  </section>
+
+  <section id="activity-view" class="view">
+    <button class="action-btn" id="activity-refresh">Refresh</button>
+    <div id="activity-list"></div>
+  </section>
+
+  <section id="status-view" class="view">
+    <button class="action-btn" id="status-refresh">Refresh</button>
+    <div id="status-body"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const KEY_STORAGE = "sirisai_api_key";
+  const keyInput = document.getElementById("key-input");
+  const keyStatus = document.getElementById("key-status");
+  keyInput.value = localStorage.getItem(KEY_STORAGE) || "";
+
+  document.getElementById("key-save").addEventListener("click", () => {
+    localStorage.setItem(KEY_STORAGE, keyInput.value.trim());
+    keyStatus.textContent = "saved";
+    keyStatus.className = "ok";
+    setTimeout(() => (keyStatus.textContent = ""), 1500);
+  });
+
+  async function api(path, options = {}) {
+    const key = localStorage.getItem(KEY_STORAGE);
+    // Skip Content-Type for FormData -- the browser sets its own multipart
+    // boundary, and overriding it breaks the upload.
+    const isFormData = options.body instanceof FormData;
+    const headers = Object.assign({}, isFormData ? {} : { "Content-Type": "application/json" }, options.headers || {});
+    if (key) headers["Authorization"] = `Bearer ${key}`;
+    const response = await fetch(path, Object.assign({}, options, { headers }));
+    if (response.status === 401) {
+      keyStatus.textContent = "unauthorized -- check API key";
+      keyStatus.className = "error";
+      throw new Error("unauthorized");
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `request failed (${response.status})`);
+    }
+    if (options.raw) return response;
+    return response.status === 204 ? null : response.json();
+  }
+
+  // --- Navigation ---
+  const navButtons = document.querySelectorAll("nav button");
+  const views = document.querySelectorAll("section.view");
+  navButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      navButtons.forEach((b) => b.classList.remove("active"));
+      views.forEach((v) => v.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`${btn.dataset.view}-view`).classList.add("active");
+      if (btn.dataset.view === "memory") loadMemory();
+      if (btn.dataset.view === "activity") loadActivity();
+      if (btn.dataset.view === "status") loadStatus();
+    });
+  });
+
+  // --- Chat ---
+  const messages = document.getElementById("messages");
+  const chatForm = document.getElementById("chat-form");
+  const chatInput = document.getElementById("chat-input");
+  // null = no conversation yet; the server creates one on the first /siris/chat
+  // call and every response echoes back the id in play, so later turns keep
+  // sending it back to carry context forward.
+  let conversationId = null;
+
+  document.getElementById("new-chat-btn").addEventListener("click", () => {
+    conversationId = null;
+    messages.innerHTML = "";
+    chatInput.focus();
+  });
+
+  function addMessage(text, cls) {
+    const div = document.createElement("div");
+    div.className = `msg ${cls}`;
+    const span = document.createElement("span");
+    span.textContent = text;
+    div.appendChild(span);
+    if (cls === "assistant") {
+      const speakBtn = document.createElement("button");
+      speakBtn.type = "button";
+      speakBtn.className = "speak-btn";
+      speakBtn.title = "Play";
+      speakBtn.textContent = "\u{1f50a}";
+      speakBtn.addEventListener("click", () => speak(text, speakBtn));
+      div.appendChild(speakBtn);
+    }
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+    return div;
+  }
+
+  function addConfirmationPrompt(name, args) {
+    const div = document.createElement("div");
+    div.className = "msg confirm";
+
+    const text = document.createElement("div");
+    text.textContent = `⚠️ Confirm: ${name}(${JSON.stringify(args)})`;
+    div.appendChild(text);
+
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
+
+    const yesBtn = document.createElement("button");
+    yesBtn.type = "button";
+    yesBtn.className = "confirm-yes";
+    yesBtn.textContent = "Confirm";
+    const noBtn = document.createElement("button");
+    noBtn.type = "button";
+    noBtn.className = "confirm-no";
+    noBtn.textContent = "Cancel";
+
+    yesBtn.addEventListener("click", async () => {
+      yesBtn.disabled = true;
+      noBtn.disabled = true;
+      try {
+        const result = await api("/siris/chat/confirm", {
+          method: "POST",
+          body: JSON.stringify({ conversation_id: conversationId, tool_name: name, arguments: args }),
+        });
+        div.remove();
+        if (result.tool_call) {
+          addMessage(
+            `\u{1f527} ${result.tool_call.name}(${JSON.stringify(result.tool_call.arguments)}) -> ${JSON.stringify(result.tool_call.result)}`,
+            "tool"
+          );
+        }
+      } catch (err) {
+        addMessage(err.message, "error");
+      }
+    });
+    noBtn.addEventListener("click", () => {
+      div.remove();
+      addMessage(`Cancelled: ${name}`, "tool");
+    });
+
+    actions.appendChild(yesBtn);
+    actions.appendChild(noBtn);
+    div.appendChild(actions);
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function speak(text, btn) {
+    btn.disabled = true;
+    try {
+      const response = await api("/siris/voice/speak", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+        raw: true,
+      });
+      const blob = await response.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      await audio.play();
+    } catch (err) {
+      addMessage(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // --- Voice input (mic -> transcribe -> fill chat input for review) ---
+  const micBtn = document.getElementById("mic-btn");
+  let mediaRecorder = null;
+  let recordedChunks = [];
+
+  micBtn.addEventListener("click", async () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      addMessage(`Microphone unavailable: ${err.message}`, "error");
+      return;
+    }
+
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.addEventListener("dataavailable", (e) => {
+      if (e.data.size > 0) recordedChunks.push(e.data);
+    });
+    mediaRecorder.addEventListener("stop", async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      micBtn.classList.remove("recording");
+
+      const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+      const formData = new FormData();
+      formData.append("file", blob, "recording.webm");
+      const originalPlaceholder = chatInput.placeholder;
+      chatInput.placeholder = "Transcribing...";
+      micBtn.disabled = true;
+      try {
+        const result = await api("/siris/voice/transcribe", { method: "POST", body: formData });
+        chatInput.value = result.text;
+      } catch (err) {
+        addMessage(err.message, "error");
+      } finally {
+        chatInput.placeholder = originalPlaceholder;
+        micBtn.disabled = false;
+        chatInput.focus();
+      }
+    });
+
+    mediaRecorder.start();
+    micBtn.classList.add("recording");
+  });
+
+  const chatSendBtn = document.getElementById("chat-send-btn");
+
+  chatForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const prompt = chatInput.value.trim();
+    if (!prompt) return;
+    addMessage(prompt, "user");
+    chatInput.value = "";
+    chatSendBtn.disabled = true;
+    try {
+      const result = await api("/siris/chat", {
+        method: "POST",
+        body: JSON.stringify({ prompt, conversation_id: conversationId }),
+      });
+      conversationId = result.conversation_id;
+      if (result.confirmation_required) {
+        addConfirmationPrompt(result.confirmation_required.name, result.confirmation_required.arguments);
+      } else if (result.tool_call) {
+        addMessage(
+          `\u{1f527} ${result.tool_call.name}(${JSON.stringify(result.tool_call.arguments)}) -> ${JSON.stringify(result.tool_call.result)}`,
+          "tool"
+        );
+      } else {
+        addMessage(result.response ?? "(no response)", "assistant");
+      }
+    } catch (err) {
+      addMessage(err.message, "error");
+    } finally {
+      chatSendBtn.disabled = false;
+      chatInput.focus();
+    }
+  });
+
+  // --- Memory ---
+  const memoryList = document.getElementById("memory-list");
+
+  function renderMemory(entries) {
+    memoryList.innerHTML = "";
+    if (!entries.length) {
+      memoryList.innerHTML = '<p class="empty">No memories yet.</p>';
+      return;
+    }
+    for (const entry of entries) {
+      const div = document.createElement("div");
+      div.className = "memory-entry";
+      const content = document.createElement("div");
+      content.textContent = entry.content;
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `#${entry.id} · ${new Date(entry.created_at).toLocaleString()}`;
+      div.appendChild(content);
+      div.appendChild(meta);
+      memoryList.appendChild(div);
+    }
+  }
+
+  async function loadMemory(query) {
+    try {
+      const params = query ? `?query=${encodeURIComponent(query)}` : "";
+      const entries = await api(`/siris/memory${params}`);
+      renderMemory(entries);
+    } catch (err) {
+      memoryList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("memory-search").addEventListener("submit", (e) => {
+    e.preventDefault();
+    loadMemory(document.getElementById("memory-query").value.trim());
+  });
+
+  document.getElementById("memory-add").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("memory-content");
+    const content = input.value.trim();
+    if (!content) return;
+    try {
+      await api("/siris/memory", { method: "POST", body: JSON.stringify({ content }) });
+      input.value = "";
+      loadMemory();
+    } catch (err) {
+      memoryList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  });
+
+  // --- Activity ---
+  const activityList = document.getElementById("activity-list");
+
+  async function loadActivity() {
+    activityList.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const entries = await api("/siris/activity?limit=50");
+      activityList.innerHTML = "";
+      if (!entries.length) {
+        activityList.innerHTML = '<p class="empty">No tool calls yet.</p>';
+        return;
+      }
+      for (const entry of entries) {
+        const div = document.createElement("div");
+        div.className = entry.error ? "activity-entry error" : "activity-entry";
+
+        const name = document.createElement("div");
+        name.className = entry.error ? "tool-name error" : "tool-name";
+        name.textContent = `${entry.error ? "✗" : "✓"} ${entry.tool_name}(${JSON.stringify(entry.arguments)})`;
+        div.appendChild(name);
+
+        const detail = document.createElement("div");
+        detail.className = "detail";
+        detail.textContent = entry.error ? entry.error : JSON.stringify(entry.result);
+        div.appendChild(detail);
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent =
+          `${new Date(entry.created_at).toLocaleString()} · ${entry.duration_ms.toFixed(0)}ms` +
+          (entry.conversation_id ? ` · conversation ${entry.conversation_id.slice(0, 8)}` : "");
+        div.appendChild(meta);
+
+        activityList.appendChild(div);
+      }
+    } catch (err) {
+      activityList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("activity-refresh").addEventListener("click", loadActivity);
+
+  // --- Status ---
+  const statusBody = document.getElementById("status-body");
+
+  async function loadStatus() {
+    statusBody.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const status = await api("/siris/status");
+      const dl = document.createElement("dl");
+      dl.className = "status-grid";
+      const rows = [
+        ["App", status.app_name],
+        ["Environment", status.environment],
+        ["LLM provider", status.llm_provider],
+        ["STT provider", status.stt_provider],
+        ["TTS provider", status.tts_provider],
+      ];
+      for (const [label, value] of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+      }
+      const dt = document.createElement("dt");
+      dt.textContent = "Tools";
+      const dd = document.createElement("dd");
+      dd.innerHTML = "";
+      for (const tool of status.tools) {
+        const span = document.createElement("span");
+        span.className = "tag";
+        span.textContent = tool;
+        dd.appendChild(span);
+      }
+      dl.appendChild(dt);
+      dl.appendChild(dd);
+      statusBody.innerHTML = "";
+      statusBody.appendChild(dl);
+    } catch (err) {
+      statusBody.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("status-refresh").addEventListener("click", loadStatus);
+
+  chatInput.focus();
+})();
+</script>
+</body>
+</html>

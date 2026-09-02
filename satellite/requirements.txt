@@ -1,0 +1,5 @@
+httpx==0.28.1
+pydantic-settings==2.7.1
+sounddevice==0.5.6
+numpy
+openwakeword==0.6.0

@@ -1,0 +1,9 @@
+# Deliberately NOT `-r requirements.txt`: satellite.py and client.py (the
+# orchestration logic these tests cover) don't import sounddevice or
+# openwakeword at all -- only audio_io.py does, and that's not exercised
+# by this suite (no real microphone/speaker to test it against). Keeping
+# the test deps free of hardware libraries means these tests can run
+# anywhere, including CI, with no PortAudio or wake-word model needed.
+httpx==0.28.1
+pydantic-settings==2.7.1
+pytest==8.3.4
