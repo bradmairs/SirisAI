@@ -30,6 +30,7 @@ from app.llm.router import ModelRouter
 from app.memory.entities import EntityMemoryStore
 from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
+from app.metrics.service import MetricsStore
 from app.notify.client import NotifyClient
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
@@ -127,6 +128,7 @@ class SirisAI:
     entities: EntityMemoryStore = field(default_factory=lambda: EntityMemoryStore(SessionLocal))
     events: EventMemoryStore = field(default_factory=lambda: EventMemoryStore(SessionLocal))
     goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
+    metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
 

@@ -15,9 +15,21 @@ class _FakeToolsRegistry:
         return object() if name == "docker_list_containers" and self._has_docker else None
 
 
+class _FakeMetrics:
+    """No history -- every metric falls back to the fixed threshold, same
+    as ServerHealthSkill always behaved before milestone 27."""
+
+    def record_sample(self, metric_name: str, value: float) -> None:
+        pass
+
+    def baseline(self, metric_name: str, min_samples: int = 10, limit: int = 100) -> Any:
+        return None
+
+
 class _FakeSiris:
     def __init__(self, system_info: dict[str, Any], containers: list | None = None, has_docker: bool = False) -> None:
         self.tools = _FakeToolsRegistry(has_docker)
+        self.metrics = _FakeMetrics()
         self._system_info = system_info
         self._containers = containers
 

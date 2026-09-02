@@ -623,16 +623,47 @@ noted inline rather than building the same thing twice under two names.
     was classified critical/urgent and the mock ntfy server actually
     received the push with the correct "SirisAI: urgent" title. Full
     suite: 154 passed.
-27. Personalized thresholds. `server_health_check` (15) hard-codes
-    CPU/memory/disk >90%. This replaces that with learned per-metric
-    baselines (mean/spread over recent history) so "67% CPU" can be
-    flagged as unusual for *this* server without an arbitrary global
-    cutoff. Same shape as milestone 19's honest scope-cut: a fresh install
-    has no history to learn a baseline from, so this needs a metrics
-    history table accumulating first -- likely ships with a documented
-    "needs N days of data before it's meaningfully different from the old
-    fixed threshold" caveat rather than pretending day-one baselines mean
-    anything.
+27. **Done** -- Personalized thresholds (`app/metrics/service.py`,
+    `MetricsStore`). `server_health_check` (15) hard-coded CPU/memory/disk
+    >90%; each metric now also gets flagged at `mean + 2*stdev` over its
+    own recent history once enough samples exist (`_MIN_SAMPLES_FOR_BASELINE
+    = 10`) -- so "67% CPU" can be unusual for *this* server without an
+    arbitrary global cutoff -- but the fixed 90% stays a hard ceiling
+    either way (`min(90, mean + 2*stdev)`): a server that legitimately
+    runs hot all the time doesn't get its real problems suppressed just
+    because that's "normal" for it. Same honest scope-cut as milestone
+    19: a fresh install has no history, so `MetricsStore.baseline()`
+    returns `None` below the sample floor and `server_health_check`
+    falls back to the plain fixed threshold until then -- no pretending
+    day-one readings mean anything. Samples only accumulate when
+    something actually calls `server_health_check` (a chat turn, cron
+    hitting `/siris/proactive/check`) -- no in-process scheduler taking
+    readings on its own, same milestone-19 boundary as 26.
+
+    One integration detail worth calling out: a baseline-triggered
+    warning keeps the *exact* `"{label} is high: {value}%"`
+    prefix/shape the fixed-threshold path always used, with `(baseline
+    {mean}% ± {stdev}%, {n} samples)` appended after rather than
+    replacing it -- milestone 26's `NotificationManager` correlates on
+    that exact shape via regex, so a personalized-threshold warning
+    correlates with a recorded world-model relationship exactly the same
+    way a fixed-threshold one always did, not a parallel message format
+    that would silently stop correlating.
+
+    Verified: unit tests against `MetricsStore` directly (ordering, limit,
+    the below-floor `None` case, mean/stdev computation), `ServerHealthSkill`
+    integration tests (a fresh metric only uses the fixed threshold; an
+    established stable baseline flags a value the fixed threshold would
+    have missed; the fixed threshold still wins as a ceiling against a
+    server that runs hot; a baseline-triggered warning still correlates
+    through `NotificationManager` end to end), and a live `uvicorn` run
+    against the real host: seeded 10 real idle-CPU readings, then spiked
+    real CPU load (`yes` across all cores) and confirmed the resulting
+    warning carried real baseline numbers -- and, more tellingly, a
+    completely stable ~4.5% memory reading got flagged the moment it
+    ticked up to 4.6%, nowhere near the old 90% threshold, which is
+    exactly the kind of catch a fixed global cutoff can't make. Full
+    suite: 162 passed.
 28. Explainable autonomy. Every autonomous action (anything a
     CONFIRM_REQUIRED/SAFE_ACTION tool does without a human directly typing
     "do X right now") gets its trigger, evidence, and the policy that
