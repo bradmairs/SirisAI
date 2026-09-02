@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
+from app.conversation.service import ConversationStore
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.home_assistant.client import HomeAssistantClient
@@ -42,6 +43,7 @@ class SirisAI:
     tts: TextToSpeechClient | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
+    conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:

@@ -33,6 +33,8 @@ app/
     builtin/      # Reference/first-party tools (echo.py, memory.py)
   memory/
     service.py    # MemoryStore -- SirisAI's long-term memory (SQLite-backed)
+  conversation/
+    service.py    # ConversationStore -- per-conversation turn history (SQLite-backed)
   voice/          # Model-agnostic speech interface (STT + TTS)
     base.py       # SpeechToTextClient/TextToSpeechClient ABCs + Null placeholders
     openai_compatible.py  # client for any server speaking OpenAI's audio API shape
@@ -127,17 +129,30 @@ Deliberately tiny, each one a working state:
    and restart; no code changes needed. Until then these tools simply
    aren't offered to the model, and won't show up in `/siris/status`.
 
+10. **Done** -- Conversation persistence (`app/conversation/service.py`,
+    `ConversationStore`, backed by `conversations`/`messages` SQLite
+    tables). `POST /siris/chat` was single-turn and stateless before this;
+    now each call's `response` carries a `conversation_id` -- pass it back
+    on the next call to continue that conversation, or omit it (or pass an
+    unknown one) to start a new one. Prior user/assistant turns are
+    replayed to the model as real chat history on every call;
+    `GET /siris/conversations/{id}` exposes the full stored history
+    (tool exchanges included) for inspection. Required evolving
+    `LLMClient.generate()` from a single `prompt: str` to a
+    `messages: list[dict]` history -- not scope creep, since
+    `OllamaClient` was already POSTing a `messages` array to Ollama's
+    `/api/chat`, just always a single-item one. Tool exchanges are
+    persisted but not yet replayed to the model as structured context on
+    later turns (still just user/assistant text) -- full tool-result
+    round-tripping remains future work, same boundary milestone 3 drew.
+    The built-in web UI now carries a conversation across turns within a
+    page session, with a "New chat" button to reset it.
+
 The rest of this list is proposed, not built -- captured here so the next
 round of work has a concrete order rather than an open-ended brainstorm.
 Same rule as everything above: tiny, working-state milestones, each one
 extending an existing pattern rather than introducing a parallel one.
 
-10. Conversation persistence -- `/siris/chat` is currently single-turn and
-    stateless (each call is independent; only what the model chooses to
-    `remember` survives). Store each exchange (user/assistant/tool
-    messages) against a conversation id in SQLite so a client can carry
-    context across turns without resending history itself. Foundational
-    for memory categories (14) and the context engine (16) below.
 11. Tool execution audit log -- every tool call (what was asked, tool
     name, arguments, result, duration, timestamp) recorded to a SQLite
     table and exposed via `GET /siris/activity`, surfaced in the web UI as
@@ -205,12 +220,19 @@ uvicorn app.main:app --reload
 - `GET /health` -- liveness + DB connectivity check.
 - `GET /siris/status` -- core service status: app name, environment, LLM
   provider, registered tools.
-- `POST /siris/chat` -- single-turn call to the configured LLM backend, with
-  registered tools offered. `{"prompt": "hello"}` -> `{"response": "...",
-  "tool_call": null}`, or if the model calls a tool, `{"response": null,
-  "tool_call": {"name": ..., "arguments": {...}, "result": ...}}`. Pass
-  `"use_tools": false` to disable tool offering. Returns 502 if no backend
-  is configured/reachable, or if the chosen tool call fails.
+- `POST /siris/chat` -- call the configured LLM backend, with registered
+  tools offered and prior turns of `conversation_id` replayed as context.
+  `{"prompt": "hello"}` -> `{"conversation_id": "...", "response": "...",
+  "tool_call": null}`, or if the model calls a tool, `{"conversation_id":
+  "...", "response": null, "tool_call": {"name": ..., "arguments": {...},
+  "result": ...}}`. Pass the returned `conversation_id` back on the next
+  call to continue that conversation; omit it (or pass an unknown one) to
+  start a new one. Pass `"use_tools": false` to disable tool offering.
+  Returns 502 if no backend is configured/reachable, or if the chosen tool
+  call fails.
+- `GET /siris/conversations/{conversation_id}` -- the full stored history
+  for a conversation (including tool exchanges), most recent last. 404 if
+  the id is unknown.
 - `POST /siris/memory` -- save a memory directly, e.g. `{"content": "..."}`.
 - `GET /siris/memory?query=...&limit=20` -- list/search saved memories,
   most recent first.

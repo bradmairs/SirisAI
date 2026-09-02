@@ -27,7 +27,9 @@ class _FakeRememberingLLMClient:
     def __init__(self, content: str) -> None:
         self._content = content
 
-    async def generate(self, prompt: str, *, tools: list[dict[str, Any]] | None = None, **kwargs: object) -> LLMResponse:
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
         return LLMResponse(tool_calls=[ToolCall(name="remember", arguments={"content": self._content})])
 
     async def aclose(self) -> None:

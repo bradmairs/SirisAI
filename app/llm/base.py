@@ -35,14 +35,16 @@ class LLMClient(ABC):
     @abstractmethod
     async def generate(
         self,
-        prompt: str,
+        messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None = None,
         **kwargs: object,
     ) -> LLMResponse:
-        """Return a completion for `prompt`, optionally offering `tools` (in
-        OpenAI function-calling schema) the model may choose to call instead
-        of answering directly. Raises on backend failure."""
+        """Return a completion for `messages` (OpenAI-style chat history:
+        `[{"role": "user"|"assistant", "content": "..."}, ...]`), optionally
+        offering `tools` (in OpenAI function-calling schema) the model may
+        choose to call instead of answering directly. Raises on backend
+        failure."""
         raise NotImplementedError
 
     async def aclose(self) -> None:
@@ -54,7 +56,7 @@ class NullLLMClient(LLMClient):
 
     async def generate(
         self,
-        prompt: str,
+        messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None = None,
         **kwargs: object,

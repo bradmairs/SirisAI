@@ -19,14 +19,14 @@ class OllamaClient(LLMClient):
 
     async def generate(
         self,
-        prompt: str,
+        messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None = None,
         **kwargs: object,
     ) -> LLMResponse:
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "stream": False,
             **kwargs,
         }

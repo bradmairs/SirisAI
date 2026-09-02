@@ -30,16 +30,20 @@ def test_chat_without_llm_backend_returns_502(client: TestClient) -> None:
 
 
 class _FakeTextLLMClient:
-    async def generate(self, prompt: str, *, tools: list[dict[str, Any]] | None = None, **kwargs: object) -> LLMResponse:
-        return LLMResponse(text=f"echo: {prompt}")
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        return LLMResponse(text=f"echo: {messages[-1]['content']}")
 
     async def aclose(self) -> None:
         pass
 
 
 class _FakeToolCallingLLMClient:
-    async def generate(self, prompt: str, *, tools: list[dict[str, Any]] | None = None, **kwargs: object) -> LLMResponse:
-        return LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": prompt})])
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        return LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": messages[-1]["content"]})])
 
     async def aclose(self) -> None:
         pass
@@ -57,7 +61,10 @@ def test_chat_with_backend_configured(client: TestClient) -> None:
     try:
         response = client.post("/siris/chat", json={"prompt": "hello"})
         assert response.status_code == 200
-        assert response.json() == {"response": "echo: hello", "tool_call": None}
+        body = response.json()
+        assert body["response"] == "echo: hello"
+        assert body["tool_call"] is None
+        assert isinstance(body["conversation_id"], str) and body["conversation_id"]
     finally:
         app.dependency_overrides.pop(get_siris, None)
 
@@ -67,13 +74,12 @@ def test_chat_executes_tool_call_chosen_by_llm(client: TestClient) -> None:
     try:
         response = client.post("/siris/chat", json={"prompt": "please echo this"})
         assert response.status_code == 200
-        assert response.json() == {
-            "response": None,
-            "tool_call": {
-                "name": "echo",
-                "arguments": {"message": "please echo this"},
-                "result": {"echo": "please echo this"},
-            },
+        body = response.json()
+        assert body["response"] is None
+        assert body["tool_call"] == {
+            "name": "echo",
+            "arguments": {"message": "please echo this"},
+            "result": {"echo": "please echo this"},
         }
     finally:
         app.dependency_overrides.pop(get_siris, None)
