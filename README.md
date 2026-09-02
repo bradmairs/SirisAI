@@ -813,17 +813,58 @@ noted inline rather than building the same thing twice under two names.
     real failure count, the repeated sequence at exactly 3 occurrences,
     and the resulting skill suggestion, with `unused_memories` correctly
     empty since nothing was old enough yet. Full suite: 199 passed.
-31. Capability gap detection. When a request needs something SirisAI has
-    no tool for, report *what's missing* instead of just failing --
-    ideally naming a plausible data source/integration and a concrete
-    tool spec shape (e.g. asked about UPS battery health, no tool exists,
-    but Network UPS Tools' API is a known fit for `ups.get_status()`).
-    Depends on 22 (capabilities are only knowable to compare against once
-    introspectable) and benefits from 23/24 (a goal or plan is what
-    surfaces the gap in the first place, not just a bare chat message).
-    The output is a spec a human (or Claude Code, working this same repo)
-    can act on -- this milestone stops at generating that spec, it
-    doesn't attempt to write and load its own tools at runtime.
+31. **Done** -- Capability gap detection. A key design realization drove
+    the implementation: detection doesn't need a separate mechanism at
+    all. The model already sees every registered tool on any chat turn
+    that offers tools (`available_tool_specs()`), so recognizing "I have
+    nothing for this" is just the model's own reasoning -- what was
+    actually missing was somewhere for that recognition to *go* instead
+    of evaporating at the end of one chat reply. That's the whole
+    milestone: `report_capability_gap` (`app/plugins/builtin/capability_gap.py`,
+    always registered, SAFE_ACTION) and `CapabilityGapStore`
+    (`app/capabilities/service.py`) turn the model's own gap-spotting
+    into a persisted, queryable development spec -- `requested_capability`
+    plus, when the model can supply them from its own general knowledge,
+    a `suggested_integration` (e.g. "Network UPS Tools (NUT)" for UPS
+    battery health) and a `suggested_tool_spec` sketch (e.g.
+    `{"name": "ups_get_status", "parameters": {...}}`). `GET
+    /siris/capability_gaps` exposes the resulting backlog, same
+    direct-read relationship to the tool as goals/routines/events already
+    have to theirs.
+
+    Ruled out a different design, worth recording why: an LLM-*calling*
+    tool (something that itself queries the model to reason about a gap)
+    would have hit a real architectural wall -- `Tool.run()` is
+    synchronous but `LLMClient.generate()` is async, and route handlers
+    already call `run_tool()` synchronously from inside a running event
+    loop, so bridging with `asyncio.run()` inside a tool would raise
+    "cannot be called from a running event loop." Not building a second
+    LLM-calling path avoided that entirely, and is arguably more honest
+    too: the model doing this reasoning already IS an LLM call, the one
+    already in flight for the chat turn -- a nested one would just be
+    redundant. This does mean tool-spec quality depends on how good the
+    underlying model's own domain knowledge is; that's an accepted
+    characteristic, not hidden.
+
+    No new detection engine also means 22/23/24 relate to this milestone
+    as context rather than hard dependencies: 22's introspection is what
+    lets the model (and a human) see the current tool list to compare a
+    request against, and 23/24 are where a gap is likely to surface in
+    practice (a goal or multi-step plan hitting a wall), but nothing here
+    required them to be built first.
+
+    Verified: unit tests for `CapabilityGapStore` (with/without the
+    optional fields, most-recent-first ordering), endpoint tests (tool
+    registration, the full tool-call round trip populating
+    `GET /siris/capability_gaps`, the tool showing up under its own
+    "capabilities" category), and a live `uvicorn` run driving the exact
+    scenario from the roadmap's own example through a real mock Ollama
+    backend: asked "can you check if my UPS battery is healthy?", got
+    back a real `report_capability_gap` call naming Network UPS Tools and
+    a concrete `ups_get_status` tool spec, and confirmed it was
+    genuinely persisted and queryable afterward via
+    `GET /siris/capability_gaps` -- a real spec someone could hand to
+    Claude Code working this repo. Full suite: 206 passed.
 32. Automatic tool discovery. A generic integration layer that ingests an
     OpenAPI spec (`POST /integrations` with a spec URL) and generates
     `Tool` instances from it, rather than every integration being a

@@ -16,6 +16,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.audit.service import AuditLogStore
+from app.capabilities.service import CapabilityGapStore
 from app.calendar.client import CalendarClient
 from app.context.engine import ContextEngine
 from app.conversation.service import ConversationStore
@@ -35,6 +36,7 @@ from app.notify.client import NotifyClient
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
 from app.plugins.builtin.audit import ExplainRecentActionTool
+from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
 from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
@@ -101,6 +103,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "notify": "notify",
     "system_info": "system",
     "explain_recent_action": "audit",
+    "report_capability_gap": "capabilities",
     "create_goal": "goals",
     "list_goals": "goals",
     "update_goal_status": "goals",
@@ -153,6 +156,7 @@ class SirisAI:
     entities: EntityMemoryStore = field(default_factory=lambda: EntityMemoryStore(SessionLocal))
     events: EventMemoryStore = field(default_factory=lambda: EventMemoryStore(SessionLocal))
     goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
+    capability_gaps: CapabilityGapStore = field(default_factory=lambda: CapabilityGapStore(SessionLocal))
     routines: RoutineStore = field(default_factory=lambda: RoutineStore(SessionLocal))
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
@@ -208,6 +212,7 @@ class SirisAI:
         self.tools.register(SetRoutineEnabledTool(self.routines))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
         self.tools.register(ExplainRecentActionTool(self.audit))
+        self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
             self._home_assistant_client = HomeAssistantClient(
