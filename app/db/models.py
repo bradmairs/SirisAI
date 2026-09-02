@@ -56,3 +56,33 @@ class ToolExecution(Base):
     confirmation_required: Mapped[bool] = mapped_column(Boolean, default=False)
     duration_ms: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class EntityFact(Base):
+    """One fact about a named entity -- a person, service, device, project,
+    etc. Several rows can share an entity_name; together they're everything
+    SirisAI knows about that entity. Distinct from the free-text
+    `memories` table: this is for information clearly about one named
+    thing, looked up per-entity rather than by substring search."""
+
+    __tablename__ = "entity_facts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_name: Mapped[str] = mapped_column(Text, index=True)
+    fact: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Event(Base):
+    """A point-in-time occurrence -- a status change, failure, completion,
+    etc -- optionally tagged to an entity. Distinct from an EntityFact
+    (a standing fact) and from ToolExecution (an internal record of what
+    SirisAI itself did): an Event is a thing that happened, which may or
+    may not have come from a tool call."""
+
+    __tablename__ = "events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_name: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    description: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

@@ -33,7 +33,9 @@ app/
     builtin/      # Every tool: echo, memory, home_assistant, system_info,
                   # docker, plex, unifi, weather, calendar
   memory/
-    service.py    # MemoryStore -- SirisAI's long-term memory (SQLite-backed)
+    service.py    # MemoryStore -- free-text long-term memory (SQLite-backed)
+    entities.py   # EntityMemoryStore -- facts about named entities
+    events.py     # EventMemoryStore -- things that happened, per-entity
   conversation/
     service.py    # ConversationStore -- per-conversation turn history (SQLite-backed)
   audit/
@@ -235,12 +237,22 @@ Deliberately tiny, each one a working state:
     response mapping, same rigor as the Home Assistant integration.
     `system_info` is the exception and is tested for real, since it reads
     local `psutil` data with no external dependency.
-14. Memory categories -- split the current flat `MemoryStore` into entity
-    memory (people/things: "Brad", "Plex", "the NAS") and event memory
-    (things that happened: "Plex crashed", "backup failed"), alongside the
-    existing free-text long-term memory. Lets SirisAI answer "has Plex
-    been playing up lately?" from actual event history instead of just
-    current state.
+14. **Done** -- Memory categories, alongside (not replacing) the existing
+    free-text `MemoryStore`:
+    - Entity memory (`app/memory/entities.py`, `EntityMemoryStore`, an
+      `entity_facts` SQLite table) -- facts about a specific named
+      person/service/device/project, looked up by that name rather than
+      searched. `remember_entity_fact`/`recall_entity_facts`.
+    - Event memory (`app/memory/events.py`, `EventMemoryStore`, an
+      `events` table) -- things that happened, optionally tagged to an
+      entity. `log_event`/`recall_events`. Lets SirisAI answer "has Plex
+      been playing up lately?" from actual history (`recall_events(
+      entity_name="Plex")`) instead of just current state.
+
+    Both are always registered (like `remember`/`recall`, no config
+    needed) and follow the exact same `Tool` pattern. The model decides
+    which of the three memory tools fits what it's told -- their
+    descriptions spell out when to prefer one over another.
 15. Skills -- composable workflows that chain multiple tool calls into one
     reusable unit (e.g. a health-check skill running several system/Docker
     checks and summarizing the result), invocable by the model like a tool

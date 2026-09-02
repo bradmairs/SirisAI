@@ -24,6 +24,8 @@ from app.docker.client import DockerClient
 from app.home_assistant.client import HomeAssistantClient
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
+from app.memory.entities import EntityMemoryStore
+from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, ToolPermission, ToolRegistry
@@ -35,7 +37,14 @@ from app.plugins.builtin.home_assistant import (
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
 )
-from app.plugins.builtin.memory import RecallTool, RememberTool
+from app.plugins.builtin.memory import (
+    LogEventTool,
+    RecallEntityFactsTool,
+    RecallEventsTool,
+    RecallTool,
+    RememberEntityFactTool,
+    RememberTool,
+)
 from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
 from app.plugins.builtin.system_info import SystemInfoTool
 from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
@@ -56,6 +65,8 @@ class SirisAI:
     tts: TextToSpeechClient | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
+    entities: EntityMemoryStore = field(default_factory=lambda: EntityMemoryStore(SessionLocal))
+    events: EventMemoryStore = field(default_factory=lambda: EventMemoryStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
 
@@ -77,6 +88,10 @@ class SirisAI:
         self.tools.register(EchoTool())
         self.tools.register(RememberTool(self.memory))
         self.tools.register(RecallTool(self.memory))
+        self.tools.register(RememberEntityFactTool(self.entities))
+        self.tools.register(RecallEntityFactsTool(self.entities))
+        self.tools.register(LogEventTool(self.events))
+        self.tools.register(RecallEventsTool(self.events))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
