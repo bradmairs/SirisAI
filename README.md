@@ -483,18 +483,55 @@ noted inline rather than building the same thing twice under two names.
     `uvicorn` run through the full lifecycle (create with three
     objectives, complete one, list filtered by status). Full suite: 126
     passed.
-24. Task planner. Today a chat turn is: model picks zero or one tool call,
-    SirisAI runs it, done. This introduces a
-    request -> plan -> execute each step -> verify -> respond loop for
-    requests that need more than one tool call ("figure out why Plex is
-    slow" -> check container health, check CPU/RAM, check disk I/O,
-    compare against baseline). The verifier is the actual point of this
-    milestone: check whether a step's result means what it looks like it
-    means (a 200 OK isn't success), not just chain tool calls. Single
-    biggest architectural change in this batch -- everything else in 25-33
-    is additive, this one changes how a chat turn works, so it gets
-    written carefully and behind whatever's necessary to not break the
-    existing single-tool-call path.
+24. **Done** -- Task planner (`app/planning/planner.py`, `Planner`).
+    Before this, a chat turn was: model picks zero or one tool call,
+    SirisAI runs it, done -- `Planner.run()` instead loops
+    generate -> execute step -> feed result back -> generate again, up to
+    `max_steps` (default 5), so "figure out why Plex is slow" can chain
+    check-container-health -> check-CPU/RAM -> check-disk-I/O without the
+    conversation needing a manual turn per step. Opt-in via
+    `ChatRequest.use_planner` (default `false`) -- the single biggest
+    architectural change in this batch, so it was built as an additional
+    path through `POST /siris/chat` rather than a replacement, and every
+    existing test (and caller) sees no behavior change unless it asks for
+    one. `plan` (the ordered list of every call+result made) replaces
+    `tool_call` in the response when it's used.
+
+    On the verifier: this does NOT implement a separate deterministic
+    verification pass that can tell "this 200 OK doesn't actually mean
+    the service is healthy" independent of the model's own judgment --
+    that needs per-tool success criteria this milestone doesn't define,
+    and would have been overclaiming a rigor that isn't really there.
+    What it does implement is real, just more modest: every tool result
+    is fed back to the model before it decides on a next step, so
+    "verification" is the model re-assessing actual result *content*
+    against the original request each iteration (not just whether the
+    call raised) -- if the evidence doesn't add up, it calls another
+    tool; if it does, it answers. A CONFIRM_REQUIRED tool mid-plan still
+    stops the loop and surfaces `confirmation_required` with whatever
+    steps already ran (see `PlanResult.pending_confirmation`) --
+    resuming the rest of the plan after confirming is out of scope here;
+    `POST /siris/chat/confirm` runs just that one step, same as it
+    already does for a single non-planned tool call. Every step still
+    goes through `SirisAI.run_tool()` -- full permission gating and audit
+    logging apply per step, nothing about planning bypasses them.
+
+    Verified: unit tests against `Planner.run()` directly with a fake LLM
+    client and a fake `siris` stub (multi-step chaining, stopping on
+    confirmation-required/permission-error/other-failure with prior steps
+    preserved, and exhausting `max_steps` without a final answer),
+    endpoint tests confirming `use_planner=false` leaves existing
+    single-tool-call behavior untouched, and a live `uvicorn` run against
+    a real mock Ollama HTTP backend (not just a fake `LLMClient`) that
+    actually returns two tool calls before a final answer -- confirmed
+    both steps landed in the audit log individually via
+    `GET /siris/activity`. One thing self-caught before it shipped: the
+    first pass of these tests was `async def`, which pytest silently
+    skips without `pytest-asyncio` installed (not a dependency here,
+    same pitfall milestone 18 hit) -- converted to synchronous tests
+    wrapping `asyncio.run()` instead, and confirmed they actually execute
+    (six previously-silent tests went from "skipped" to "passed" in the
+    same run). Full suite: 134 passed.
 25. Simulation / dry-run mode. `Tool` gets an optional `dry_run()`
     alongside `run()` -- for a restart/update-shaped tool, reports what
     it *would* do (which containers restart, active Plex sessions that'd

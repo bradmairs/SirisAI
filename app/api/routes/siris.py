@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.llm.base import LLMClient
+from app.planning.planner import Planner
 from app.plugins.base import ConfirmationRequired
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,12 @@ class ChatRequest(BaseModel):
     # An explicit role that isn't actually configured falls back to
     # "general" rather than erroring.
     model_role: str | None = None
+    # Opt into the task planner (app/planning/planner.py, milestone 24):
+    # lets this turn chain multiple tool calls (plan -> execute -> verify
+    # -> ... -> respond) instead of at most one. False by default so
+    # existing callers see no behavior change unless they ask for it.
+    use_planner: bool = False
+    max_plan_steps: int = 5
 
 
 class ToolCallResult(BaseModel):
@@ -143,6 +150,11 @@ class ChatResponse(BaseModel):
     # app/llm/router.py) -- "general" unless a "fast" model is configured
     # and either requested or selected by the routing policy.
     model_role: str = "general"
+    # Set instead of tool_call when request.use_planner was true and at
+    # least one step ran -- every tool call the planner made this turn, in
+    # order (see app/planning/planner.py). Empty/absent for a plan that
+    # produced a final answer without needing any tool.
+    plan: list[ToolCallResult] | None = None
 
 
 def _load_messages(siris: SirisAI, conversation_id: str) -> list[dict[str, Any]]:
@@ -225,6 +237,50 @@ async def _execute_tool_call(
     return ChatResponse(conversation_id=conversation_id, tool_call=tool_call, model_role=model_role)
 
 
+async def _run_planned_chat(
+    siris: SirisAI,
+    conversation_id: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    llm_client: LLMClient,
+    model_role: str,
+    max_steps: int,
+) -> ChatResponse:
+    """The `request.use_planner=True` path of POST /chat: run the planner
+    (app/planning/planner.py) instead of at most one tool call, persist
+    every step it took, and shape the response the same way a
+    ConfirmationRequired/failed/successful single tool call already is."""
+    try:
+        plan_result = await Planner(max_steps=max_steps).run(siris, conversation_id, messages, tools, llm_client)
+    except Exception:
+        logger.exception("Planner's LLM generate() failed")
+        raise HTTPException(status_code=502, detail="LLM backend call failed.") from None
+
+    for step in plan_result.steps:
+        siris.conversation.add_message(
+            conversation_id, role="tool", content=json.dumps(step.result), tool_name=step.name, tool_arguments=step.arguments
+        )
+    plan = [ToolCallResult(name=s.name, arguments=s.arguments, result=s.result) for s in plan_result.steps] or None
+
+    if plan_result.pending_confirmation:
+        name, arguments = plan_result.pending_confirmation
+        return ChatResponse(
+            conversation_id=conversation_id,
+            plan=plan,
+            confirmation_required=PendingToolCall(name=name, arguments=arguments),
+            model_role=model_role,
+        )
+
+    if plan_result.error:
+        status_code = 403 if plan_result.permission_denied else 502
+        raise HTTPException(status_code=status_code, detail=plan_result.error)
+
+    if plan_result.final_text:
+        siris.conversation.add_message(conversation_id, role="assistant", content=plan_result.final_text)
+
+    return ChatResponse(conversation_id=conversation_id, response=plan_result.final_text, plan=plan, model_role=model_role)
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> ChatResponse:
     """Call the configured LLM backend with tools offered, carrying prior
@@ -255,6 +311,12 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     Which model actually handles the turn is decided by the model router
     (app/llm/router.py, `SIRISAI_MODEL_ROUTER_POLICY`) unless `model_role`
     forces a specific one; the response's `model_role` says which one ran.
+
+    Pass `use_planner=true` to let this turn chain multiple tool calls
+    (app/planning/planner.py, milestone 24) instead of at most one --
+    `plan` carries every call+result made, in order, in place of
+    `tool_call`. False by default: nothing above changes unless you ask
+    for it.
     """
     assert siris.llm is not None
 
@@ -276,6 +338,9 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
 
     assert siris.model_router is not None
     model_role, llm_client = siris.model_router.pick(siris.llm, request.prompt, role=request.model_role)
+
+    if request.use_planner:
+        return await _run_planned_chat(siris, conversation_id, messages, tools, llm_client, model_role, request.max_plan_steps)
 
     try:
         result = await llm_client.generate(messages, tools=tools)
