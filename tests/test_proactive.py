@@ -14,9 +14,24 @@ class _FakeTools:
         return object() if name == "notify" and self._notify_present else None
 
 
+class _FakeEntities:
+    """No relationships recorded by default -- nothing correlates, same
+    behavior as the old flat logic for tests that aren't about
+    correlation. `relationships` lets a specific test wire one up."""
+
+    def __init__(self, relationships: dict[str, dict[str, list[Any]]] | None = None) -> None:
+        self._relationships = relationships or {}
+
+    def relationships_for(self, entity_name: str) -> dict[str, list[Any]]:
+        return self._relationships.get(entity_name, {"outgoing": [], "incoming": []})
+
+
 class _FakeSirisForProactive:
-    def __init__(self, health_result: dict[str, Any], notify_present: bool) -> None:
+    def __init__(
+        self, health_result: dict[str, Any], notify_present: bool, entities: _FakeEntities | None = None
+    ) -> None:
         self.tools = _FakeTools(notify_present)
+        self.entities = entities or _FakeEntities()
         self._health_result = health_result
         self.notify_calls: list[dict[str, Any]] = []
 
@@ -74,3 +89,43 @@ def test_proactive_check_real_end_to_end_without_notify_configured(client: TestC
     body = response.json()
     assert "healthy" in body["result"]
     assert body["notified"] is False
+
+
+def test_proactive_check_correlates_related_warnings_into_one_notification(client: TestClient) -> None:
+    entities = _FakeEntities({"plex": {"outgoing": [{"object_entity": "media-storage"}], "incoming": []}})
+    fake_siris = _FakeSirisForProactive(
+        {"healthy": False, "warnings": ["Container 'plex' is exited", "Disk usage on media-storage is high: 96%"]},
+        notify_present=True,
+        entities=entities,
+    )
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/proactive/check")
+        assert response.status_code == 200
+        body = response.json()
+
+        assert len(body["notifications"]) == 1
+        assert body["notifications"][0]["category"] == "correlated"
+        assert body["notifications"][0]["action"] == "urgent"
+
+        assert len(fake_siris.notify_calls) == 1
+        assert fake_siris.notify_calls[0]["title"] == "SirisAI: urgent"
+        assert "Container 'plex' is exited" in fake_siris.notify_calls[0]["message"]
+        assert "Disk usage on media-storage is high" in fake_siris.notify_calls[0]["message"]
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+def test_proactive_check_exposes_notifications_even_when_nothing_sent(client: TestClient) -> None:
+    fake_siris = _FakeSirisForProactive(
+        {"healthy": False, "warnings": ["CPU usage is high: 95%"]}, notify_present=False
+    )
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/proactive/check")
+        body = response.json()
+        assert body["notified"] is False
+        assert len(body["notifications"]) == 1
+        assert body["notifications"][0]["action"] == "notify"
+    finally:
+        app.dependency_overrides.pop(get_siris, None)

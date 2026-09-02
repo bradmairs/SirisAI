@@ -581,14 +581,48 @@ noted inline rather than building the same thing twice under two names.
     confirmed the report correctly showed a real dependent entity and a
     real live session count, and confirmed the audit log stayed empty
     for the dry run itself. Full suite: 144 passed.
-26. Notification intelligence. Replaces the flat "unhealthy -> send one
-    ntfy message" logic in `POST /siris/proactive/check` (19) with a
-    `NotificationManager` that scores each event (severity, confidence,
-    category) and decides ignore / log / daily-briefing / notify / urgent,
-    plus correlates related events into one message ("Plex is down,
-    likely the media disk's I/O latency") instead of three separate ones.
-    Depends on 21 (the world model is what makes "Plex down + disk
-    latency up" a correlated pair instead of two unrelated facts).
+26. **Done** -- Notification intelligence
+    (`app/notify/manager.py`, `NotificationManager`). Replaces the flat
+    "unhealthy -> send one ntfy message joining every warning" logic in
+    `POST /siris/proactive/check` (19): each `server_health_check` (15)
+    warning is scored -- severity, category, confidence, an `action`
+    (urgent/notify/log_only/ignore, though only the top two are reachable
+    today, see below) -- and only "notify"/"urgent" items actually get
+    pushed; `notifications` in the response shows every item's
+    classification regardless, so what wasn't sent is still visible, not
+    silently dropped.
+
+    Also correlates related warnings using the world model (21) instead
+    of surfacing them as separate, seemingly unrelated lines: if a
+    container warning's name has a recorded relationship
+    (`remember_entity_relationship`) pointing at something a disk-usage
+    warning is also about, they merge into one message ("Container 'plex'
+    is exited -- likely related to: Disk usage on media-storage is high")
+    with the more severe of the two winning the merged action.
+    Deliberately narrow about how: correlation is exact-string matching
+    against the container name and disk path `server_health_check`'s own
+    messages already contain (a regex against its two known message
+    shapes), not a general entity-extraction system -- a relationship
+    recorded as "Plex" won't match a warning naming "plex". Confidence is
+    always 1.0 and nothing lands on "ignore": every warning
+    `server_health_check` produces already cleared its own hard threshold
+    (>90%, not running), so there's no genuine uncertainty to model yet --
+    a future source with real uncertainty (an LLM's own read of a
+    situation, a learned baseline in 27) is what would actually use the
+    fuller action range this milestone's data model already supports.
+
+    Verified: unit tests against `NotificationManager` directly
+    (classification of each warning shape, correlation with/without a
+    matching relationship, correlation declining to match an unrelated
+    disk warning, merged severity/action picking the more severe side),
+    endpoint tests (existing `/siris/proactive/check` behavior unchanged
+    for non-correlating warnings, a new correlation case, `notifications`
+    populated even when nothing was sent), and a live `uvicorn` run
+    against a real mock Docker backend (a container in `exited` state)
+    and a real mock ntfy server -- confirmed the exited-container warning
+    was classified critical/urgent and the mock ntfy server actually
+    received the push with the correct "SirisAI: urgent" title. Full
+    suite: 154 passed.
 27. Personalized thresholds. `server_health_check` (15) hard-codes
     CPU/memory/disk >90%. This replaces that with learned per-metric
     baselines (mean/spread over recent history) so "67% CPU" can be
