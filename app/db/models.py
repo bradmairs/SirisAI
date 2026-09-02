@@ -146,3 +146,22 @@ class GoalObjective(Base):
     description: Mapped[str] = mapped_column(Text)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class MetricSample(Base):
+    """One point-in-time reading of a named metric (milestone 27), e.g.
+    metric_name="cpu_percent", value=6.2. Accumulates only when something
+    actually calls MetricsStore.record_sample() -- there's no in-process
+    scheduler taking readings on its own (milestone 19's boundary) -- so
+    this naturally piggybacks on whatever already calls
+    server_health_check. Several rows share a metric_name; together they're
+    the recent history MetricsStore.baseline() learns a per-server-normal
+    range from, instead of ServerHealthSkill's old one-size-fits-all fixed
+    threshold."""
+
+    __tablename__ = "metric_samples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    metric_name: Mapped[str] = mapped_column(Text, index=True)
+    value: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
