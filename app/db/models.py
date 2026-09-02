@@ -5,7 +5,7 @@ so tables get registered -- `app/core/siris.py` pulls it in transitively via
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -179,3 +179,39 @@ class MetricSample(Base):
     metric_name: Mapped[str] = mapped_column(Text, index=True)
     value: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Routine(Base):
+    """A named, structured routine (milestone 29) -- an ordered list of
+    tool names to run together, e.g. "every night, check my server and
+    tell me tomorrow if anything went wrong" becomes
+    name="overnight_server_watch", interval_minutes=1440,
+    actions=["server_health_check"]. Execution is deliberately NOT
+    scheduled by SirisAI itself -- milestone 19 kept scheduling external
+    (cron/systemd), and this milestone's design question (asked of, and
+    answered by, the user rather than picked silently) kept that boundary:
+    `interval_minutes`/`last_run_at` let SirisAI answer "is this routine
+    due" when asked, but something external has to ask, via
+    POST /siris/routines/run_due, the same relationship
+    POST /siris/proactive/check already has to server_health_check.
+
+    `interval_minutes` is deliberately simple -- "due at least every N
+    minutes since it last ran" -- not a full cron expression. Covers
+    "nightly" (1440) and "every 15 minutes" (15) fine; does NOT support
+    "nightly at 2am specifically" or any other time-of-day-bound
+    schedule -- an honest v1 scope cut, not a hidden limitation."""
+
+    __tablename__ = "routines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    trigger_description: Mapped[str] = mapped_column(Text)  # free text, e.g. "nightly"
+    interval_minutes: Mapped[int] = mapped_column(Integer)
+    actions: Mapped[str] = mapped_column(Text)  # JSON-encoded list[str] of tool names, run in order
+    output_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
