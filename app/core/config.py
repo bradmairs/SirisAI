@@ -6,7 +6,9 @@ variables (or a `.env` file). Nothing else in the app should call
 """
 
 from functools import lru_cache
+from typing import Any
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -97,6 +99,16 @@ class Settings(BaseSettings):
     weather_base_url: str = "https://api.open-meteo.com"
     weather_latitude: float | None = None
     weather_longitude: float | None = None
+
+    @field_validator("weather_latitude", "weather_longitude", mode="before")
+    @classmethod
+    def _blank_env_string_means_unset(cls, value: Any) -> Any:
+        # An unset .env line (SIRISAI_WEATHER_LATITUDE=) arrives here as ""
+        # rather than being omitted entirely, which float | None otherwise
+        # rejects -- treat blank the same as not set.
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     # Calendar (app/calendar/, app/plugins/builtin/calendar.py) via
     # CalDAV -- works with Nextcloud, Radicale, Baikal, iCloud, etc. Empty
