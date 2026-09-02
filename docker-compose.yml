@@ -1,0 +1,13 @@
+services:
+  sirisai:
+    build: .
+    image: sirisai:local
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      SIRISAI_DATABASE_URL: sqlite:///./data/sirisai.db
+    restart: unless-stopped
