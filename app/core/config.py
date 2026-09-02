@@ -105,6 +105,19 @@ class Settings(BaseSettings):
     caldav_username: str = ""
     caldav_password: str = ""
 
+    # Model router (app/llm/router.py). The default ("general") model is
+    # still configured via llm_provider/ollama_* above -- this adds an
+    # optional second, differently-tuned model ("fast", meant for short/
+    # simple prompts) and a policy for routing to it automatically.
+    # "off" (default) always uses "general", unchanged from earlier
+    # milestones. "prompt_length" routes prompts at or under
+    # model_router_fast_max_prompt_chars to "fast", if one is configured.
+    model_router_policy: str = "off"
+    model_router_fast_max_prompt_chars: int = 120
+    fast_llm_provider: str = "none"
+    fast_llm_ollama_base_url: str = "http://localhost:11434"
+    fast_llm_ollama_model: str = "llama3.2:1b"
+
 
 @lru_cache
 def get_settings() -> Settings:

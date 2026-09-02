@@ -25,6 +25,7 @@ from app.docker.client import DockerClient
 from app.home_assistant.client import HomeAssistantClient
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
+from app.llm.router import ModelRouter
 from app.memory.entities import EntityMemoryStore
 from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
@@ -66,6 +67,7 @@ class SirisAI:
     llm: LLMClient | None = None
     stt: SpeechToTextClient | None = None
     tts: TextToSpeechClient | None = None
+    model_router: ModelRouter | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     context: ContextEngine = field(default_factory=ContextEngine)
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
@@ -76,7 +78,22 @@ class SirisAI:
 
     def __post_init__(self) -> None:
         if self.llm is None:
-            self.llm = build_llm_client(self.settings)
+            self.llm = build_llm_client(
+                self.settings.llm_provider, self.settings.ollama_base_url, self.settings.ollama_model
+            )
+        if self.model_router is None:
+            fast_llm = None
+            if self.settings.fast_llm_provider != "none":
+                fast_llm = build_llm_client(
+                    self.settings.fast_llm_provider,
+                    self.settings.fast_llm_ollama_base_url,
+                    self.settings.fast_llm_ollama_model,
+                )
+            self.model_router = ModelRouter(
+                fast=fast_llm,
+                policy=self.settings.model_router_policy,
+                fast_max_prompt_chars=self.settings.model_router_fast_max_prompt_chars,
+            )
         if self.stt is None:
             self.stt = build_stt_client(self.settings)
         if self.tts is None:
@@ -163,6 +180,10 @@ class SirisAI:
         disabled RESTRICTED tools."""
         return self.tools.specs(exclude=self.restricted_tool_names_to_exclude())
 
+    def available_model_roles(self) -> list[str]:
+        assert self.model_router is not None
+        return self.model_router.available_roles()
+
     def run_tool(
         self,
         name: str,
@@ -226,6 +247,8 @@ class SirisAI:
             "llm_provider": self.settings.llm_provider,
             "stt_provider": self.settings.stt_provider,
             "tts_provider": self.settings.tts_provider,
+            "model_router_policy": self.settings.model_router_policy,
+            "model_router_roles": self.available_model_roles(),
             "tools": [tool.name for tool in self.tools.list()],
             "restricted_tools_disabled": sorted(self.restricted_tool_names_to_exclude()),
         }
@@ -236,9 +259,11 @@ class SirisAI:
         assert self.llm is not None
         assert self.stt is not None
         assert self.tts is not None
+        assert self.model_router is not None
         await self.llm.aclose()
         await self.stt.aclose()
         await self.tts.aclose()
+        await self.model_router.aclose()
         sync_clients = (
             self._home_assistant_client,
             self._docker_client,

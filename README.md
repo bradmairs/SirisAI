@@ -30,7 +30,8 @@ app/
   llm/            # Model-agnostic LLM client interface
     base.py       # LLMClient ABC + NullLLMClient placeholder
     ollama.py     # OllamaClient -- the first real backend
-    factory.py    # Picks a backend from settings.llm_provider
+    factory.py    # Builds one LLMClient from a provider/base_url/model
+    router.py     # ModelRouter -- picks "general" vs "fast" per chat call
   plugins/        # Tool/plugin interface + registry
     base.py       # Tool ABC (+ ToolPermission) + ToolRegistry
     builtin/      # Every tool: echo, memory, home_assistant, system_info,
@@ -303,11 +304,26 @@ Deliberately tiny, each one a working state:
     engine (16) on the very next chat call, with no extra wiring --
     verified live by pushing a Docker-style event and watching it appear
     in the system message a subsequent `/siris/chat` call sent to Ollama.
-18. Model router -- support multiple configured LLM backends at once
-    (building on the existing `LLMClient` interface) with policy-based
-    selection -- a fast local model for simple asks, a larger one for
-    general conversation, a coding model, an optional cloud model -- plus
-    a "keep private data local" routing policy.
+18. **Done** -- Model router (`app/llm/router.py`, `ModelRouter`) -- a
+    thin selection layer over the existing `LLMClient` interface, not a
+    new client type. The default ("general") model is unchanged, still
+    configured via `SIRISAI_LLM_PROVIDER`/`SIRISAI_OLLAMA_*`; this adds
+    an optional second, differently-tuned one (`"fast"`, via
+    `SIRISAI_FAST_LLM_*`) for short/simple prompts, plus
+    `SIRISAI_MODEL_ROUTER_POLICY` (`off` -- always general, the default;
+    or `prompt_length` -- auto-route short prompts to `fast` if
+    configured). A chat request's `model_role` overrides the policy
+    outright (an explicit role that isn't actually configured falls back
+    to `general` rather than erroring), and the response's `model_role`
+    says which one ran. The pattern generalizes to more roles -- a coding
+    model, a cloud model, a "keep private data local" policy that never
+    routes to the cloud one -- without a new mechanism, just another
+    settings block and a case in `ModelRouter.pick()`; not built further
+    than "general" + "fast" here for lack of a second real backend to
+    route between yet. `ModelRouter` doesn't own the general client
+    itself -- it's passed into `pick()` from `SirisAI.llm` on every call
+    -- specifically so it keeps working with whatever `SirisAI.llm`
+    currently is.
 19. Proactive notifications -- anomaly detection over the event/metric
     history from milestones 14 and 17 (e.g. "the backup normally finishes
     by 3am but hasn't today"), surfaced unprompted through a notification
@@ -342,6 +358,9 @@ uvicorn app.main:app --reload
   call to continue that conversation; omit it (or pass an unknown one) to
   start a new one. Pass `"use_tools": false` to disable tool offering, or
   `"use_context": false` to skip the context engine's system message.
+  Every response carries `"model_role"` (`"general"` or `"fast"`) saying
+  which model router role handled the turn; pass `"model_role": "fast"`
+  to force one (falls back to `"general"` if that role isn't configured).
   If the model picks a `CONFIRM_REQUIRED` tool, the response carries
   `"confirmation_required": {"name": ..., "arguments": {...}}` instead of
   `tool_call`, and nothing has run yet. Returns 502 if no backend is

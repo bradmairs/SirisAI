@@ -31,6 +31,11 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     use_tools: bool = True
     use_context: bool = True
+    # Force a specific model router role (see app/llm/router.py), e.g.
+    # "fast". Omit to let SIRISAI_MODEL_ROUTER_POLICY decide automatically.
+    # An explicit role that isn't actually configured falls back to
+    # "general" rather than erroring.
+    model_role: str | None = None
 
 
 class ToolCallResult(BaseModel):
@@ -52,10 +57,20 @@ class ChatResponse(BaseModel):
     # (see app/plugins/base.py's ToolPermission). Nothing ran yet -- POST
     # the same name/arguments to /siris/chat/confirm to actually run it.
     confirmation_required: PendingToolCall | None = None
+    # Which model router role actually handled this turn (see
+    # app/llm/router.py) -- "general" unless a "fast" model is configured
+    # and either requested or selected by the routing policy.
+    model_role: str = "general"
 
 
 def _execute_tool_call(
-    siris: SirisAI, conversation_id: str, name: str, arguments: dict[str, Any], *, confirmed: bool
+    siris: SirisAI,
+    conversation_id: str,
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    confirmed: bool,
+    model_role: str = "general",
 ) -> ChatResponse:
     """Shared by POST /chat and POST /chat/confirm: run a tool, persist the
     exchange, and shape the response -- including the ConfirmationRequired
@@ -66,6 +81,7 @@ def _execute_tool_call(
         return ChatResponse(
             conversation_id=conversation_id,
             confirmation_required=PendingToolCall(name=name, arguments=arguments),
+            model_role=model_role,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from None
@@ -83,6 +99,7 @@ def _execute_tool_call(
     return ChatResponse(
         conversation_id=conversation_id,
         tool_call=ToolCallResult(name=name, arguments=arguments, result=output),
+        model_role=model_role,
     )
 
 
@@ -110,6 +127,10 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     recomputed fresh each time. It's not part of the persisted
     conversation history and doesn't hit the audit log -- it's
     background situational awareness, not a decision SirisAI made.
+
+    Which model actually handles the turn is decided by the model router
+    (app/llm/router.py, `SIRISAI_MODEL_ROUTER_POLICY`) unless `model_role`
+    forces a specific one; the response's `model_role` says which one ran.
     """
     assert siris.llm is not None
 
@@ -130,18 +151,23 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
 
     tools = siris.available_tool_specs() if request.use_tools else None
 
+    assert siris.model_router is not None
+    model_role, llm_client = siris.model_router.pick(siris.llm, request.prompt, role=request.model_role)
+
     try:
-        result = await siris.llm.generate(messages, tools=tools)
+        result = await llm_client.generate(messages, tools=tools)
     except Exception:
         logger.exception("LLM generate() failed")
         raise HTTPException(status_code=502, detail="LLM backend call failed.") from None
 
     if result.tool_calls:
         call = result.tool_calls[0]
-        return _execute_tool_call(siris, conversation_id, call.name, call.arguments, confirmed=False)
+        return _execute_tool_call(
+            siris, conversation_id, call.name, call.arguments, confirmed=False, model_role=model_role
+        )
 
     siris.conversation.add_message(conversation_id, role="assistant", content=result.text)
-    return ChatResponse(conversation_id=conversation_id, response=result.text)
+    return ChatResponse(conversation_id=conversation_id, response=result.text, model_role=model_role)
 
 
 class ConfirmToolRequest(BaseModel):
