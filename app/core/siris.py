@@ -17,6 +17,7 @@ from typing import Any
 
 from app.audit.service import AuditLogStore
 from app.calendar.client import CalendarClient
+from app.context.engine import ContextEngine
 from app.conversation.service import ConversationStore
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
@@ -66,6 +67,7 @@ class SirisAI:
     stt: SpeechToTextClient | None = None
     tts: TextToSpeechClient | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
+    context: ContextEngine = field(default_factory=ContextEngine)
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
     entities: EntityMemoryStore = field(default_factory=lambda: EntityMemoryStore(SessionLocal))
     events: EventMemoryStore = field(default_factory=lambda: EventMemoryStore(SessionLocal))

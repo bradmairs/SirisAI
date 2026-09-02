@@ -24,6 +24,9 @@ app/
     siris.py     # The SirisAI core service -- everything hangs off this
   api/routes/     # FastAPI routers (thin; delegate to SirisAI)
   db/             # SQLAlchemy engine/session + declarative Base (SQLite)
+  context/
+    engine.py     # ContextEngine -- system status + recent events + relevant
+                  # memories, prepended to every chat call
   llm/            # Model-agnostic LLM client interface
     base.py       # LLMClient ABC + NullLLMClient placeholder
     ollama.py     # OllamaClient -- the first real backend
@@ -274,11 +277,17 @@ Deliberately tiny, each one a working state:
     skills (e.g. scripting `docker_restart_container` without a chat
     turn). Outside of a chat turn, so nothing is added to a conversation
     transcript, but every call still hits the audit log.
-16. Context engine -- before calling the LLM, assemble a small curated
-    context package (recent events, system health, relevant memories)
-    instead of sending just the raw prompt, so an answer to "how's
-    everything looking?" has real situational awareness without every
-    prompt carrying the whole database.
+16. **Done** -- Context engine (`app/context/engine.py`, `ContextEngine`).
+    On every `POST /siris/chat` call (unless `use_context: false`),
+    prepends a system message with current system status, up to 3 recent
+    events, and up to 3 memories matching the prompt -- recomputed fresh
+    each turn, so it's never stale, and small on purpose (the roadmap's
+    own words: "without every prompt carrying the whole database"). Reads
+    state directly (`Tool.run()`, not `SirisAI.run_tool()`) rather than as
+    a tool call, so it's best-effort (never blocks a chat turn if
+    something in it fails) and deliberately doesn't show up in the audit
+    log -- it's background situational awareness, not a decision SirisAI
+    made. Not persisted to the conversation transcript either.
 17. Event bus -- inbound webhook endpoint(s) so external systems (Docker,
     Home Assistant, UniFi, Plex, calendar) can push events into SirisAI
     instead of only being polled through tools. Logged as event memory
@@ -320,7 +329,8 @@ uvicorn app.main:app --reload
   "...", "response": null, "tool_call": {"name": ..., "arguments": {...},
   "result": ...}}`. Pass the returned `conversation_id` back on the next
   call to continue that conversation; omit it (or pass an unknown one) to
-  start a new one. Pass `"use_tools": false` to disable tool offering.
+  start a new one. Pass `"use_tools": false` to disable tool offering, or
+  `"use_context": false` to skip the context engine's system message.
   If the model picks a `CONFIRM_REQUIRED` tool, the response carries
   `"confirmation_required": {"name": ..., "arguments": {...}}` instead of
   `tool_call`, and nothing has run yet. Returns 502 if no backend is

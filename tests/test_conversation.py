@@ -35,7 +35,9 @@ def test_first_chat_call_creates_a_conversation(client: TestClient) -> None:
     fake_llm = _RecordingLLMClient()
     _override_llm(fake_llm)
     try:
-        response = client.post("/siris/chat", json={"prompt": "hi"})
+        # use_context=False: this test is about conversation history, not
+        # the context engine (see tests/test_context_engine.py for that).
+        response = client.post("/siris/chat", json={"prompt": "hi", "use_context": False})
         assert response.status_code == 200
         body = response.json()
         assert isinstance(body["conversation_id"], str) and body["conversation_id"]
@@ -48,11 +50,12 @@ def test_passing_conversation_id_carries_prior_turns_to_the_llm(client: TestClie
     fake_llm = _RecordingLLMClient()
     _override_llm(fake_llm)
     try:
-        first = client.post("/siris/chat", json={"prompt": "my favorite color is blue"})
+        first = client.post("/siris/chat", json={"prompt": "my favorite color is blue", "use_context": False})
         conversation_id = first.json()["conversation_id"]
 
         second = client.post(
-            "/siris/chat", json={"prompt": "what did I just say?", "conversation_id": conversation_id}
+            "/siris/chat",
+            json={"prompt": "what did I just say?", "conversation_id": conversation_id, "use_context": False},
         )
         assert second.status_code == 200
         assert second.json()["conversation_id"] == conversation_id

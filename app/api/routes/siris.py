@@ -30,6 +30,7 @@ class ChatRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None
     use_tools: bool = True
+    use_context: bool = True
 
 
 class ToolCallResult(BaseModel):
@@ -102,6 +103,13 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     exchanges are persisted to the conversation for inspection via
     GET /siris/conversations/{id}, but aren't replayed to the model as
     context on later turns yet -- only user/assistant text is.
+
+    Unless `use_context` is false, a compact context package (current
+    system status, recent events, memories relevant to the prompt -- see
+    app/context/engine.py) is prepended as a system message on every call,
+    recomputed fresh each time. It's not part of the persisted
+    conversation history and doesn't hit the audit log -- it's
+    background situational awareness, not a decision SirisAI made.
     """
     assert siris.llm is not None
 
@@ -113,6 +121,12 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
 
     history = siris.conversation.get_messages(conversation_id)
     messages = [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
+
+    if request.use_context:
+        context_text = siris.context.build(siris, request.prompt)
+        if context_text:
+            system_message = {"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"}
+            messages = [system_message, *messages]
 
     tools = siris.available_tool_specs() if request.use_tools else None
 
