@@ -28,6 +28,8 @@ app/
     builtin/      # Reference/first-party tools (echo.py, memory.py)
   memory/
     service.py    # MemoryStore -- SirisAI's long-term memory (SQLite-backed)
+  web/static/
+    index.html    # Built-in web UI: chat, memory, status. No build step.
 ```
 
 **Extension points, by design:**
@@ -63,8 +65,24 @@ Deliberately tiny, each one a working state:
    direct access for inspecting or seeding it outside a chat turn. Recall
    is a plain substring match for now -- semantic/vector search is a
    drop-in replacement behind the same `MemoryStore.recall()` later.
-5. Auth.
-6. Homelab/home-automation tools (Home Assistant, etc.).
+5. **Done** -- Auth: a single shared bearer token (`SIRISAI_API_KEY`),
+   checked via `Authorization: Bearer <key>` on every `/siris/*` route
+   (`app/core/auth.py`). Off by default (no key configured -> open, fine
+   for local-only dev); `/health` is never gated so infra probes still
+   work. Deliberately minimal for a single-user service -- no
+   users/sessions/OAuth until there's an actual second user.
+6. **Done** -- Minimal built-in web UI (`app/web/static/index.html`,
+   served at `GET /`): chat, memory search/add, and a status panel. One
+   self-contained HTML/CSS/JS file with no build step and no external
+   scripts/fonts/CDNs, so it works over a plain homelab connection (e.g.
+   behind Tailscale) with no internet access required, and requests it
+   makes are same-origin so no CORS setup was needed. It reads the API
+   key from a field on the page (stored in the browser's `localStorage`)
+   and sends it as the `Authorization` header.
+7. Voice: a `SpeechToTextClient`/`TextToSpeechClient` pair (same
+   model-agnostic pattern as `LLMClient`), local Whisper/Piper as the
+   default backends.
+8. Homelab/home-automation tools (Home Assistant, etc.).
 
 ## Running locally
 
@@ -87,6 +105,12 @@ uvicorn app.main:app --reload
 - `POST /siris/memory` -- save a memory directly, e.g. `{"content": "..."}`.
 - `GET /siris/memory?query=...&limit=20` -- list/search saved memories,
   most recent first.
+- `GET /` -- the web UI.
+
+All `/siris/*` routes require `Authorization: Bearer <SIRISAI_API_KEY>` once
+that env var is set; `/health` and `/` never require it. For anything
+reachable off `localhost` (e.g. tunneled in via Tailscale), set
+`SIRISAI_API_KEY` -- generate one with `openssl rand -hex 32`.
 
 ## Running with Docker
 
