@@ -532,14 +532,55 @@ noted inline rather than building the same thing twice under two names.
     wrapping `asyncio.run()` instead, and confirmed they actually execute
     (six previously-silent tests went from "skipped" to "passed" in the
     same run). Full suite: 134 passed.
-25. Simulation / dry-run mode. `Tool` gets an optional `dry_run()`
-    alongside `run()` -- for a restart/update-shaped tool, reports what
-    it *would* do (which containers restart, active Plex sessions that'd
-    drop) without doing it. Sequenced before 24 finishes maturing rather
-    than after, deliberately: a planner that can chain multiple
-    SAFE_ACTION/CONFIRM_REQUIRED tool calls is exactly where a dry run
-    matters most, so it should exist by the time the planner is trusted
-    with real chains, not bolted on afterward.
+25. **Done** -- Simulation / dry-run mode. `Tool` gained an optional
+    `dry_run(**kwargs)` alongside `run()` (`app/plugins/base.py`) --
+    default implementation just raises `NotImplementedError`, so every
+    existing tool is unaffected unless it deliberately opts in; most
+    tools have nothing worth simulating anyway (a READ tool has no
+    effect to preview). `POST /siris/tools/{name}/run` gained a
+    `dry_run: true` request field that calls `dry_run()` instead of
+    `run()` -- bypassing `SirisAI.run_tool()` entirely, since a dry run
+    has no effect to permission-gate or audit; a tool that doesn't
+    support it returns 501.
+
+    One real implementation: `DockerRestartContainerTool.dry_run()`
+    (`app/plugins/builtin/docker.py`) reports the container's current
+    state (restarting a stopped container isn't the same as a running
+    one) plus, genuinely useful rather than a toy example, ties two
+    earlier milestones together instead of hand-coding a Plex-specific
+    special case: it queries the world model (21) for what depends on
+    the container being restarted (`EntityMemoryStore.relationships_for()`'s
+    incoming edges -- whatever's been recorded via
+    remember_entity_relationship), and separately, if the container's
+    name looks like Plex and a Plex client is configured, reports the
+    live count of active streams that restart would interrupt -- the
+    concrete, actionable number the brainstorm's own example asked for,
+    on top of the general dependency list. Required reordering Plex's
+    client setup before Docker's in `SirisAI._register_builtin_tools`
+    (`DockerRestartContainerTool` now takes `entities` and an optional
+    `plex` client) so the Plex client exists, or is cleanly `None`, by
+    construction time. An unreachable Plex server doesn't fail the dry
+    run, it just omits that detail -- best-effort preview, not another
+    thing that can block on a flaky integration.
+
+    Sequenced before 24 fully matures on purpose (built right after it):
+    a planner chaining multiple SAFE_ACTION/CONFIRM_REQUIRED tool calls
+    is exactly where a dry run matters most. Chat-level "simulate this
+    whole plan before running it" integration is NOT built here, though
+    -- this milestone is the `Tool.dry_run()` interface, one real
+    implementation, and direct-invocation support; wiring dry-run into
+    `POST /siris/chat`/the planner itself is a natural follow-up, not
+    something the roadmap entry for this milestone actually promised.
+    Verified: unit tests (default raises, current-state reporting for a
+    found/not-found container, world-model dependents, Plex session
+    count shown only for a Plex-shaped container name, and that an
+    unreachable Plex client doesn't fail the dry run), endpoint tests
+    (501 for an unsupported tool, a supported tool's preview leaving
+    nothing in the audit log, 404 for an unknown tool), and a live
+    `uvicorn` run against real mock Docker and Plex HTTP backends --
+    confirmed the report correctly showed a real dependent entity and a
+    real live session count, and confirmed the audit log stayed empty
+    for the dry run itself. Full suite: 144 passed.
 26. Notification intelligence. Replaces the flat "unhealthy -> send one
     ntfy message" logic in `POST /siris/proactive/check` (19) with a
     `NotificationManager` that scores each event (severity, confidence,

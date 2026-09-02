@@ -68,6 +68,19 @@ class Tool(ABC):
         """Execute the tool and return a JSON-serializable result."""
         raise NotImplementedError
 
+    def dry_run(self, **kwargs: Any) -> Any:
+        """Report what `run()` would do with these arguments, without doing
+        it (milestone 25). Optional -- most tools have nothing meaningful
+        to simulate (a READ tool has no effect to preview; a routine
+        SAFE_ACTION with no real blast radius doesn't either), so the
+        default just raises. Override only where a preview is actually
+        useful, e.g. a restart reporting what's currently running and what
+        else depends on it (see `DockerRestartContainerTool`). Callers
+        (`POST /siris/tools/{name}/run` with `dry_run: true`) treat
+        `NotImplementedError` as "this tool doesn't support dry_run", not
+        a real failure."""
+        raise NotImplementedError(f"{self.name} does not support dry_run")
+
 
 class ConfirmationRequired(Exception):
     """Raised by `SirisAI.run_tool()` for a CONFIRM_REQUIRED tool that

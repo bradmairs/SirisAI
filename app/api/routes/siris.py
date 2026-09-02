@@ -428,6 +428,11 @@ def get_activity(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[A
 class RunToolRequest(BaseModel):
     arguments: dict[str, Any] = {}
     confirmed: bool = False
+    # Report what the tool would do instead of actually doing it
+    # (milestone 25, see Tool.dry_run()) -- ignores `confirmed`, since a
+    # dry run has no effect to confirm. Not every tool supports this;
+    # unsupported returns 501.
+    dry_run: bool = False
 
 
 class RunToolResponse(BaseModel):
@@ -441,9 +446,26 @@ def run_tool_directly(name: str, request: RunToolRequest, siris: SirisAI = Depen
     tool whose implementation calls other tools -- directly, without going
     through the LLM. Outside of a chat turn, so nothing is added to a
     conversation transcript; the call is still recorded to the audit log
-    (GET /siris/activity) like any other tool invocation."""
-    if siris.tools.get(name) is None:
+    (GET /siris/activity) like any other tool invocation.
+
+    Pass `dry_run: true` to preview instead of act -- bypasses
+    SirisAI.run_tool() entirely (no permission gate, no audit entry: a
+    dry run has no effect, so there's nothing to gate or audit), calling
+    the tool's own `dry_run()` directly. 501 if the tool doesn't
+    implement one."""
+    tool = siris.tools.get(name)
+    if tool is None:
         raise HTTPException(status_code=404, detail=f"Unknown tool: {name}")
+
+    if request.dry_run:
+        try:
+            output = tool.dry_run(**request.arguments)
+        except NotImplementedError:
+            raise HTTPException(status_code=501, detail=f"Tool '{name}' does not support dry_run.") from None
+        except Exception:
+            logger.exception("Tool '%s' dry_run failed", name)
+            raise HTTPException(status_code=502, detail=f"Tool '{name}' dry_run failed.") from None
+        return RunToolResponse(tool_call=ToolCallResult(name=name, arguments=request.arguments, result=output))
 
     try:
         output = siris.run_tool(name, request.arguments, confirmed=request.confirmed)
