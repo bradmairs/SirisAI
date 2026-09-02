@@ -7,12 +7,13 @@ written. Copy this file's shape for the first real tool.
 
 from typing import Any
 
-from app.plugins.base import Tool
+from app.plugins.base import Tool, ToolPermission
 
 
 class EchoTool(Tool):
     name = "echo"
     description = "Returns whatever message it was given. Reference/test tool."
+    permission = ToolPermission.READ
     parameters = {
         "type": "object",
         "properties": {

@@ -163,18 +163,23 @@ Deliberately tiny, each one a working state:
     Deliberately built before tools gain any real power -- see the next
     milestone.
 
-The rest of this list is proposed, not built -- captured here so the next
-round of work has a concrete order rather than an open-ended brainstorm.
-Same rule as everything above: tiny, working-state milestones, each one
-extending an existing pattern rather than introducing a parallel one.
-
-12. Tool permission levels -- extend `Tool` with a level (`READ` /
-    `SAFE_ACTION` / `CONFIRM_REQUIRED` / `RESTRICTED`). `SirisAI.run_tool()`
-    executes `READ`/`SAFE_ACTION` immediately; `CONFIRM_REQUIRED` returns a
-    pending action for the caller to confirm before it actually runs;
-    `RESTRICTED` requires an explicit opt-in in config. Needed before the
-    tool library below gains anything destructive (restarting containers,
-    applying updates).
+12. **Done** -- Tool permission levels. `Tool` now carries a `permission`
+    (`app/plugins/base.py`'s `ToolPermission`: `READ` / `SAFE_ACTION` /
+    `CONFIRM_REQUIRED` / `RESTRICTED`). `SirisAI.run_tool()` runs
+    `READ`/`SAFE_ACTION` immediately; for `CONFIRM_REQUIRED` it raises
+    `ConfirmationRequired` instead of running the tool, `POST /siris/chat`
+    turns that into a `confirmation_required: {name, arguments}` response
+    field, and `POST /siris/chat/confirm` re-submits the same name/
+    arguments to actually run it (the web UI shows this as a Confirm/
+    Cancel prompt). `RESTRICTED` tools aren't even offered to the model
+    (`SirisAI.available_tool_specs()`) unless their name is in
+    `SIRISAI_RESTRICTED_TOOLS_ENABLED`; nothing built-in is RESTRICTED yet
+    -- the mechanism exists ahead of the first tool that needs it.
+    `home_assistant_call_service` is `CONFIRM_REQUIRED` (it's an
+    unbounded "call any service" tool -- no way to know in advance
+    whether a given call is routine or has real physical consequences).
+    Every path -- confirmation requested, restricted-and-blocked,
+    executed -- is recorded to the audit log from milestone 11.
 13. Expand the tool library, one tool at a time, each gated by the
     permission levels above: Docker (container status/restart/update),
     system info (disk/CPU/temperature), Plex, UniFi, weather, calendar.
@@ -238,8 +243,16 @@ uvicorn app.main:app --reload
   "result": ...}}`. Pass the returned `conversation_id` back on the next
   call to continue that conversation; omit it (or pass an unknown one) to
   start a new one. Pass `"use_tools": false` to disable tool offering.
-  Returns 502 if no backend is configured/reachable, or if the chosen tool
-  call fails.
+  If the model picks a `CONFIRM_REQUIRED` tool, the response carries
+  `"confirmation_required": {"name": ..., "arguments": {...}}` instead of
+  `tool_call`, and nothing has run yet. Returns 502 if no backend is
+  configured/reachable, or if the chosen tool call fails; 403 if it picked
+  a `RESTRICTED` tool that isn't enabled (shouldn't normally happen --
+  those aren't offered to the model in the first place).
+- `POST /siris/chat/confirm` -- `{"conversation_id": ..., "tool_name": ...,
+  "arguments": {...}}`, re-submitting exactly what a `confirmation_required`
+  response returned, to actually run that tool call. Same response shape as
+  `/siris/chat`'s tool-call case.
 - `GET /siris/conversations/{conversation_id}` -- the full stored history
   for a conversation (including tool exchanges), most recent last. 404 if
   the id is unknown.

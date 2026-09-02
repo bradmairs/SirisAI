@@ -105,6 +105,12 @@
   .msg.assistant { align-self: flex-start; background: var(--assistant-bubble); }
   .msg.tool { align-self: flex-start; background: var(--tool-bubble); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
   .msg.error { align-self: flex-start; background: #3a2222; color: var(--error); }
+  .msg.confirm { align-self: flex-start; background: #3a2f14; border: 1px solid #7a5a1a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
+  .confirm-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .confirm-actions button { border: none; border-radius: 6px; padding: 0.25rem 0.7rem; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+  .confirm-actions .confirm-yes { background: #e0a83a; color: #1a1206; }
+  .confirm-actions .confirm-no { background: var(--panel); color: var(--text); border: 1px solid var(--border) !important; }
+  .confirm-actions button:disabled { opacity: 0.5; cursor: default; }
   #chat-form { display: flex; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); flex-shrink: 0; }
   #chat-form input {
     flex: 1;
@@ -338,6 +344,57 @@
     return div;
   }
 
+  function addConfirmationPrompt(name, args) {
+    const div = document.createElement("div");
+    div.className = "msg confirm";
+
+    const text = document.createElement("div");
+    text.textContent = `⚠️ Confirm: ${name}(${JSON.stringify(args)})`;
+    div.appendChild(text);
+
+    const actions = document.createElement("div");
+    actions.className = "confirm-actions";
+
+    const yesBtn = document.createElement("button");
+    yesBtn.type = "button";
+    yesBtn.className = "confirm-yes";
+    yesBtn.textContent = "Confirm";
+    const noBtn = document.createElement("button");
+    noBtn.type = "button";
+    noBtn.className = "confirm-no";
+    noBtn.textContent = "Cancel";
+
+    yesBtn.addEventListener("click", async () => {
+      yesBtn.disabled = true;
+      noBtn.disabled = true;
+      try {
+        const result = await api("/siris/chat/confirm", {
+          method: "POST",
+          body: JSON.stringify({ conversation_id: conversationId, tool_name: name, arguments: args }),
+        });
+        div.remove();
+        if (result.tool_call) {
+          addMessage(
+            `\u{1f527} ${result.tool_call.name}(${JSON.stringify(result.tool_call.arguments)}) -> ${JSON.stringify(result.tool_call.result)}`,
+            "tool"
+          );
+        }
+      } catch (err) {
+        addMessage(err.message, "error");
+      }
+    });
+    noBtn.addEventListener("click", () => {
+      div.remove();
+      addMessage(`Cancelled: ${name}`, "tool");
+    });
+
+    actions.appendChild(yesBtn);
+    actions.appendChild(noBtn);
+    div.appendChild(actions);
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
   async function speak(text, btn) {
     btn.disabled = true;
     try {
@@ -420,7 +477,9 @@
         body: JSON.stringify({ prompt, conversation_id: conversationId }),
       });
       conversationId = result.conversation_id;
-      if (result.tool_call) {
+      if (result.confirmation_required) {
+        addConfirmationPrompt(result.confirmation_required.name, result.confirmation_required.arguments);
+      } else if (result.tool_call) {
         addMessage(
           `\u{1f527} ${result.tool_call.name}(${JSON.stringify(result.tool_call.arguments)}) -> ${JSON.stringify(result.tool_call.result)}`,
           "tool"

@@ -23,7 +23,7 @@ from app.home_assistant.client import HomeAssistantClient
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
 from app.memory.service import MemoryStore
-from app.plugins.base import ToolRegistry
+from app.plugins.base import ConfirmationRequired, ToolPermission, ToolRegistry
 from app.plugins.builtin.echo import EchoTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
@@ -72,16 +72,64 @@ class SirisAI:
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
             self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client))
 
-    def run_tool(self, name: str, arguments: dict[str, Any], conversation_id: str | None = None) -> Any:
-        """Look up and invoke a registered tool by name. Raises ValueError
-        if no tool with that name is registered. Every call -- successful,
-        raised, or against an unknown name -- is recorded to the audit log
-        (app/audit/service.py), including how long it took."""
+    def restricted_tool_names_to_exclude(self) -> set[str]:
+        """RESTRICTED-permission tool names not in the allowlist -- these
+        shouldn't even be offered to the model (see `available_tool_specs`)."""
+        allowed = self.settings.restricted_tools_allowlist()
+        return {
+            tool.name
+            for tool in self.tools.list()
+            if tool.permission is ToolPermission.RESTRICTED and tool.name not in allowed
+        }
+
+    def available_tool_specs(self) -> list[dict[str, Any]]:
+        """Tool specs to offer the model: everything registered except
+        disabled RESTRICTED tools."""
+        return self.tools.specs(exclude=self.restricted_tool_names_to_exclude())
+
+    def run_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        conversation_id: str | None = None,
+        confirmed: bool = False,
+    ) -> Any:
+        """Look up and invoke a registered tool by name.
+
+        Raises `ValueError` for an unknown name, `PermissionError` for a
+        RESTRICTED tool that isn't enabled, and `ConfirmationRequired` for a
+        CONFIRM_REQUIRED tool called with `confirmed=False` (the default) --
+        pass `confirmed=True` to actually run it (see `POST
+        /siris/chat/confirm`). Every call, whichever of those it hits, is
+        recorded to the audit log (app/audit/service.py) along with how
+        long it took.
+        """
         start = time.monotonic()
+
+        tool = self.tools.get(name)
+        if tool is None:
+            duration_ms = (time.monotonic() - start) * 1000
+            self.audit.record(name, arguments, error="Unknown tool", duration_ms=duration_ms, conversation_id=conversation_id)
+            raise ValueError(f"Unknown tool: {name}")
+
+        if tool.permission is ToolPermission.RESTRICTED and name not in self.settings.restricted_tools_allowlist():
+            duration_ms = (time.monotonic() - start) * 1000
+            error = "Restricted tool not enabled (SIRISAI_RESTRICTED_TOOLS_ENABLED)"
+            self.audit.record(name, arguments, error=error, duration_ms=duration_ms, conversation_id=conversation_id)
+            raise PermissionError(f"Tool '{name}' is restricted and not enabled.")
+
+        if tool.permission is ToolPermission.CONFIRM_REQUIRED and not confirmed:
+            duration_ms = (time.monotonic() - start) * 1000
+            self.audit.record(
+                name,
+                arguments,
+                duration_ms=duration_ms,
+                conversation_id=conversation_id,
+                confirmation_required=True,
+            )
+            raise ConfirmationRequired(name, arguments)
+
         try:
-            tool = self.tools.get(name)
-            if tool is None:
-                raise ValueError(f"Unknown tool: {name}")
             result = tool.run(**arguments)
         except Exception as exc:
             duration_ms = (time.monotonic() - start) * 1000
@@ -103,6 +151,7 @@ class SirisAI:
             "stt_provider": self.settings.stt_provider,
             "tts_provider": self.settings.tts_provider,
             "tools": [tool.name for tool in self.tools.list()],
+            "restricted_tools_disabled": sorted(self.restricted_tool_names_to_exclude()),
         }
 
     async def aclose(self) -> None:

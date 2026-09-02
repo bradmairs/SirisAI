@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.core.siris import SirisAI, get_siris
 from app.llm.base import LLMResponse, ToolCall
 from app.main import app
+from app.plugins.base import ToolPermission
 
 
 def test_run_tool_records_success() -> None:
@@ -37,6 +38,7 @@ def test_run_tool_records_unknown_tool_as_error_and_still_raises() -> None:
 class _FailingTool:
     name = "always_fails"
     description = "A tool that always raises, for audit-log testing."
+    permission = ToolPermission.SAFE_ACTION
     parameters = {"type": "object", "properties": {}, "required": []}
 
     def run(self, **kwargs: Any) -> Any:

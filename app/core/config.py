@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     home_assistant_base_url: str = ""
     home_assistant_token: str = ""
 
+    # Comma-separated tool names allowed to run despite being
+    # ToolPermission.RESTRICTED (see app/plugins/base.py). Empty (default)
+    # = no RESTRICTED tool can run, whatever the model asks for.
+    restricted_tools_enabled: str = ""
+
+    def restricted_tools_allowlist(self) -> set[str]:
+        return {name.strip() for name in self.restricted_tools_enabled.split(",") if name.strip()}
+
 
 @lru_cache
 def get_settings() -> Settings:

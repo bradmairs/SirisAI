@@ -5,7 +5,7 @@ during a conversation (see app/memory/service.py for the storage itself).
 from typing import Any
 
 from app.memory.service import MemoryStore
-from app.plugins.base import Tool
+from app.plugins.base import Tool, ToolPermission
 
 
 class RememberTool(Tool):
@@ -14,6 +14,7 @@ class RememberTool(Tool):
         "Save a piece of information to long-term memory for later recall "
         "-- facts about the user, their hobbies, homelab setup, preferences, etc."
     )
+    permission = ToolPermission.SAFE_ACTION
     parameters = {
         "type": "object",
         "properties": {
@@ -35,6 +36,7 @@ class RecallTool(Tool):
         "Search long-term memory for previously saved information about the "
         "user. Omit the query to get the most recently saved memories."
     )
+    permission = ToolPermission.READ
     parameters = {
         "type": "object",
         "properties": {

@@ -24,7 +24,32 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
+
+
+class ToolPermission(str, Enum):
+    """How much say a tool gets to run on its own.
+
+    READ            -- no side effects, always runs (list/get-style tools).
+    SAFE_ACTION      -- has side effects but is routine/reversible (e.g.
+                        restarting a known-safe service), runs immediately.
+    CONFIRM_REQUIRED -- has side effects that shouldn't happen without a
+                        human in the loop (e.g. controlling an arbitrary
+                        physical device). `SirisAI.run_tool()` refuses to
+                        execute it and raises `ConfirmationRequired`
+                        instead; the caller re-submits with `confirmed=True`
+                        (see `POST /siris/chat/confirm`) to actually run it.
+    RESTRICTED       -- disabled outright unless the tool's name appears in
+                        `SIRISAI_RESTRICTED_TOOLS_ENABLED`. For anything
+                        destructive enough that it shouldn't even be offered
+                        to the model by default (e.g. deleting data).
+    """
+
+    READ = "read"
+    SAFE_ACTION = "safe_action"
+    CONFIRM_REQUIRED = "confirm_required"
+    RESTRICTED = "restricted"
 
 
 class Tool(ABC):
@@ -36,11 +61,23 @@ class Tool(ABC):
     # tool-calling API expects (e.g. {"type": "object", "properties": {...},
     # "required": [...]}). Lets an LLM know what arguments to pass.
     parameters: dict[str, Any]
+    permission: ToolPermission
 
     @abstractmethod
     def run(self, **kwargs: Any) -> Any:
         """Execute the tool and return a JSON-serializable result."""
         raise NotImplementedError
+
+
+class ConfirmationRequired(Exception):
+    """Raised by `SirisAI.run_tool()` for a CONFIRM_REQUIRED tool that
+    hasn't been confirmed yet. Carries what was proposed so a caller can
+    show/re-submit it."""
+
+    def __init__(self, tool_name: str, arguments: dict[str, Any]) -> None:
+        super().__init__(f"Tool '{tool_name}' requires confirmation before running.")
+        self.tool_name = tool_name
+        self.arguments = arguments
 
 
 @dataclass
@@ -60,9 +97,12 @@ class ToolRegistry:
     def list(self) -> list[Tool]:
         return list(self._tools.values())
 
-    def specs(self) -> list[dict[str, Any]]:
+    def specs(self, exclude: set[str] | None = None) -> list[dict[str, Any]]:
         """Tool schemas in OpenAI-style function-calling format, ready to
-        pass to `LLMClient.generate(tools=...)`."""
+        pass to `LLMClient.generate(tools=...)`. `exclude` -- tool names to
+        leave out entirely, e.g. RESTRICTED tools that aren't enabled (see
+        `SirisAI.available_tool_specs()`)."""
+        exclude = exclude or set()
         return [
             {
                 "type": "function",
@@ -73,4 +113,5 @@ class ToolRegistry:
                 },
             }
             for tool in self._tools.values()
+            if tool.name not in exclude
         ]

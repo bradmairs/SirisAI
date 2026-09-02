@@ -28,6 +28,7 @@ class AuditLogStore:
         error: str | None = None,
         duration_ms: float = 0.0,
         conversation_id: str | None = None,
+        confirmation_required: bool = False,
     ) -> None:
         with self._session_factory() as session:
             session.add(
@@ -37,6 +38,7 @@ class AuditLogStore:
                     arguments=json.dumps(arguments),
                     result=json.dumps(result) if error is None else None,
                     error=error,
+                    confirmation_required=confirmation_required,
                     duration_ms=duration_ms,
                 )
             )
@@ -58,6 +60,7 @@ class AuditLogStore:
                     "arguments": json.loads(row.arguments),
                     "result": json.loads(row.result) if row.result is not None else None,
                     "error": row.error,
+                    "confirmation_required": row.confirmation_required,
                     "duration_ms": row.duration_ms,
                     "created_at": row.created_at.isoformat(),
                 }

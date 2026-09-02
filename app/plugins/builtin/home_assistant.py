@@ -11,7 +11,7 @@ then SirisAI simply doesn't offer these tools to the model.
 from typing import Any
 
 from app.home_assistant.client import HomeAssistantClient
-from app.plugins.base import Tool
+from app.plugins.base import Tool, ToolPermission
 
 
 class HomeAssistantListEntitiesTool(Tool):
@@ -22,6 +22,7 @@ class HomeAssistantListEntitiesTool(Tool):
         "home. Use this to discover entity_ids before calling home_assistant_get_state "
         "or home_assistant_call_service."
     )
+    permission = ToolPermission.READ
     parameters = {
         "type": "object",
         "properties": {
@@ -43,6 +44,7 @@ class HomeAssistantListEntitiesTool(Tool):
 class HomeAssistantGetStateTool(Tool):
     name = "home_assistant_get_state"
     description = "Get the current state and attributes of one Home Assistant entity."
+    permission = ToolPermission.READ
     parameters = {
         "type": "object",
         "properties": {
@@ -66,6 +68,11 @@ class HomeAssistantCallServiceTool(Tool):
         "first if you don't know the entity_id. Extra service-specific fields (like "
         "'brightness_pct' or 'temperature') go in service_data."
     )
+    # Arbitrary/unbounded: this can call *any* Home Assistant service --
+    # including ones with real physical consequences (unlocking a door,
+    # disarming an alarm) that a routine "turn on the light" doesn't carry.
+    # Confirm before running rather than trying to allowlist safe services.
+    permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
         "properties": {
