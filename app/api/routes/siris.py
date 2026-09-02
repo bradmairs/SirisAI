@@ -179,3 +179,36 @@ class ActivityEntryResponse(BaseModel):
 def get_activity(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[ActivityEntryResponse]:
     """Recent tool executions (successful or not), most recent first."""
     return [ActivityEntryResponse(**entry) for entry in siris.audit.list_recent(limit=limit)]
+
+
+class RunToolRequest(BaseModel):
+    arguments: dict[str, Any] = {}
+    confirmed: bool = False
+
+
+class RunToolResponse(BaseModel):
+    tool_call: ToolCallResult | None = None
+    confirmation_required: PendingToolCall | None = None
+
+
+@router.post("/tools/{name}/run", response_model=RunToolResponse)
+def run_tool_directly(name: str, request: RunToolRequest, siris: SirisAI = Depends(get_siris)) -> RunToolResponse:
+    """Invoke any registered tool -- including a skill, which is just a
+    tool whose implementation calls other tools -- directly, without going
+    through the LLM. Outside of a chat turn, so nothing is added to a
+    conversation transcript; the call is still recorded to the audit log
+    (GET /siris/activity) like any other tool invocation."""
+    if siris.tools.get(name) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown tool: {name}")
+
+    try:
+        output = siris.run_tool(name, request.arguments, confirmed=request.confirmed)
+    except ConfirmationRequired:
+        return RunToolResponse(confirmation_required=PendingToolCall(name=name, arguments=request.arguments))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from None
+    except Exception:
+        logger.exception("Tool '%s' failed", name)
+        raise HTTPException(status_code=502, detail=f"Tool '{name}' failed.") from None
+
+    return RunToolResponse(tool_call=ToolCallResult(name=name, arguments=request.arguments, result=output))

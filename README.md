@@ -32,6 +32,9 @@ app/
     base.py       # Tool ABC (+ ToolPermission) + ToolRegistry
     builtin/      # Every tool: echo, memory, home_assistant, system_info,
                   # docker, plex, unifi, weather, calendar
+  skills/
+    base.py       # Skill ABC + SkillTool (adapts a Skill to the Tool interface)
+    builtin/      # server_health.py -- reference skill
   memory/
     service.py    # MemoryStore -- free-text long-term memory (SQLite-backed)
     entities.py   # EntityMemoryStore -- facts about named entities
@@ -253,11 +256,24 @@ Deliberately tiny, each one a working state:
     needed) and follow the exact same `Tool` pattern. The model decides
     which of the three memory tools fits what it's told -- their
     descriptions spell out when to prefer one over another.
-15. Skills -- composable workflows that chain multiple tool calls into one
-    reusable unit (e.g. a health-check skill running several system/Docker
-    checks and summarizing the result), invocable by the model like a tool
-    or triggered directly. Worth more once the tool library (13) actually
-    has enough to compose.
+15. **Done** -- Skills. `app/skills/base.py`'s `Skill` isn't a new registry
+    or mechanism -- `SkillTool` adapts it to the existing `Tool` interface
+    and registers it in the same `ToolRegistry`, so a skill is offered to
+    the model exactly like a tool and gets the same permission gating and
+    audit logging for free. A skill's `run(siris, **kwargs)` calls
+    `siris.run_tool(...)` for each step, so a `CONFIRM_REQUIRED`/
+    `RESTRICTED` step inside a skill is still gated independently -- a
+    skill can't launder a dangerous action through composition. Reference
+    skill: `server_health_check`
+    (`app/skills/builtin/server_health.py`) runs `system_info` and, if
+    Docker is configured, `docker_list_containers`, and summarizes
+    anything abnormal (>90% CPU/memory/disk, a non-running container).
+    `POST /siris/tools/{name}/run` invokes any registered tool or skill
+    directly, bypassing the LLM entirely -- the "triggered directly" half
+    of this milestone, and generically useful for any tool, not just
+    skills (e.g. scripting `docker_restart_container` without a chat
+    turn). Outside of a chat turn, so nothing is added to a conversation
+    transcript, but every call still hits the audit log.
 16. Context engine -- before calling the LLM, assemble a small curated
     context package (recent events, system health, relevant memories)
     instead of sending just the raw prompt, so an answer to "how's
@@ -321,6 +337,12 @@ uvicorn app.main:app --reload
 - `GET /siris/activity?limit=50` -- recent tool executions, most recent
   first: tool name, arguments, result or error, duration, and the
   triggering `conversation_id` when there was one.
+- `POST /siris/tools/{name}/run` -- invoke any registered tool or skill
+  directly, bypassing the LLM. `{"arguments": {...}}` ->
+  `{"tool_call": {...}}`, or `{"confirmation_required": {...}}` for a
+  `CONFIRM_REQUIRED` tool -- pass `"confirmed": true` in a second call
+  with the same arguments to actually run it. 404 for an unknown tool
+  name, 403 for a blocked `RESTRICTED` tool.
 - `POST /siris/memory` -- save a memory directly, e.g. `{"content": "..."}`.
 - `GET /siris/memory?query=...&limit=20` -- list/search saved memories,
   most recent first.

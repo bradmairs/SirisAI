@@ -49,6 +49,8 @@ from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
 from app.plugins.builtin.system_info import SystemInfoTool
 from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
 from app.plugins.builtin.weather import WeatherCurrentTool
+from app.skills.base import SkillTool
+from app.skills.builtin.server_health import ServerHealthSkill
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
@@ -138,6 +140,11 @@ class SirisAI:
                 password=self.settings.caldav_password,
             )
             self.tools.register(CalendarUpcomingEventsTool(calendar_client))
+
+        self._register_builtin_skills()
+
+    def _register_builtin_skills(self) -> None:
+        self.tools.register(SkillTool(ServerHealthSkill(), self))
 
     def restricted_tool_names_to_exclude(self) -> set[str]:
         """RESTRICTED-permission tool names not in the allowlist -- these
