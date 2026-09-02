@@ -73,6 +73,25 @@ class EntityFact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
+class EntityRelationship(Base):
+    """One directed, typed edge between two entities -- the world model
+    (milestone 21): `subject_entity RELATION object_entity`, e.g.
+    ("Plex", "RUNS_ON", "main-server") or ("Plex", "DEPENDS_ON",
+    "media-storage"). `relation` is free text (e.g. "RUNS_ON", "USES",
+    "DEPENDS_ON") rather than an enum -- same reasoning as EntityFact's
+    free-text `fact`: the model chooses the wording, SirisAI just stores
+    and queries it. Distinct from EntityFact: a fact is a standalone
+    statement about one entity, a relationship connects two."""
+
+    __tablename__ = "entity_relationships"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subject_entity: Mapped[str] = mapped_column(Text, index=True)
+    relation: Mapped[str] = mapped_column(Text)
+    object_entity: Mapped[str] = mapped_column(Text, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
 class Event(Base):
     """A point-in-time occurrence -- a status change, failure, completion,
     etc -- optionally tagged to an entity. Distinct from an EntityFact

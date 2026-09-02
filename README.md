@@ -395,18 +395,35 @@ than trust, and enough self-inspection to notice its own gaps. A couple of
 the source ideas overlapped with each other or with what already exists;
 noted inline rather than building the same thing twice under two names.
 
-21. World model / knowledge graph. The brainstorm proposed these as two
-    separate ideas ("system state" and "knowledge graph") but they're the
-    same concept from two angles -- typed entities with typed
-    relationships (`Plex RUNS_ON main-server`, `main-server RUNS ollama`)
-    -- so one milestone, not two. Extends `EntityMemoryStore` (14) rather
-    than replacing it: today it holds flat facts about a named entity;
-    this adds relationships between entities so SirisAI can answer
-    "what depends on X" or "what would shutting down Y affect" instead of
-    only "what do you know about X". Foundational for 24 (planner),
-    26 (notification correlation), and 31 (capability gaps) -- worth
-    doing early in this batch for that reason, even though it doesn't
-    look like much on its own.
+21. **Done** -- World model / knowledge graph. The brainstorm proposed
+    these as two separate ideas ("system state" and "knowledge graph")
+    but they're the same concept from two angles -- typed entities with
+    typed relationships (`Plex RUNS_ON main-server`,
+    `Plex DEPENDS_ON media-storage`) -- so one milestone, not two.
+    Extends `EntityMemoryStore` (14) rather than replacing it: a new
+    `EntityRelationship` row (`app/db/models.py`) is a directed, free-text-typed
+    edge between two entity names, alongside the existing flat
+    `EntityFact` rows. `relationships_for(entity_name)` returns edges
+    split by direction -- "outgoing" (this entity is the subject: what it
+    RUNS_ON/USES/DEPENDS_ON) and "incoming" (this entity is the object:
+    what points at it) -- so "what would shutting down media-storage
+    affect" is answered by media-storage's *incoming* edges, without a
+    real graph database or query language. Two new tools, same shape as
+    13's remember/recall pairs: `remember_entity_relationship`
+    (SAFE_ACTION) and `recall_entity_relationships` (READ). `relation` is
+    free text the model chooses (RUNS_ON, USES, DEPENDS_ON,
+    EXPOSED_THROUGH, ...), not an enum -- same reasoning as `EntityFact`'s
+    free-text `fact` field, SirisAI stores and queries whatever wording
+    the model picks rather than constraining it to a fixed vocabulary up
+    front. Deliberately stops there: no transitive traversal ("what does
+    X affect two hops away") or cycle handling -- direct edges only for
+    now, since nothing built yet (the planner in 24, notification
+    correlation in 26) needs more than that. Verified: unit tests for
+    `relationships_for`'s outgoing/incoming split and its empty-result
+    case for an unknown entity, an end-to-end test through
+    `POST /siris/tools/{name}/run`, and a live `uvicorn` run confirming
+    the reverse lookup actually surfaces "Plex depends on media-storage"
+    when queried from media-storage's side.
 22. Developer/introspection API -- `/api/tools`, `/api/skills`,
     `/api/capabilities`, `/api/system/state`, and equivalents for whatever
     22-30 add (`/api/goals`, `/api/tasks`, `/api/integrations`). Mostly
