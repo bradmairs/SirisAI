@@ -67,6 +67,10 @@ app/
     client.py     # CalDAV client (wraps the `caldav` library)
   web/static/
     index.html    # Built-in web UI: chat, memory, status. No build step.
+
+satellite/        # Voice satellite -- a SEPARATE deployable, not part of
+                   # the Docker image above. Own requirements.txt (adds
+                   # sounddevice/openwakeword). See satellite/README.md.
 ```
 
 **Extension points, by design:**
@@ -348,10 +352,36 @@ Deliberately tiny, each one a working state:
     intended to draw, just reached by composing what already existed
     rather than inventing historical-trend detection with no history yet
     to detect trends in.
-20. Voice satellites -- extend the existing STT/TTS primitives
+20. **Done** -- Voice satellites. Extends the existing STT/TTS primitives
     (milestones 7-8) beyond the built-in web UI to standalone
-    always-listening devices (mic + speaker + wake word) around the
-    house, talking to the central SirisAI server.
+    always-listening devices (mic + speaker + wake word) around the house,
+    talking to the central SirisAI server. Lives in `satellite/`, a
+    **separate deployable** from the FastAPI app/Docker image -- it needs
+    hardware-facing dependencies (`sounddevice`, `openwakeword`) that have
+    no place in a headless server container, and it's meant to be
+    installed directly on the device (a Raspberry Pi with a USB mic/speaker
+    is the reference target) rather than run alongside the server. The
+    satellite doesn't add anything new server-side: it's just another
+    frontend against the same three endpoints the built-in web UI already
+    uses (`POST /siris/voice/transcribe` -> `POST /siris/chat` -> `POST
+    /siris/voice/speak`), threading `conversation_id` across turns the same
+    way. Orchestration (`siris_satellite/satellite.py`: wake word -> record
+    -> transcribe -> chat -> speak -> play, resilient to a single cycle
+    failing) is built behind an `AudioInput`/`AudioOutput` `Protocol` pair
+    specifically so it's fully unit-testable with fakes -- no microphone
+    needed. The real hardware implementation (`audio_io.py`: sounddevice
+    capture + openWakeWord wake-word detection + `mpg123` playback) is
+    intentionally **not** covered by the test suite, same honesty pattern
+    as the UniFi client in milestone 13 -- there's no real mic/speaker in
+    this sandbox or in CI to verify it against, so it's flagged as the one
+    piece to sanity-check by ear on actual hardware. Verified: the full
+    10-test orchestration/client suite (`satellite/tests/`, run with its
+    own `requirements-test.txt` -- deliberately free of hardware deps so it
+    runs anywhere) passes; added a root `pytest.ini` scoping the main app's
+    `pytest -q` to `tests/` so the two suites (different dependency sets)
+    don't collide; confirmed the main app's 103 tests still pass unchanged.
+    See `satellite/README.md` for Raspberry Pi setup, `.env` configuration,
+    and wake-word customization.
 
 ## Running locally
 
