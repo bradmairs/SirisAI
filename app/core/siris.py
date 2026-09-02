@@ -16,11 +16,17 @@ from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
+from app.home_assistant.client import HomeAssistantClient
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
 from app.memory.service import MemoryStore
 from app.plugins.base import ToolRegistry
 from app.plugins.builtin.echo import EchoTool
+from app.plugins.builtin.home_assistant import (
+    HomeAssistantCallServiceTool,
+    HomeAssistantGetStateTool,
+    HomeAssistantListEntitiesTool,
+)
 from app.plugins.builtin.memory import RecallTool, RememberTool
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
@@ -44,12 +50,22 @@ class SirisAI:
             self.stt = build_stt_client(self.settings)
         if self.tts is None:
             self.tts = build_tts_client(self.settings)
+        self._home_assistant_client: HomeAssistantClient | None = None
         self._register_builtin_tools()
 
     def _register_builtin_tools(self) -> None:
         self.tools.register(EchoTool())
         self.tools.register(RememberTool(self.memory))
         self.tools.register(RecallTool(self.memory))
+
+        if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
+            self._home_assistant_client = HomeAssistantClient(
+                base_url=self.settings.home_assistant_base_url,
+                token=self.settings.home_assistant_token,
+            )
+            self.tools.register(HomeAssistantListEntitiesTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client))
 
     def run_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Look up and invoke a registered tool by name. Raises ValueError
@@ -79,6 +95,8 @@ class SirisAI:
         await self.llm.aclose()
         await self.stt.aclose()
         await self.tts.aclose()
+        if self._home_assistant_client is not None:
+            self._home_assistant_client.close()
 
 
 @lru_cache

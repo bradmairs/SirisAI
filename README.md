@@ -32,6 +32,8 @@ app/
     base.py       # SpeechToTextClient/TextToSpeechClient ABCs + Null placeholders
     openai_compatible.py  # client for any server speaking OpenAI's audio API shape
     factory.py    # Picks backends from settings.stt_provider/tts_provider
+  home_assistant/
+    client.py     # Thin sync REST client for Home Assistant's HTTP API
   web/static/
     index.html    # Built-in web UI: chat, memory, status. No build step.
 ```
@@ -100,7 +102,25 @@ Deliberately tiny, each one a working state:
    on every assistant reply calls `/siris/voice/speak` and plays the
    result. Pure client-side composition of the two primitives from
    milestone 7 plus the existing chat endpoint -- no new backend surface.
-9. Homelab/home-automation tools (Home Assistant, etc.).
+9. **Done** -- Home Assistant tools (`app/plugins/builtin/home_assistant.py`,
+   backed by `app/home_assistant/client.py`, a thin sync wrapper around
+   [Home Assistant's REST API](https://developers.home-assistant.io/docs/api/rest/)
+   -- sync on purpose, matching `Tool.run()`'s synchronous contract).
+   Deliberately generic (domain/service/entity_id, the same shape Home
+   Assistant's own service-call model uses) rather than one tool per
+   device, so it works for whatever's actually in a given home without
+   code changes:
+   - `home_assistant_list_entities` -- list entities (optionally filtered
+     by domain) and their state, for discovering entity_ids
+   - `home_assistant_get_state` -- get one entity's state and attributes
+   - `home_assistant_call_service` -- call any service to control a device
+     (`domain`, `service`, `entity_id`, optional `service_data`)
+
+   Registered only when both `SIRISAI_HOME_ASSISTANT_BASE_URL` and
+   `SIRISAI_HOME_ASSISTANT_TOKEN` are set -- fill those in via `.env` (a
+   long-lived access token, from your Home Assistant profile -> Security)
+   and restart; no code changes needed. Until then these tools simply
+   aren't offered to the model, and won't show up in `/siris/status`.
 
 ## Running locally
 

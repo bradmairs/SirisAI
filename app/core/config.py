@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     tts_model: str = "tts-1"
     tts_voice: str = "default"
 
+    # Home Assistant (app/home_assistant/, app/plugins/builtin/home_assistant.py).
+    # Empty base_url or token = the home_assistant_* tools aren't registered
+    # at all -- fill both in via .env to enable, no code changes needed.
+    home_assistant_base_url: str = ""
+    home_assistant_token: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
