@@ -186,15 +186,19 @@ class SirisAI:
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
             self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client))
 
-        if self.settings.docker_base_url:
-            self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
-            self.tools.register(DockerListContainersTool(self._docker_client))
-            self.tools.register(DockerRestartContainerTool(self._docker_client))
-
+        # Plex before Docker on purpose: DockerRestartContainerTool's
+        # dry_run() optionally reports active Plex sessions a restart
+        # would interrupt, so self._plex_client needs to exist (or stay
+        # None) before that tool is constructed.
         if self.settings.plex_base_url and self.settings.plex_token:
             self._plex_client = PlexClient(base_url=self.settings.plex_base_url, token=self.settings.plex_token)
             self.tools.register(PlexNowPlayingTool(self._plex_client))
             self.tools.register(PlexLibrarySectionsTool(self._plex_client))
+
+        if self.settings.docker_base_url:
+            self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
+            self.tools.register(DockerListContainersTool(self._docker_client))
+            self.tools.register(DockerRestartContainerTool(self._docker_client, self.entities, self._plex_client))
 
         if self.settings.unifi_base_url and self.settings.unifi_api_key:
             self._unifi_client = UniFiClient(

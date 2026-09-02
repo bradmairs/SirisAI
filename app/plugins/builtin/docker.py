@@ -7,6 +7,8 @@ is set: point it at a Unix socket (mount the host's
 from typing import Any
 
 from app.docker.client import DockerClient
+from app.memory.entities import EntityMemoryStore
+from app.plex.client import PlexClient
 from app.plugins.base import Tool, ToolPermission
 
 
@@ -46,8 +48,45 @@ class DockerRestartContainerTool(Tool):
         "required": ["container"],
     }
 
-    def __init__(self, client: DockerClient) -> None:
+    def __init__(self, client: DockerClient, entities: EntityMemoryStore, plex: PlexClient | None = None) -> None:
         self._client = client
+        self._entities = entities
+        self._plex = plex
 
     def run(self, container: str = "", **kwargs: Any) -> Any:
         return self._client.restart_container(container)
+
+    def dry_run(self, container: str = "", **kwargs: Any) -> Any:
+        """What restarting `container` would do, without doing it: its
+        current state (restarting a stopped container isn't the same as
+        restarting a running one), and anything the world model
+        (milestone 21) knows depends on it -- e.g. a `Plex DEPENDS_ON
+        plex-container` relationship recorded earlier surfaces here as a
+        potential impact. If `container` itself looks like Plex and a
+        Plex client is configured, also reports the concrete number of
+        active streams that would be interrupted -- the specific,
+        actionable detail a general dependency list can't give on its
+        own. Best-effort: an unreachable Plex server doesn't fail the
+        dry run, it just omits that detail."""
+        containers = self._client.list_containers(all_containers=True)
+        match = next((c for c in containers if container in c["names"] or c["id"] == container), None)
+
+        report: dict[str, Any] = {
+            "container": container,
+            "current_state": match["state"] if match else "unknown (not found)",
+            "would_restart": True,
+            "world_model_dependents": [
+                f"{edge['subject_entity']} ({edge['relation']})"
+                for edge in self._entities.relationships_for(container)["incoming"]
+            ],
+        }
+
+        if self._plex is not None and "plex" in container.lower():
+            try:
+                sessions = self._plex.now_playing()
+            except Exception:
+                pass
+            else:
+                report["active_plex_sessions_would_be_interrupted"] = len(sessions)
+
+        return report
