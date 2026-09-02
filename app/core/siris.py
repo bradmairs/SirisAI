@@ -12,6 +12,7 @@ dependency, so routes never construct their own.
 
 from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.llm.base import LLMClient
@@ -35,6 +36,14 @@ class SirisAI:
 
     def _register_builtin_tools(self) -> None:
         self.tools.register(EchoTool())
+
+    def run_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        """Look up and invoke a registered tool by name. Raises ValueError
+        if no tool with that name is registered."""
+        tool = self.tools.get(name)
+        if tool is None:
+            raise ValueError(f"Unknown tool: {name}")
+        return tool.run(**arguments)
 
     def status(self) -> dict[str, object]:
         """A snapshot of the core service's state, for the status endpoint."""

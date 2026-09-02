@@ -5,9 +5,11 @@ module should import `httpx` for LLM calls or know Ollama's request/response
 shape -- that's the point of the interface in `app/llm/base.py`.
 """
 
+from typing import Any
+
 import httpx
 
-from app.llm.base import LLMClient
+from app.llm.base import LLMClient, LLMResponse, ToolCall
 
 
 class OllamaClient(LLMClient):
@@ -15,13 +17,31 @@ class OllamaClient(LLMClient):
         self.model = model
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout)
 
-    async def generate(self, prompt: str, **kwargs: object) -> str:
-        response = await self._client.post(
-            "/api/generate",
-            json={"model": self.model, "prompt": prompt, "stream": False, **kwargs},
-        )
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: object,
+    ) -> LLMResponse:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            **kwargs,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        response = await self._client.post("/api/chat", json=payload)
         response.raise_for_status()
-        return response.json()["response"]
+        message = response.json()["message"]
+
+        tool_calls = [
+            ToolCall(name=call["function"]["name"], arguments=call["function"].get("arguments") or {})
+            for call in message.get("tool_calls") or []
+        ]
+        return LLMResponse(text=message.get("content") or None, tool_calls=tool_calls)
 
     async def aclose(self) -> None:
         await self._client.aclose()

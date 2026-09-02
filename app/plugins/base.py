@@ -16,6 +16,12 @@ yourselves if a tool needs it. Keep `run()`'s return value JSON-serializable
 so tool output can later be fed straight back into an LLM tool-call loop.
 """
 
+# Deferred annotation evaluation: `ToolRegistry.list()` and `.specs()` both
+# use the builtin `list` in their return annotations, and without this a
+# method literally named `list` shadows the builtin for annotations defined
+# after it in the class body.
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -26,6 +32,10 @@ class Tool(ABC):
 
     name: str
     description: str
+    # JSON Schema for `run()`'s keyword arguments, in the shape a "function"
+    # tool-calling API expects (e.g. {"type": "object", "properties": {...},
+    # "required": [...]}). Lets an LLM know what arguments to pass.
+    parameters: dict[str, Any]
 
     @abstractmethod
     def run(self, **kwargs: Any) -> Any:
@@ -49,3 +59,18 @@ class ToolRegistry:
 
     def list(self) -> list[Tool]:
         return list(self._tools.values())
+
+    def specs(self) -> list[dict[str, Any]]:
+        """Tool schemas in OpenAI-style function-calling format, ready to
+        pass to `LLMClient.generate(tools=...)`."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+            for tool in self._tools.values()
+        ]

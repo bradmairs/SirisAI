@@ -47,8 +47,13 @@ Deliberately tiny, each one a working state:
    `POST /siris/chat` endpoint that calls it. Off by default
    (`SIRISAI_LLM_PROVIDER=none`); set it to `ollama` and point
    `SIRISAI_OLLAMA_BASE_URL` at your Ollama instance to enable.
-3. Wire the tool interface into `/siris/chat` (LLM decides to call a tool,
-   tool result comes back in the response).
+3. **Done** -- `/siris/chat` offers registered tools to the model
+   (`ToolRegistry.specs()`, OpenAI function-calling schema). If the model
+   calls one, SirisAI executes it via `SirisAI.run_tool()` and returns the
+   result; otherwise the model's text answer is returned. One round-trip
+   for now -- feeding the tool result back to the model for a final
+   natural-language answer is a natural next step, not required for this
+   milestone.
 4. Memory subsystem -- SirisAI records/recalls what it learns about you.
 5. Auth.
 6. Homelab/home-automation tools (Home Assistant, etc.).
@@ -65,9 +70,12 @@ uvicorn app.main:app --reload
 - `GET /health` -- liveness + DB connectivity check.
 - `GET /siris/status` -- core service status: app name, environment, LLM
   provider, registered tools.
-- `POST /siris/chat` -- single-turn passthrough to the configured LLM
-  backend, e.g. `{"prompt": "hello"}` -> `{"response": "..."}`. Returns 502
-  if no backend is configured/reachable.
+- `POST /siris/chat` -- single-turn call to the configured LLM backend, with
+  registered tools offered. `{"prompt": "hello"}` -> `{"response": "...",
+  "tool_call": null}`, or if the model calls a tool, `{"response": null,
+  "tool_call": {"name": ..., "arguments": {...}, "result": ...}}`. Pass
+  `"use_tools": false` to disable tool offering. Returns 502 if no backend
+  is configured/reachable, or if the chosen tool call fails.
 
 ## Running with Docker
 
