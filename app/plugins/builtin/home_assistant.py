@@ -125,7 +125,8 @@ class HomeAssistantGetLogbookTool(Tool):
         "why (which automation or entity caused it) -- not just current state. Use this to "
         "answer 'why did X happen' questions (e.g. 'why did the hallway light turn on') by "
         "inspecting recent history for that entity, or omit entity_id for the whole home's "
-        "recent activity."
+        "recent activity. entity_id must be the real Home Assistant id (e.g. 'light.hallway'), "
+        "not a friendly name -- use home_assistant_list_entities first if you don't know it."
     )
     permission = ToolPermission.READ
     parameters = {
