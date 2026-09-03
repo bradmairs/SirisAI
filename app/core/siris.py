@@ -81,6 +81,7 @@ from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_timing import EventTimingSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
+from app.skills.builtin.presence import PresenceSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.unifi.client import UniFiClient
@@ -270,6 +271,9 @@ class SirisAI:
             )
             self.tools.register(UniFiListDevicesTool(self._unifi_client))
             self.tools.register(UniFiListClientsTool(self._unifi_client))
+
+            if self.settings.presence_device_names:
+                self.tools.register(SkillTool(PresenceSkill(), self, permission=ToolPermission.SAFE_ACTION))
 
         if self.settings.weather_latitude is not None and self.settings.weather_longitude is not None:
             self._weather_client = WeatherClient(

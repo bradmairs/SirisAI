@@ -157,6 +157,26 @@ class Settings(BaseSettings):
     hermes_base_url: str = ""
     hermes_model: str = "hermes"
 
+    # Presence-triggered scenes (milestone 42, app/skills/builtin/presence.py):
+    # "everyone left" -> away scene, "someone's home" -> home scene.
+    # presence_device_names is comma-separated UniFi client names/hostnames
+    # (e.g. "brads-iphone,jans-iphone") that count as "someone is home"
+    # when connected -- matched against the same `name` field
+    # unifi_list_clients already reports, not a MAC address (UniFi's own
+    # client, app/unifi/client.py, is this codebase's least-verified
+    # integration; matching by name keeps this milestone from touching it
+    # further). Empty presence_device_names = the presence_check tool
+    # isn't registered at all (also needs UniFi itself configured, for
+    # unifi_list_clients). Empty presence_home_scene/presence_away_scene =
+    # a real transition is still detected and logged, just no Home
+    # Assistant scene gets activated for it.
+    presence_device_names: str = ""
+    presence_home_scene: str = ""
+    presence_away_scene: str = ""
+
+    def presence_device_name_list(self) -> list[str]:
+        return [name.strip() for name in self.presence_device_names.split(",") if name.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:

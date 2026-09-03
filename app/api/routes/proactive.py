@@ -18,7 +18,7 @@ server_health_check's.
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.auth import require_api_key
@@ -124,3 +124,29 @@ def run_daily_briefing(siris: SirisAI = Depends(get_siris)) -> BriefingResponse:
         notified = True
 
     return BriefingResponse(result=result, notified=notified)
+
+
+class PresenceCheckResponse(BaseModel):
+    result: dict[str, Any]
+
+
+@router.post("/presence", response_model=PresenceCheckResponse)
+def run_presence_check(siris: SirisAI = Depends(get_siris)) -> PresenceCheckResponse:
+    """Run presence_check (milestone 42): detect whether household
+    presence changed since the last check and, on a real transition,
+    activate the configured home/away Home Assistant scene. 404 if
+    presence tracking isn't configured (SIRISAI_UNIFI_* +
+    SIRISAI_PRESENCE_DEVICE_NAMES) -- unlike /check and /briefing, which
+    are always registered, this tool only exists when there's UniFi
+    presence data to check in the first place. Meant to be triggered
+    frequently from outside this process (e.g. every few minutes) --
+    same "no in-process scheduler" boundary as every other proactive
+    route, just a shorter interval than a health check needs."""
+    if siris.tools.get("presence_check") is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Presence tracking isn't configured (needs UniFi settings and SIRISAI_PRESENCE_DEVICE_NAMES).",
+        )
+    trigger = "proactive check: automated schedule (see POST /siris/proactive/presence)"
+    result = siris.run_tool("presence_check", {}, trigger=trigger)
+    return PresenceCheckResponse(result=result)
