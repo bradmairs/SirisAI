@@ -45,6 +45,8 @@ from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolReg
 from app.plugins.builtin.audit import ExplainRecentActionTool
 from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
+from app.plugins.builtin.bazarr import BazarrWantedEpisodesTool, BazarrWantedMoviesTool
+from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
 from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
 from app.plugins.builtin.goals import (
@@ -61,6 +63,7 @@ from app.plugins.builtin.home_assistant import (
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
 )
+from app.plugins.builtin.listenarr import ListenarrQueueTool, ListenarrSystemStatusTool
 from app.plugins.builtin.memory import (
     LogEventTool,
     RecallEntityFactsTool,
@@ -72,13 +75,27 @@ from app.plugins.builtin.memory import (
     RememberTool,
 )
 from app.plugins.builtin.notify import NotifyTool
+from app.plugins.builtin.obsidian import (
+    ObsidianCreateOrUpdateNoteTool,
+    ObsidianGetNoteTool,
+    ObsidianListNotesTool,
+    ObsidianSearchTool,
+)
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
+from app.plugins.builtin.radarr import RadarrListMoviesTool, RadarrQueueTool, RadarrSearchMovieTool
 from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
 from app.plugins.builtin.satellites import SpeakInCurrentRoomTool
+from app.plugins.builtin.sonarr import SonarrListSeriesTool, SonarrQueueTool, SonarrSearchSeriesTool
 from app.plugins.builtin.system_info import SystemInfoTool
+from app.plugins.builtin.tautulli import TautulliCurrentActivityTool, TautulliRecentHistoryTool
 from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
 from app.plugins.builtin.weather import WeatherCurrentTool
+from app.bazarr.client import BazarrClient
+from app.cleanuparr.client import CleanuparrClient
+from app.listenarr.client import ListenarrClient
+from app.obsidian.client import ObsidianClient
+from app.radarr.client import RadarrClient
 from app.routines.service import RoutineStore
 from app.satellites.service import SatelliteStore
 from app.skills.base import SkillTool
@@ -88,6 +105,8 @@ from app.skills.builtin.goal_check_in import GoalCheckInSkill
 from app.skills.builtin.presence import PresenceSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
+from app.sonarr.client import SonarrClient
+from app.tautulli.client import TautulliClient
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
@@ -107,6 +126,13 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("weather_", "weather"),
     ("calendar_", "calendar"),
     ("hermes_", "hermes"),
+    ("tautulli_", "tautulli"),
+    ("radarr_", "radarr"),
+    ("sonarr_", "sonarr"),
+    ("bazarr_", "bazarr"),
+    ("listenarr_", "listenarr"),
+    ("cleanuparr_", "cleanuparr"),
+    ("obsidian_", "obsidian"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -228,6 +254,13 @@ class SirisAI:
         self._weather_client: WeatherClient | None = None
         self._notify_client: NotifyClient | None = None
         self._hermes_client: HermesClient | None = None
+        self._tautulli_client: TautulliClient | None = None
+        self._radarr_client: RadarrClient | None = None
+        self._sonarr_client: SonarrClient | None = None
+        self._bazarr_client: BazarrClient | None = None
+        self._listenarr_client: ListenarrClient | None = None
+        self._cleanuparr_client: CleanuparrClient | None = None
+        self._obsidian_client: ObsidianClient | None = None
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -317,6 +350,54 @@ class SirisAI:
                 api_key=self.settings.hermes_api_key or None,
             )
             self.tools.register(HermesRunTaskTool(self._hermes_client))
+
+        if self.settings.tautulli_base_url and self.settings.tautulli_api_key:
+            self._tautulli_client = TautulliClient(
+                base_url=self.settings.tautulli_base_url, api_key=self.settings.tautulli_api_key
+            )
+            self.tools.register(TautulliCurrentActivityTool(self._tautulli_client))
+            self.tools.register(TautulliRecentHistoryTool(self._tautulli_client))
+
+        if self.settings.radarr_base_url and self.settings.radarr_api_key:
+            self._radarr_client = RadarrClient(base_url=self.settings.radarr_base_url, api_key=self.settings.radarr_api_key)
+            self.tools.register(RadarrListMoviesTool(self._radarr_client))
+            self.tools.register(RadarrQueueTool(self._radarr_client))
+            self.tools.register(RadarrSearchMovieTool(self._radarr_client))
+
+        if self.settings.sonarr_base_url and self.settings.sonarr_api_key:
+            self._sonarr_client = SonarrClient(base_url=self.settings.sonarr_base_url, api_key=self.settings.sonarr_api_key)
+            self.tools.register(SonarrListSeriesTool(self._sonarr_client))
+            self.tools.register(SonarrQueueTool(self._sonarr_client))
+            self.tools.register(SonarrSearchSeriesTool(self._sonarr_client))
+
+        if self.settings.bazarr_base_url and self.settings.bazarr_api_key:
+            self._bazarr_client = BazarrClient(base_url=self.settings.bazarr_base_url, api_key=self.settings.bazarr_api_key)
+            self.tools.register(BazarrWantedMoviesTool(self._bazarr_client))
+            self.tools.register(BazarrWantedEpisodesTool(self._bazarr_client))
+
+        if self.settings.listenarr_base_url and self.settings.listenarr_api_key:
+            self._listenarr_client = ListenarrClient(
+                base_url=self.settings.listenarr_base_url, api_key=self.settings.listenarr_api_key
+            )
+            self.tools.register(ListenarrSystemStatusTool(self._listenarr_client))
+            self.tools.register(ListenarrQueueTool(self._listenarr_client))
+
+        if self.settings.cleanuparr_base_url and self.settings.cleanuparr_api_key:
+            self._cleanuparr_client = CleanuparrClient(
+                base_url=self.settings.cleanuparr_base_url, api_key=self.settings.cleanuparr_api_key
+            )
+            self.tools.register(CleanuparrStatusTool(self._cleanuparr_client))
+
+        if self.settings.obsidian_base_url and self.settings.obsidian_api_key:
+            self._obsidian_client = ObsidianClient(
+                base_url=self.settings.obsidian_base_url,
+                api_key=self.settings.obsidian_api_key,
+                verify_ssl=self.settings.obsidian_verify_ssl,
+            )
+            self.tools.register(ObsidianListNotesTool(self._obsidian_client))
+            self.tools.register(ObsidianGetNoteTool(self._obsidian_client))
+            self.tools.register(ObsidianSearchTool(self._obsidian_client))
+            self.tools.register(ObsidianCreateOrUpdateNoteTool(self._obsidian_client))
 
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite
@@ -629,6 +710,13 @@ class SirisAI:
             self._weather_client,
             self._notify_client,
             self._hermes_client,
+            self._tautulli_client,
+            self._radarr_client,
+            self._sonarr_client,
+            self._bazarr_client,
+            self._listenarr_client,
+            self._cleanuparr_client,
+            self._obsidian_client,
         )
         for client in sync_clients:
             if client is not None:
