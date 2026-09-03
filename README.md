@@ -1288,6 +1288,130 @@ deliberately left out, and why" treatment as everything above.
     itself was never treated as having failed -- confirmed visible via
     both `GET /siris/activity` and a live `explain_recent_action` call.
 
+The roadmap below (39-48) is a third batch -- not from a structured
+brainstorm like 21-33, but from directly asking "what would make this
+feel more like Jarvis, functionality-wise" and picking the answers that
+map to real, buildable capability rather than sci-fi flavor. Same rule as
+every batch before it: nothing here is committed to until its own
+milestone lands, with the same "what was deliberately left out, and why"
+treatment on completion. A few of these (44's escalation channel, 46's
+user-identity mechanism, 48's satellite dependency) have an open design
+question the roadmap entry itself flags rather than one this batch
+silently decided -- same posture as milestone 29's routine engine.
+
+39. **Done** -- Morning/evening briefing routine. Composes what already
+    exists -- calendar (`CalendarClient`), weather (`WeatherClient`), the
+    proactive check pipeline (`server_health_check` + `event_timing_check`),
+    and active goals -- into one digest via a new `DailyBriefingSkill`
+    (`app/skills/builtin/daily_briefing.py`, `daily_briefing` tool), same
+    shape as `ServerHealthSkill` ("copy this file's shape for the next
+    skill"). READ-only and side-effect-free, same division of labor
+    milestone 19 already drew: the skill composes and summarizes, a new
+    `POST /siris/proactive/briefing` (`app/api/routes/proactive.py`,
+    mirroring `/check`) decides to send it, via the existing `notify`
+    tool if a channel is configured -- always sends when one is (a
+    briefing is the point of calling this at all, not a conditional
+    alert), no `NotificationManager` pass since there's nothing to score
+    or correlate. Same "no in-process scheduler" boundary as `/check`:
+    something external decides the cadence. ("Goals due soon" was the
+    original brainstorm framing, but `Goal` has no due-date field --
+    this surfaces what's still *active* instead, an honest match for
+    what the data actually supports.)
+
+    A real bug caught live before it shipped: the first pass called
+    `weather_current`/`calendar_upcoming_events` with no error handling,
+    so an unreachable weather API or CalDAV server 500'd the *entire*
+    endpoint -- losing the warnings and active-goals sections that had
+    nothing to do with weather. Weather/calendar are enrichment, not the
+    point of the briefing; fixed by wrapping each in its own best-effort
+    try/except, the exact same precedent `DockerRestartContainerTool
+    .dry_run()`'s Plex session check already set ("an unreachable Plex
+    server doesn't fail the dry run, it just omits that detail").
+
+    Verified: full suite (273 passed, up from 261) including 12 new
+    `tests/test_daily_briefing.py` tests (omits weather/calendar when
+    not configured, includes each when configured, reports "nothing on
+    the calendar" for an empty day, merges health + event-timing
+    warnings, lists active goals, the weather/calendar-unreachable
+    regression tests, tool registration, and endpoint-level notify/no-notify
+    coverage). Live-verified against a real `uvicorn` process and a real
+    mock ntfy server: composed a real briefing with a real created goal,
+    confirmed `POST /siris/proactive/briefing` sent a real notification
+    to the mock server with the exact summary text -- and, after
+    pointing `SIRISAI_WEATHER_LATITUDE`/`LONGITUDE` at real coordinates
+    (the sandbox's own network policy blocks the real open-meteo API,
+    which is what surfaced the bug above in the first place), confirmed
+    the endpoint now returns 200 with a complete, correctly-degraded
+    briefing and still sends the notification, instead of 500ing.
+    Calendar's own live behavior against a real CalDAV server remains
+    unverified here, same acknowledged limitation `CalendarClient`'s own
+    docstring already states.
+
+40. Goal check-ins. Goals (23) are passive storage today -- nothing ever
+    looks at one again once created. A deterministic staleness check
+    (no update in N days, still "active") composes into the same
+    proactive pipeline as 39/26, surfacing "still working on X?" instead
+    of only ever being asked.
+
+41. Behavioral pattern anomalies. The same mean/stdev-over-history
+    mechanism `event_timing_check` (37) already built for infrastructure
+    events ("the backup didn't run") applied to logged user-triggered
+    events instead ("the office lights are usually off by 11, they're
+    still on") -- extends `EventMemoryStore`'s existing timing baseline,
+    doesn't reinvent it.
+
+42. Presence-triggered scenes. UniFi presence (who's home) composed with
+    Home Assistant scene calls -- "everyone left" -> arm/away scene,
+    "someone's home" -> welcome scene. A new lightweight rules concept
+    (trigger condition -> HA service call) is the one genuinely new piece
+    here; everything it reads from and acts through already exists.
+
+43. Actionable push notifications. ntfy supports action buttons in its
+    payload -- a "container crashed" notification can carry a "Restart"
+    button that hits `POST /siris/chat/confirm` directly, collapsing
+    notice-then-open-chat-then-confirm into one tap for anything already
+    CONFIRM_REQUIRED-gated.
+
+44. Escalation tiers beyond notify. Every proactive notification goes to
+    one channel today regardless of severity. ntfy itself supports
+    priority levels and could carry a second "urgent" topic without a new
+    external dependency -- but a real emergency channel (SMS, a phone
+    call) needs a third-party service this codebase doesn't have
+    credentials for yet. Open question this entry flags rather than
+    decides: ntfy-priority-only (no new dependency), or wire up a real
+    second channel (needs picking a provider and the user's own
+    account/API key for it).
+
+45. Persona/voice consistency layer. A configurable tone/personality
+    profile applied consistently via the system message Cortex already
+    builds (33), remembered across sessions rather than whatever the raw
+    model defaults to each time -- config, not a new subsystem.
+
+46. Multi-user recognition. The biggest, most invasive entry in this
+    batch: memory, goals, and permission tiers are all global today,
+    with no concept of *whose* preference "I like my coffee black" is.
+    Open question this entry flags rather than decides: how a "user" is
+    even identified in a text/voice API with no camera or biometric
+    input -- a per-user API key, a client-supplied user id header, or a
+    voice-satellite-only concept (satellites already know which physical
+    device spoke) -- each has different blast radius on the existing
+    schema and deserves picking deliberately, not guessing.
+
+47. Cost/resource dashboard. LLM token spend and homelab power draw
+    tracked over time as their own metrics -- direct reuse of
+    `MetricsStore`'s existing baseline machinery (27), not a new store.
+    Ties back to milestone 23's own "reduce homelab power consumption"
+    goal example.
+
+48. Room/presence-aware routing. A response follows you -- replies
+    through whichever room's satellite/speaker you're actually in
+    (UniFi presence, or the satellite you last spoke to) rather than
+    always the device you initiated from. Open question this entry
+    flags: this is the one item here that's hard to live-verify without
+    real satellite hardware actually deployed and reachable, so scope
+    and verification approach need confirming before it's built, not
+    assumed.
+
 ## Running locally
 
 ```bash

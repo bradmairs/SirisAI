@@ -1,0 +1,88 @@
+"""Morning/evening briefing (milestone 39): composes what already exists
+-- calendar, weather, the proactive health/timing checks, and active
+goals -- into one digest. Same shape as `ServerHealthSkill` (its own
+docstring: "copy this file's shape for the next skill"): a skill that
+calls existing tools through `siris.run_tool()`, no new subsystem.
+
+READ-only and side-effect-free on purpose, same as `ServerHealthSkill`:
+this composes and summarizes, it doesn't decide whether to notify --
+that's `POST /siris/proactive/briefing`'s job (app/api/routes/proactive.py),
+same division of responsibility milestone 19 already drew between
+`server_health_check` and `POST /siris/proactive/check`.
+
+"Goals due soon" was the original brainstorm framing, but `Goal`
+(app/db/models.py) has no due-date field -- this surfaces what's still
+*active* instead, an honest match for what the data actually supports
+rather than inventing a due-date concept this milestone doesn't need.
+"""
+
+from typing import TYPE_CHECKING, Any
+
+from app.skills.base import Skill
+
+if TYPE_CHECKING:
+    from app.core.siris import SirisAI
+
+
+class DailyBriefingSkill(Skill):
+    name = "daily_briefing"
+    description = (
+        "Compose a summary of the day: weather, upcoming calendar events, any health or "
+        "recurring-event warnings, and active goals. Read-only -- doesn't send anything on its "
+        "own; POST /siris/proactive/briefing does that, this just builds the content."
+    )
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def run(self, siris: "SirisAI", **kwargs: Any) -> Any:
+        briefing: dict[str, Any] = {}
+
+        # Weather/calendar are enrichment, not the point of the briefing --
+        # an unreachable weather API or CalDAV server shouldn't take the
+        # whole briefing down with it, same "best-effort" precedent as
+        # DockerRestartContainerTool.dry_run()'s Plex session check. Caught
+        # live: the first pass let a real network failure here 500 the
+        # entire endpoint, losing warnings/goals that had nothing to do
+        # with weather.
+        if siris.tools.get("weather_current") is not None:
+            try:
+                briefing["weather"] = siris.run_tool("weather_current", {})
+            except Exception:
+                pass
+
+        if siris.tools.get("calendar_upcoming_events") is not None:
+            try:
+                briefing["calendar"] = siris.run_tool("calendar_upcoming_events", {"days_ahead": 1})
+            except Exception:
+                pass
+
+        health = siris.run_tool("server_health_check", {})
+        event_timing = siris.run_tool("event_timing_check", {})
+        briefing["warnings"] = health["warnings"] + event_timing["warnings"]
+
+        briefing["active_goals"] = [g["title"] for g in siris.goals.list_goals(status="active")]
+        briefing["summary"] = self._compose_summary(briefing)
+        return briefing
+
+    @staticmethod
+    def _compose_summary(briefing: dict[str, Any]) -> str:
+        lines: list[str] = []
+
+        weather = briefing.get("weather")
+        if weather is not None:
+            lines.append(f"Weather: {weather['temperature_c']}°C, {weather['conditions']}.")
+
+        calendar = briefing.get("calendar")
+        if calendar is not None:
+            if calendar:
+                events = "; ".join(f"{e['summary']} ({e['start']})" for e in calendar)
+                lines.append(f"Today: {events}.")
+            else:
+                lines.append("Nothing on the calendar today.")
+
+        warnings = briefing["warnings"]
+        lines.append(f"{len(warnings)} warning(s): {'; '.join(warnings)}" if warnings else "All systems normal.")
+
+        goals = briefing["active_goals"]
+        lines.append(f"Active goals ({len(goals)}): {', '.join(goals)}." if goals else "No active goals.")
+
+        return " ".join(lines)

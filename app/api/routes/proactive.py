@@ -90,3 +90,31 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
     return HealthCheckResponse(
         result=result, event_timing=event_timing, notified=notified, notifications=[_to_response(i) for i in items]
     )
+
+
+class BriefingResponse(BaseModel):
+    result: dict[str, Any]
+    notified: bool
+
+
+@router.post("/briefing", response_model=BriefingResponse)
+def run_daily_briefing(siris: SirisAI = Depends(get_siris)) -> BriefingResponse:
+    """Run daily_briefing (milestone 39) and send its summary as one
+    notification -- if a notify channel is configured (SIRISAI_NTFY_TOPIC).
+    Meant to be triggered on a schedule from outside this process, same as
+    POST /siris/proactive/check -- see the README for a crontab example.
+    Unlike /check, always sends when a channel is configured (a briefing
+    is the point of calling this at all, not a conditional alert), and
+    doesn't go through NotificationManager -- there's nothing to score or
+    correlate, `daily_briefing` already composed one summary."""
+    trigger = "proactive check: automated schedule (see POST /siris/proactive/briefing)"
+    result = siris.run_tool("daily_briefing", {}, trigger=trigger)
+
+    notified = False
+    if siris.tools.get("notify") is not None:
+        siris.run_tool(
+            "notify", {"title": "SirisAI: daily briefing", "message": result["summary"]}, trigger=trigger, evidence=result
+        )
+        notified = True
+
+    return BriefingResponse(result=result, notified=notified)
