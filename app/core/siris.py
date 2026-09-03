@@ -27,6 +27,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.docker.client import DockerClient
 from app.goals.service import GoalStore
+from app.hermes.client import HermesClient
 from app.home_assistant.client import HomeAssistantClient
 from app.integrations.openapi import DiscoveredOperation, discover_get_operations
 from app.integrations.service import IntegrationStore
@@ -52,6 +53,7 @@ from app.plugins.builtin.goals import (
     ListGoalsTool,
     UpdateGoalStatusTool,
 )
+from app.plugins.builtin.hermes import HermesRunTaskTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
     HomeAssistantGetStateTool,
@@ -96,6 +98,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("unifi_", "unifi"),
     ("weather_", "weather"),
     ("calendar_", "calendar"),
+    ("hermes_", "hermes"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -206,6 +209,7 @@ class SirisAI:
         self._unifi_client: UniFiClient | None = None
         self._weather_client: WeatherClient | None = None
         self._notify_client: NotifyClient | None = None
+        self._hermes_client: HermesClient | None = None
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -283,6 +287,10 @@ class SirisAI:
         if self.settings.ntfy_topic:
             self._notify_client = NotifyClient(base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic)
             self.tools.register(NotifyTool(self._notify_client))
+
+        if self.settings.hermes_base_url:
+            self._hermes_client = HermesClient(base_url=self.settings.hermes_base_url, model=self.settings.hermes_model)
+            self.tools.register(HermesRunTaskTool(self._hermes_client))
 
         self._register_builtin_skills()
         self._register_discovered_integrations()
@@ -550,6 +558,7 @@ class SirisAI:
             self._unifi_client,
             self._weather_client,
             self._notify_client,
+            self._hermes_client,
         )
         for client in sync_clients:
             if client is not None:

@@ -1,0 +1,43 @@
+"""Thin client for Hermes Agent -- a separate homelab agent, with its own
+memories, skills, and terminal access, running on the same host as
+SirisAI. SirisAI delegates Docker/system-control tasks to it rather than
+reimplementing what it already knows how to do.
+
+Speaks an OpenAI-style chat completions shape
+(POST {base_url}/v1/chat/completions), the convention most self-hosted
+agent/inference servers expose (llama.cpp server, vLLM, LiteLLM proxies,
+...). If Hermes Agent's actual endpoint turns out to differ, this is the
+one place to adjust it -- HermesRunTaskTool (app/plugins/builtin/hermes.py)
+only ever talks to this client, never httpx directly.
+"""
+
+import httpx
+
+
+class HermesClient:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout: float = 120.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        # Generous default timeout -- Hermes may do its own multi-step
+        # tool use/terminal work before responding, not a single quick
+        # inference call.
+        self._model = model
+        self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
+
+    def run_task(self, instruction: str) -> str:
+        response = self._client.post(
+            "/v1/chat/completions",
+            json={"model": self._model, "messages": [{"role": "user", "content": instruction}]},
+        )
+        response.raise_for_status()
+        choices = response.json().get("choices") or []
+        if not choices:
+            return ""
+        return choices[0].get("message", {}).get("content") or ""
+
+    def close(self) -> None:
+        self._client.close()

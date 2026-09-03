@@ -21,6 +21,7 @@ def test_optional_tool_libraries_not_registered_by_default() -> None:
         "unifi_list_clients",
         "weather_current",
         "calendar_upcoming_events",
+        "hermes_run_task",
     }
 
 
@@ -72,3 +73,12 @@ def test_calendar_tool_registered_when_url_present() -> None:
     with patch("app.calendar.client.caldav.DAVClient"):
         siris = SirisAI(settings=Settings(caldav_url="https://cal.example.com"))
     assert siris.tools.get("calendar_upcoming_events") is not None
+
+
+def test_hermes_tool_registered_when_base_url_present() -> None:
+    siris = SirisAI(settings=Settings(hermes_base_url="http://localhost:8420"))
+    try:
+        assert siris.tools.get("hermes_run_task") is not None
+    finally:
+        assert siris._hermes_client is not None
+        siris._hermes_client.close()
