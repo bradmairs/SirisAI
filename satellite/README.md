@@ -82,6 +82,21 @@ SIRISAI_SATELLITE_SILENCE_TIMEOUT_SECONDS=1.5
 SIRISAI_SATELLITE_MAX_RECORDING_SECONDS=15.0
 # SIRISAI_SATELLITE_INPUT_DEVICE=1
 # SIRISAI_SATELLITE_OUTPUT_DEVICE=0
+
+# Room/presence-aware routing (milestone 48) -- both empty by default,
+# meaning this satellite stays pull-only (asks, gets its own reply,
+# plays it locally) exactly as before this existed. Set both to let
+# SirisAI push a reply here even when a *different* satellite heard the
+# request (see the main README's milestone 48 entry): ROOM registers
+# this satellite and is sent on every chat turn as "where the user just
+# spoke from"; CALLBACK_URL must be reachable FROM the SirisAI host
+# (behind your router/VPN as needed -- same "you configure it
+# explicitly" reasoning as the main app's SIRISAI_PUBLIC_BASE_URL).
+# INBOUND_PORT is which port this satellite listens on for pushes; only
+# needs to differ from CALLBACK_URL's port if you're port-forwarding.
+# SIRISAI_SATELLITE_ROOM=kitchen
+# SIRISAI_SATELLITE_CALLBACK_URL=http://192.168.1.50:8090
+SIRISAI_SATELLITE_INBOUND_PORT=8090
 ```
 
 `wake_word_model` accepts any of openWakeWord's bundled models (e.g.

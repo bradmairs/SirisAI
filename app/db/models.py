@@ -259,6 +259,24 @@ class CapabilityGap(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
+class SatelliteRegistration(Base):
+    """A voice satellite's room + how to reach it (milestone 48) -- one row
+    per room; re-registering the same room (a restarted satellite
+    process, a changed port) overwrites callback_url/last_active_at
+    rather than accumulating duplicates. last_active_at is bumped by
+    both registration/heartbeat and real voice activity
+    (SatelliteStore.record_activity()) -- current_room() is just
+    "whichever room has the highest last_active_at", so either kind of
+    activity can make a room current."""
+
+    __tablename__ = "satellite_registrations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    room: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    callback_url: Mapped[str] = mapped_column(Text)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
 class Integration(Base):
     """A discovered integration (milestone 32) -- everything needed to
     regenerate its tools on the next startup, not just the tools

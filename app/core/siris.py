@@ -74,10 +74,12 @@ from app.plugins.builtin.notify import NotifyTool
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
 from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
+from app.plugins.builtin.satellites import SpeakInCurrentRoomTool
 from app.plugins.builtin.system_info import SystemInfoTool
 from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.routines.service import RoutineStore
+from app.satellites.service import SatelliteStore
 from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_timing import EventTimingSkill
@@ -126,6 +128,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "create_routine": "routines",
     "list_routines": "routines",
     "set_routine_enabled": "routines",
+    "speak_in_current_room": "satellites",
 }
 
 
@@ -181,6 +184,7 @@ class SirisAI:
     goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
     capability_gaps: CapabilityGapStore = field(default_factory=lambda: CapabilityGapStore(SessionLocal))
     routines: RoutineStore = field(default_factory=lambda: RoutineStore(SessionLocal))
+    satellites: SatelliteStore = field(default_factory=lambda: SatelliteStore(SessionLocal))
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
     integrations: IntegrationStore = field(default_factory=lambda: IntegrationStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
@@ -307,6 +311,21 @@ class SirisAI:
         if self.settings.hermes_base_url:
             self._hermes_client = HermesClient(base_url=self.settings.hermes_base_url, model=self.settings.hermes_model)
             self.tools.register(HermesRunTaskTool(self._hermes_client))
+
+        # Room-aware voice push (milestone 48) -- needs a real TTS backend
+        # to synthesize speech, independent of whether any satellite
+        # happens to be registered right now (that's runtime state, not
+        # configuration); speak_in_current_room itself no-ops gracefully
+        # when SatelliteStore.current_room() has nothing to report.
+        if self.settings.tts_provider != "none":
+            self.tools.register(
+                SpeakInCurrentRoomTool(
+                    self.satellites,
+                    self.settings.tts_base_url,
+                    self.settings.tts_model,
+                    self.settings.tts_voice,
+                )
+            )
 
         self._register_builtin_skills()
         self._register_discovered_integrations()

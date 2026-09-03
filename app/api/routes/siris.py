@@ -192,6 +192,13 @@ class ChatRequest(BaseModel):
     # existing callers see no behavior change unless they ask for it.
     use_planner: bool = False
     max_plan_steps: int = 5
+    # A satellite's room (milestone 48, see app/satellites/service.py) --
+    # when set, this counts as fresh activity in that room, so
+    # SatelliteStore.current_room() (what speak_in_current_room targets)
+    # reflects it. Omitted by non-satellite clients (the web UI, direct
+    # API calls); nothing about the rest of this endpoint changes either
+    # way.
+    room: str | None = None
 
 
 class ToolCallResult(BaseModel):
@@ -296,8 +303,18 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     `plan` carries every call+result made, in order, in place of
     `tool_call`. False by default: nothing above changes unless you ask
     for it.
+
+    A satellite (milestone 48) passes its own `room` on every call --
+    this counts as fresh activity in that room, so a later
+    speak_in_current_room call (or anything else consulting
+    SatelliteStore.current_room()) can push a reply to wherever the
+    user most recently actually spoke from. Non-satellite clients omit
+    it; nothing else here changes either way.
     """
     assert siris.llm is not None
+
+    if request.room:
+        siris.satellites.record_activity(request.room)
 
     conversation_id = request.conversation_id
     if conversation_id is None or not siris.conversation.conversation_exists(conversation_id):
