@@ -935,18 +935,62 @@ noted inline rather than building the same thing twice under two names.
     `GET /siris/integrations`, and confirmed the discovered tools
     survived a full process restart with zero re-registration calls.
     Full suite: 223 passed.
-33. Cortex. A capstone, not a new capability: once 21/23/24/28 exist, the
-    request -> context -> plan -> memory/world-model -> tools -> verify ->
-    memory -> response pipeline described in the brainstorm is mostly
-    already sitting across `ContextEngine` (16), the planner (24), and
-    `SirisAI.run_tool()` (11) -- this milestone is naming and consolidating
-    that flow into one orchestration path so `/siris/chat` calls into it
-    instead of assembling context, calling the model, and handling tool
-    calls inline the way it does today. The point isn't a new subsystem,
-    it's making the LLM client visibly swappable infrastructure behind a
-    stable orchestration surface, which is really an outcome of 1-32
-    being done rather than an independent milestone -- sequenced last on
-    purpose.
+33. **Done** -- Cortex. A capstone, not a new capability: once 21/23/24/28
+    exist, the request -> context -> plan -> memory/world-model -> tools ->
+    verify -> memory -> response pipeline described in the brainstorm is
+    mostly already sitting across `ContextEngine` (16), the planner (24),
+    and `SirisAI.run_tool()` (11) -- this milestone names and consolidates
+    that flow into one orchestration path, `app/cortex/orchestrator.py`'s
+    `Cortex` class, so `/siris/chat` calls into it instead of assembling
+    context, calling the model, and handling tool calls inline the way it
+    used to.
+
+    Before this milestone, `POST /siris/chat` (app/api/routes/siris.py) did
+    all of the work itself: build context, pick a model via
+    `model_router`, branch on `use_planner`, run a tool through
+    `run_tool()`, make the follow-up LLM call for a final answer -- with
+    two private helper functions (`_execute_tool_call`,
+    `_run_planned_chat`) doing the heavy lifting inline in the route
+    module. `Cortex.process()` now owns that whole pipeline, and
+    `Cortex.confirm()` owns the `/siris/chat/confirm` half (running an
+    already-approved tool and making the same follow-up call). Both return
+    a plain dataclass (`CortexResult`) with no FastAPI/pydantic awareness --
+    `error`/`permission_denied` fields stand in for what used to be a
+    directly-raised `HTTPException`, so Cortex's contract is "always return
+    a result" the same way `run_tool()`'s callers already have to handle
+    `ConfirmationRequired`/`PermissionError`/`Exception` as outcomes rather
+    than assuming success. The route module shrank to essentially:
+    create/resume a conversation, call `Cortex`, map the `CortexResult`
+    into a `ChatResponse` (raising the right `HTTPException` for `error`).
+
+    Deliberately not a new subsystem: no new persistence, no new tools, no
+    behavior change for any existing caller -- same request/response shapes,
+    same single-tool-call-per-turn default, same `use_planner` opt-in, same
+    audit triggers recorded. The actual outcome is architectural: the LLM
+    client is no longer something a route handler touches directly (it's
+    resolved by `model_router` and used only inside `Cortex`), so a second
+    orchestration entry point (a future voice pipeline, a CLI, a scheduled
+    routine that wants the full context+tools+verify flow rather than a
+    single direct tool call) can call `Cortex.process()` the same way
+    `/siris/chat` does, without re-deriving this pipeline inline the way
+    the route used to.
+
+    Verified: full suite (228 passed, up from 223) including 5 new direct
+    unit tests against `Cortex` (`tests/test_cortex.py` -- plain-text
+    response persists the turn, a tool call gets a real follow-up
+    round-trip, `use_planner=True` delegates to the `Planner` and returns
+    its steps as `plan`, an LLM backend failure comes back as an `error`
+    result rather than raising, `confirm()` runs and persists without a
+    fresh user turn) plus every pre-existing chat/planner/confirm/context
+    endpoint test passing unmodified, since the route's HTTP contract
+    didn't change. Live-verified against a real `uvicorn` process and a
+    real mock Ollama `/api/chat` server (`mock_ollama.py`): a plain prompt,
+    a single-tool-call-with-follow-up prompt, and a `use_planner=true`
+    prompt that chains two `echo` calls all produced correct responses over
+    real HTTP, and `GET /siris/conversations/{id}` / `GET /siris/activity`
+    confirmed the persisted transcript and audit trigger
+    (`"chat: model chose this tool while responding to the user's
+    request"`) are unchanged from before the refactor.
 
 ## Running locally
 
