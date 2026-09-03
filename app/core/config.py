@@ -64,6 +64,19 @@ class Settings(BaseSettings):
     home_assistant_base_url: str = ""
     home_assistant_token: str = ""
 
+    # Skip confirmation for home_assistant_call_service calls whose
+    # `domain` argument is in this comma-separated allowlist (e.g.
+    # "light,switch,fan,media_player") -- everything else (locks,
+    # alarms, covers/garage doors, climate, ...) still requires
+    # confirmation, same as before this existed. Empty (default) =
+    # every call still requires confirmation, unchanged. See
+    # HomeAssistantCallServiceTool.needs_confirmation() and
+    # Tool.needs_confirmation()'s base docstring for the mechanism.
+    home_assistant_no_confirm_domains: str = ""
+
+    def home_assistant_no_confirm_domain_list(self) -> list[str]:
+        return [d.strip() for d in self.home_assistant_no_confirm_domains.split(",") if d.strip()]
+
     # Comma-separated tool names allowed to run despite being
     # ToolPermission.RESTRICTED (see app/plugins/base.py). Empty (default)
     # = no RESTRICTED tool can run, whatever the model asks for.

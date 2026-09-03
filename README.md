@@ -1956,6 +1956,61 @@ provider for the same capability actually exists to design against.
     against real instances before they can be trusted the way the other
     five can.
 
+51. **Done** -- Configurable confirmation bypass for Home Assistant
+    device control. Direct user request: routine calls like "turn on
+    the kitchen light" were stopping for confirmation every time, since
+    `home_assistant_call_service` (9) is `CONFIRM_REQUIRED` -- correctly
+    so in general, since it's unbounded (it can call *any* Home
+    Assistant service, including locks and alarms), but that same
+    blanket rule was also gating routine lighting/switch control.
+
+    Two ways to relax this were on the table -- remove confirmation
+    entirely, or allowlist specific safe domains -- and this was put to
+    the user rather than picked silently, since it's a real safety
+    tradeoff the tool's own original design comment explicitly
+    considered and rejected ("confirm before running rather than trying
+    to allowlist safe services"). Answer: the allowlist. New
+    `Tool.needs_confirmation(arguments) -> bool` hook (`app/plugins/base.py`,
+    same "optional, sensible default, override only where a real gap
+    exists" shape as `dry_run()`/`verify()`) -- `True` by default, so
+    every other `CONFIRM_REQUIRED` tool (e.g. `obsidian_create_or_update_note`,
+    50) is completely unaffected. `SirisAI.run_tool()` now consults it
+    (only when `permission` is `CONFIRM_REQUIRED`) before deciding
+    whether to raise `ConfirmationRequired`, instead of trusting the
+    tool's static permission tier alone.
+
+    `HomeAssistantCallServiceTool.needs_confirmation()` is the one
+    override: a new `SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS`
+    (comma-separated, e.g. `light,switch,fan`) lets specific domains
+    skip confirmation and run immediately -- everything not listed
+    (locks, alarms, covers/garage doors, climate, ...) still stops for
+    approval exactly as before. Empty (default) = every call still
+    requires confirmation, unchanged from before this milestone.
+
+    The audit log's `policy` field (28) gained a third
+    `CONFIRM_REQUIRED` message ("this call's arguments are allowlisted
+    to skip confirmation"), distinct from "explicitly confirmed" -- a
+    call that never needed asking shouldn't be indistinguishable, in
+    `explain_recent_action`'s eyes, from one a human actually approved.
+
+    Verified: full suite (402 passed, up from 393) including 6 new
+    `tests/test_permissions.py` tests (a generic fake `CONFIRM_REQUIRED`
+    tool overriding `needs_confirmation()` -- allowlisted calls run and
+    record the new policy string, non-allowlisted calls still block and
+    still support explicit confirmation) and 9 new
+    `tests/test_home_assistant.py` tests (the tool's own allowlist
+    logic, settings parsing, and two end-to-end `SirisAI.run_tool()`
+    tests -- via `unittest.mock.patch.object` on the registered client,
+    not raw HTTP mocking, since the point was proving the *setting*
+    actually flows through registration into the live tool instance).
+    Live-verified against a real `uvicorn` process and a real mock Home
+    Assistant server with `SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS=light,switch,fan`:
+    a real `light.turn_on` call ran immediately with the new "allowlisted"
+    policy string in the audit log, a real `lock.unlock` call on the
+    same instance was still blocked pending confirmation, and confirming
+    it afterward ran and recorded the original "explicitly confirmed"
+    policy string, unchanged.
+
 ## Running locally
 
 ```bash

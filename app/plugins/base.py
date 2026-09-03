@@ -114,6 +114,23 @@ class Tool(ABC):
         having failed."""
         raise NotImplementedError(f"{self.name} does not support verify")
 
+    def needs_confirmation(self, arguments: dict[str, Any]) -> bool:
+        """For a CONFIRM_REQUIRED tool, whether *this specific call*
+        genuinely still needs confirmation. True by default -- "yes,
+        exactly what CONFIRM_REQUIRED already says" -- so every existing
+        CONFIRM_REQUIRED tool is unaffected without opting in; only
+        consulted (by `SirisAI.run_tool()`) when `permission` is
+        CONFIRM_REQUIRED, never for READ/SAFE_ACTION/RESTRICTED tools.
+        Override only where a real, narrow subset of calls is genuinely
+        safe to skip -- e.g. `HomeAssistantCallServiceTool` allowlisting
+        specific domains via `SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS`,
+        so "turn on the light" can run immediately while "unlock the
+        front door" still stops for approval. Unlike `dry_run()`/
+        `verify()`, this isn't an opt-in feature signaled by
+        `NotImplementedError` -- there's no ambiguity in "does this tool
+        need confirmation," only in which calls to it do."""
+        return True
+
 
 class ConfirmationRequired(Exception):
     """Raised by `SirisAI.run_tool()` for a CONFIRM_REQUIRED tool that

@@ -137,6 +137,94 @@ def test_call_service_logs_an_event_without_entity_id() -> None:
     client.close()
 
 
+# -- needs_confirmation(): a configurable per-domain confirmation bypass,
+# a direct user request (lights/switches shouldn't need confirming every
+# time) rather than removing confirmation for every domain including
+# locks/alarms/covers.
+
+
+def test_needs_confirmation_is_true_for_every_domain_with_no_allowlist_configured() -> None:
+    tool = HomeAssistantCallServiceTool(_mock_client(lambda r: httpx.Response(200, json=[])), _events())
+    assert tool.needs_confirmation({"domain": "light", "service": "turn_on"}) is True
+    assert tool.needs_confirmation({"domain": "lock", "service": "unlock"}) is True
+
+
+def test_needs_confirmation_is_false_for_an_allowlisted_domain() -> None:
+    tool = HomeAssistantCallServiceTool(
+        _mock_client(lambda r: httpx.Response(200, json=[])), _events(), no_confirm_domains=["light", "switch"]
+    )
+    assert tool.needs_confirmation({"domain": "light", "service": "turn_on"}) is False
+    assert tool.needs_confirmation({"domain": "switch", "service": "turn_off"}) is False
+
+
+def test_needs_confirmation_is_still_true_for_a_non_allowlisted_domain() -> None:
+    tool = HomeAssistantCallServiceTool(
+        _mock_client(lambda r: httpx.Response(200, json=[])), _events(), no_confirm_domains=["light", "switch"]
+    )
+    assert tool.needs_confirmation({"domain": "lock", "service": "unlock"}) is True
+    assert tool.needs_confirmation({"domain": "alarm_control_panel", "service": "alarm_disarm"}) is True
+
+
+def test_no_confirm_domains_setting_parses_comma_separated_list() -> None:
+    settings = Settings(home_assistant_no_confirm_domains=" light, switch ,fan")
+    assert settings.home_assistant_no_confirm_domain_list() == ["light", "switch", "fan"]
+
+
+def test_no_confirm_domains_setting_defaults_to_empty() -> None:
+    assert Settings().home_assistant_no_confirm_domain_list() == []
+
+
+def test_allowlisted_domain_call_runs_without_explicit_confirmation_end_to_end() -> None:
+    """Proves the setting actually flows through registration
+    (app/core/siris.py) into the registered tool instance, not just that
+    HomeAssistantCallServiceTool.needs_confirmation() works in isolation."""
+    from unittest.mock import patch
+
+    siris = SirisAI(
+        settings=Settings(
+            home_assistant_base_url="http://ha.local:8123",
+            home_assistant_token="secret",
+            home_assistant_no_confirm_domains="light",
+        )
+    )
+    try:
+        assert siris._home_assistant_client is not None
+        with patch.object(
+            siris._home_assistant_client, "call_service", return_value=[{"entity_id": "light.kitchen", "state": "on"}]
+        ) as mock_call:
+            result = siris.run_tool(
+                "home_assistant_call_service", {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}
+            )
+        assert result == [{"entity_id": "light.kitchen", "state": "on"}]
+        mock_call.assert_called_once_with("light", "turn_on", entity_id="light.kitchen")
+
+        ran = siris.audit.list_recent(limit=1)[0]
+        assert ran["confirmation_required"] is False
+        assert ran["policy"] == "CONFIRM_REQUIRED: this call's arguments are allowlisted to skip confirmation"
+    finally:
+        siris._home_assistant_client.close()
+
+
+def test_non_allowlisted_domain_still_requires_confirmation_end_to_end() -> None:
+    from app.plugins.base import ConfirmationRequired
+
+    import pytest
+
+    siris = SirisAI(
+        settings=Settings(
+            home_assistant_base_url="http://ha.local:8123",
+            home_assistant_token="secret",
+            home_assistant_no_confirm_domains="light",
+        )
+    )
+    try:
+        with pytest.raises(ConfirmationRequired):
+            siris.run_tool("home_assistant_call_service", {"domain": "lock", "service": "unlock", "entity_id": "lock.front_door"})
+    finally:
+        assert siris._home_assistant_client is not None
+        siris._home_assistant_client.close()
+
+
 # -- get_logbook / home_assistant_get_logbook ("why did X happen", not just
 # current state -- see the README's write-up on the SirisAI vision doc)
 
