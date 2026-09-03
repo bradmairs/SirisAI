@@ -510,10 +510,11 @@ noted inline rather than building the same thing twice under two names.
     call raised) -- if the evidence doesn't add up, it calls another
     tool; if it does, it answers. A CONFIRM_REQUIRED tool mid-plan still
     stops the loop and surfaces `confirmation_required` with whatever
-    steps already ran (see `PlanResult.pending_confirmation`) --
-    resuming the rest of the plan after confirming is out of scope here;
-    `POST /siris/chat/confirm` runs just that one step, same as it
-    already does for a single non-planned tool call. Every step still
+    steps already ran (see `PlanResult.pending_confirmation`) -- resuming
+    the rest of the plan after confirming was originally out of scope here
+    (`POST /siris/chat/confirm` ran just that one step); a later hardening
+    pass (see after milestone 35 below) added that as an opt-in on
+    `POST /siris/chat/confirm` itself. Every step still
     goes through `SirisAI.run_tool()` -- full permission gating and audit
     logging apply per step, nothing about planning bypasses them.
 
@@ -1085,6 +1086,59 @@ deliberately left out, and why" treatment as everything above.
     intervening assistant reply) ahead of the new user message -- and the
     mock's own reply ("You asked me to echo 'ping' earlier.") confirmed
     it could actually see and use that history, not just receive it.
+
+36. **Done** -- Hardening pass: planner resume after confirmation.
+    Milestone 24 explicitly flagged this as out of scope: a plan that hit
+    a `CONFIRM_REQUIRED` tool mid-run stopped there, and `POST
+    /siris/chat/confirm` only ever ran that one confirmed step -- any
+    further steps the plan would have taken never happened, silently
+    ending what looked like a multi-step task after just its first
+    approval-gated action.
+
+    `Cortex.confirm()` (`app/cortex/orchestrator.py`) gained an opt-in
+    `use_planner` parameter, threaded through from a new
+    `ConfirmToolRequest.use_planner` field on `POST /siris/chat/confirm`.
+    When true, after the confirmed tool runs, its result is fed into the
+    same kind of loop that stopped for it -- `Planner.run()` picks up from
+    there via `Cortex._run_planned()` (the same method the `use_planner`
+    path of `POST /siris/chat` already uses), so it can call further
+    tools, hit another `CONFIRM_REQUIRED` tool and stop again (fully
+    supported -- a plan needing two approvals in a row just means two
+    `POST /siris/chat/confirm` calls, each with `use_planner: true`), or
+    produce a final answer. The response's `plan` is the confirmed step
+    followed by whatever the continuation executed -- this turn's work,
+    same "this turn only" semantics `plan` already has on `POST
+    /siris/chat`; earlier steps from before the confirmation are still
+    visible via `GET /siris/conversations/{id}`, not repeated. Default is
+    `false`: confirming a single non-planned tool call, or a planner
+    confirmation without opting into continuation, behaves exactly as
+    before -- one follow-up call, done.
+
+    No new persisted state -- the "no server-side pending-action state"
+    design principle from milestone 24/`POST /siris/chat/confirm`'s own
+    docstring holds: the client already knows to pass `use_planner: true`
+    because the response that carried `confirmation_required` also
+    carried `plan` (not `tool_call`) in the first place.
+
+    Verified: full suite (239 passed, up from 235) including three new
+    `tests/test_cortex.py` tests (continuation runs a further tool call
+    then produces a final answer; continuation immediately hits a second
+    `CONFIRM_REQUIRED` tool and correctly surfaces the fresh
+    `pending_confirmation` alongside the already-confirmed step in `plan`;
+    confirming without `use_planner` is unchanged) and one new
+    `tests/test_planner.py` endpoint-level test exercising the full
+    two-request HTTP flow. Live-verified against a real `uvicorn` process,
+    a real mock Ollama backend, and a real mock Home Assistant server
+    using the actual `home_assistant_call_service` `CONFIRM_REQUIRED`
+    tool (not a test-only stand-in): a planner turn stopped for
+    confirmation on a real service call, confirming with `use_planner:
+    true` ran that call against the mock Home Assistant API, continued on
+    to a second real tool call, and produced a final answer -- with
+    `GET /siris/conversations/{id}` showing the full four-message
+    sequence persisted correctly and `GET /siris/activity` showing the
+    confirmed step's trigger ("user explicitly confirmed...") distinct
+    from the continuation step's ("planner: step 1 of an in-progress
+    plan"), each with its own correct audit policy.
 
 ## Running locally
 

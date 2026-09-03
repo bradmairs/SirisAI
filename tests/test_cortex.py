@@ -11,6 +11,17 @@ from app.core.config import Settings
 from app.core.siris import SirisAI
 from app.cortex.orchestrator import Cortex
 from app.llm.base import LLMResponse, ToolCall
+from app.plugins.base import Tool, ToolPermission
+
+
+class _ConfirmRequiredTool(Tool):
+    name = "dangerous_action"
+    description = "Test tool requiring confirmation."
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}
+
+    def run(self, target: str = "", **kwargs: Any) -> Any:
+        return {"acted_on": target}
 
 
 class _FixedLLMClient:
@@ -179,3 +190,69 @@ def test_confirm_runs_the_tool_and_persists_without_a_fresh_user_message() -> No
     assert result.tool_call.result == {"echo": "confirmed"}
     history = siris.conversation.get_messages(conversation_id)
     assert [m["role"] for m in history] == ["user", "tool", "assistant"]
+
+
+def test_confirm_with_use_planner_continues_the_plan_after_the_confirmed_step() -> None:
+    """A plan that stopped for confirmation, once confirmed with
+    use_planner=True, keeps going instead of ending the turn after just
+    the one step -- further tool calls run, and the final answer only
+    comes back once the model is satisfied."""
+    llm = _SequenceLLMClient(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "step 2"})]),
+            LLMResponse(text="All done after confirming."),
+        ]
+    )
+    siris = _siris(llm)
+    siris.tools.register(_ConfirmRequiredTool())
+    conversation_id = siris.conversation.create_conversation()
+    siris.conversation.add_message(conversation_id, role="user", content="do the risky thing then echo")
+
+    result = asyncio.run(
+        Cortex().confirm(siris, conversation_id, "dangerous_action", {"target": "prod-server"}, use_planner=True)
+    )
+
+    assert [step.name for step in result.plan] == ["dangerous_action", "echo"]
+    assert result.plan[0].result == {"acted_on": "prod-server"}
+    assert result.plan[1].result == {"echo": "step 2"}
+    assert result.response == "All done after confirming."
+    assert result.pending_confirmation is None
+    assert result.error is None
+
+    history = siris.conversation.get_messages(conversation_id)
+    assert [m["role"] for m in history] == ["user", "tool", "tool", "assistant"]
+
+
+def test_confirm_with_use_planner_can_stop_on_another_confirmation_required() -> None:
+    llm = _SequenceLLMClient([LLMResponse(tool_calls=[ToolCall(name="dangerous_action", arguments={"target": "db"})])])
+    siris = _siris(llm)
+    siris.tools.register(_ConfirmRequiredTool())
+    conversation_id = siris.conversation.create_conversation()
+    siris.conversation.add_message(conversation_id, role="user", content="do two risky things")
+
+    result = asyncio.run(
+        Cortex().confirm(siris, conversation_id, "dangerous_action", {"target": "web-server"}, use_planner=True)
+    )
+
+    # The first (already-confirmed) step shows up in `plan`; the second one
+    # never ran -- it's surfaced as a fresh pending_confirmation instead.
+    assert [step.name for step in result.plan] == ["dangerous_action"]
+    assert result.plan[0].arguments == {"target": "web-server"}
+    assert result.pending_confirmation == ("dangerous_action", {"target": "db"})
+    assert result.response is None
+
+
+def test_confirm_without_use_planner_does_not_continue_even_with_a_confirm_required_tool() -> None:
+    """use_planner defaults to False -- confirming a tool that happens to
+    have come from a plan, without opting in, behaves exactly like
+    confirming any other single tool call: one follow-up call, done."""
+    siris = _siris(_FixedLLMClient(LLMResponse(text="Confirmed and done.")))
+    siris.tools.register(_ConfirmRequiredTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().confirm(siris, conversation_id, "dangerous_action", {"target": "prod-server"}))
+
+    assert result.plan == []
+    assert result.tool_call is not None
+    assert result.tool_call.name == "dangerous_action"
+    assert result.response == "Confirmed and done."
