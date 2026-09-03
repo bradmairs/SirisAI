@@ -11,16 +11,16 @@ link instead of surfacing as two separate, seemingly unrelated warnings.
 
 Classification here is deliberately simple keyword/pattern matching
 against known message shapes ("CPU usage is high: ...", "Container 'X'
-is exited", "Expected recurring event is overdue: ...", ...) --
-server_health_check's (15) and, since the event-timing hardening pass,
-event_timing_check's -- not a general NLP/anomaly detection system;
-confidence is always 1.0 because every warning reaching here already
-cleared its own deterministic threshold check, so nothing here ever
-lands on "ignore" either. A future source with genuine uncertainty (an
-LLM's own assessment) would populate a lower confidence and could
-legitimately use the fuller ignore/log_only/notify/urgent range this
-milestone's action field supports even though these two skills only ever
-produce the top two.
+is exited", "Expected recurring event is overdue: ...", "Goal 'X' hasn't
+been updated ...", ...) -- server_health_check's (15) and, since later
+hardening passes, event_timing_check's and goal_check_in's -- not a
+general NLP/anomaly detection system; confidence is always 1.0 because
+every warning reaching here already cleared its own deterministic
+threshold check, so nothing here ever lands on "ignore" either. A future
+source with genuine uncertainty (an LLM's own assessment) would populate
+a lower confidence and could legitimately use the fuller
+ignore/log_only/notify/urgent range this milestone's action field
+supports even though these skills only ever produce the top two.
 
 Correlation is exact-name matching against the container name and disk
 path server_health_check's own messages already contain -- it doesn't
@@ -59,7 +59,18 @@ class NotificationManager:
         is_docker = warning.startswith("Container ")
         is_resource = warning.startswith(("CPU usage", "Memory usage", "Disk usage"))
         is_timing = warning.startswith("Expected recurring event is overdue")
-        category = "docker" if is_docker else "resource" if is_resource else "timing" if is_timing else "other"
+        is_goal = warning.startswith("Goal '")
+        category = (
+            "docker"
+            if is_docker
+            else "resource"
+            if is_resource
+            else "timing"
+            if is_timing
+            else "goals"
+            if is_goal
+            else "other"
+        )
 
         critical = is_docker and any(state in warning for state in ("exited", "dead"))
         severity = "critical" if critical else "warning"

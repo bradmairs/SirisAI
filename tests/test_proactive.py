@@ -33,11 +33,13 @@ class _FakeSirisForProactive:
         notify_present: bool,
         entities: _FakeEntities | None = None,
         event_timing_result: dict[str, Any] | None = None,
+        goal_check_in_result: dict[str, Any] | None = None,
     ) -> None:
         self.tools = _FakeTools(notify_present)
         self.entities = entities or _FakeEntities()
         self._health_result = health_result
         self._event_timing_result = event_timing_result or {"healthy": True, "warnings": [], "overdue_events": []}
+        self._goal_check_in_result = goal_check_in_result or {"healthy": True, "warnings": [], "stale_goals": []}
         self.notify_calls: list[dict[str, Any]] = []
 
     def run_tool(self, name: str, arguments: dict[str, Any], **kwargs: Any) -> Any:
@@ -45,6 +47,8 @@ class _FakeSirisForProactive:
             return self._health_result
         if name == "event_timing_check":
             return self._event_timing_result
+        if name == "goal_check_in":
+            return self._goal_check_in_result
         if name == "notify":
             self.notify_calls.append(arguments)
             return {"sent": True}
