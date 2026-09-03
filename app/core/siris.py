@@ -78,6 +78,7 @@ from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.routines.service import RoutineStore
 from app.skills.base import SkillTool
+from app.skills.builtin.event_timing import EventTimingSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.unifi.client import UniFiClient
@@ -298,6 +299,7 @@ class SirisAI:
     def _register_builtin_skills(self) -> None:
         self.tools.register(SkillTool(ServerHealthSkill(), self))
         self.tools.register(SkillTool(SelfMaintenanceSkill(), self))
+        self.tools.register(SkillTool(EventTimingSkill(), self))
 
     def _register_discovered_integrations(self) -> None:
         """Re-registers every persisted integration's tools (milestone 32)
