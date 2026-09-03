@@ -2011,6 +2011,96 @@ provider for the same capability actually exists to design against.
     it afterward ran and recorded the original "explicitly confirmed"
     policy string, unchanged.
 
+52. **Done** -- Performance hardening pass. Direct user request: "speed
+    up the system and speed up the responses from SirisAI and tool
+    queries." Four findings, all fixed:
+
+    **Event-loop blocking (the big one).** This process runs as a single
+    `uvicorn` worker with one asyncio event loop (see the Dockerfile --
+    no `--workers` flag). `Cortex._run_single_tool()` and `Planner.run()`
+    are both `async def`, but were calling `SirisAI.run_tool()` --
+    synchronous, and free to do arbitrary blocking HTTP I/O via any
+    tool's own client (Home Assistant, Docker, Radarr, ...) -- directly,
+    not off-loaded to a thread. A single slow tool call therefore froze
+    the *entire* process: every other concurrent request (another chat
+    turn, a voice satellite, a proactive check) stalled for that call's
+    full duration regardless of what it was doing. `ContextEngine.build()`
+    -- called on nearly every chat turn, and itself doing blocking work
+    including a mandatory 200ms `psutil.cpu_percent(interval=0.2)` sleep
+    plus DB queries -- had the same problem, called directly from
+    `Cortex.process()`. Fixed by routing both through `asyncio.to_thread()`
+    instead of calling them directly, so the blocking work happens on a
+    worker thread and the event loop stays free. (Sync route handlers
+    like `app/api/routes/proactive.py`/`routines.py` and
+    `POST /siris/tools/{name}/run` were checked too -- already plain
+    `def`, which FastAPI/Starlette auto-threadpools, so no change needed
+    there.)
+
+    **N+1 queries in `GoalStore`.** `list_goals()`/`stale_goals()` fetched
+    goal ids, then called a per-goal serializer that ran two more queries
+    each -- 1 + 2N queries for N goals. New `_serialize_goals(session, goals)`
+    batches every goal's objectives into one `goal_id IN (...)` query, so
+    both methods now run 2 queries total regardless of N.
+    `_serialize_goal(session, goal_id)` (the old per-row path) stays, for
+    the single-goal call sites (`create_goal`/`update_goal_status`/
+    `add_objective`/`complete_objective`) where there's no N to eliminate.
+    Grepped the other stores (`EntityMemoryStore`, `EventMemoryStore`,
+    `RoutineStore`, ...) for the same pattern -- none had it.
+
+    **No SQLite WAL mode.** The default rollback-journal mode serializes
+    every reader against every writer, which didn't matter much when
+    everything ran on one thread -- but the event-loop fix above means
+    tool calls, context building, and audit-log writes now genuinely run
+    concurrently across threads. `app/db/session.py` sets
+    `PRAGMA journal_mode=WAL` and `PRAGMA synchronous=NORMAL` on every
+    new connection (readers and a writer can now proceed concurrently;
+    `synchronous=NORMAL` skips an fsync per commit -- durable against an
+    app crash, not an OS crash/power loss, an accepted tradeoff for a
+    homelab personal assistant, not a financial ledger).
+
+    **Missing indexes.** Grepped every `created_at` column in
+    `app/db/models.py` -- none had `index=True`, despite being the
+    primary `ORDER BY` column for `AuditLogStore.list_recent()`/
+    `find_recent()` (the highest-write-volume table), `MemoryStore.recall()`/
+    `list_all()`, `EventMemoryStore.recent_events()`, and
+    `GoalStore.list_goals()`. Added `index=True` to all four. (Not
+    `Goal.updated_at`, also read by `stale_goals()` -- that query already
+    filters to `status="active"` first, a small subset, so the extra
+    index wouldn't earn its upkeep cost.)
+
+    Both the index and the WAL settings need to reach databases that
+    already exist on disk, not just fresh installs -- `create_all()`
+    only creates missing tables. `app/db/migrate.py` gained
+    `apply_index_patches()` (same hand-rolled-patch-list shape as
+    `apply_column_patches()`, milestone 46) with `CREATE INDEX IF NOT
+    EXISTS` for each of the four columns above, using SQLAlchemy's own
+    default index-naming convention (`ix_<table>_<column>`) so it's a
+    true no-op on a fresh install; WAL/`synchronous` are connection
+    pragmas, not schema, so they apply automatically to any existing DB
+    file the moment it's opened -- no migration needed.
+
+    Verified: full suite (411 passed, up from 402) including two new
+    `asyncio.gather`-based concurrency tests (`tests/test_cortex.py`,
+    `tests/test_planner.py`) that register a tool/context engine that
+    sleeps 0.3s, run two concurrent `Cortex.process()` calls, and assert
+    the pair finishes in well under the 0.6s serialized execution would
+    take; two new query-count tests (`tests/test_goals.py`) using a
+    `sqlalchemy.event` listener on `before_cursor_execute` to prove
+    `list_goals()`'s query count stays constant as goal count grows, plus
+    a grouping test guarding the objective-batching logic against
+    cross-goal mixups; and three new migration tests plus a WAL-mode
+    test (`tests/test_multi_user.py`), mirroring the existing
+    `apply_column_patches()` tests. Each fix was verified to actually
+    catch its regression, not just pass tautologically: the planner
+    concurrency test was confirmed to fail (0.607s, i.e. serialized) when
+    temporarily reverted to a direct `run_tool()` call, then pass again
+    restored; the `GoalStore` query-count test was confirmed to fail
+    (13 queries scaling to 23 as more goals were added) against a
+    temporarily-reverted N+1 `list_goals()`, then pass again restored.
+    Live-verified against a real `uvicorn` lifespan and a real SQLite
+    file: `PRAGMA journal_mode` reads back `wal`, and
+    `sqlite_master` shows `ix_goals_created_at` present after startup.
+
 ## Running locally
 
 ```bash

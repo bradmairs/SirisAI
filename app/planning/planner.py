@@ -23,8 +23,16 @@ Every step still goes through `SirisAI.run_tool()` -- full permission
 gating, audit logging, and CONFIRM_REQUIRED handling apply exactly as they
 do to a single tool call, per step. A plan can't launder its way around
 those the same way a skill can't (see app/skills/base.py).
+
+Performance hardening pass: each step's `run_tool()` call runs via
+`asyncio.to_thread()`, not called directly -- see
+app/cortex/orchestrator.py's module docstring for why (this process is a
+single event loop; a blocking tool call made directly here would freeze
+every other concurrent request for the call's duration, not just this
+plan's own steps).
 """
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -91,7 +99,8 @@ class Planner:
             # call, not just this one call's own arguments.
             evidence = [{"tool": s.name, "result": s.result} for s in steps] or None
             try:
-                output = siris.run_tool(
+                output = await asyncio.to_thread(
+                    siris.run_tool,
                     call.name,
                     call.arguments,
                     conversation_id=conversation_id,

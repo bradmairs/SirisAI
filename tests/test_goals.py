@@ -179,3 +179,63 @@ def test_update_goal_status_unknown_id_returns_502(client: TestClient) -> None:
         json={"arguments": {"goal_id": 999_999, "status": "completed"}},
     )
     assert response.status_code == 502
+
+
+# -- Performance hardening pass: list_goals()/stale_goals() used to run
+# 1 + 2*N queries for N goals (an id-only query, then a fresh
+# session.get() plus a fresh objectives query per goal -- a classic
+# N+1). They now run 2 total, regardless of N.
+
+
+def _count_queries(fn: object, *args: object, **kwargs: object) -> tuple[object, int]:
+    from sqlalchemy import event
+
+    from app.db.session import engine
+
+    count = 0
+
+    def _on_execute(*_: object, **__: object) -> None:
+        nonlocal count
+        count += 1
+
+    event.listen(engine, "before_cursor_execute", _on_execute)
+    try:
+        result = fn(*args, **kwargs)  # type: ignore[operator]
+    finally:
+        event.remove(engine, "before_cursor_execute", _on_execute)
+    return result, count
+
+
+def test_list_goals_query_count_does_not_scale_with_goal_count() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    marker = str(uuid.uuid4())
+    for i in range(5):
+        siris.goals.create_goal(f"N+1 check {marker} {i}", objectives=["a", "b", "c"])
+
+    _, query_count_before = _count_queries(siris.goals.list_goals)
+    for i in range(5, 10):
+        siris.goals.create_goal(f"N+1 check {marker} {i}", objectives=["a", "b", "c"])
+    _, query_count_after = _count_queries(siris.goals.list_goals)
+
+    # More goals in the table (including from other tests, since this is
+    # the shared test DB) changes row counts, not query counts -- both
+    # measurements should be the same small constant regardless.
+    assert query_count_before == query_count_after
+    assert query_count_before <= 3  # generous headroom over the real count (2)
+
+
+def test_list_goals_correctly_groups_objectives_per_goal_after_batching() -> None:
+    """The actual risk in batching objectives across goals in one query
+    (see GoalStore._serialize_goals()): mis-grouping one goal's
+    objectives under another. Distinct, checkable objective text per
+    goal catches that."""
+    siris = SirisAI(settings=get_siris().settings)
+    marker = str(uuid.uuid4())
+    first = siris.goals.create_goal(f"First {marker}", objectives=["first-a", "first-b"])
+    second = siris.goals.create_goal(f"Second {marker}", objectives=["second-a"])
+    third = siris.goals.create_goal(f"Third {marker}")  # no objectives at all
+
+    listed = {g["id"]: g for g in siris.goals.list_goals()}
+    assert [o["description"] for o in listed[first["id"]]["objectives"]] == ["first-a", "first-b"]
+    assert [o["description"] for o in listed[second["id"]]["objectives"]] == ["second-a"]
+    assert listed[third["id"]]["objectives"] == []
