@@ -17,6 +17,13 @@ Self-maintenance (milestone 30): `failure_counts_by_tool()` and
 self_maintenance_check skill (app/skills/builtin/self_maintenance.py) --
 again, extending what's already recorded rather than a parallel analytics
 store.
+
+Deterministic per-tool verification (a hardening pass): also carries
+`verified`/`verification_detail` per entry when the tool that ran defines
+`Tool.verify()` (app/plugins/base.py) -- an independent check of whether
+the call's result actually reflects success, not just that `run()` didn't
+raise. Null for the majority of tools that don't define one, same as
+trigger/evidence/policy being null for calls with nothing to say there.
 """
 
 import json
@@ -48,6 +55,8 @@ class AuditLogStore:
         trigger: str | None = None,
         evidence: Any = None,
         policy: str | None = None,
+        verified: bool | None = None,
+        verification_detail: str | None = None,
     ) -> None:
         with self._session_factory() as session:
             session.add(
@@ -62,6 +71,8 @@ class AuditLogStore:
                     trigger=trigger,
                     evidence=json.dumps(evidence) if evidence is not None else None,
                     policy=policy,
+                    verified=verified,
+                    verification_detail=verification_detail,
                 )
             )
             session.commit()
@@ -191,5 +202,7 @@ class AuditLogStore:
             "trigger": row.trigger,
             "evidence": json.loads(row.evidence) if row.evidence is not None else None,
             "policy": row.policy,
+            "verified": row.verified,
+            "verification_detail": row.verification_detail,
             "created_at": row.created_at.isoformat(),
         }

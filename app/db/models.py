@@ -75,6 +75,13 @@ class ToolExecution(Base):
     trigger: Mapped[str | None] = mapped_column(Text, nullable=True)
     evidence: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
     policy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Deterministic per-tool verification (a hardening pass; see
+    # Tool.verify()) -- null for every tool that doesn't define one (most
+    # of them), same "nullable, most rows have nothing to say here"
+    # reasoning as trigger/evidence/policy above. verified: whether the
+    # independent check passed. verification_detail: why.
+    verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    verification_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 

@@ -28,6 +28,16 @@ from enum import Enum
 from typing import Any
 
 
+@dataclass
+class ToolVerification:
+    """An independent, deterministic check of whether a tool's result
+    actually reflects success -- not just that `run()` didn't raise. See
+    `Tool.verify()`."""
+
+    verified: bool
+    detail: str
+
+
 class ToolPermission(str, Enum):
     """How much say a tool gets to run on its own.
 
@@ -80,6 +90,29 @@ class Tool(ABC):
         `NotImplementedError` as "this tool doesn't support dry_run", not
         a real failure."""
         raise NotImplementedError(f"{self.name} does not support dry_run")
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """An independent, deterministic check of whether `result` actually
+        reflects success -- the gap between "the call returned 200" and
+        "the thing actually happened" (a hardening pass; milestone 24's
+        planner explicitly left this open: "does NOT implement a separate
+        deterministic verification pass that can tell 'this 200 OK doesn't
+        actually mean the service is healthy' independent of the model's
+        own judgment"). Optional -- most tools have no meaningful
+        post-condition beyond "the call succeeded" (already covered by
+        `run()` not raising: a READ lookup or a tool with no real-world
+        side effect has nothing further to check), so the default just
+        raises. Override only where a real gap exists between API success
+        and actual outcome, e.g. a restart whose own API call can return
+        200 even though the container immediately crashes back out (see
+        `DockerRestartContainerTool.verify()`). `SirisAI.run_tool()`
+        treats `NotImplementedError` as "this tool doesn't support
+        verify", not a real failure -- same convention as `dry_run()`.
+        Never raised to reject the tool call itself: this runs *after*
+        `run()` already succeeded, so a `verified=False` result is
+        information about the outcome, not a reason to treat the call as
+        having failed."""
+        raise NotImplementedError(f"{self.name} does not support verify")
 
 
 class ConfirmationRequired(Exception):

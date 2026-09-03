@@ -320,6 +320,13 @@ class ActivityEntryResponse(BaseModel):
     trigger: str | None
     evidence: Any
     policy: str | None
+    # Deterministic per-tool verification (a hardening pass) -- both None
+    # unless the tool that ran defines Tool.verify() (see
+    # app/plugins/builtin/docker.py's DockerRestartContainerTool for the
+    # reference case); most tools don't, same as trigger/evidence/policy
+    # being None for calls with nothing to say there.
+    verified: bool | None
+    verification_detail: str | None
     created_at: str
 
 

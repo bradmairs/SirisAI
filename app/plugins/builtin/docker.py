@@ -9,7 +9,7 @@ from typing import Any
 from app.docker.client import DockerClient
 from app.memory.entities import EntityMemoryStore
 from app.plex.client import PlexClient
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
 
 
 class DockerListContainersTool(Tool):
@@ -55,6 +55,29 @@ class DockerRestartContainerTool(Tool):
 
     def run(self, container: str = "", **kwargs: Any) -> Any:
         return self._client.restart_container(container)
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Deterministic per-tool verification (a hardening pass): the
+        canonical example of the gap milestone 24's planner explicitly
+        left open -- Docker's own `/restart` call can return 200 and the
+        container can still end up not actually running (its entrypoint
+        crashes immediately on start, a common real failure mode). One
+        state check right after the restart call returns, not a health
+        monitor: does NOT catch a slower crash-loop (fine for a few
+        seconds, then dies) -- that needs polling over time, out of scope
+        here, same "don't overclaim rigor that isn't there" honesty as
+        the planner's own verification note."""
+        container = arguments.get("container", "")
+        containers = self._client.list_containers(all_containers=True)
+        match = next((c for c in containers if container in c["names"] or c["id"] == container), None)
+
+        if match is None:
+            return ToolVerification(verified=False, detail=f"Container '{container}' not found after restart.")
+        if match["state"] != "running":
+            return ToolVerification(
+                verified=False, detail=f"Container '{container}' is '{match['state']}' after restart, not running."
+            )
+        return ToolVerification(verified=True, detail=f"Container '{container}' is running after restart.")
 
     def dry_run(self, container: str = "", **kwargs: Any) -> Any:
         """What restarting `container` would do, without doing it: its
