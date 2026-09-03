@@ -24,11 +24,22 @@ def test_chat_sends_prompt_and_returns_response_text() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/siris/chat"
         body = json.loads(request.content)
-        assert body == {"prompt": "hello", "conversation_id": None}
+        assert body == {"prompt": "hello", "conversation_id": None, "room": None}
         return httpx.Response(200, json={"conversation_id": "abc-123", "response": "hi there", "tool_call": None})
 
     client = _mock_client(handler)
     assert client.chat("hello") == "hi there"
+    client.close()
+
+
+def test_chat_sends_room_when_configured() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["room"] == "kitchen"
+        return httpx.Response(200, json={"conversation_id": "abc-123", "response": "hi there", "tool_call": None})
+
+    client = SirisClient(base_url="http://localhost:8000", room="kitchen", transport=httpx.MockTransport(handler))
+    client.chat("hello")
     client.close()
 
 
@@ -95,3 +106,29 @@ def test_speak_returns_audio_bytes() -> None:
     client = _mock_client(handler)
     assert client.speak("hello there") == b"fake-mp3-bytes"
     client.close()
+
+
+def test_register_posts_room_and_callback_url() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/siris/satellites/register"
+        body = json.loads(request.content)
+        assert body == {"room": "kitchen", "callback_url": "http://192.168.1.50:8090"}
+        return httpx.Response(200, json={"id": 1, "room": "kitchen", "callback_url": "http://192.168.1.50:8090", "last_active_at": "2026-01-01T00:00:00"})
+
+    client = _mock_client(handler)
+    client.register("kitchen", "http://192.168.1.50:8090")  # must not raise
+    client.close()
+
+
+def test_register_raises_on_backend_failure() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502)
+
+    client = _mock_client(handler)
+    try:
+        client.register("kitchen", "http://192.168.1.50:8090")
+        raised = False
+    except httpx.HTTPStatusError:
+        raised = True
+    client.close()
+    assert raised

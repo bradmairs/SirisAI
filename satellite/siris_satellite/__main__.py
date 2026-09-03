@@ -9,7 +9,10 @@ import logging
 from siris_satellite.audio_io import MicrophoneInput, SpeakerOutput
 from siris_satellite.client import SirisClient
 from siris_satellite.config import SatelliteSettings
+from siris_satellite.inbound import InboundServer
 from siris_satellite.satellite import Satellite
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -25,11 +28,27 @@ def main() -> None:
         device=settings.input_device,
     )
     audio_output = SpeakerOutput(device=settings.output_device)
-    siris = SirisClient(base_url=settings.siris_base_url, api_key=settings.siris_api_key)
+    siris = SirisClient(base_url=settings.siris_base_url, api_key=settings.siris_api_key, room=settings.room)
+
+    # Room/presence-aware routing (milestone 48) -- both room and
+    # callback_url are opt-in (empty by default): without them, this
+    # satellite never registers or opens the inbound listener, and
+    # behaves exactly as it did before this existed (pull-only:
+    # chat() -> speak() -> play locally).
+    inbound: InboundServer | None = None
+    if settings.room and settings.callback_url:
+        inbound = InboundServer(audio_output, settings.inbound_port)
+        inbound.start()
+        try:
+            siris.register(settings.room, settings.callback_url)
+        except Exception:
+            logger.exception("Registering with SirisAI failed -- continuing without room-push")
 
     try:
         Satellite(audio_input=audio_input, audio_output=audio_output, siris=siris).run_forever()
     finally:
+        if inbound is not None:
+            inbound.stop()
         siris.close()
 
 

@@ -1738,14 +1738,75 @@ silently decided -- same posture as milestone 29's routine engine.
     `server_health_check` tool run produced the exact wattage (212.7)
     the mock's sensor reported.
 
-48. Room/presence-aware routing. A response follows you -- replies
-    through whichever room's satellite/speaker you're actually in
-    (UniFi presence, or the satellite you last spoke to) rather than
-    always the device you initiated from. Open question this entry
-    flags: this is the one item here that's hard to live-verify without
-    real satellite hardware actually deployed and reachable, so scope
-    and verification approach need confirming before it's built, not
-    assumed.
+48. **Done** -- Room/presence-aware routing. A response follows you --
+    replies through whichever room's satellite you're actually in
+    rather than always the device a request started on. This entry's
+    own flagged question -- scope and verification approach, given no
+    real satellite hardware is deployed anywhere reachable -- was put
+    to the user rather than guessed at: full push-routing, verified
+    against real mock satellite servers standing in for hardware (the
+    same "real mock HTTP server, real running process" verification
+    used for every external integration all through this batch), not a
+    narrower room-tracking-only cut and not skipped.
+
+    The satellite (satellite/siris_satellite/) was pull-only before
+    this: it calls SirisAI, gets a reply, plays it locally -- SirisAI
+    had no way to reach a *different* satellite than the one that
+    asked. Now: a satellite with `SIRISAI_SATELLITE_ROOM` and
+    `SIRISAI_SATELLITE_CALLBACK_URL` configured registers itself
+    (`POST /siris/satellites/register`, a new `SatelliteStore`) on
+    startup and opens a small inbound listener (`inbound.py`, plain
+    `http.server` in a background thread -- this only ever needs to
+    handle occasional single-shot pushes, not a full web framework).
+    Every real chat turn a satellite drives also carries its `room` on
+    `POST /siris/chat`, which counts as fresh activity there --
+    `SatelliteStore.current_room()` is just "whichever room was most
+    recently active," no UniFi-presence inference attempted (an honest
+    narrowing of the original "UniFi presence, or the satellite you
+    last spoke to" framing: the "or" already made either signal
+    legitimate on its own, and this codebase's UniFi integration has no
+    existing AP-to-room mapping to build the other one from -- a
+    separate feature, not this milestone's job to invent). A new tool,
+    `speak_in_current_room`, resolves the current room, synthesizes the
+    message via TTS, and pushes the audio to that room's satellite --
+    registered whenever a TTS backend is configured, no-ops
+    (`sent: false`) gracefully when no satellite is currently known.
+
+    `Tool.run()` is a synchronous interface (`HomeAssistantClient`'s own
+    docstring: SirisAI's tools never bridge async/sync just to reuse an
+    async client), so `speak_in_current_room` couldn't just `await
+    siris.tts.synthesize(...)` -- `app/voice/sync_tts.py` mirrors
+    `OpenAICompatibleTTSClient`'s exact request shape synchronously
+    instead, same reasoning as `HomeAssistantClient` staying sync.
+    Empty room/callback config (default) = a satellite behaves exactly
+    as before this milestone: pull-only, no registration, no listener.
+    No staleness cutoff on `current_room()` either -- a lone satellite
+    that registered once, days ago, still counts as current; that's
+    future refinement, not guessed at here.
+
+    Verified: full suite (357 passed, up from 343) including 14 new
+    `tests/test_satellites.py` tests (`SatelliteStore`'s registry/
+    upsert/current-room logic, the registration endpoints,
+    `speak_in_current_room` composing correctly and propagating a push
+    failure, registration gated on TTS being configured, and
+    `POST /siris/chat`'s `room` actually updating `current_room()`) and
+    7 new `satellite/tests/` tests (`register()`/room-carrying `chat()`
+    on the client, and `inbound.py`'s real-socket listener -- including
+    a timing test proving the response returns before slow playback
+    finishes, not after). Live-verified against a real `uvicorn`
+    SirisAI process, a real mock Ollama server, a real mock
+    OpenAI-compatible TTS server, and -- the strongest form of this --
+    the actual `siris_satellite.inbound.InboundServer` class from the
+    real satellite package (not a reimplementation) bound to two real
+    ports standing in for a kitchen and an office satellite: registered
+    both, drove a real chat turn with `room="kitchen"`, pushed a reply
+    via `speak_in_current_room` and confirmed the kitchen listener
+    played the exact audio bytes the real TTS server returned; then
+    drove a real chat turn with `room="office"` and confirmed a second
+    push landed only on the office listener -- the kitchen listener
+    received nothing -- proving the reply actually followed the user
+    between rooms, not just that push delivery works to one fixed
+    target.
 
 ## Running locally
 

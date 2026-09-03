@@ -27,3 +27,16 @@ class SatelliteSettings(BaseSettings):
     # a specific mic/speaker on a Pi with more than one audio device.
     input_device: int | None = None
     output_device: int | None = None
+
+    # Room/presence-aware routing (milestone 48): which room this
+    # satellite is in, and where SirisAI can reach it to push a reply
+    # here even when a different satellite heard the request (see
+    # inbound.py, SirisClient.register()). Empty room (default) = this
+    # satellite never registers or opens the inbound listener at all --
+    # existing pull-only behavior (chat() -> speak() -> play locally),
+    # completely unaffected. callback_url must be reachable FROM the
+    # SirisAI host, same "you configure it explicitly rather than SirisAI
+    # trying to auto-detect it" reasoning as SIRISAI_PUBLIC_BASE_URL.
+    room: str = ""
+    callback_url: str = ""
+    inbound_port: int = 8090
