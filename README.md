@@ -992,6 +992,64 @@ noted inline rather than building the same thing twice under two names.
     (`"chat: model chose this tool while responding to the user's
     request"`) are unchanged from before the refactor.
 
+Milestone 33 closed out the second roadmap batch (21-33). What follows
+isn't from either brainstorm -- a direct request to integrate with a
+specific piece of the user's actual homelab, given the same "what was
+deliberately left out, and why" treatment as everything above.
+
+34. **Done** -- Hermes Agent integration. Hermes Agent is a separate agent
+    already running on the same host as SirisAI, with its own memories,
+    skills, and terminal access -- including Docker container control.
+    Rather than SirisAI reimplementing what Hermes can already do, this
+    adds one delegate tool, `hermes_run_task` (`app/hermes/client.py`,
+    `app/plugins/builtin/hermes.py`): SirisAI hands it a natural-language
+    instruction, Hermes does its own multi-step reasoning/tool use, and
+    reports back what it did.
+
+    `HermesClient` talks an OpenAI-style chat completions endpoint
+    (`POST {base_url}/v1/chat/completions`) -- the convention most
+    self-hosted agent/inference servers already speak (llama.cpp server,
+    vLLM, LiteLLM proxies, ...), and the shape confirmed for Hermes's
+    actual API. No auth configured on Hermes's side currently, so the
+    client is unauthenticated; `SIRISAI_HERMES_BASE_URL` /
+    `SIRISAI_HERMES_MODEL` are the only new settings, following the same
+    "empty base_url = tool not registered" convention as every other
+    optional integration here. If Hermes's real endpoint path or request
+    shape ever turns out to differ, `HermesClient` is the one place to
+    adjust it -- the tool never talks to httpx directly.
+
+    Permission tier is `SAFE_ACTION`, not `CONFIRM_REQUIRED` or
+    `RESTRICTED`: the same tier already used for other routine homelab
+    operations here (e.g. `DockerRestartContainerTool`) -- it runs
+    immediately without a confirmation round-trip, but every call is still
+    fully logged to the audit trail (`GET /siris/activity`) with its
+    trigger and the policy that allowed it, same as any other tool.
+    Deliberately one delegate tool rather than several Hermes-specific
+    ones (`hermes_restart_container`, `hermes_run_command`, ...): the
+    actual capability lives on Hermes's side, already exposed through its
+    own memories and skills, so mirroring that surface here would just be
+    a second, thinner copy of it that drifts as Hermes's own capabilities
+    change.
+
+    Verified: full suite (233 passed, up from 228) including 5 new tests
+    (`tests/test_hermes.py`: the client posts the correct OpenAI-style
+    payload and extracts the response content, handles an empty
+    `choices` list, the tool wraps the client's result and is
+    `SAFE_ACTION`) plus two registration-gating tests in
+    `tests/test_tool_library_registration.py` (not registered by default,
+    registered when `hermes_base_url` is set). Live-verified against a
+    real `uvicorn` process and a real mock Hermes server
+    (`mock_hermes.py`) speaking the actual `/v1/chat/completions` shape:
+    `GET /siris/capabilities` grouped `hermes_run_task` under its own
+    `"hermes"` category, `POST /siris/tools/hermes_run_task/run` sent a
+    real instruction over real HTTP and returned Hermes's real reply,
+    `GET /siris/activity` confirmed the correct trigger
+    (`"direct API request..."`) and policy (`"SAFE_ACTION: routine and
+    reversible, runs immediately without confirmation"`), and a second run
+    with both a mock Hermes and a mock Ollama backend confirmed
+    `hermes_run_task` is offered to the model like any other tool via
+    `GET /siris/status`.
+
 ## Running locally
 
 ```bash

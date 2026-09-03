@@ -148,6 +148,15 @@ class Settings(BaseSettings):
     ntfy_base_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
 
+    # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
+    # separate homelab agent running on the same host, with its own
+    # memories, skills, and terminal access, used to delegate Docker/
+    # system-control tasks it already knows how to do. Talks an
+    # OpenAI-style chat completions endpoint, unauthenticated. Empty
+    # base_url = the hermes_run_task tool isn't registered.
+    hermes_base_url: str = ""
+    hermes_model: str = "hermes"
+
 
 @lru_cache
 def get_settings() -> Settings:
