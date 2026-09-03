@@ -324,13 +324,6 @@
     chatInput.focus();
   });
 
-  function addToolCallDetail(toolCall) {
-    return addMessage(
-      `\u{1f527} ${toolCall.name}(${JSON.stringify(toolCall.arguments)}) -> ${JSON.stringify(toolCall.result)}`,
-      "tool"
-    );
-  }
-
   function addMessage(text, cls) {
     const div = document.createElement("div");
     div.className = `msg ${cls}`;
@@ -380,8 +373,13 @@
           body: JSON.stringify({ conversation_id: conversationId, tool_name: name, arguments: args }),
         });
         div.remove();
-        if (result.tool_call) addToolCallDetail(result.tool_call);
-        if (result.response) addMessage(result.response, "assistant");
+        // Only the model's plain-English answer is shown -- the raw tool
+        // call/result is still in GET /siris/activity for anyone who
+        // wants it, just not surfaced in the chat itself. Synthesis
+        // should basically always produce text once a tool actually ran
+        // (a completed action, not just a lookup), so "Done." is a rare
+        // fallback, not the common case.
+        addMessage(result.response || "Done.", "assistant");
       } catch (err) {
         addMessage(err.message, "error");
       }
@@ -483,12 +481,11 @@
       if (result.confirmation_required) {
         addConfirmationPrompt(result.confirmation_required.name, result.confirmation_required.arguments);
       } else {
-        // A tool call's result is shown as a small detail line; the
-        // model's natural-language answer (if the follow-up summarize
-        // call produced one) is the main assistant bubble. If synthesis
-        // didn't produce text, the tool detail is all there is to show.
-        if (result.tool_call) addToolCallDetail(result.tool_call);
-        if (result.response) addMessage(result.response, "assistant");
+        // Only the model's plain-English answer is shown, never the raw
+        // tool call/result -- that's still in GET /siris/activity for
+        // anyone who wants it. "Done." is a rare fallback for the case
+        // synthesis didn't produce text at all.
+        addMessage(result.response || "Done.", "assistant");
       }
     } catch (err) {
       addMessage(err.message, "error");
