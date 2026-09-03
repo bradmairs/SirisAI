@@ -49,6 +49,25 @@ class _FailingLLMClient:
         pass
 
 
+class _RecordingLLMClient:
+    """Records every messages list it's called with and returns queued
+    responses in order -- for asserting exactly what history reached the
+    model on a later call."""
+
+    def __init__(self, responses: list[LLMResponse]) -> None:
+        self._responses = list(responses)
+        self.calls: list[list[dict[str, Any]]] = []
+
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        self.calls.append(messages)
+        return self._responses.pop(0)
+
+    async def aclose(self) -> None:
+        pass
+
+
 def _siris(llm: Any) -> SirisAI:
     siris = SirisAI(settings=Settings())
     siris.llm = llm
@@ -116,6 +135,37 @@ def test_process_returns_error_result_when_llm_call_fails() -> None:
 
     assert result.error == "LLM backend call failed."
     assert result.response is None
+
+
+def test_a_prior_turns_tool_call_is_replayed_as_real_history_on_the_next_turn() -> None:
+    """The gap milestone 10 flagged and Cortex._load_messages now closes:
+    a tool call from an earlier turn shows up on a later turn as the same
+    assistant-tool_calls + tool-result pair the in-turn follow-up call
+    already uses, not just whatever text the model said about it."""
+    llm = _RecordingLLMClient(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "ping"})]),
+            LLMResponse(text="Echoed ping for you."),
+            LLMResponse(text="You asked me to echo 'ping' last turn."),
+        ]
+    )
+    siris = _siris(llm)
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "please echo ping", use_context=False))
+    result = asyncio.run(Cortex().process(siris, conversation_id, "what did you just do?", use_context=False))
+
+    assert result.response == "You asked me to echo 'ping' last turn."
+    second_turn_messages = llm.calls[-1]
+    assert {"role": "user", "content": "please echo ping"} in second_turn_messages
+    assert {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{"function": {"name": "echo", "arguments": {"message": "ping"}}}],
+    } in second_turn_messages
+    assert {"role": "tool", "content": '{"echo": "ping"}'} in second_turn_messages
+    assert {"role": "assistant", "content": "Echoed ping for you."} in second_turn_messages
+    assert second_turn_messages[-1] == {"role": "user", "content": "what did you just do?"}
 
 
 def test_confirm_runs_the_tool_and_persists_without_a_fresh_user_message() -> None:

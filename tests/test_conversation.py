@@ -3,7 +3,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.core.siris import get_siris
-from app.llm.base import LLMResponse
+from app.llm.base import LLMResponse, ToolCall
 from app.main import app
 
 
@@ -67,6 +67,57 @@ def test_passing_conversation_id_carries_prior_turns_to_the_llm(client: TestClie
             {"role": "assistant", "content": "reply #1"},
             {"role": "user", "content": "what did I just say?"},
         ]
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+class _RecordingToolCallingLLMClient:
+    """Calls "echo" on the first turn, then just records/echoes text --
+    for asserting a later turn's message history includes the earlier
+    tool call/result as real chat messages, not just persisted-but-unused
+    rows."""
+
+    def __init__(self) -> None:
+        self.calls: list[list[dict[str, Any]]] = []
+        self._call_count = 0
+
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        self.calls.append(messages)
+        self._call_count += 1
+        if self._call_count == 1:
+            return LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "ping"})])
+        if self._call_count == 2:
+            return LLMResponse(text="Echoed it.")
+        return LLMResponse(text=f"reply #{self._call_count}")
+
+    async def aclose(self) -> None:
+        pass
+
+
+def test_a_prior_tool_call_reaches_the_llm_as_real_history_on_a_later_turn(client: TestClient) -> None:
+    fake_llm = _RecordingToolCallingLLMClient()
+    _override_llm(fake_llm)
+    try:
+        first = client.post("/siris/chat", json={"prompt": "please echo ping", "use_context": False})
+        conversation_id = first.json()["conversation_id"]
+        assert first.json()["tool_call"]["name"] == "echo"
+
+        client.post(
+            "/siris/chat",
+            json={"prompt": "what did you just do?", "conversation_id": conversation_id, "use_context": False},
+        )
+
+        # Third LLM call (second /siris/chat request's generate()) should
+        # see the first turn's tool call/result as real chat messages.
+        third_call_messages = fake_llm.calls[2]
+        assert {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"function": {"name": "echo", "arguments": {"message": "ping"}}}],
+        } in third_call_messages
+        assert {"role": "tool", "content": '{"echo": "ping"}'} in third_call_messages
     finally:
         app.dependency_overrides.pop(get_siris, None)
 

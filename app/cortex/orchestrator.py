@@ -148,8 +148,30 @@ class Cortex:
 
     @staticmethod
     def _load_messages(siris: "SirisAI", conversation_id: str) -> list[dict[str, Any]]:
+        """Replay persisted history as real chat messages -- user/assistant
+        text verbatim, and a persisted "tool" row expanded back into the
+        same assistant-tool_calls + tool-result pair this module builds
+        in-turn (_run_single_tool's follow_up_messages, _run_planned's
+        working_messages), so a tool call from a prior turn is real
+        context on later turns too, not just whatever text the model
+        produced about it. This was milestone 10's explicitly-flagged gap
+        ("persisted but not yet replayed... full tool-result round-
+        tripping remains future work") -- closing it here."""
         history = siris.conversation.get_messages(conversation_id)
-        return [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
+        messages: list[dict[str, Any]] = []
+        for m in history:
+            if m["role"] == "tool":
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"function": {"name": m["tool_name"], "arguments": m["tool_arguments"] or {}}}],
+                    }
+                )
+                messages.append({"role": "tool", "content": m["content"]})
+            elif m["role"] in ("user", "assistant"):
+                messages.append({"role": m["role"], "content": m["content"]})
+        return messages
 
     async def _run_single_tool(
         self,
