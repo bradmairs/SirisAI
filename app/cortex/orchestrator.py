@@ -255,8 +255,39 @@ class Cortex:
             return CortexResult(conversation_id=conversation_id, pending_confirmation=(name, arguments), model_role=model_role)
         except PermissionError as exc:
             return CortexResult(conversation_id=conversation_id, model_role=model_role, error=str(exc), permission_denied=True)
-        except Exception:
+        except Exception as exc:
             logger.exception("Tool '%s' failed", name)
+            # Same follow-up-synthesis treatment as a successful result
+            # (below) rather than a bare error straight to the client --
+            # live-hit case: unifi_list_clients always raises (the cloud
+            # API it talks to has no client-listing endpoint at all), and
+            # surfacing that as a raw "Tool 'unifi_list_clients' failed."
+            # is exactly the kind of implementation detail the plain-
+            # English-only chat UI (see app/web/static/index.html) isn't
+            # supposed to show. Falls back to the old hard-error shape
+            # only if synthesis itself isn't available or fails too.
+            error_payload = {"error": str(exc)}
+            siris.conversation.add_message(
+                conversation_id, role="tool", content=json.dumps(error_payload), tool_name=name, tool_arguments=arguments
+            )
+            if llm_client is not None and messages is not None:
+                follow_up_messages = [
+                    *messages,
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
+                    },
+                    {"role": "tool", "content": json.dumps(error_payload)},
+                ]
+                try:
+                    follow_up = await llm_client.generate(follow_up_messages)
+                except Exception:
+                    logger.exception("Follow-up LLM call after tool '%s' error failed", name)
+                else:
+                    if follow_up.text:
+                        siris.conversation.add_message(conversation_id, role="assistant", content=follow_up.text)
+                        return CortexResult(conversation_id=conversation_id, response=follow_up.text, model_role=model_role)
             return CortexResult(conversation_id=conversation_id, model_role=model_role, error=f"Tool '{name}' failed.")
 
         siris.conversation.add_message(
