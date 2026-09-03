@@ -1423,11 +1423,58 @@ silently decided -- same posture as milestone 29's routine engine.
     off by now, they're still on" scenario, using nothing but the
     existing machinery.
 
-42. Presence-triggered scenes. UniFi presence (who's home) composed with
-    Home Assistant scene calls -- "everyone left" -> arm/away scene,
-    "someone's home" -> welcome scene. A new lightweight rules concept
-    (trigger condition -> HA service call) is the one genuinely new piece
-    here; everything it reads from and acts through already exists.
+42. **Done** -- Presence-triggered scenes. UniFi presence (who's
+    connected) composed with a Home Assistant scene call -- "everyone
+    left" -> away scene, "someone's home" -> welcome scene, via a new
+    `PresenceSkill` (`app/skills/builtin/presence.py`, `presence_check`
+    tool, registered `SAFE_ACTION` -- a real side effect, but a narrow,
+    pre-configured one, same reasoning as `docker_restart_container`).
+    Deliberately not a general rules engine -- exactly two conditions and
+    one action each, not an arbitrary trigger/action DSL this milestone
+    doesn't need. New `SIRISAI_PRESENCE_DEVICE_NAMES` (matched against
+    the same `name` field `unifi_list_clients` already reports -- not a
+    MAC address, since `UniFiClient` is this codebase's least-verified
+    integration and matching by name keeps this milestone from touching
+    it further), `SIRISAI_PRESENCE_HOME_SCENE`/`_AWAY_SCENE` (empty =
+    transitions still detected and logged, just no scene activated).
+    Transition-only by design: reuses `EventMemoryStore` (same "no new
+    store" reasoning as 41) to remember the last known state and only
+    acts on an actual change, not every cron tick -- a first-ever check
+    establishes a baseline rather than guessing. A new
+    `POST /siris/proactive/presence` (404 if not configured) runs it, on
+    its own schedule since presence wants a much shorter interval than a
+    health check.
+
+    The one real design call worth calling out: `home_assistant_call_service`
+    is `CONFIRM_REQUIRED` (arbitrary/unbounded, real physical
+    consequences) -- `PresenceSkill` calls it with `confirmed=True`
+    anyway, deliberately. It's never calling an arbitrary command, only
+    ever the one specific scene the user configured ahead of time via
+    `SIRISAI_PRESENCE_*_SCENE`; setting that value *is* the approval, the
+    same reasoning `SIRISAI_RESTRICTED_TOOLS_ENABLED` already uses to
+    pre-approve specific tools via config instead of a live confirmation
+    every call. The audit trail stays fully explainable regardless --
+    `trigger` on that specific call spells out exactly which setting
+    authorized it, distinct from every other way `home_assistant_call_service`
+    can get invoked.
+
+    Verified: full suite (297 passed, up from 286) including 11 new
+    `tests/test_presence.py` tests (first-check baseline with no scene
+    call, both transition directions correctly activating their scene,
+    no-op on no change, a transition still detected/logged without a
+    configured scene, Home Assistant not configured skipping the scene
+    call gracefully, registration gating, and the endpoint including its
+    404). Live-verified against a real `uvicorn` process, a real mock
+    UniFi server (with a `/control` endpoint to flip its reported clients
+    between runs without restarting), and a real mock Home Assistant
+    server: first check established the baseline with no scene call;
+    flipping the mock to "away" and checking again correctly activated
+    `scene.away` and logged the transition; flipping back to "home"
+    correctly activated `scene.welcome_home` -- confirmed via
+    `GET /siris/events` (the two real transitions logged) and
+    `GET /siris/activity` (the `presence_check` call and the
+    auto-confirmed `home_assistant_call_service` call beneath it, with
+    `trigger` correctly naming the exact setting that authorized it).
 
 43. Actionable push notifications. ntfy supports action buttons in its
     payload -- a "container crashed" notification can carry a "Restart"
