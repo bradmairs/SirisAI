@@ -865,15 +865,76 @@ noted inline rather than building the same thing twice under two names.
     genuinely persisted and queryable afterward via
     `GET /siris/capability_gaps` -- a real spec someone could hand to
     Claude Code working this repo. Full suite: 206 passed.
-32. Automatic tool discovery. A generic integration layer that ingests an
-    OpenAPI spec (`POST /integrations` with a spec URL) and generates
-    `Tool` instances from it, rather than every integration being a
+32. **Done** -- Automatic tool discovery. `POST /siris/integrations`
+    ingests an OpenAPI 3.x spec (either `spec_url`, fetched once at
+    registration time, or `spec` inline) and generates one `Tool`
+    instance per GET operation, rather than every integration being a
     hand-written `app/<service>/client.py` + `app/plugins/builtin/<service>.py`
-    pair like 13's six. Realistic scope cut to flag now, before it starts:
-    auto-generated tools should default to READ permission unless a
-    human explicitly upgrades one, since a generated tool has no
-    hand-reviewed judgment behind it the way 12's permission levels
-    assumed every tool would.
+    pair like 13's six. The scope cut flagged before this milestone
+    started was taken further than "default to READ" once actually
+    building it: GET-only, full stop -- v1 doesn't discover
+    POST/PUT/PATCH/DELETE operations *at all*, rather than discovering
+    them and merely defaulting their permission. Generating a tool that
+    could mutate an arbitrary API from spec text alone and then handing
+    it a permission level, even a conservative one, would be misleading
+    about what's actually safe to let a model call unattended -- there's
+    no "upgrade a specific generated tool" mechanism yet, so nothing
+    stronger than READ gets generated until there's real review behind
+    that.
+
+    `app/integrations/openapi.py`'s `discover_get_operations()` is a
+    deliberately hand-rolled minimal parser, not a full OpenAPI library
+    -- it doesn't resolve `$ref` or schema composition
+    (allOf/oneOf/anyOf); a parameter using those falls back to a plain
+    string type rather than failing the whole import, since a
+    slightly-imprecise tool is more useful than none. `IntegrationStore`
+    (`app/integrations/service.py`) persists the raw spec (not just the
+    parsed operations) so tools regenerate on every startup --
+    `SirisAI._register_discovered_integrations()` re-parses and
+    re-registers everything on construction, the same "conditionally
+    register from stored config" pattern every other integration in this
+    app already follows, just DB-driven instead of env-driven.
+    `auth_header_value` is treated as a credential throughout -- excluded
+    from `IntegrationStore.list_integrations()`'s default (public) path
+    and from every route/tool-facing response; only read back internally
+    when SirisAI rebuilds an authenticated client at startup.
+
+    A real bug caught before it shipped, worth recording: the first pass
+    built one `httpx.Client()` per discovered *operation*. Constructing an
+    `httpx.Client()` turned out to be surprisingly expensive in this
+    project's heavily-proxied network environment (~50ms each) --
+    30 operations meant 30 clients meant entire seconds added to every
+    `SirisAI()` construction once a few integrations had accumulated,
+    caught by the test suite's runtime visibly jumping from ~6s to ~78s.
+    Fixed by sharing one client per *integration* instead
+    (`build_dynamic_tools()`), which is also just more correct (one
+    connection pool per API, not thirty) -- down to ~30s. The remaining
+    increase over the ~6s baseline is an accepted, understood cost of
+    this test suite's existing shared-database convention (many tests
+    across the whole suite construct fresh `SirisAI()` instances against
+    the same DB this milestone's tests add integrations to), not a new
+    problem -- documented rather than chased further with test-isolation
+    changes that would ripple into every other test file's established
+    pattern.
+
+    Verified: unit tests for the parser (GET-only discovery, path/query
+    param extraction, the `$ref` string-type fallback, a derived name
+    when `operationId` is missing), `DynamicOpenAPITool` (path
+    substitution, query forwarding, the configured auth header actually
+    sent, one client genuinely shared across every operation, always
+    READ), `IntegrationStore` (secret exclusion by default, included with
+    `include_secrets=True`), endpoint tests (immediate usability after
+    registration, 422 for no spec/no GET operations, duplicate names
+    skipped rather than crashing, secrets never appearing in any
+    response), and a live `uvicorn` run against a real mock "Network UPS
+    Tools" API and OpenAPI spec server -- registered by fetching a real
+    `spec_url` over real HTTP, called the discovered
+    `nut_get_battery(ups_name="main-ups")` tool and got back real battery
+    data with the configured `X-API-Key` header actually verified by the
+    mock server, confirmed the secret never appeared in
+    `GET /siris/integrations`, and confirmed the discovered tools
+    survived a full process restart with zero re-registration calls.
+    Full suite: 223 passed.
 33. Cortex. A capstone, not a new capability: once 21/23/24/28 exist, the
     request -> context -> plan -> memory/world-model -> tools -> verify ->
     memory -> response pipeline described in the brainstorm is mostly
