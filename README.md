@@ -1868,6 +1868,94 @@ provider for the same capability actually exists to design against.
     the hallway entry, with the automation that actually caused it
     right there in the response, not just the light's current state.
 
+50. **Done** -- Media stack + notes integrations: Tautulli, Radarr,
+    Sonarr, Bazarr, Listenarr, Cleanuparr, Obsidian. Direct user
+    request, seven services at once -- same batching precedent as
+    milestone 13's five unrelated integrations in one milestone,
+    since these all follow the exact same thin-client-plus-tools shape
+    every prior integration here does, not a new mechanism.
+
+    Confidence varies deliberately across the seven, and each is built
+    (and documented, and tested) to match:
+
+    - **Tautulli** (`app/tautulli/`) -- Plex activity/history, a
+      companion to Plex (13) rather than a replacement. One query
+      endpoint (`/api/v2?apikey=&cmd=`) unlike every header-auth'd
+      integration here -- Tautulli's own shape, not a deviation from
+      this codebase's convention. `tautulli_current_activity`,
+      `tautulli_recent_history`, both READ.
+    - **Radarr**/**Sonarr** (`app/radarr/`, `app/sonarr/`) -- movie/TV
+      collection managers, near-identical Servarr-family v3 APIs
+      (X-Api-Key header, `/api/v3/*`). `radarr_list_movies`/
+      `sonarr_list_series` and `radarr_queue`/`sonarr_queue` are READ;
+      `radarr_search_movie`/`sonarr_search_series` trigger a background
+      search (`POST /api/v3/command`) and are SAFE_ACTION -- routine
+      and reversible, it only queues a search, same tier as
+      `docker_restart_container`. Deliberately stops there: adding new
+      movies/series or deleting existing ones isn't built -- a bigger,
+      more consequential action (quality profile choice, disk space)
+      that deserves its own careful design later, not a side effect of
+      "add Radarr support."
+    - **Bazarr** (`app/bazarr/`) -- subtitle manager for Radarr/Sonarr
+      libraries. `bazarr_wanted_movies`/`bazarr_wanted_episodes`, both
+      READ (what's missing subtitles).
+    - **Obsidian** (`app/obsidian/`) -- not Obsidian itself, which has
+      no API of its own, but the community "Local REST API" plugin
+      (the de facto standard way to expose one): HTTPS with a
+      self-signed certificate by default, Bearer-token auth.
+      `obsidian_list_notes`/`get_note`/`search` are READ;
+      `obsidian_create_or_update_note` is **CONFIRM_REQUIRED**, not
+      SAFE_ACTION -- unlike a routine restart or a queued search, a PUT
+      fully replaces a note's existing content with no built-in undo,
+      the same "an unbounded write shouldn't run without a human
+      approving it" reasoning as `home_assistant_call_service`'s tier.
+    - **Listenarr** (`app/listenarr/`) -- an audiobook/podcast manager.
+      **The least confidently verified integration in this codebase,
+      more so than UniFi** (13's previous holder of that distinction):
+      built from the Servarr family's shared API convention, but with
+      no live instance and no solid reference documentation available
+      to confirm Listenarr's own resource model against -- what a
+      library item is even called. Deliberately limited to
+      `listenarr_system_status`/`listenarr_queue`, the two endpoints
+      near-universal across every Servarr-family app regardless of
+      what they manage, rather than guessing at a library-listing
+      endpoint's resource name and shipping something that looks more
+      verified than it is.
+    - **Cleanuparr** (`app/cleanuparr/`) -- stalled/failed download
+      cleanup for *arr apps and download clients. **Even less
+      confidently verified than Listenarr**: no solid reference
+      documentation for its API was available at all, so this is
+      limited to `cleanuparr_status`, a single health-check-style call
+      against a path convention common to ASP.NET Core apps (its
+      apparent stack). `POST /siris/integrations` (32's OpenAPI
+      discovery) is the recommended path for real Cleanuparr coverage,
+      once it can be pointed at a live instance or spec, rather than
+      more hand-guessed endpoints here.
+
+    All seven follow the standing "empty = tool(s) not registered"
+    convention -- each needs its own `base_url`+`api_key` pair set (see
+    `.env.example`) before its tools appear at all.
+
+    Verified: full suite (389 passed, up from 361) including 28 new
+    tests across seven new test files (`tests/test_tautulli.py`,
+    `test_radarr.py`, `test_sonarr.py`, `test_bazarr.py`,
+    `test_listenarr.py`, `test_cleanuparr.py`, `test_obsidian.py`) plus
+    registration-gating tests added to
+    `tests/test_tool_library_registration.py` for all seven. Live-
+    verified against a real `uvicorn` process and five real mock HTTP
+    servers standing in for Tautulli/Radarr/Sonarr/Bazarr/Obsidian,
+    each asserting the real request shape it received (API key
+    header/param, exact command payloads for Radarr/Sonarr's search
+    triggers): every tool call round-tripped correctly, including
+    Obsidian's `CONFIRM_REQUIRED` write being blocked without
+    confirmation and then actually writing once confirmed. Listenarr
+    and Cleanuparr were also live-verified against their own real mock
+    servers -- confirming the plumbing (registration, auth header,
+    response parsing) works end to end -- but, per the confidence
+    caveats above, the *endpoints themselves* still need checking
+    against real instances before they can be trusted the way the other
+    five can.
+
 ## Running locally
 
 ```bash

@@ -22,6 +22,23 @@ def test_optional_tool_libraries_not_registered_by_default() -> None:
         "weather_current",
         "calendar_upcoming_events",
         "hermes_run_task",
+        "tautulli_current_activity",
+        "tautulli_recent_history",
+        "radarr_list_movies",
+        "radarr_queue",
+        "radarr_search_movie",
+        "sonarr_list_series",
+        "sonarr_queue",
+        "sonarr_search_series",
+        "bazarr_wanted_movies",
+        "bazarr_wanted_episodes",
+        "listenarr_system_status",
+        "listenarr_queue",
+        "cleanuparr_status",
+        "obsidian_list_notes",
+        "obsidian_get_note",
+        "obsidian_search",
+        "obsidian_create_or_update_note",
     }
 
 
@@ -82,3 +99,77 @@ def test_hermes_tool_registered_when_base_url_present() -> None:
     finally:
         assert siris._hermes_client is not None
         siris._hermes_client.close()
+
+
+def test_tautulli_tools_registered_when_both_settings_present() -> None:
+    siris = SirisAI(settings=Settings(tautulli_base_url="http://tautulli.local:8181", tautulli_api_key="secret"))
+    try:
+        names = {tool.name for tool in siris.tools.list()}
+        assert {"tautulli_current_activity", "tautulli_recent_history"} <= names
+    finally:
+        assert siris._tautulli_client is not None
+        siris._tautulli_client.close()
+
+
+def test_radarr_tools_registered_when_both_settings_present() -> None:
+    siris = SirisAI(settings=Settings(radarr_base_url="http://radarr.local:7878", radarr_api_key="secret"))
+    try:
+        names = {tool.name for tool in siris.tools.list()}
+        assert {"radarr_list_movies", "radarr_queue", "radarr_search_movie"} <= names
+    finally:
+        assert siris._radarr_client is not None
+        siris._radarr_client.close()
+
+
+def test_sonarr_tools_registered_when_both_settings_present() -> None:
+    siris = SirisAI(settings=Settings(sonarr_base_url="http://sonarr.local:8989", sonarr_api_key="secret"))
+    try:
+        names = {tool.name for tool in siris.tools.list()}
+        assert {"sonarr_list_series", "sonarr_queue", "sonarr_search_series"} <= names
+    finally:
+        assert siris._sonarr_client is not None
+        siris._sonarr_client.close()
+
+
+def test_bazarr_tools_registered_when_both_settings_present() -> None:
+    siris = SirisAI(settings=Settings(bazarr_base_url="http://bazarr.local:6767", bazarr_api_key="secret"))
+    try:
+        names = {tool.name for tool in siris.tools.list()}
+        assert {"bazarr_wanted_movies", "bazarr_wanted_episodes"} <= names
+    finally:
+        assert siris._bazarr_client is not None
+        siris._bazarr_client.close()
+
+
+def test_listenarr_tools_registered_when_both_settings_present() -> None:
+    siris = SirisAI(settings=Settings(listenarr_base_url="http://listenarr.local:8787", listenarr_api_key="secret"))
+    try:
+        names = {tool.name for tool in siris.tools.list()}
+        assert {"listenarr_system_status", "listenarr_queue"} <= names
+    finally:
+        assert siris._listenarr_client is not None
+        siris._listenarr_client.close()
+
+
+def test_cleanuparr_tool_registered_when_both_settings_present() -> None:
+    siris = SirisAI(settings=Settings(cleanuparr_base_url="http://cleanuparr.local:11011", cleanuparr_api_key="secret"))
+    try:
+        assert siris.tools.get("cleanuparr_status") is not None
+    finally:
+        assert siris._cleanuparr_client is not None
+        siris._cleanuparr_client.close()
+
+
+def test_obsidian_tools_registered_when_both_settings_present() -> None:
+    siris = SirisAI(settings=Settings(obsidian_base_url="https://obsidian.local:27124", obsidian_api_key="secret"))
+    try:
+        names = {tool.name for tool in siris.tools.list()}
+        assert {
+            "obsidian_list_notes",
+            "obsidian_get_note",
+            "obsidian_search",
+            "obsidian_create_or_update_note",
+        } <= names
+    finally:
+        assert siris._obsidian_client is not None
+        siris._obsidian_client.close()

@@ -211,6 +211,69 @@ class Settings(BaseSettings):
     def presence_device_name_list(self) -> list[str]:
         return [name.strip() for name in self.presence_device_names.split(",") if name.strip()]
 
+    # Tautulli (app/tautulli/, app/plugins/builtin/tautulli.py) -- Plex
+    # activity/history companion, not a replacement for Plex itself. Both
+    # must be set for the tautulli_* tools to be registered.
+    tautulli_base_url: str = ""
+    tautulli_api_key: str = ""
+
+    # Radarr (app/radarr/, app/plugins/builtin/radarr.py) -- movie
+    # collection manager. Both must be set. Generate an API key under
+    # Radarr's Settings -> General -> Security.
+    radarr_base_url: str = ""
+    radarr_api_key: str = ""
+
+    # Sonarr (app/sonarr/, app/plugins/builtin/sonarr.py) -- TV collection
+    # manager, same API shape as Radarr (both are Servarr-family apps).
+    # Both must be set.
+    sonarr_base_url: str = ""
+    sonarr_api_key: str = ""
+
+    # Bazarr (app/bazarr/, app/plugins/builtin/bazarr.py) -- subtitle
+    # manager for Radarr/Sonarr libraries. Both must be set.
+    bazarr_base_url: str = ""
+    bazarr_api_key: str = ""
+
+    # Listenarr (app/listenarr/, app/plugins/builtin/listenarr.py) --
+    # audiobook/podcast manager. The least-confidently-verified
+    # integration in this codebase, more so even than UniFi
+    # (app/unifi/client.py's own docstring): built from the shared
+    # Servarr-family API convention (X-Api-Key header, /api/v1/*) that
+    # Sonarr/Radarr/Lidarr/Readarr/Prowlarr all share, but without a live
+    # instance -- or solid reference documentation for Listenarr
+    # specifically -- to confirm its exact resource model against.
+    # Deliberately scoped to just system/status and queue, the two
+    # endpoints near-universal across every Servarr-family app; a
+    # library-listing tool needs the real API confirmed first (see
+    # app/listenarr/client.py's docstring). Both must be set.
+    listenarr_base_url: str = ""
+    listenarr_api_key: str = ""
+
+    # Cleanuparr (app/cleanuparr/, app/plugins/builtin/cleanuparr.py) --
+    # stalled/failed download cleanup for *arr apps + download clients.
+    # Even less confidently verified than Listenarr -- no solid reference
+    # documentation for its API was available to build against, so only
+    # a status check against a near-universal ASP.NET Core health-check
+    # path is implemented; consider onboarding the rest via
+    # POST /siris/integrations (milestone 32's OpenAPI discovery) once
+    # you can point it at a real running instance's spec, rather than
+    # more hand-guessed endpoints here. Both must be set.
+    cleanuparr_base_url: str = ""
+    cleanuparr_api_key: str = ""
+
+    # Obsidian (app/obsidian/, app/plugins/builtin/obsidian.py) -- not
+    # Obsidian itself, which has no API of its own, but the community
+    # "Local REST API" plugin
+    # (https://github.com/coddingtonbear/obsidian-local-rest-api).
+    # Defaults match the plugin's own defaults: HTTPS on 27124 with a
+    # self-signed certificate (hence verify_ssl=false to match) unless
+    # you've configured the plugin's insecure HTTP mode instead. Both
+    # base_url and api_key must be set; the plugin shows the API key in
+    # its own settings pane once installed.
+    obsidian_base_url: str = "https://127.0.0.1:27124"
+    obsidian_api_key: str = ""
+    obsidian_verify_ssl: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
