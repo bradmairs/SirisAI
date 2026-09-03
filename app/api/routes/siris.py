@@ -228,6 +228,12 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     conversation history and doesn't hit the audit log -- it's
     background situational awareness, not a decision SirisAI made.
 
+    If `SIRISAI_PERSONA` is set, it's also prepended as a system message
+    on every call regardless of `use_context` -- tone/personality, a
+    separate concern from situational context (see Cortex's own
+    docstring, milestone 45). Unset by default, same raw-model behavior
+    as before this existed.
+
     Which model actually handles the turn is decided by the model router
     (app/llm/router.py, `SIRISAI_MODEL_ROUTER_POLICY`) unless `model_role`
     forces a specific one; the response's `model_role` says which one ran.

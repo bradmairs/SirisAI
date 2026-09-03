@@ -79,8 +79,8 @@ class _RecordingLLMClient:
         pass
 
 
-def _siris(llm: Any) -> SirisAI:
-    siris = SirisAI(settings=Settings())
+def _siris(llm: Any, settings: Settings | None = None) -> SirisAI:
+    siris = SirisAI(settings=settings or Settings())
     siris.llm = llm
     return siris
 
@@ -146,6 +146,56 @@ def test_process_returns_error_result_when_llm_call_fails() -> None:
 
     assert result.error == "LLM backend call failed."
     assert result.response is None
+
+
+# -- Persona (a hardening pass, milestone 45)
+
+
+def test_process_prepends_persona_when_configured() -> None:
+    llm = _RecordingLLMClient([LLMResponse(text="hi there")])
+    siris = _siris(llm, settings=Settings(persona="You are Jarvis: dry wit, always precise."))
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False))
+
+    sent = llm.calls[0]
+    assert sent[0] == {"role": "system", "content": "You are Jarvis: dry wit, always precise."}
+    assert sent[-1] == {"role": "user", "content": "hello"}
+
+
+def test_process_omits_persona_message_when_not_configured() -> None:
+    llm = _RecordingLLMClient([LLMResponse(text="hi there")])
+    siris = _siris(llm)  # default Settings() -- empty persona
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False))
+
+    assert all(m["role"] != "system" for m in llm.calls[0])
+
+
+def test_process_puts_persona_before_context() -> None:
+    llm = _RecordingLLMClient([LLMResponse(text="hi there")])
+    siris = _siris(llm, settings=Settings(persona="You are Jarvis."))
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=True))
+
+    system_messages = [m for m in llm.calls[0] if m["role"] == "system"]
+    assert len(system_messages) == 2
+    assert system_messages[0]["content"] == "You are Jarvis."
+    assert system_messages[1]["content"].startswith("Context")
+
+
+def test_confirm_prepends_persona_when_configured() -> None:
+    llm = _RecordingLLMClient([LLMResponse(text="Confirmed and done.")])
+    siris = _siris(llm, settings=Settings(persona="You are Jarvis."))
+    conversation_id = siris.conversation.create_conversation()
+    siris.conversation.add_message(conversation_id, role="user", content="do the risky thing")
+
+    asyncio.run(Cortex().confirm(siris, conversation_id, "echo", {"message": "confirmed"}))
+
+    follow_up_messages = llm.calls[0]
+    assert follow_up_messages[0] == {"role": "system", "content": "You are Jarvis."}
 
 
 def test_a_prior_turns_tool_call_is_replayed_as_real_history_on_the_next_turn() -> None:

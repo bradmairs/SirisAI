@@ -157,6 +157,19 @@ class Settings(BaseSettings):
     # action button; everything else about notifications is unaffected.
     public_base_url: str = ""
 
+    # Persona/voice consistency layer (milestone 45, app/cortex/orchestrator.py).
+    # A free-text system message applied consistently to every chat turn
+    # Cortex handles (process(), confirm(), and the planner loop both
+    # drive through) -- how the model communicates, not situational
+    # context (app/context/engine.py, milestone 16's use_context, a
+    # completely separate concern this is always applied alongside
+    # regardless of). Empty (default) = no persona message at all, same
+    # raw-model-default behavior as before this milestone -- an
+    # opinionated tone is something SirisAI's owner should set
+    # deliberately via this setting, not something imposed by default.
+    # See .env.example for a starting example.
+    persona: str = ""
+
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own
     # memories, skills, and terminal access, used to delegate Docker/

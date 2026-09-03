@@ -19,6 +19,13 @@ This is also what makes the LLM client "visibly swappable infrastructure":
 callers of Cortex never touch an `LLMClient` directly, `SirisAI.model_router`
 decides which one handles a given turn, and Cortex is the only thing that
 calls `.generate()` on it.
+
+Persona (a hardening pass, milestone 45): `SIRISAI_PERSONA`, when set, is
+prepended as a system message on every turn Cortex drives -- `process()`,
+`confirm()`, and the planner loop both feed through -- ahead of context
+(16), which stays a separate, `use_context`-gated concern. Empty (the
+default) means no persona message at all, the same raw-model-default
+behavior as before this milestone existed.
 """
 
 import json
@@ -92,13 +99,18 @@ class Cortex:
         siris.conversation.add_message(conversation_id, role="user", content=prompt)
         messages = self._load_messages(siris, conversation_id)
 
+        # Persona (a hardening pass, milestone 45) comes before context --
+        # "who you are" ahead of "here's what's currently relevant" -- and
+        # applies regardless of use_context, a separate concern (tone, not
+        # situational data).
+        system_messages: list[dict[str, Any]] = []
+        if siris.settings.persona:
+            system_messages.append({"role": "system", "content": siris.settings.persona})
         if use_context:
             context_text = siris.context.build(siris, prompt)
             if context_text:
-                messages = [
-                    {"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"},
-                    *messages,
-                ]
+                system_messages.append({"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"})
+        messages = [*system_messages, *messages]
 
         tools = siris.available_tool_specs() if use_tools else None
         resolved_role, llm_client = siris.model_router.pick(siris.llm, prompt, role=model_role)
@@ -153,6 +165,8 @@ class Cortex:
         answer, and the turn ends there -- same as confirming a single
         non-planned tool call always has."""
         messages = self._load_messages(siris, conversation_id)
+        if siris.settings.persona:
+            messages = [{"role": "system", "content": siris.settings.persona}, *messages]
         confirmed = await self._run_single_tool(
             siris,
             conversation_id,
