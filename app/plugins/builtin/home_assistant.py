@@ -73,7 +73,11 @@ class HomeAssistantCallServiceTool(Tool):
     # Arbitrary/unbounded: this can call *any* Home Assistant service --
     # including ones with real physical consequences (unlocking a door,
     # disarming an alarm) that a routine "turn on the light" doesn't carry.
-    # Confirm before running rather than trying to allowlist safe services.
+    # CONFIRM_REQUIRED by default; needs_confirmation() below narrows that
+    # per-call via a configurable domain allowlist (a direct user request
+    # -- lights/switches/etc shouldn't need confirming every time --
+    # rather than removing confirmation outright, which would drop the
+    # safety net for locks/alarms/covers too).
     permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
@@ -92,9 +96,19 @@ class HomeAssistantCallServiceTool(Tool):
         "required": ["domain", "service"],
     }
 
-    def __init__(self, client: HomeAssistantClient, events: EventMemoryStore) -> None:
+    def __init__(
+        self, client: HomeAssistantClient, events: EventMemoryStore, no_confirm_domains: list[str] | None = None
+    ) -> None:
         self._client = client
         self._events = events
+        self._no_confirm_domains = set(no_confirm_domains or [])
+
+    def needs_confirmation(self, arguments: dict[str, Any]) -> bool:
+        """Skips confirmation for a call whose `domain` is in
+        SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS -- everything else
+        (an unconfigured/empty allowlist means everything) still needs
+        it, same as before this existed."""
+        return arguments.get("domain") not in self._no_confirm_domains
 
     def run(
         self,

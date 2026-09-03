@@ -174,15 +174,24 @@ def _categorize_tool(tool: Tool) -> str:
     return _CATEGORY_NAMES.get(tool.name, "misc")
 
 
-def _describe_policy(tool: Tool, confirmed: bool) -> str:
+def _describe_policy(tool: Tool, confirmed: bool, call_needs_confirmation: bool) -> str:
     """What allowed (or blocked) this call, for the audit log's `policy`
     field (milestone 28) -- derived from the tool's own ToolPermission,
-    not something a caller of run_tool() invents itself."""
+    not something a caller of run_tool() invents itself.
+
+    `call_needs_confirmation` is `tool.needs_confirmation(arguments)`,
+    only meaningful when `permission` is CONFIRM_REQUIRED -- a per-call
+    allowlist bypass (see `Tool.needs_confirmation()`) takes precedence
+    in the message over whether `confirmed` was also passed, since a
+    call that never needed confirmation didn't get "explicitly
+    confirmed" so much as skip the question entirely."""
     if tool.permission is ToolPermission.READ:
         return "READ: no side effects, always runs"
     if tool.permission is ToolPermission.SAFE_ACTION:
         return "SAFE_ACTION: routine and reversible, runs immediately without confirmation"
     if tool.permission is ToolPermission.CONFIRM_REQUIRED:
+        if not call_needs_confirmation:
+            return "CONFIRM_REQUIRED: this call's arguments are allowlisted to skip confirmation"
         return (
             "CONFIRM_REQUIRED: explicitly confirmed before running"
             if confirmed
@@ -293,7 +302,11 @@ class SirisAI:
             )
             self.tools.register(HomeAssistantListEntitiesTool(self._home_assistant_client))
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
-            self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client, self.events))
+            self.tools.register(
+                HomeAssistantCallServiceTool(
+                    self._home_assistant_client, self.events, self.settings.home_assistant_no_confirm_domain_list()
+                )
+            )
             self.tools.register(HomeAssistantGetLogbookTool(self._home_assistant_client))
 
         # Plex before Docker on purpose: DockerRestartContainerTool's
@@ -603,7 +616,8 @@ class SirisAI:
             )
             raise ValueError(f"Unknown tool: {name}")
 
-        policy = _describe_policy(tool, confirmed)
+        call_needs_confirmation = tool.permission is ToolPermission.CONFIRM_REQUIRED and tool.needs_confirmation(arguments)
+        policy = _describe_policy(tool, confirmed, call_needs_confirmation)
 
         if tool.permission is ToolPermission.RESTRICTED and name not in self.settings.restricted_tools_allowlist():
             duration_ms = (time.monotonic() - start) * 1000
@@ -620,7 +634,7 @@ class SirisAI:
             )
             raise PermissionError(f"Tool '{name}' is restricted and not enabled.")
 
-        if tool.permission is ToolPermission.CONFIRM_REQUIRED and not confirmed:
+        if call_needs_confirmation and not confirmed:
             duration_ms = (time.monotonic() - start) * 1000
             self.audit.record(
                 name,

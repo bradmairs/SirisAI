@@ -126,3 +126,51 @@ def test_home_assistant_call_service_requires_confirmation() -> None:
     from app.plugins.builtin.home_assistant import HomeAssistantCallServiceTool
 
     assert HomeAssistantCallServiceTool.permission is ToolPermission.CONFIRM_REQUIRED
+
+
+# -- Tool.needs_confirmation(): a per-call allowlist bypass for an
+# otherwise-CONFIRM_REQUIRED tool (see HomeAssistantCallServiceTool for
+# the real case this exists for).
+
+
+class _SelectivelyConfirmedTool(Tool):
+    name = "selectively_confirmed_action"
+    description = "Test tool -- CONFIRM_REQUIRED, but some calls skip it."
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}
+
+    def run(self, target: str = "", **kwargs: Any) -> Any:
+        return {"acted_on": target}
+
+    def needs_confirmation(self, arguments: dict[str, Any]) -> bool:
+        return arguments.get("target") != "safe-target"
+
+
+def test_needs_confirmation_override_lets_a_specific_call_skip_confirmation() -> None:
+    siris = SirisAI(settings=Settings())
+    siris.tools.register(_SelectivelyConfirmedTool())
+
+    result = siris.run_tool("selectively_confirmed_action", {"target": "safe-target"})
+    assert result == {"acted_on": "safe-target"}
+
+    ran = siris.audit.list_recent(limit=1)[0]
+    assert ran["confirmation_required"] is False
+    assert ran["policy"] == "CONFIRM_REQUIRED: this call's arguments are allowlisted to skip confirmation"
+
+
+def test_needs_confirmation_override_still_blocks_other_calls() -> None:
+    siris = SirisAI(settings=Settings())
+    siris.tools.register(_SelectivelyConfirmedTool())
+
+    with pytest.raises(ConfirmationRequired):
+        siris.run_tool("selectively_confirmed_action", {"target": "risky-target"})
+
+    pending = siris.audit.list_recent(limit=1)[0]
+    assert pending["confirmation_required"] is True
+    assert pending["policy"] == "CONFIRM_REQUIRED: blocked pending confirmation"
+
+    # Explicit confirmation still runs it, same as before this existed.
+    result = siris.run_tool("selectively_confirmed_action", {"target": "risky-target"}, confirmed=True)
+    assert result == {"acted_on": "risky-target"}
+    confirmed_entry = siris.audit.list_recent(limit=1)[0]
+    assert confirmed_entry["policy"] == "CONFIRM_REQUIRED: explicitly confirmed before running"
