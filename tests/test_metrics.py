@@ -67,6 +67,12 @@ class _FakeToolsRegistry:
         return None
 
 
+class _FakeSettings:
+    # Blank -- power-draw recording (milestone 47) is off for every test
+    # in this file, same as it is by default.
+    power_sensor_entity_id: str = ""
+
+
 class _FakeSirisForServerHealth:
     """Its own isolated MetricsStore (so history genuinely accumulates and
     baseline() reflects only what this test seeded) but a canned
@@ -76,6 +82,7 @@ class _FakeSirisForServerHealth:
     def __init__(self, cpu_percent: float) -> None:
         self.tools = _FakeToolsRegistry()
         self.metrics = _metrics()
+        self.settings = _FakeSettings()
         self._cpu_percent = cpu_percent
 
     def run_tool(self, name: str, arguments: dict[str, Any]) -> Any:
@@ -139,6 +146,7 @@ def test_baseline_triggered_disk_warning_still_correlates_via_notification_manag
         def __init__(self, disk_percent: float) -> None:
             self.tools = _FakeToolsRegistry()
             self.metrics = _metrics()
+            self.settings = _FakeSettings()
             self._disk_percent = disk_percent
 
         def run_tool(self, name: str, arguments: dict[str, Any]) -> Any:

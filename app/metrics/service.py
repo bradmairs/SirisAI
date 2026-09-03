@@ -20,7 +20,7 @@ number, and doesn't pretend day-one readings mean anything.
 import statistics
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import MetricSample
@@ -61,3 +61,22 @@ class MetricsStore:
             return None
         stdev = statistics.stdev(values) if len(values) > 1 else 0.0
         return Baseline(mean=statistics.mean(values), stdev=stdev, sample_count=len(values))
+
+    def latest_value(self, metric_name: str) -> float | None:
+        values = self.recent_values(metric_name, limit=1)
+        return values[0] if values else None
+
+    def total(self, metric_name: str) -> float:
+        """Sum of every recorded sample -- for a counter-shaped metric
+        (e.g. milestone 47's llm_tokens_* -- one sample per LLM call,
+        summing to cumulative usage), unlike baseline()'s recent-window
+        mean/stdev, which suits a gauge-shaped metric (e.g. cpu_percent,
+        power_draw_watts) instead."""
+        with self._session_factory() as session:
+            stmt = select(func.sum(MetricSample.value)).where(MetricSample.metric_name == metric_name)
+            return session.scalar(stmt) or 0.0
+
+    def sample_count(self, metric_name: str) -> int:
+        with self._session_factory() as session:
+            stmt = select(func.count()).select_from(MetricSample).where(MetricSample.metric_name == metric_name)
+            return session.scalar(stmt) or 0

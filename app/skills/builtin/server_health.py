@@ -45,6 +45,24 @@ class ServerHealthSkill(Skill):
                     label = container["names"][0] if container["names"] else container["id"]
                     warnings.append(f"Container '{label}' is {container['state']}")
 
+        # Homelab power draw (milestone 47's cost/resource dashboard) --
+        # this codebase has no power sensor of its own, so it reuses the
+        # existing Home Assistant integration: whatever entity
+        # SIRISAI_POWER_SENSOR_ENTITY_ID names is read as a wattage
+        # reading every time a health check runs, same accumulation
+        # pattern as cpu/memory/disk above. Best-effort, same reasoning
+        # as milestone 39's weather/calendar wrapping -- an unreachable
+        # Home Assistant or a non-numeric sensor state doesn't fail the
+        # health check, it just means no sample this time.
+        if siris.settings.power_sensor_entity_id and siris.tools.get("home_assistant_get_state") is not None:
+            try:
+                state = siris.run_tool(
+                    "home_assistant_get_state", {"entity_id": siris.settings.power_sensor_entity_id}
+                )
+                siris.metrics.record_sample("power_draw_watts", float(state["state"]))
+            except Exception:
+                pass
+
         return {
             "system": system,
             "docker_containers": containers,

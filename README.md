@@ -1677,11 +1677,66 @@ silently decided -- same posture as milestone 29's routine engine.
     goal id got the same 502 "unknown goal_id" an actually-nonexistent
     id gets.
 
-47. Cost/resource dashboard. LLM token spend and homelab power draw
-    tracked over time as their own metrics -- direct reuse of
-    `MetricsStore`'s existing baseline machinery (27), not a new store.
-    Ties back to milestone 23's own "reduce homelab power consumption"
-    goal example.
+47. **Done** -- Cost/resource dashboard. LLM token spend and homelab
+    power draw tracked over time as their own metrics -- direct reuse of
+    `MetricsStore`'s existing sample/baseline machinery (27), not a new
+    store -- surfaced via `GET /siris/metrics/dashboard`. Ties back to
+    milestone 23's own "reduce homelab power consumption" goal example.
+
+    Token spend: Ollama's non-streamed `/api/chat` response already
+    reports `prompt_eval_count`/`eval_count`, now parsed into
+    `LLMResponse.prompt_tokens`/`completion_tokens` (`app/llm/ollama.py`)
+    -- None, not zero, when a backend doesn't report them, so "no usage
+    data" stays distinguishable from "used zero tokens". Recording it
+    at every one of Cortex's and the planner's several `.generate()`
+    call sites would've meant touching both repeatedly for one
+    cross-cutting concern, so instead a new `MeteredLLMClient`
+    (`app/llm/metering.py`) wraps whatever `build_llm_client()` returns
+    in `SirisAI.__post_init__`, transparently to Cortex/Planner -- they
+    keep calling `.generate()` on what they still believe is a plain
+    `LLMClient`, and every call's usage, when reported, gets recorded as
+    three metric samples (`llm_tokens_prompt`/`_completion`/`_total`)
+    with zero changes to either caller. Exactly the kind of thing
+    `app/llm/base.py`'s "the rest of the app should only ever talk to
+    this interface" boundary exists for.
+
+    Power draw: this codebase has no power sensor of its own, so rather
+    than inventing one, `SIRISAI_POWER_SENSOR_ENTITY_ID` points at a
+    Home Assistant entity (e.g. a smart plug/PDU sensor) and
+    `ServerHealthSkill` reads its state as a wattage reading every time
+    a health check runs (a chat turn, or `POST /siris/proactive/check`
+    on cron) -- same accumulation pattern as its existing cpu/memory/disk
+    samples, and the same best-effort external-call wrapping as
+    milestone 39's weather/calendar (an unreachable Home Assistant or a
+    non-numeric sensor state -- Home Assistant's own "unavailable" -- is
+    skipped, not a failed health check). Requires Home Assistant to
+    already be configured; empty (default) = power draw isn't tracked.
+
+    `MetricsStore` gained `total()`/`sample_count()`/`latest_value()`
+    for this: `total()` suits a counter-shaped metric like token usage
+    (sum toward cumulative spend) where `baseline()`'s recent-window
+    mean/stdev suits a gauge-shaped one like power draw or cpu_percent
+    instead. The dashboard response omits `power_draw` entirely (not a
+    zeroed-out object) when the sensor isn't configured -- distinct from
+    "configured but no readings yet" -- and stays server-wide rather
+    than per-user (milestone 46): infrastructure/cost data, not personal
+    preference, same reasoning as leaving the world model global there.
+
+    Verified: full suite (343 passed, up from 326) including 17 new
+    `tests/test_cost_dashboard.py` tests -- `MetricsStore`'s three new
+    methods, `OllamaClient` parsing real and absent token-usage response
+    shapes, `MeteredLLMClient` recording (and correctly *not*
+    half-recording a total when only one side is known), power-draw
+    recording gated on both settings and Home Assistant being present,
+    the best-effort non-numeric-state case, and the dashboard endpoint's
+    shape both with and without a configured power sensor. Live-verified
+    against a real `uvicorn` process talking to a real mock Ollama
+    server (returning genuine `prompt_eval_count`/`eval_count`) and a
+    real mock Home Assistant server (serving a fake `sensor.pdu_watts`
+    state): a real `POST /siris/chat` turn produced the exact token
+    counts the mock returned on the dashboard afterward, and a real
+    `server_health_check` tool run produced the exact wattage (212.7)
+    the mock's sensor reported.
 
 48. Room/presence-aware routing. A response follows you -- replies
     through whichever room's satellite/speaker you're actually in

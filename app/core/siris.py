@@ -33,6 +33,7 @@ from app.integrations.openapi import DiscoveredOperation, discover_get_operation
 from app.integrations.service import IntegrationStore
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
+from app.llm.metering import MeteredLLMClient
 from app.llm.router import ModelRouter
 from app.memory.entities import EntityMemoryStore
 from app.memory.events import EventMemoryStore
@@ -187,16 +188,24 @@ class SirisAI:
 
     def __post_init__(self) -> None:
         if self.llm is None:
-            self.llm = build_llm_client(
-                self.settings.llm_provider, self.settings.ollama_base_url, self.settings.ollama_model
+            # Wrapped in MeteredLLMClient (milestone 47) so every call's
+            # token usage, when the backend reports any, is recorded into
+            # `metrics` -- entirely transparent to Cortex/Planner, which
+            # only ever see the plain LLMClient interface either way.
+            self.llm = MeteredLLMClient(
+                build_llm_client(self.settings.llm_provider, self.settings.ollama_base_url, self.settings.ollama_model),
+                self.metrics,
             )
         if self.model_router is None:
             fast_llm = None
             if self.settings.fast_llm_provider != "none":
-                fast_llm = build_llm_client(
-                    self.settings.fast_llm_provider,
-                    self.settings.fast_llm_ollama_base_url,
-                    self.settings.fast_llm_ollama_model,
+                fast_llm = MeteredLLMClient(
+                    build_llm_client(
+                        self.settings.fast_llm_provider,
+                        self.settings.fast_llm_ollama_base_url,
+                        self.settings.fast_llm_ollama_model,
+                    ),
+                    self.metrics,
                 )
             self.model_router = ModelRouter(
                 fast=fast_llm,

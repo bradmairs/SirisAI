@@ -170,6 +170,18 @@ class Settings(BaseSettings):
     # See .env.example for a starting example.
     persona: str = ""
 
+    # Cost/resource dashboard (milestone 47, app/skills/builtin/server_health.py,
+    # GET /siris/metrics/dashboard). LLM token spend (app/llm/metering.py)
+    # is always tracked once an LLM backend is configured -- no setting
+    # needed. Homelab power draw has no sensor of its own in this
+    # codebase, so it reuses the existing Home Assistant integration
+    # instead of inventing one: point this at a Home Assistant entity
+    # whose state is a wattage reading (e.g. a smart plug/PDU sensor),
+    # and server_health_check records it as a metric sample every time it
+    # runs. Empty (default) = power draw isn't tracked; requires
+    # SIRISAI_HOME_ASSISTANT_BASE_URL/TOKEN to be set too.
+    power_sensor_entity_id: str = ""
+
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own
     # memories, skills, and terminal access, used to delegate Docker/
