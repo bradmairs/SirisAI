@@ -169,12 +169,13 @@ Deliberately tiny, each one a working state:
     `LLMClient.generate()` from a single `prompt: str` to a
     `messages: list[dict]` history -- not scope creep, since
     `OllamaClient` was already POSTing a `messages` array to Ollama's
-    `/api/chat`, just always a single-item one. Tool exchanges are
-    persisted but not yet replayed to the model as structured context on
-    later turns (still just user/assistant text) -- full tool-result
-    round-tripping remains future work, same boundary milestone 3 drew.
-    The built-in web UI now carries a conversation across turns within a
-    page session, with a "New chat" button to reset it.
+    `/api/chat`, just always a single-item one. Tool exchanges were
+    originally persisted but not replayed to the model as structured
+    context on later turns (still just user/assistant text) -- full
+    tool-result round-tripping was flagged as future work here; closed in
+    the hardening pass noted after milestone 34 below. The built-in web UI
+    now carries a conversation across turns within a page session, with a
+    "New chat" button to reset it.
 
 11. **Done** -- Tool execution audit log (`app/audit/service.py`,
     `AuditLogStore`, backed by a `tool_executions` SQLite table). Wired
@@ -1049,6 +1050,41 @@ deliberately left out, and why" treatment as everything above.
     with both a mock Hermes and a mock Ollama backend confirmed
     `hermes_run_task` is offered to the model like any other tool via
     `GET /siris/status`.
+
+35. **Done** -- Hardening pass: tool-result round-tripping. Milestone 10
+    explicitly flagged this gap and left it as future work: a tool
+    call/result from an earlier turn was persisted (visible via
+    `GET /siris/conversations/{id}`) but never replayed to the model on a
+    later turn -- only the plain user/assistant text was. In practice
+    that meant a follow-up question like "what did you just do?" had
+    nothing to go on beyond whatever the model happened to say in its own
+    prior reply; the actual tool call and its result were invisible to it.
+
+    `Cortex._load_messages()` (`app/cortex/orchestrator.py`) now expands
+    each persisted "tool" row back into the same assistant-`tool_calls` +
+    `tool`-result message pair this module already builds mid-turn
+    (`_run_single_tool`'s follow-up call, `_run_planned`'s planner loop),
+    interleaved in original chronological order alongside user/assistant
+    text. Since `Cortex` is the one place both `/siris/chat` and
+    `/siris/chat/confirm` load history from (milestone 33), this fixes
+    the gap for the planner path too, not just the single-tool-call one.
+    No format change, no new persistence -- `Message.tool_name`/
+    `tool_arguments`/`content` already carried everything needed; this
+    just stopped discarding them when building history for a new call.
+
+    Verified: full suite (235 passed, up from 233) including a new
+    `tests/test_cortex.py` test asserting the exact replayed message
+    shape reaches a recording fake `LLMClient` on a second `Cortex.process()`
+    call, and a new `tests/test_conversation.py` endpoint-level test doing
+    the same over two real `POST /siris/chat` calls. Live-verified against
+    a real `uvicorn` process and a real mock Ollama server logging every
+    raw request body it received: a "please echo ping" turn followed by
+    "what did you just do?" showed the second call's actual HTTP payload
+    contained the full prior exchange (user prompt, the assistant's
+    `tool_calls`, the tool's `{"echo": "ping"}` result, and the
+    intervening assistant reply) ahead of the new user message -- and the
+    mock's own reply ("You asked me to echo 'ping' earlier.") confirmed
+    it could actually see and use that history, not just receive it.
 
 ## Running locally
 

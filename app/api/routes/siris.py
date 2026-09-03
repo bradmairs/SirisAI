@@ -213,9 +213,11 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     that follow-up call fails or the model doesn't produce text -- unless
     the tool requires confirmation, in which case `confirmation_required` is
     set instead and nothing has run yet; see POST /siris/chat/confirm. Tool
-    exchanges are persisted to the conversation for inspection via
-    GET /siris/conversations/{id}, but aren't replayed to the model as
-    context on later turns yet -- only user/assistant text is.
+    exchanges are persisted to the conversation (GET /siris/conversations/{id}
+    for inspection) and replayed to the model as real chat history on later
+    turns too (Cortex._load_messages), not just whatever text it produced
+    about them -- so a later turn can reference a prior tool result
+    directly.
 
     Unless `use_context` is false, a compact context package (current
     system status, recent events, memories relevant to the prompt -- see
