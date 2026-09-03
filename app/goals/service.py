@@ -6,8 +6,16 @@ Deliberately just a store -- nothing here decides to work on a goal, check
 it off, or notify about it. That's the planner (milestone 24) and later
 proactive work; this milestone is only "SirisAI remembers what you're
 trying to do."
+
+`stale_goals()` (a later hardening pass, milestone 40) is "later proactive
+work" arriving: a deterministic staleness check over what's already
+stored, for `GoalCheckInSkill` (app/skills/builtin/goal_check_in.py) to
+compose into the proactive check pipeline -- still not autonomous
+judgment about whether a goal still matters, just "hasn't been touched in
+a while."
 """
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -53,6 +61,13 @@ class GoalStore:
             if goal is None:
                 return None
             session.add(GoalObjective(goal_id=goal_id, description=description))
+            # Adding an objective is real progress on the goal, but it's a
+            # GoalObjective row, not a write to the Goal row itself -- the
+            # column's onupdate= only fires on an actual UPDATE to `goals`,
+            # so this has to be set explicitly or stale_goals() (a
+            # hardening pass, milestone 40) would see a goal getting
+            # steady objective work as untouched for weeks.
+            goal.updated_at = datetime.now(UTC)
             session.commit()
             return self._serialize_goal(session, goal_id)
 
@@ -66,8 +81,29 @@ class GoalStore:
                 return None
             objective.done = True
             goal_id = objective.goal_id
+            goal = session.get(Goal, goal_id)
+            goal.updated_at = datetime.now(UTC)  # see add_objective()'s comment
             session.commit()
             return self._serialize_goal(session, goal_id)
+
+    def stale_goals(self, days: int = 14, now: datetime | None = None) -> list[dict[str, Any]]:
+        """Active goals not updated (status change, or an objective
+        added/completed) in at least `days` days -- "still working on
+        X?" material for the proactive check pipeline (a hardening pass,
+        milestone 40). `now` is injectable for tests, same pattern as
+        RoutineStore.due_routines(); comparisons are normalized to
+        naive-UTC to match what SQLite hands back on read (see
+        RoutineStore.due_routines()'s docstring for the full story)."""
+        now = (now or datetime.now(UTC)).replace(tzinfo=None)
+        cutoff = now - timedelta(days=days)
+        with self._session_factory() as session:
+            stmt = (
+                select(Goal.id)
+                .where(Goal.status == "active", Goal.updated_at <= cutoff)
+                .order_by(Goal.updated_at)
+            )
+            goal_ids = session.scalars(stmt).all()
+            return [self._serialize_goal(session, goal_id) for goal_id in goal_ids]
 
     def _serialize_goal(self, session: Any, goal_id: int) -> dict[str, Any]:
         goal = session.get(Goal, goal_id)

@@ -1,8 +1,21 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
 from app.core.siris import SirisAI, get_siris
+from app.db.models import Goal
+from app.db.session import SessionLocal
+
+
+def _backdate_goal(goal_id: int, days: int) -> None:
+    # Same SQLite-round-trip-drops-tzinfo normalization as everywhere else
+    # here (see RoutineStore.due_routines()'s docstring for the full
+    # story) -- only for constructing a controlled "already stale" fixture.
+    with SessionLocal() as session:
+        goal = session.get(Goal, goal_id)
+        goal.updated_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
+        session.commit()
 
 
 def test_create_goal_with_objectives() -> None:
@@ -79,6 +92,58 @@ def test_completing_all_objectives_does_not_auto_complete_goal() -> None:
     reloaded = siris.goals.list_goals()
     matching = next(g for g in reloaded if g["id"] == goal["id"])
     assert matching["status"] == "active"
+
+
+# -- stale_goals() (a hardening pass, milestone 40)
+
+
+def test_stale_goals_excludes_a_recently_updated_goal() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    goal = siris.goals.create_goal(f"Fresh goal {uuid.uuid4()}")
+    assert not any(g["id"] == goal["id"] for g in siris.goals.stale_goals(days=14))
+
+
+def test_stale_goals_includes_an_untouched_old_goal() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    goal = siris.goals.create_goal(f"Old goal {uuid.uuid4()}")
+    _backdate_goal(goal["id"], days=30)
+
+    assert any(g["id"] == goal["id"] for g in siris.goals.stale_goals(days=14))
+
+
+def test_stale_goals_excludes_a_non_active_goal_even_if_old() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    goal = siris.goals.create_goal(f"Abandoned goal {uuid.uuid4()}")
+    siris.goals.update_goal_status(goal["id"], "abandoned")
+    _backdate_goal(goal["id"], days=30)
+
+    assert not any(g["id"] == goal["id"] for g in siris.goals.stale_goals(days=14))
+
+
+def test_add_objective_un_stales_a_goal() -> None:
+    """The actual bug this milestone fixed: adding an objective is real
+    progress on a goal, but it's a GoalObjective row, not a write to the
+    Goal row itself -- without explicitly bumping updated_at, a goal
+    getting steady objective work would look untouched for weeks."""
+    siris = SirisAI(settings=get_siris().settings)
+    goal = siris.goals.create_goal(f"Actively worked goal {uuid.uuid4()}")
+    _backdate_goal(goal["id"], days=30)
+    assert any(g["id"] == goal["id"] for g in siris.goals.stale_goals(days=14))
+
+    siris.goals.add_objective(goal["id"], "New step")
+
+    assert not any(g["id"] == goal["id"] for g in siris.goals.stale_goals(days=14))
+
+
+def test_complete_objective_un_stales_a_goal() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    goal = siris.goals.create_goal(f"Actively worked goal {uuid.uuid4()}", objectives=["Only step"])
+    _backdate_goal(goal["id"], days=30)
+    assert any(g["id"] == goal["id"] for g in siris.goals.stale_goals(days=14))
+
+    siris.goals.complete_objective(goal["objectives"][0]["id"])
+
+    assert not any(g["id"] == goal["id"] for g in siris.goals.stale_goals(days=14))
 
 
 def test_goal_tools_always_registered(client: TestClient) -> None:

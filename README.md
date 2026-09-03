@@ -1347,11 +1347,43 @@ silently decided -- same posture as milestone 29's routine engine.
     unverified here, same acknowledged limitation `CalendarClient`'s own
     docstring already states.
 
-40. Goal check-ins. Goals (23) are passive storage today -- nothing ever
-    looks at one again once created. A deterministic staleness check
-    (no update in N days, still "active") composes into the same
-    proactive pipeline as 39/26, surfacing "still working on X?" instead
-    of only ever being asked.
+40. **Done** -- Goal check-ins. Goals (23) were passive storage --
+    nothing ever looked at one again once created. `GoalStore.stale_goals()`
+    (`app/goals/service.py`) is a deterministic staleness check (active,
+    not touched in >= 14 days) and a new `GoalCheckInSkill`
+    (`app/skills/builtin/goal_check_in.py`, `goal_check_in` tool) wraps
+    it, same shape as `ServerHealthSkill`/`EventTimingSkill`. Composes
+    into `POST /siris/proactive/check` alongside `server_health_check`/
+    `event_timing_check`, feeding the same `NotificationManager` pass (a
+    new `"goals"` category) -- "still working on X?" surfaces on its own
+    instead of only ever being asked.
+
+    A real bug caught during implementation, before it ever needed live
+    testing to surface: `Goal.updated_at` has SQLAlchemy's `onupdate=`,
+    which only fires on an actual `UPDATE` to the `goals` row itself --
+    `add_objective()`/`complete_objective()` only ever touched a
+    `GoalObjective` row, never the `Goal` row. A goal getting steady
+    objective work for weeks would still look completely untouched by
+    every measure `stale_goals()` has, false-flagging exactly the kind of
+    goal this feature exists to *not* bother you about. Fixed by having
+    both explicitly set `goal.updated_at = datetime.now(UTC)` -- real
+    progress on a goal now counts as activity, not just a status change.
+
+    Verified: full suite (284 passed, up from 273) including 5 new
+    `GoalStore` tests in `tests/test_goals.py` (a fresh goal excluded, an
+    untouched old one included, a non-active old goal excluded even
+    though it qualifies by age, and the two regression tests proving
+    `add_objective`/`complete_objective` actually un-stale a goal) and 7
+    new `tests/test_goal_check_in.py` tests (the skill flagging/not-flagging,
+    healthy with no active goals, `NotificationManager` classifying the
+    new message shape as `"goals"`, tool registration, and the composed
+    endpoint). Live-verified against a real `uvicorn` process: created a
+    real goal via the real API, backdated it directly in the live SQLite
+    file to simulate 30 days of inactivity, confirmed `goal_check_in`
+    correctly flagged it, called the real `add_goal_objective` tool and
+    confirmed it immediately un-staled -- then backdated it again and
+    confirmed `POST /siris/proactive/check` composed the warning
+    correctly with the new `"goals"` classification end to end.
 
 41. Behavioral pattern anomalies. The same mean/stdev-over-history
     mechanism `event_timing_check` (37) already built for infrastructure
