@@ -1568,10 +1568,37 @@ silently decided -- same posture as milestone 29's routine engine.
     "notify"-tier (and a fully healthy, no-notification-at-all) proactive
     check both still behave exactly as they did before this milestone.
 
-45. Persona/voice consistency layer. A configurable tone/personality
-    profile applied consistently via the system message Cortex already
-    builds (33), remembered across sessions rather than whatever the raw
-    model defaults to each time -- config, not a new subsystem.
+45. **Done** -- Persona/voice consistency layer. A configurable
+    tone/personality profile applied consistently via the system message
+    Cortex (33) already builds -- config, not a new subsystem. New
+    `SIRISAI_PERSONA`, prepended as a system message on every turn
+    Cortex drives (`process()`, `confirm()`, and the planner loop both
+    feed through), ahead of context (16) -- "who you are" before "here's
+    what's currently relevant," a deliberately separate, always-applied
+    concern independent of `use_context`.
+
+    Empty (default), not a built-in opinionated persona: every other
+    optional feature in this codebase follows "empty = not engaged"
+    (weather, calendar, Docker, notify, Hermes, presence, ...), and this
+    milestone follows the same convention rather than being the one
+    exception -- baking in a specific tone by default would be imposing
+    a choice that's genuinely SirisAI's owner's to make, not
+    this codebase's. `.env.example` carries a commented-out starting
+    example rather than a live default.
+
+    Verified: full suite (310 passed, up from 305) including 4 new
+    `tests/test_cortex.py` tests (prepended when configured, omitted
+    when not -- the exact regression check that matters here, since
+    every other existing test relies on persona staying off by default
+    -- persona ordered before context when both apply, and the
+    follow-up call after a confirmed tool also carries it) and one new
+    endpoint-level `tests/test_persona.py` test proving it reaches the
+    model over the real `POST /siris/chat` route. Live-verified against
+    a real `uvicorn` process and a real mock Ollama server logging every
+    raw request body it received: a configured persona showed up as the
+    first message in the real HTTP payload with `use_context: false`,
+    and with context also enabled, the real payload carried both system
+    messages in the correct order -- persona first, context second.
 
 46. Multi-user recognition. The biggest, most invasive entry in this
     batch: memory, goals, and permission tiers are all global today,
