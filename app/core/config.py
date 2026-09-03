@@ -186,10 +186,16 @@ class Settings(BaseSettings):
     # separate homelab agent running on the same host, with its own
     # memories, skills, and terminal access, used to delegate Docker/
     # system-control tasks it already knows how to do. Talks an
-    # OpenAI-style chat completions endpoint, unauthenticated. Empty
-    # base_url = the hermes_run_task tool isn't registered.
+    # OpenAI-style chat completions endpoint. Empty base_url = the
+    # hermes_run_task tool isn't registered. hermes_api_key is optional --
+    # some Hermes deployments are unauthenticated (the original
+    # assumption here), but not all: live-tested against a real instance
+    # that turned out to require `Authorization: Bearer <key>`, 401ing
+    # every unauthenticated request. Blank = no Authorization header sent
+    # at all, same as before this setting existed.
     hermes_base_url: str = ""
     hermes_model: str = "hermes"
+    hermes_api_key: str = ""
 
     # Presence-triggered scenes (milestone 42, app/skills/builtin/presence.py):
     # "everyone left" -> away scene, "someone's home" -> home scene.

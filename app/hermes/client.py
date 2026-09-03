@@ -19,6 +19,7 @@ class HermesClient:
         self,
         base_url: str,
         model: str,
+        api_key: str | None = None,
         timeout: float = 120.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
@@ -26,7 +27,8 @@ class HermesClient:
         # tool use/terminal work before responding, not a single quick
         # inference call.
         self._model = model
-        self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+        self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, headers=headers, transport=transport)
 
     def run_task(self, instruction: str) -> str:
         response = self._client.post(
