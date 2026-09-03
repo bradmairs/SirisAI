@@ -65,7 +65,7 @@ def test_proactive_check_notifies_when_unhealthy(client: TestClient) -> None:
         assert body["notified"] is True
         assert body["result"]["healthy"] is False
         assert fake_siris.notify_calls == [
-            {"title": "SirisAI: server health check", "message": "CPU usage is high: 95%"}
+            {"title": "SirisAI: server health check", "message": "CPU usage is high: 95%", "priority": None}
         ]
     finally:
         app.dependency_overrides.pop(get_siris, None)
@@ -123,6 +123,9 @@ def test_proactive_check_correlates_related_warnings_into_one_notification(clien
         assert fake_siris.notify_calls[0]["title"] == "SirisAI: urgent"
         assert "Container 'plex' is exited" in fake_siris.notify_calls[0]["message"]
         assert "Disk usage on media-storage is high" in fake_siris.notify_calls[0]["message"]
+        # Escalation tiers (milestone 44): an urgent item raises the
+        # notification's ntfy priority, not just its title.
+        assert fake_siris.notify_calls[0]["priority"] == "urgent"
     finally:
         app.dependency_overrides.pop(get_siris, None)
 
