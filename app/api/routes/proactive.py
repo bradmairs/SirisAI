@@ -1,4 +1,4 @@
-"""Proactive checks: composes an existing skill with a notification, so
+"""Proactive checks: composes existing skills with a notification, so
 something can run unprompted (e.g. from cron) rather than only in response
 to a chat turn.
 
@@ -10,7 +10,10 @@ rather than joining every warning into one flat message, each warning is
 scored and correlated, and only "notify"/"urgent" items actually get
 pushed -- still deterministic scoring, not fuzzy LLM judgment, so the
 "stops well short of autonomous action" boundary this milestone's roadmap
-entry draws still holds.
+entry draws still holds. `event_timing_check`
+(app/skills/builtin/event_timing.py, a later hardening pass) composes in
+the same way -- its warnings go through the same NotificationManager
+pass as server_health_check's.
 """
 
 from typing import Any
@@ -36,6 +39,10 @@ class NotificationItemResponse(BaseModel):
 
 class HealthCheckResponse(BaseModel):
     result: dict[str, Any]
+    # event_timing_check's own output (event-timing anomaly detection, a
+    # hardening pass) -- composed alongside server_health_check the same
+    # way, its warnings feeding the same NotificationManager pass below.
+    event_timing: dict[str, Any]
     notified: bool
     notifications: list[NotificationItemResponse]
 
@@ -53,18 +60,21 @@ def _to_response(item: NotificationItem) -> NotificationItemResponse:
 
 @router.post("/check", response_model=HealthCheckResponse)
 def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCheckResponse:
-    """Run server_health_check, score and correlate whatever warnings it
-    finds (NotificationManager), and send one notification covering every
-    "notify"/"urgent" item -- if a notify channel is configured
-    (SIRISAI_NTFY_TOPIC) -- summarizing them. Meant to be triggered on a
-    schedule from outside this process -- see the README for a crontab
-    example. `notifications` in the response shows every item's
-    classification regardless of whether anything was actually sent, so a
-    caller can see what was judged worth surfacing (and what wasn't)."""
+    """Run server_health_check and event_timing_check, score and correlate
+    whatever warnings either finds (NotificationManager), and send one
+    notification covering every "notify"/"urgent" item -- if a notify
+    channel is configured (SIRISAI_NTFY_TOPIC) -- summarizing them. Meant
+    to be triggered on a schedule from outside this process -- see the
+    README for a crontab example. `notifications` in the response shows
+    every item's classification regardless of whether anything was
+    actually sent, so a caller can see what was judged worth surfacing
+    (and what wasn't)."""
     trigger = "proactive check: automated schedule (see POST /siris/proactive/check)"
     result = siris.run_tool("server_health_check", {}, trigger=trigger)
+    event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
 
-    items = NotificationManager(siris.entities).summarize(result["warnings"]) if result["warnings"] else []
+    warnings = result["warnings"] + event_timing["warnings"]
+    items = NotificationManager(siris.entities).summarize(warnings) if warnings else []
     to_send = [item for item in items if item.action in ("notify", "urgent")]
 
     notified = False
@@ -77,4 +87,6 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
         siris.run_tool("notify", {"title": title, "message": summary}, trigger=trigger, evidence=evidence)
         notified = True
 
-    return HealthCheckResponse(result=result, notified=notified, notifications=[_to_response(i) for i in items])
+    return HealthCheckResponse(
+        result=result, event_timing=event_timing, notified=notified, notifications=[_to_response(i) for i in items]
+    )

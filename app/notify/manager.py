@@ -10,16 +10,17 @@ it depends on -- they're merged into one message explaining the likely
 link instead of surfacing as two separate, seemingly unrelated warnings.
 
 Classification here is deliberately simple keyword/pattern matching
-against server_health_check's own known message shapes ("CPU usage is
-high: ...", "Container 'X' is exited", ...), not a general NLP/anomaly
-detection system -- confidence is always 1.0 because every warning
-server_health_check produces already cleared its own deterministic
-threshold check; there's no fuzzy judgment involved yet, so nothing here
-ever lands on "ignore" either. A future source with genuine uncertainty
-(an LLM's own assessment, a learned baseline -- milestone 27) would
-populate a lower confidence and could legitimately use the fuller
-ignore/log_only/notify/urgent range this milestone's action field
-supports even though server_health_check only ever produces the top two.
+against known message shapes ("CPU usage is high: ...", "Container 'X'
+is exited", "Expected recurring event is overdue: ...", ...) --
+server_health_check's (15) and, since the event-timing hardening pass,
+event_timing_check's -- not a general NLP/anomaly detection system;
+confidence is always 1.0 because every warning reaching here already
+cleared its own deterministic threshold check, so nothing here ever
+lands on "ignore" either. A future source with genuine uncertainty (an
+LLM's own assessment) would populate a lower confidence and could
+legitimately use the fuller ignore/log_only/notify/urgent range this
+milestone's action field supports even though these two skills only ever
+produce the top two.
 
 Correlation is exact-name matching against the container name and disk
 path server_health_check's own messages already contain -- it doesn't
@@ -57,7 +58,8 @@ class NotificationManager:
     def _classify(self, warning: str) -> NotificationItem:
         is_docker = warning.startswith("Container ")
         is_resource = warning.startswith(("CPU usage", "Memory usage", "Disk usage"))
-        category = "docker" if is_docker else "resource" if is_resource else "other"
+        is_timing = warning.startswith("Expected recurring event is overdue")
+        category = "docker" if is_docker else "resource" if is_resource else "timing" if is_timing else "other"
 
         critical = is_docker and any(state in warning for state in ("exited", "dead"))
         severity = "critical" if critical else "warning"

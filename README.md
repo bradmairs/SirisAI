@@ -336,7 +336,9 @@ Deliberately tiny, each one a working state:
     accumulated event/metric history (e.g. "the backup normally finishes
     by 3am but hasn't today") -- that genuinely needs real history to
     have accumulated first, which a fresh install doesn't have, so it's
-    still not built. What ships instead is the other half of "proactive":
+    still not built here (metric-side history-based detection landed in
+    27; event-side, the exact "backup" example, landed in a later
+    hardening pass after milestone 36). What ships instead is the other half of "proactive":
     a notification channel (`app/notify/client.py`, ntfy.sh --
     self-hostable, no account needed, just a topic) and a `notify` tool,
     composed with the *existing* `server_health_check` skill (15, which
@@ -1139,6 +1141,76 @@ deliberately left out, and why" treatment as everything above.
     confirmed step's trigger ("user explicitly confirmed...") distinct
     from the continuation step's ("planner: step 1 of an in-progress
     plan"), each with its own correct audit policy.
+
+37. **Done** -- Hardening pass: event-timing anomaly detection.
+    Milestone 19's original roadmap entry wanted true anomaly detection
+    over accumulated history -- "the backup normally finishes by 3am but
+    hasn't today" -- and explicitly cut it because a fresh install has no
+    history to detect a pattern in. Milestone 27 later built exactly this
+    shape of statistical baseline, but only for metrics
+    (`MetricsStore.baseline()`); this applies the same idea to event
+    timing, closing milestone 19's own example.
+
+    `EventMemoryStore` (`app/memory/events.py`) gained
+    `distinct_recurring_signatures()` (which `(description, entity_name)`
+    pairs have occurred often enough among recent history to be worth
+    checking -- a one-off event never accumulates enough occurrences to
+    even become a candidate, so nothing needs to be explicitly registered
+    as "recurring") and `timing_baseline()` (mean/stdev interval between
+    a signature's occurrences, `None` below `min_samples` -- same honest
+    scope-cut as `MetricsStore.baseline()`, a fresh signal has no history
+    to be meaningfully overdue against). A new `EventTimingSkill`
+    (`app/skills/builtin/event_timing.py`, `event_timing_check` tool,
+    copying `ServerHealthSkill`'s own "copy this file's shape for the
+    next skill" invitation) flags a signature overdue when the time since
+    its last occurrence exceeds `mean + 2*stdev` -- and composes into
+    `POST /siris/proactive/check` (`app/api/routes/proactive.py`)
+    alongside `server_health_check`, its warnings feeding the same
+    `NotificationManager` pass (a new `"timing"` category, classified the
+    same deterministic way as the resource/docker ones already were).
+
+    A real bug caught live before it shipped, worth recording: the first
+    pass had no floor on how small a baseline's mean interval could be.
+    Verifying against a real `uvicorn` process, 5 events posted back to
+    back over the real `POST /siris/events` bus (seconds apart) came back
+    "overdue" a few hundred milliseconds later in `POST
+    /siris/proactive/check` -- a burst of rapid-fire events (retries, a
+    webhook firing repeatedly) has a near-zero mean/stdev interval, so
+    *any* later gap, even milliseconds, is orders of magnitude past
+    `mean + 2*stdev`. Fixed by treating a sub-1-hour mean interval as not
+    a schedule at all (`_MIN_MEAN_INTERVAL_HOURS`) -- a precondition for
+    treating a signature as recurring-on-a-schedule, not an edge case of
+    the threshold math. This also would have caused real flakiness in one
+    of the unit tests below (a test seeding 5 occurrences at the sample
+    threshold, inserted within the same test function, i.e. a burst by
+    construction) had it run before the fix landed -- caught the same way
+    milestone 32's httpx.Client() bug was: by actually running the thing
+    against real HTTP and real elapsed time, not just unit tests with
+    fully controlled clocks.
+
+    `log_event()` gained an optional `created_at` override (only for
+    tests constructing a specific occurrence history, same testability
+    pattern as `RoutineStore.mark_run()`'s `run_at`; real callers never
+    pass it) and `EventTimingSkill.run()` accepts an optional `now`
+    (same pattern as `RoutineStore.due_routines()`) so tests control
+    "is this overdue" without depending on wall-clock time.
+
+    Verified: full suite (251 passed, up from 239) including 12 new
+    `tests/test_event_timing.py` tests (signature discovery respecting
+    the sample threshold and entity scoping, baseline mean/stdev
+    computation, the skill correctly flagging an overdue event and not
+    flagging an on-time one, the burst-of-rapid-fire-events regression
+    test above, `NotificationManager` classifying the new message shape
+    as `"timing"`, and endpoint-level coverage of the composed
+    `POST /siris/proactive/check`) plus updated fakes in
+    `tests/test_proactive.py`/`tests/test_explainable_autonomy.py` to
+    handle the new `event_timing_check` call. Live-verified against a
+    real `uvicorn` process: logged real events over the real event bus,
+    confirmed `event_timing_check` and its `"timing"` classification are
+    wired correctly end to end via `GET /siris/status`,
+    `GET /siris/capabilities`, and `POST /siris/proactive/check`, and
+    (after the fix) confirmed the burst scenario no longer produces a
+    false positive.
 
 ## Running locally
 
