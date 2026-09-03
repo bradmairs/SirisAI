@@ -11,6 +11,7 @@ then SirisAI simply doesn't offer these tools to the model.
 from typing import Any
 
 from app.home_assistant.client import HomeAssistantClient
+from app.memory.events import EventMemoryStore
 from app.plugins.base import Tool, ToolPermission
 
 
@@ -90,8 +91,9 @@ class HomeAssistantCallServiceTool(Tool):
         "required": ["domain", "service"],
     }
 
-    def __init__(self, client: HomeAssistantClient) -> None:
+    def __init__(self, client: HomeAssistantClient, events: EventMemoryStore) -> None:
         self._client = client
+        self._events = events
 
     def run(
         self,
@@ -101,4 +103,15 @@ class HomeAssistantCallServiceTool(Tool):
         service_data: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
-        return self._client.call_service(domain, service, entity_id=entity_id, **(service_data or {}))
+        result = self._client.call_service(domain, service, entity_id=entity_id, **(service_data or {}))
+        # Behavioral pattern anomalies (milestone 41): log this as an
+        # Event, grouped by "{domain}.{service}" + entity_id (e.g.
+        # "light.turn_off" on "light.office"), so EventMemoryStore's
+        # existing timing-baseline machinery (37) can learn when this
+        # normally happens and flag it when it doesn't -- "the office
+        # lights are usually off by 11" is the same shape of anomaly as
+        # "the backup didn't run", once the action is visible as a
+        # recurring Event signature. No new detection logic needed:
+        # event_timing_check already does the rest once this exists.
+        self._events.log_event(f"{domain}.{service}", entity_name=entity_id, source="home_assistant_call_service")
+        return result

@@ -245,7 +245,7 @@ class SirisAI:
             )
             self.tools.register(HomeAssistantListEntitiesTool(self._home_assistant_client))
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
-            self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client, self.events))
 
         # Plex before Docker on purpose: DockerRestartContainerTool's
         # dry_run() optionally reports active Plex sessions a restart
