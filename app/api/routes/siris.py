@@ -126,6 +126,56 @@ def list_capability_gaps(limit: int = 50, siris: SirisAI = Depends(get_siris)) -
     return [CapabilityGapInfo(**g) for g in siris.capability_gaps.list_gaps(limit=limit)]
 
 
+class LLMTokenSpendResponse(BaseModel):
+    total_prompt_tokens: float
+    total_completion_tokens: float
+    total_tokens: float
+    call_count: int
+
+
+class PowerDrawResponse(BaseModel):
+    latest_watts: float | None
+    average_watts: float | None
+    sample_count: int
+
+
+class MetricsDashboardResponse(BaseModel):
+    llm_tokens: LLMTokenSpendResponse
+    # None entirely when SIRISAI_POWER_SENSOR_ENTITY_ID isn't configured
+    # -- distinct from a configured sensor with zero samples yet
+    # (sample_count: 0, latest/average: null), same "empty = feature not
+    # engaged" convention as everywhere else optional in this codebase.
+    power_draw: PowerDrawResponse | None
+
+
+@router.get("/metrics/dashboard", response_model=MetricsDashboardResponse)
+def metrics_dashboard(siris: SirisAI = Depends(get_siris)) -> MetricsDashboardResponse:
+    """Cost/resource dashboard (milestone 47): LLM token spend
+    (app/llm/metering.py, tracked automatically once an LLM backend is
+    configured) and, if `SIRISAI_POWER_SENSOR_ENTITY_ID` is set, homelab
+    power draw read from Home Assistant by server_health_check -- both
+    direct reuse of MetricsStore's existing sample/baseline machinery
+    (milestone 27), not a new store. Server-wide, not per-user (milestone
+    46): infrastructure/cost data, not personal preference."""
+    llm_tokens = LLMTokenSpendResponse(
+        total_prompt_tokens=siris.metrics.total("llm_tokens_prompt"),
+        total_completion_tokens=siris.metrics.total("llm_tokens_completion"),
+        total_tokens=siris.metrics.total("llm_tokens_total"),
+        call_count=siris.metrics.sample_count("llm_tokens_total"),
+    )
+
+    power_draw = None
+    if siris.settings.power_sensor_entity_id:
+        baseline = siris.metrics.baseline("power_draw_watts", min_samples=1)
+        power_draw = PowerDrawResponse(
+            latest_watts=siris.metrics.latest_value("power_draw_watts"),
+            average_watts=baseline.mean if baseline else None,
+            sample_count=siris.metrics.sample_count("power_draw_watts"),
+        )
+
+    return MetricsDashboardResponse(llm_tokens=llm_tokens, power_draw=power_draw)
+
+
 class ChatRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None

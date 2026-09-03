@@ -15,6 +15,12 @@ class _FakeToolsRegistry:
         return object() if name == "docker_list_containers" and self._has_docker else None
 
 
+class _FakeSettings:
+    # Blank -- ServerHealthSkill's power-draw recording (milestone 47) is
+    # off for every test in this file, same as it is by default.
+    power_sensor_entity_id: str = ""
+
+
 class _FakeMetrics:
     """No history -- every metric falls back to the fixed threshold, same
     as ServerHealthSkill always behaved before milestone 27."""
@@ -30,6 +36,7 @@ class _FakeSiris:
     def __init__(self, system_info: dict[str, Any], containers: list | None = None, has_docker: bool = False) -> None:
         self.tools = _FakeToolsRegistry(has_docker)
         self.metrics = _FakeMetrics()
+        self.settings = _FakeSettings()
         self._system_info = system_info
         self._containers = containers
 

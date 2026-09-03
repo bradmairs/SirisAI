@@ -27,6 +27,12 @@ class ToolCall:
 class LLMResponse:
     text: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    # Token usage (milestone 47), when the backend reports it -- None for
+    # any backend/response shape that doesn't (e.g. NullLLMClient, a fake
+    # test client). See app/llm/metering.py, which records these as
+    # metrics without Cortex/Planner needing to know this field exists.
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class LLMClient(ABC):
