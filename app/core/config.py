@@ -148,6 +148,15 @@ class Settings(BaseSettings):
     ntfy_base_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
 
+    # Actionable push notifications (milestone 43, app/routines/runner.py).
+    # Needed only to construct an ntfy action button's target URL -- the
+    # externally-reachable base this instance is served at (behind a
+    # reverse proxy, a Cloudflare tunnel, etc; SIRISAI_HOST/PORT are for
+    # binding, not necessarily what's reachable from outside, e.g. a
+    # phone tapping the button). Empty = notifications never carry an
+    # action button; everything else about notifications is unaffected.
+    public_base_url: str = ""
+
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own
     # memories, skills, and terminal access, used to delegate Docker/

@@ -1,3 +1,5 @@
+import json
+
 import httpx
 
 from app.core.config import Settings
@@ -9,12 +11,12 @@ def _mock_client(handler) -> NotifyClient:
     return NotifyClient(base_url="https://ntfy.sh", topic="test-topic", transport=httpx.MockTransport(handler))
 
 
-def test_send_posts_to_topic_with_title_header() -> None:
+def test_send_posts_json_with_topic_and_title() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
-        assert request.url.path == "/test-topic"
-        assert request.headers["title"] == "Alert"
-        assert request.content == b"something happened"
+        assert request.url.path == "/"
+        body = json.loads(request.content)
+        assert body == {"topic": "test-topic", "message": "something happened", "title": "Alert"}
         return httpx.Response(200)
 
     client = _mock_client(handler)
@@ -22,13 +24,46 @@ def test_send_posts_to_topic_with_title_header() -> None:
     client.close()
 
 
-def test_send_without_title_omits_header() -> None:
+def test_send_without_title_omits_it() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert "title" not in {name.lower() for name in request.headers.keys()}
+        body = json.loads(request.content)
+        assert "title" not in body
         return httpx.Response(200)
 
     client = _mock_client(handler)
     client.send("no title here")
+    client.close()
+
+
+def test_send_without_actions_omits_them() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert "actions" not in body
+        return httpx.Response(200)
+
+    client = _mock_client(handler)
+    client.send("plain message")
+    client.close()
+
+
+def test_send_with_actions_includes_them() -> None:
+    """Actionable push notifications (milestone 43)."""
+    action = {
+        "action": "http",
+        "label": "Confirm",
+        "url": "https://siris.example.com/siris/tools/docker_restart_container/run",
+        "method": "POST",
+        "headers": {"Authorization": "Bearer secret"},
+        "body": json.dumps({"arguments": {"container": "plex"}, "confirmed": True}),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["actions"] == [action]
+        return httpx.Response(200)
+
+    client = _mock_client(handler)
+    client.send("plex needs a restart", actions=[action])
     client.close()
 
 
