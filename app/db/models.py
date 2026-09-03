@@ -242,3 +242,26 @@ class CapabilityGap(Base):
     suggested_integration: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggested_tool_spec: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Integration(Base):
+    """A discovered integration (milestone 32) -- everything needed to
+    regenerate its tools on the next startup, not just the tools
+    themselves (which live only in the in-memory ToolRegistry). Stores
+    the raw spec rather than just the operations parsed out of it, so a
+    future smarter parser can re-derive more from the same stored data
+    without re-fetching anything. auth_header_value is a credential --
+    treat it like the ntfy topic elsewhere in this codebase: never
+    returned by IntegrationStore.list_integrations()'s default (public)
+    path, only read back internally when SirisAI re-registers tools at
+    startup."""
+
+    __tablename__ = "integrations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text)  # prefixes every tool this integration generates
+    base_url: Mapped[str] = mapped_column(Text)
+    spec: Mapped[str] = mapped_column(Text)  # JSON-encoded OpenAPI spec
+    auth_header_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    auth_header_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

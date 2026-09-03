@@ -10,10 +10,13 @@ FastAPI gets a single shared instance via `get_siris()`, used as a
 dependency, so routes never construct their own.
 """
 
+import logging
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
+
+import httpx
 
 from app.audit.service import AuditLogStore
 from app.capabilities.service import CapabilityGapStore
@@ -25,6 +28,8 @@ from app.db.session import SessionLocal
 from app.docker.client import DockerClient
 from app.goals.service import GoalStore
 from app.home_assistant.client import HomeAssistantClient
+from app.integrations.openapi import DiscoveredOperation, discover_get_operations
+from app.integrations.service import IntegrationStore
 from app.llm.base import LLMClient
 from app.llm.factory import build_llm_client
 from app.llm.router import ModelRouter
@@ -63,6 +68,7 @@ from app.plugins.builtin.memory import (
     RememberTool,
 )
 from app.plugins.builtin.notify import NotifyTool
+from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
 from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
 from app.plugins.builtin.system_info import SystemInfoTool
@@ -118,6 +124,12 @@ _CATEGORY_NAMES: dict[str, str] = {
 def _categorize_tool(tool: Tool) -> str:
     if isinstance(tool, SkillTool):
         return "skills"
+    if isinstance(tool, DynamicOpenAPITool):
+        # All auto-discovered tools (milestone 32) group under one
+        # category regardless of which integration discovered them --
+        # same reasoning as "skills" being one category rather than one
+        # per skill.
+        return "discovered"
     for prefix, category in _CATEGORY_PREFIXES:
         if tool.name.startswith(prefix):
             return category
@@ -141,6 +153,9 @@ def _describe_policy(tool: Tool, confirmed: bool) -> str:
     return "RESTRICTED: blocked unless explicitly enabled via SIRISAI_RESTRICTED_TOOLS_ENABLED"
 
 
+logger = logging.getLogger(__name__)
+
+
 @dataclass
 class SirisAI:
     """The core service. Thin today, the anchor point for everything later."""
@@ -159,6 +174,7 @@ class SirisAI:
     capability_gaps: CapabilityGapStore = field(default_factory=lambda: CapabilityGapStore(SessionLocal))
     routines: RoutineStore = field(default_factory=lambda: RoutineStore(SessionLocal))
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
+    integrations: IntegrationStore = field(default_factory=lambda: IntegrationStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
 
@@ -190,6 +206,7 @@ class SirisAI:
         self._unifi_client: UniFiClient | None = None
         self._weather_client: WeatherClient | None = None
         self._notify_client: NotifyClient | None = None
+        self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
     def _register_builtin_tools(self) -> None:
@@ -268,10 +285,58 @@ class SirisAI:
             self.tools.register(NotifyTool(self._notify_client))
 
         self._register_builtin_skills()
+        self._register_discovered_integrations()
 
     def _register_builtin_skills(self) -> None:
         self.tools.register(SkillTool(ServerHealthSkill(), self))
         self.tools.register(SkillTool(SelfMaintenanceSkill(), self))
+
+    def _register_discovered_integrations(self) -> None:
+        """Re-registers every persisted integration's tools (milestone 32)
+        -- IntegrationStore only remembers what's needed to regenerate
+        them, the ToolRegistry itself is in-memory and empty again on
+        every restart. include_secrets=True here is deliberate and
+        internal-only: this is the one place auth_header_value is read
+        back, to actually build an authenticated httpx client."""
+        for integration in self.integrations.list_integrations(include_secrets=True):
+            operations = discover_get_operations(integration["spec"])
+            self.register_discovered_integration_tools(
+                integration["name"],
+                operations,
+                integration["base_url"],
+                integration["auth_header_name"],
+                integration.get("auth_header_value"),
+            )
+
+    def register_discovered_integration_tools(
+        self,
+        integration_name: str,
+        operations: list[DiscoveredOperation],
+        base_url: str,
+        auth_header_name: str | None,
+        auth_header_value: str | None,
+    ) -> list[str]:
+        """Builds one shared httpx.Client for `integration_name` (see
+        build_dynamic_tools' docstring for why one client, not one per
+        operation), registers one DynamicOpenAPITool per operation
+        against it -- skipping any whose name is already taken rather
+        than crashing -- tracks the client for aclose(), and returns the
+        names actually registered. Shared by startup re-registration
+        above and POST /siris/integrations so this logic lives in
+        exactly one place."""
+        if not operations:
+            return []
+        tools, client = build_dynamic_tools(integration_name, operations, base_url, auth_header_name, auth_header_value)
+        self._openapi_http_clients.append(client)
+
+        registered = []
+        for tool in tools:
+            if self.tools.get(tool.name) is not None:
+                logger.warning("Skipping duplicate discovered tool name: %s", tool.name)
+                continue
+            self.tools.register(tool)
+            registered.append(tool.name)
+        return registered
 
     def restricted_tool_names_to_exclude(self) -> set[str]:
         """RESTRICTED-permission tool names not in the allowlist -- these
@@ -489,6 +554,8 @@ class SirisAI:
         for client in sync_clients:
             if client is not None:
                 client.close()
+        for openapi_client in self._openapi_http_clients:
+            openapi_client.close()
 
 
 @lru_cache

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.api.routes import events, health, memory, proactive, routines, siris, voice, web
+from app.api.routes import events, health, integrations, memory, proactive, routines, siris, voice, web
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.siris import get_siris
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router)
     app.include_router(proactive.router)
     app.include_router(routines.router)
+    app.include_router(integrations.router)
     app.include_router(voice.router)
     app.include_router(web.router)
 
