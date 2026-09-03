@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, inspect, text
 
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import DEFAULT_USER_ID, resolve_user_id
-from app.db.migrate import apply_column_patches
+from app.db.migrate import apply_column_patches, apply_index_patches
 from app.db.models import Goal
 from app.db.session import SessionLocal
 
@@ -202,6 +202,48 @@ def test_apply_column_patches_is_a_no_op_when_the_column_already_exists() -> Non
 def test_apply_column_patches_skips_tables_that_do_not_exist_yet() -> None:
     engine = create_engine("sqlite:///:memory:")
     apply_column_patches(engine)  # no tables at all -- a brand-new DB -- must not raise
+
+
+# -- apply_index_patches() (a performance hardening pass), same pattern as
+# apply_column_patches() above: a pre-existing table missing the index
+# create_all() would have added on a fresh install.
+
+
+def test_apply_index_patches_adds_a_missing_index_to_a_table_that_predates_it() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE goals (id INTEGER PRIMARY KEY, created_at DATETIME)"))
+
+    apply_index_patches(engine)
+
+    inspector = inspect(engine)
+    index_names = {idx["name"] for idx in inspector.get_indexes("goals")}
+    assert "ix_goals_created_at" in index_names
+
+
+def test_apply_index_patches_is_a_no_op_when_the_index_already_exists() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE goals (id INTEGER PRIMARY KEY, created_at DATETIME)"))
+
+    apply_index_patches(engine)  # must not raise
+    apply_index_patches(engine)  # calling it twice must also not raise
+
+
+def test_apply_index_patches_skips_tables_that_do_not_exist_yet() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    apply_index_patches(engine)  # no tables at all -- a brand-new DB -- must not raise
+
+
+# -- WAL mode (a performance hardening pass, see app/db/session.py): lets
+# readers and a writer proceed concurrently instead of SQLite's default
+# rollback-journal mode serializing them against each other.
+
+
+def test_sqlite_engine_is_configured_for_wal_mode() -> None:
+    with SessionLocal() as session:
+        mode = session.execute(text("PRAGMA journal_mode")).scalar()
+    assert mode == "wal"
 
 
 def test_no_header_falls_back_to_the_default_user_consistently(client: TestClient) -> None:

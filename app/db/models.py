@@ -21,7 +21,14 @@ class MemoryEntry(Base):
     # (no X-Siris-User header ever sent) behaves exactly as before this
     # column existed.
     user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    # Indexed (a performance hardening pass): MemoryStore.recall()/
+    # list_all() order by this -- without an index, that's a full-table
+    # scan + sort on every call, unnoticeable on a fresh install and a
+    # real cost once months of memories have accumulated. See
+    # app/db/migrate.py for how an existing pre-this-milestone SQLite
+    # file picks the index up too, since create_all() only creates it
+    # for a brand-new table.
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
     # Usage tracking (milestone 30) -- bumped every time this entry is
     # returned by MemoryStore.recall(), so the self_maintenance_check
     # skill can flag memories that have genuinely never come back up
@@ -87,7 +94,12 @@ class ToolExecution(Base):
     # independent check passed. verification_detail: why.
     verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     verification_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    # Indexed (a performance hardening pass) -- this is the highest-write-
+    # volume table in the schema (every SirisAI.run_tool() call adds a
+    # row) and AuditLogStore.list_recent()/find_recent() both order by
+    # this on every read (GET /siris/activity, explain_recent_action);
+    # see MemoryEntry.created_at's comment above for the full reasoning.
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
 
 
 class EntityFact(Base):
@@ -143,7 +155,9 @@ class Event(Base):
     description: Mapped[str] = mapped_column(Text)
     source: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    # Indexed (a performance hardening pass) -- EventMemoryStore.recent_events()
+    # orders by this on every call; see MemoryEntry.created_at's comment above.
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
 
 
 class Goal(Base):
@@ -164,7 +178,13 @@ class Goal(Base):
     # Multi-user recognition (milestone 46) -- see MemoryEntry.user_id
     # above and app/core/user_context.py; same default, same reasoning.
     user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    # Indexed (a performance hardening pass) -- GoalStore.list_goals()
+    # orders by this on every call; see MemoryEntry.created_at's comment
+    # above. updated_at (stale_goals()'s own order-by column) isn't --
+    # that query already filters to status="active" first, a small
+    # subset in practice, so the extra index wouldn't earn its upkeep
+    # cost the way created_at's does for the unfiltered full list.
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )

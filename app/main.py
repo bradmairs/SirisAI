@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.siris import get_siris
 from app.db.base import Base
-from app.db.migrate import apply_column_patches
+from app.db.migrate import apply_column_patches, apply_index_patches
 from app.db.session import engine
 
 settings = get_settings()
@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     Base.metadata.create_all(bind=engine)
     apply_column_patches(engine)
+    apply_index_patches(engine)
     # Warm the shared SirisAI instance (and its tool registry) at boot
     # rather than on first request.
     siris = get_siris()

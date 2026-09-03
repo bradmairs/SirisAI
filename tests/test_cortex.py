@@ -360,3 +360,98 @@ def test_confirm_without_use_planner_does_not_continue_even_with_a_confirm_requi
     assert result.tool_call is not None
     assert result.tool_call.name == "dangerous_action"
     assert result.response == "Confirmed and done."
+
+
+# -- Performance hardening pass: a blocking tool call (or context build)
+# inside Cortex must not block the event loop for any *other* concurrent
+# Cortex call -- see the module docstring for why (this process is a
+# single uvicorn worker/event loop).
+
+
+class _SlowTool(Tool):
+    name = "slow_tool"
+    description = "Test tool that blocks synchronously, simulating a slow external HTTP call."
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def run(self, **kwargs: Any) -> Any:
+        import time
+
+        time.sleep(0.3)
+        return {"done": True}
+
+
+class _ToolThenTextLLMClient:
+    """Stateless (reads only the `messages`/`tools` this specific call
+    was given), so it's safe to share across two concurrent Cortex calls
+    without their turns crossing: offered tools and no tool has run in
+    this conversation yet -> call it; otherwise (the follow-up call,
+    which Cortex._run_single_tool makes with no `tools` offered) ->
+    produce final text."""
+
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        if tools:
+            return LLMResponse(tool_calls=[ToolCall(name="slow_tool", arguments={})])
+        return LLMResponse(text="done")
+
+    async def aclose(self) -> None:
+        pass
+
+
+def test_a_slow_tool_call_does_not_block_a_concurrent_chat_call() -> None:
+    """The actual property this milestone's asyncio.to_thread() change
+    exists for: two concurrent (non-planner) chat turns, each calling a
+    tool that blocks synchronously for 0.3s, complete in ~0.3s total
+    (genuinely concurrent), not ~0.6s (serialized behind one event
+    loop) -- proven with a real clock."""
+    import time
+
+    siris = _siris(_ToolThenTextLLMClient())
+    if siris.tools.get("slow_tool") is None:
+        siris.tools.register(_SlowTool())
+    conversation_a = siris.conversation.create_conversation()
+    conversation_b = siris.conversation.create_conversation()
+
+    async def _run_both() -> tuple[float, list[Any]]:
+        start = time.monotonic()
+        results = await asyncio.gather(
+            Cortex().process(siris, conversation_a, "call the slow tool", use_context=False),
+            Cortex().process(siris, conversation_b, "call the slow tool", use_context=False),
+        )
+        return time.monotonic() - start, results
+
+    elapsed, results = asyncio.run(_run_both())
+
+    assert all(r.response == "done" for r in results)
+    assert elapsed < 0.5  # well under 0.6s (what serialized execution would take)
+
+
+def test_a_slow_context_build_does_not_block_a_concurrent_chat_call() -> None:
+    """Same property, for ContextEngine.build() (also run via
+    asyncio.to_thread() -- see Cortex.process()) rather than a tool call."""
+    import time
+
+    from app.context.engine import ContextEngine
+
+    class _SlowContextEngine(ContextEngine):
+        def build(self, siris: Any, prompt: str) -> str | None:
+            time.sleep(0.3)
+            return "slow context"
+
+    siris = _siris(_FixedLLMClient(LLMResponse(text="done")))
+    siris.context = _SlowContextEngine()
+    conversation_a = siris.conversation.create_conversation()
+    conversation_b = siris.conversation.create_conversation()
+
+    async def _run_both() -> float:
+        start = time.monotonic()
+        await asyncio.gather(
+            Cortex().process(siris, conversation_a, "hello", use_context=True, use_tools=False),
+            Cortex().process(siris, conversation_b, "hello", use_context=True, use_tools=False),
+        )
+        return time.monotonic() - start
+
+    elapsed = asyncio.run(_run_both())
+    assert elapsed < 0.5  # well under 0.6s (what serialized execution would take)

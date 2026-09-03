@@ -3,7 +3,9 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from app.core.config import Settings
 from app.core.siris import SirisAI, get_siris
+from app.cortex.orchestrator import Cortex
 from app.llm.base import LLMResponse, ToolCall
 from app.main import app
 from app.planning.planner import Planner
@@ -268,3 +270,70 @@ def test_chat_confirm_with_use_planner_continues_the_plan_over_http(client: Test
         assert [m["role"] for m in history] == ["user", "tool", "tool", "assistant"]
     finally:
         app.dependency_overrides.pop(get_siris, None)
+
+
+# -- Performance hardening pass: a blocking tool call inside Planner.run()
+# must not block the event loop for any *other* concurrent Cortex call --
+# see app/planning/planner.py's module docstring for why this matters
+# (this process is a single uvicorn worker/event loop).
+
+
+class _SlowTool(Tool):
+    name = "slow_tool"
+    description = "Test tool that blocks synchronously, simulating a slow external HTTP call."
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def run(self, **kwargs: Any) -> Any:
+        import time
+
+        time.sleep(0.3)
+        return {"done": True}
+
+
+class _ToolThenTextLLMClient:
+    """Stateless (reads only the `messages` this specific call was given,
+    never any shared/instance state), so it's safe to share across two
+    concurrent, interleaved Planner loops without their turns crossing:
+    the tool hasn't run yet in this conversation's history -> call it;
+    the last message is that tool's own result -> produce final text."""
+
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        if messages and messages[-1].get("role") == "tool":
+            return LLMResponse(text="done")
+        return LLMResponse(tool_calls=[ToolCall(name="slow_tool", arguments={})])
+
+    async def aclose(self) -> None:
+        pass
+
+
+def test_a_slow_planner_step_does_not_block_a_concurrent_chat_call() -> None:
+    """The actual property this milestone's asyncio.to_thread() change
+    exists for: two concurrent use_planner=True turns, each calling a
+    tool that blocks synchronously for 0.3s, complete in ~0.3s total
+    (genuinely concurrent), not ~0.6s (serialized behind one event
+    loop) -- proven with a real clock, not just that the code happens
+    to call asyncio.to_thread somewhere."""
+    import time
+
+    siris = SirisAI(settings=Settings())
+    siris.llm = _ToolThenTextLLMClient()  # type: ignore[assignment]
+    if siris.tools.get("slow_tool") is None:
+        siris.tools.register(_SlowTool())
+    conversation_a = siris.conversation.create_conversation()
+    conversation_b = siris.conversation.create_conversation()
+
+    async def _run_both() -> tuple[float, list[Any]]:
+        start = time.monotonic()
+        results = await asyncio.gather(
+            Cortex().process(siris, conversation_a, "call the slow tool", use_context=False, use_planner=True),
+            Cortex().process(siris, conversation_b, "call the slow tool", use_context=False, use_planner=True),
+        )
+        return time.monotonic() - start, results
+
+    elapsed, results = asyncio.run(_run_both())
+
+    assert all(r.response == "done" for r in results)
+    assert elapsed < 0.5  # well under 0.6s (what serialized execution would take)

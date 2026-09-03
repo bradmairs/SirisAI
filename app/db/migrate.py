@@ -1,18 +1,24 @@
-"""Hand-rolled patch for columns added to tables that already existed on
-disk (milestone 46's `user_id` was the first case of this in the codebase).
+"""Hand-rolled patches for schema changes made to tables that already
+existed on disk (milestone 46's `user_id` was the first case of this in
+the codebase; a performance hardening pass added the index-patching
+half below).
 
 `Base.metadata.create_all()` (app/main.py) creates missing *tables* fine,
-but does not add missing *columns* to a table that already exists --
-so a SQLite file predating one of these milestones needs the column added
-by hand, or every query touching it breaks outright (confirmed live: a
-dev DB from before milestone 28/the verification milestone hit
-`OperationalError: table tool_executions has no column named trigger` on
-every single tool call). Not Alembic (app/db/base.py's docstring explains
-why not yet): this only has to cover the exact columns this codebase has
-actually added after their table already shipped -- a short, explicit
-list, not a generic schema-diffing engine. Extend the list every time a
-new one comes along -- it's silent and easy to miss since a brand-new DB
-(most CI runs, most fresh installs) never exercises the gap at all.
+but does not add missing *columns* or *indexes* to a table that already
+exists -- so a SQLite file predating one of these milestones needs the
+column/index added by hand, or (for a missing column) every query
+touching it breaks outright (confirmed live: a dev DB from before
+milestone 28/the verification milestone hit `OperationalError: table
+tool_executions has no column named trigger` on every single tool call);
+a missing index just means an existing deployment silently never gets
+the speedup, no error, so it's worth patching in too rather than only
+benefiting a fresh install. Not Alembic (app/db/base.py's docstring
+explains why not yet): each patch list only has to cover the exact
+columns/indexes this codebase has actually added after their table
+already shipped -- short, explicit lists, not a generic schema-diffing
+engine. Extend them every time a new one comes along -- it's silent and
+easy to miss since a brand-new DB (most CI runs, most fresh installs)
+never exercises the gap at all.
 """
 
 from sqlalchemy import inspect, text
@@ -47,3 +53,29 @@ def apply_column_patches(engine: Engine) -> None:
             if column_name in existing_columns:
                 continue
             conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_type}"))
+
+
+# (table, index name, column) -- same reasoning as _ADDED_COLUMNS above,
+# for an index added (a performance hardening pass) to a column on a
+# table that already existed without one. Index names match SQLAlchemy's
+# own default naming convention (ix_<table>_<column>) exactly, so
+# CREATE INDEX IF NOT EXISTS is a true no-op on a fresh install -- there,
+# create_all() already created the same index under the same name when
+# the table was first created, since index=True is set directly on
+# these columns' model definitions now (see app/db/models.py).
+_ADDED_INDEXES = [
+    ("memories", "ix_memories_created_at", "created_at"),
+    ("tool_executions", "ix_tool_executions_created_at", "created_at"),
+    ("events", "ix_events_created_at", "created_at"),
+    ("goals", "ix_goals_created_at", "created_at"),
+]
+
+
+def apply_index_patches(engine: Engine) -> None:
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table_name, index_name, column_name in _ADDED_INDEXES:
+            if table_name not in existing_tables:
+                continue
+            conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})"))

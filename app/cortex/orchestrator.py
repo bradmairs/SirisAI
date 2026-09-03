@@ -26,8 +26,21 @@ prepended as a system message on every turn Cortex drives -- `process()`,
 (16), which stays a separate, `use_context`-gated concern. Empty (the
 default) means no persona message at all, the same raw-model-default
 behavior as before this milestone existed.
+
+Performance hardening pass: `SirisAI.run_tool()` and `ContextEngine.build()`
+are both synchronous, blocking calls (a tool's own HTTP client, `psutil`
+sampling, DB queries) -- this process runs a single uvicorn worker/event
+loop (see the Dockerfile), so calling either directly from these `async
+def` methods would block that one event loop for the call's full
+duration, freezing every other concurrent request (another chat turn, a
+voice satellite, a proactive check) regardless of what it's doing. Both
+are run via `asyncio.to_thread()` instead, so the blocking work happens
+on a worker thread and the event loop stays free to handle everything
+else meanwhile -- see app/db/session.py's WAL-mode comment for why this
+is safe to do concurrently against the same SQLite file.
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -107,7 +120,7 @@ class Cortex:
         if siris.settings.persona:
             system_messages.append({"role": "system", "content": siris.settings.persona})
         if use_context:
-            context_text = siris.context.build(siris, prompt)
+            context_text = await asyncio.to_thread(siris.context.build, siris, prompt)
             if context_text:
                 system_messages.append({"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"})
         messages = [*system_messages, *messages]
@@ -250,7 +263,9 @@ class Cortex:
         produces no text; a raw tool result is already an acceptable
         answer, the follow-up is a best-effort upgrade."""
         try:
-            output = siris.run_tool(name, arguments, conversation_id=conversation_id, confirmed=confirmed, trigger=trigger)
+            output = await asyncio.to_thread(
+                siris.run_tool, name, arguments, conversation_id=conversation_id, confirmed=confirmed, trigger=trigger
+            )
         except ConfirmationRequired:
             return CortexResult(conversation_id=conversation_id, pending_confirmation=(name, arguments), model_role=model_role)
         except PermissionError as exc:

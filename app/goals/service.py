@@ -52,15 +52,11 @@ class GoalStore:
     def list_goals(self, status: str | None = None, *, user_id: str | None = None) -> list[dict[str, Any]]:
         user_id = user_id or get_current_user_id()
         with self._session_factory() as session:
-            stmt = (
-                select(Goal.id)
-                .where(Goal.user_id == user_id)
-                .order_by(Goal.created_at.desc(), Goal.id.desc())
-            )
+            stmt = select(Goal).where(Goal.user_id == user_id).order_by(Goal.created_at.desc(), Goal.id.desc())
             if status is not None:
                 stmt = stmt.where(Goal.status == status)
-            goal_ids = session.scalars(stmt).all()
-            return [self._serialize_goal(session, goal_id) for goal_id in goal_ids]
+            goals = session.scalars(stmt).all()
+            return self._serialize_goals(session, goals)
 
     def update_goal_status(self, goal_id: int, status: str, *, user_id: str | None = None) -> dict[str, Any] | None:
         user_id = user_id or get_current_user_id()
@@ -124,24 +120,45 @@ class GoalStore:
         cutoff = now - timedelta(days=days)
         with self._session_factory() as session:
             stmt = (
-                select(Goal.id)
+                select(Goal)
                 .where(Goal.status == "active", Goal.updated_at <= cutoff, Goal.user_id == user_id)
                 .order_by(Goal.updated_at)
             )
-            goal_ids = session.scalars(stmt).all()
-            return [self._serialize_goal(session, goal_id) for goal_id in goal_ids]
+            goals = session.scalars(stmt).all()
+            return self._serialize_goals(session, goals)
 
     def _serialize_goal(self, session: Any, goal_id: int) -> dict[str, Any]:
         goal = session.get(Goal, goal_id)
         objectives_stmt = select(GoalObjective).where(GoalObjective.goal_id == goal_id).order_by(GoalObjective.id)
         objectives = session.scalars(objectives_stmt).all()
+        return self._serialize_one(goal, objectives)
+
+    def _serialize_goals(self, session: Any, goals: list[Goal]) -> list[dict[str, Any]]:
+        """Batch-serializes a list of goals with one extra query for
+        every goal's objectives combined (`goal_id IN (...)`), instead of
+        `_serialize_goal`'s one query per goal -- list_goals()/
+        stale_goals() used to run 1 + 2*N queries for N goals (a classic
+        N+1: an id-only initial query, then a fresh session.get() plus a
+        fresh objectives query per goal); this runs 2 total, regardless
+        of N. `_serialize_goal` above still exists for the single-goal
+        call sites (create_goal/update_goal_status/add_objective/
+        complete_objective), where there's no N to eliminate."""
+        if not goals:
+            return []
+        goal_ids = [g.id for g in goals]
+        objectives_stmt = select(GoalObjective).where(GoalObjective.goal_id.in_(goal_ids)).order_by(GoalObjective.id)
+        objectives_by_goal: dict[int, list[GoalObjective]] = {}
+        for objective in session.scalars(objectives_stmt).all():
+            objectives_by_goal.setdefault(objective.goal_id, []).append(objective)
+        return [self._serialize_one(goal, objectives_by_goal.get(goal.id, [])) for goal in goals]
+
+    @staticmethod
+    def _serialize_one(goal: Goal, objectives: list[GoalObjective]) -> dict[str, Any]:
         return {
             "id": goal.id,
             "title": goal.title,
             "status": goal.status,
             "created_at": goal.created_at.isoformat(),
             "updated_at": goal.updated_at.isoformat(),
-            "objectives": [
-                {"id": o.id, "description": o.description, "done": o.done} for o in objectives
-            ],
+            "objectives": [{"id": o.id, "description": o.description, "done": o.done} for o in objectives],
         }
