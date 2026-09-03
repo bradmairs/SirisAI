@@ -1808,6 +1808,66 @@ silently decided -- same posture as milestone 29's routine engine.
     between rooms, not just that push delivery works to one fixed
     target.
 
+Milestone 48 closed out the third batch (39-48). Development since has been
+checked against a written vision document ("Siris AI -- Current Vision &
+Development Direction") rather than another brainstorm -- worth recording
+the comparison itself, not just what it produced. Its core philosophy,
+"SIRIS THINKS. TOOLS DO." -- orchestrate existing specialist systems
+(Hermes, Home Assistant, Plex, ...) rather than rebuild their functionality
+-- turns out to already describe this codebase closely: every integration
+here is a thin client wrapped as a tool, Hermes was already added as
+exactly the delegate-executor the document describes (34), Home Assistant
+tools stay generic rather than reimplementing automation logic, and
+proactive notification stays deterministic and restrained (26, 44) rather
+than fuzzy autonomous judgment -- convergent design, not coincidence, since
+both this codebase's own conventions and the document independently landed
+on "don't rebuild what already works." Four gaps were identified and named
+rather than silently patched over: no capability-to-provider indirection
+layer (the document's own explicit design -- `capability: diagnose_server,
+provider: Hermes` -- swappable without touching SirisAI's architecture;
+today a tool like `hermes_run_task` *is* the capability directly, no
+abstraction between them); no way to explain a Home Assistant-native event
+SirisAI didn't itself trigger (closed by 49, below); no multi-signal
+room/person presence with confidence estimates (mmWave, BLE -- needs sensor
+hardware not present in this homelab, an honest gap rather than one to
+fake); and no physical status display (the document defers this one too).
+The capability-indirection gap was deliberately not acted on here --
+designing that abstraction now, with exactly one provider per capability,
+risks the premature-abstraction the document's own "do not attempt the
+entire vision immediately" caution warns against; revisit once a second
+provider for the same capability actually exists to design against.
+
+49. **Done** -- Home Assistant logbook ("why did X happen"). Direct
+    response to the vision document's own named example -- "why did the
+    hallway light turn on?" -- which `explain_recent_action` (28)
+    couldn't answer: that tool explains SirisAI's *own* tool calls
+    (trigger/evidence/policy from the audit log), not a Home
+    Assistant-native automation or state change SirisAI never touched.
+    A new `home_assistant_get_logbook` tool (`HomeAssistantClient.get_logbook()`,
+    wrapping Home Assistant's own `/api/logbook` REST endpoint) closes
+    that gap directly: Home Assistant's logbook already carries
+    human-readable "what happened and why" -- including which
+    automation triggered a change, where Home Assistant knows one --
+    so this is a thin passthrough, not a new explanation engine.
+    `entity_id` (optional, e.g. `light.hallway`) filters to one
+    entity's history; `hours` (default 24) how far back. Registered
+    alongside the other three Home Assistant tools, same
+    `SIRISAI_HOME_ASSISTANT_BASE_URL`/`TOKEN` gate, no new setting.
+
+    Verified: full suite (361 passed, up from 357) including 4 new
+    `tests/test_home_assistant.py` tests (the client's timestamped-path
+    construction and entity-filter query param, the bare-path/no-filter
+    case, and the tool's default-24-hours and entity/hours-forwarding
+    behavior) plus the existing Home Assistant registration test
+    extended to cover the new tool name. Live-verified against a real
+    `uvicorn` process and a real mock Home Assistant server seeded with
+    a realistic logbook entry ("turned on triggered by automation
+    'Motion in hallway after dark'"): a whole-home logbook call
+    returned both seeded entries, and filtering to `light.hallway`
+    reproduced the vision document's exact example -- returning only
+    the hallway entry, with the automation that actually caused it
+    right there in the response, not just the light's current state.
+
 ## Running locally
 
 ```bash

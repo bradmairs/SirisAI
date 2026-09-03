@@ -8,6 +8,7 @@ SIRISAI_HOME_ASSISTANT_TOKEN are both set (see app/core/siris.py); until
 then SirisAI simply doesn't offer these tools to the model.
 """
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.home_assistant.client import HomeAssistantClient
@@ -115,3 +116,36 @@ class HomeAssistantCallServiceTool(Tool):
         # event_timing_check already does the rest once this exists.
         self._events.log_event(f"{domain}.{service}", entity_name=entity_id, source="home_assistant_call_service")
         return result
+
+
+class HomeAssistantGetLogbookTool(Tool):
+    name = "home_assistant_get_logbook"
+    description = (
+        "Look up Home Assistant's logbook -- what happened and, where Home Assistant knows it, "
+        "why (which automation or entity caused it) -- not just current state. Use this to "
+        "answer 'why did X happen' questions (e.g. 'why did the hallway light turn on') by "
+        "inspecting recent history for that entity, or omit entity_id for the whole home's "
+        "recent activity."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "entity_id": {
+                "type": "string",
+                "description": "Optional entity to filter to, e.g. 'light.hallway'. Omit for everything.",
+            },
+            "hours": {
+                "type": "integer",
+                "description": "How far back to look, in hours. Defaults to 24.",
+            },
+        },
+        "required": [],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, entity_id: str | None = None, hours: int = 24, **kwargs: Any) -> Any:
+        since = datetime.now(UTC) - timedelta(hours=hours)
+        return self._client.get_logbook(entity_id=entity_id, since=since)
