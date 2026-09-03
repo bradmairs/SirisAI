@@ -1476,11 +1476,60 @@ silently decided -- same posture as milestone 29's routine engine.
     auto-confirmed `home_assistant_call_service` call beneath it, with
     `trigger` correctly naming the exact setting that authorized it).
 
-43. Actionable push notifications. ntfy supports action buttons in its
-    payload -- a "container crashed" notification can carry a "Restart"
-    button that hits `POST /siris/chat/confirm` directly, collapsing
-    notice-then-open-chat-then-confirm into one tap for anything already
-    CONFIRM_REQUIRED-gated.
+43. **Done** -- Actionable push notifications. ntfy supports action
+    buttons in its payload -- a real gap this closed: a routine
+    (milestone 29) whose action hit a `CONFIRM_REQUIRED` tool used to
+    just record the `ConfirmationRequired` message as an error and drop
+    it, since a routine runs unattended (an external cron hits
+    `run_due`, not a human watching a chat turn) and nothing else ever
+    surfaced it. `RoutineRunner._notify_pending_confirmation()`
+    (`app/routines/runner.py`) now sends a push notification with a
+    one-tap "Confirm" action button for exactly that case.
+
+    Not `POST /siris/chat/confirm` as originally framed in the
+    brainstorm -- a routine-originated confirmation has no
+    `conversation_id` (routines aren't chat turns) to hand that
+    endpoint. The button targets `POST /siris/tools/{tool_name}/run`
+    with `confirmed: true` instead: already the conversation-independent
+    way to run a tool directly, exactly what a notification tap with no
+    chat session behind it actually is.
+
+    `NotifyClient` (`app/notify/client.py`) switched from ntfy's simple
+    header-based publish to its JSON publish endpoint -- a fully
+    equivalent, equally well-supported mode, needed because it's the
+    only one that can carry `actions`
+    (https://ntfy.sh/docs/publish/#action-buttons). `NotifyTool` accepts
+    `actions` as a plain kwarg for this internal use, but deliberately
+    doesn't declare it in the tool's own LLM-facing parameter schema --
+    constructing an exact ntfy action-button payload (URL, method,
+    headers, body) is a programmatic concern for a caller that already
+    knows the target endpoint, not something worth prompting the model to
+    assemble. New `SIRISAI_PUBLIC_BASE_URL` (the externally-reachable
+    base this instance is served at -- `SIRISAI_HOST`/`PORT` are for
+    binding, not necessarily what a phone tapping the button can reach)
+    -- empty means the notification still sends, just without the
+    button. The `Authorization` header on the action itself reuses
+    `SIRISAI_API_KEY` when configured, since the button's request has to
+    clear the same auth every other `/siris/*` call does.
+
+    Verified: full suite (303 passed, up from 297) including 2 updated
+    `tests/test_notify.py` tests for the new JSON wire format, 2 new
+    ones covering `actions` (included when given, omitted when not), and
+    4 new `tests/test_routines.py` tests (no notification without a
+    configured channel, a correctly-shaped action button when
+    `SIRISAI_PUBLIC_BASE_URL` is set, the action omitted without it, and
+    the `Authorization` header omitted without an API key). Live-verified
+    against a real `uvicorn` process, a real mock ntfy server, and a real
+    mock Home Assistant server: created a real routine whose action was
+    `home_assistant_call_service`, ran it, confirmed the mock ntfy server
+    received the exact JSON payload with a correctly-shaped `http` action
+    (real public URL, real `Authorization: Bearer` header, real JSON
+    body) -- then replayed that *exact* request (the same one a phone
+    tapping the button would send) against the running instance and
+    confirmed it actually ran the tool against the mock Home Assistant
+    server, with `GET /siris/activity` showing the complete, correctly
+    explainable chain: blocked pending confirmation -> notified with
+    evidence -> explicitly confirmed and run.
 
 44. Escalation tiers beyond notify. Every proactive notification goes to
     one channel today regardless of severity. ntfy itself supports
