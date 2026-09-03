@@ -14,6 +14,16 @@ from app.llm.base import LLMResponse, ToolCall
 from app.plugins.base import Tool, ToolPermission
 
 
+class _FailingTool(Tool):
+    name = "flaky_lookup"
+    description = "Test tool that always raises."
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def run(self, **kwargs: Any) -> Any:
+        raise RuntimeError("cloud API has no client-listing endpoint")
+
+
 class _ConfirmRequiredTool(Tool):
     name = "dangerous_action"
     description = "Test tool requiring confirmation."
@@ -119,6 +129,50 @@ def test_process_runs_a_tool_then_feeds_result_back_for_final_text() -> None:
 
     history = siris.conversation.get_messages(conversation_id)
     assert [m["role"] for m in history] == ["user", "tool", "assistant"]
+
+
+def test_process_tool_failure_is_explained_in_plain_language_not_raised() -> None:
+    """Live-hit case (2026-09): unifi_list_clients always raises since the
+    cloud API it talks to has no client-listing endpoint. That shouldn't
+    surface as a raw "Tool 'X' failed." error to a plain-English-only
+    chat UI -- it should get the same follow-up-synthesis treatment a
+    successful result does."""
+    responses = _SequenceLLMClient(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="flaky_lookup", arguments={})]),
+            LLMResponse(text="I couldn't check that -- that data isn't available right now."),
+        ]
+    )
+    siris = _siris(responses)
+    siris.tools.register(_FailingTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "who's connected?", use_context=False))
+
+    assert result.error is None
+    assert result.response == "I couldn't check that -- that data isn't available right now."
+    assert result.tool_call is None
+
+    history = siris.conversation.get_messages(conversation_id)
+    assert [m["role"] for m in history] == ["user", "tool", "assistant"]
+    assert "cloud API has no client-listing endpoint" in history[1]["content"]
+
+
+def test_process_tool_failure_falls_back_to_error_when_synthesis_produces_no_text() -> None:
+    responses = _SequenceLLMClient(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="flaky_lookup", arguments={})]),
+            LLMResponse(text=None),
+        ]
+    )
+    siris = _siris(responses)
+    siris.tools.register(_FailingTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "who's connected?", use_context=False))
+
+    assert result.response is None
+    assert result.error == "Tool 'flaky_lookup' failed."
 
 
 def test_process_with_use_planner_delegates_to_planner_and_returns_plan() -> None:

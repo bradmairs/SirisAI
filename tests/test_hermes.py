@@ -27,6 +27,31 @@ def test_run_task_posts_openai_style_chat_completion_and_returns_content() -> No
     client.close()
 
 
+def test_run_task_sends_no_authorization_header_when_api_key_unset() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "authorization" not in request.headers
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    client = HermesClient(base_url="http://localhost:8420", model="hermes", transport=httpx.MockTransport(handler))
+    client.run_task("do something")
+    client.close()
+
+
+def test_run_task_sends_bearer_token_when_api_key_set() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer secret-key"
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    client = HermesClient(
+        base_url="http://localhost:8420",
+        model="hermes",
+        api_key="secret-key",
+        transport=httpx.MockTransport(handler),
+    )
+    client.run_task("do something")
+    client.close()
+
+
 def test_run_task_returns_empty_string_when_no_choices() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"choices": []})

@@ -1,14 +1,19 @@
-"""Thin client for UniFi's Network "Integration API" (API-key auth) --
-https://developer.ui.com. Deliberately not the legacy cookie-based
-controller login, which varies too much across controller/UniFi OS
-versions to support reliably here.
+"""Thin client for UniFi's cloud "Site Manager API" (https://api.ui.com,
+API-key auth, generated at unifi.ui.com -> Settings -> API). Originally
+written against the local self-hosted controller's "Integration API"
+(/proxy/network/integration/v1/...) per developer.ui.com, but live-tested
+against a real controller (2026-09) and that path 401'd -- this
+controller's key only authenticates against the cloud API. Same key,
+different product: the Integration API is exposed by the controller
+itself; the Site Manager API is UI's own cloud backend, aggregating
+every console/site tied to the account. If a future controller's key
+turns out to work against the local Integration API instead, that's the
+one other shape to support -- this is still the one file to adjust.
 
 This is the least-verified integration in this tool library: exact paths
-can shift across controller/UniFi OS versions and it couldn't be tested
-against a live controller in development. Kept read-only for that reason
--- a path mismatch fails loudly (404/401) rather than doing anything
-destructive. If your controller uses a different API shape, this is the
-one file to adjust.
+can shift and there's no local sandbox to test against. Kept read-only
+for that reason -- a path mismatch fails loudly (404/401) rather than
+doing anything destructive.
 """
 
 import httpx
@@ -24,6 +29,12 @@ class UniFiClient:
         verify_ssl: bool = True,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
+        # Unused for now -- the Site Manager API scopes by host/site id,
+        # not the local controller's site *name*, and a single-home
+        # account only ever has the one site anyway. Kept as a
+        # constructor param (rather than removed) so a future filtered
+        # call (GET /v1/devices?siteIds[]=...) is a small addition, not a
+        # signature change every caller has to follow.
         self._site = site
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
@@ -34,27 +45,32 @@ class UniFiClient:
         )
 
     def list_devices(self) -> list[dict]:
-        response = self._client.get(f"/proxy/network/integration/v1/sites/{self._site}/devices")
+        # Response shape: {"data": [{"hostId": ..., "hostName": ...,
+        # "devices": [{"name", "model", "status", ...}, ...]}, ...]} --
+        # one entry per host/console on the account, each carrying its
+        # own device list; flatten into one list across all of them.
+        response = self._client.get("/v1/devices")
         response.raise_for_status()
-        items = self._unwrap(response.json())
-        return [{"name": item.get("name"), "model": item.get("model"), "state": item.get("state")} for item in items]
+        hosts = self._unwrap(response.json())
+        return [
+            {"name": item.get("name"), "model": item.get("model"), "state": item.get("status")}
+            for host in hosts
+            for item in host.get("devices", [])
+        ]
 
     def list_clients(self) -> list[dict]:
-        response = self._client.get(f"/proxy/network/integration/v1/sites/{self._site}/clients")
-        response.raise_for_status()
-        items = self._unwrap(response.json())
-        return [
-            {
-                "name": item.get("name") or item.get("hostname"),
-                "ip_address": item.get("ipAddress") or item.get("ip"),
-                "connected_at": item.get("connectedAt"),
-            }
-            for item in items
-        ]
+        # No equivalent on the Site Manager API -- live client lists
+        # (who's currently connected) aren't exposed by UI's cloud
+        # backend, only by a local controller's own Integration API.
+        # Fail with a clear reason rather than a raw, confusing 404.
+        raise NotImplementedError(
+            "UniFi's cloud Site Manager API (api.ui.com) has no client-listing endpoint -- "
+            "only a local controller's own Integration API exposes live connected clients."
+        )
 
     @staticmethod
     def _unwrap(data: object) -> list[dict]:
-        """The Integration API wraps list responses as {"data": [...]}."""
+        """The Site Manager API wraps list responses as {"data": [...]}."""
         if isinstance(data, dict):
             return data.get("data", [])
         return data if isinstance(data, list) else []

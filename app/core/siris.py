@@ -344,7 +344,11 @@ class SirisAI:
             self.tools.register(NotifyTool(self._notify_client))
 
         if self.settings.hermes_base_url:
-            self._hermes_client = HermesClient(base_url=self.settings.hermes_base_url, model=self.settings.hermes_model)
+            self._hermes_client = HermesClient(
+                base_url=self.settings.hermes_base_url,
+                model=self.settings.hermes_model,
+                api_key=self.settings.hermes_api_key or None,
+            )
             self.tools.register(HermesRunTaskTool(self._hermes_client))
 
         if self.settings.tautulli_base_url and self.settings.tautulli_api_key:

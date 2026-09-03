@@ -93,11 +93,12 @@ class Settings(BaseSettings):
     plex_base_url: str = ""
     plex_token: str = ""
 
-    # UniFi (app/unifi/, app/plugins/builtin/unifi.py) -- the modern
-    # UniFi Network "Integration API" (API-key auth), not the legacy
-    # cookie-based controller login. Empty base_url or api_key = unifi_*
-    # tools aren't registered. Self-hosted controllers with a self-signed
-    # cert need unifi_verify_ssl=false.
+    # UniFi (app/unifi/, app/plugins/builtin/unifi.py) -- UniFi's cloud
+    # Site Manager API (api.ui.com), API-key auth (see app/unifi/client.py
+    # for why not the local controller's own Integration API). Empty
+    # base_url or api_key = unifi_* tools aren't registered.
+    # unifi_verify_ssl only matters if base_url points at a local
+    # controller with a self-signed cert instead.
     unifi_base_url: str = ""
     unifi_api_key: str = ""
     unifi_site: str = "default"
@@ -186,10 +187,16 @@ class Settings(BaseSettings):
     # separate homelab agent running on the same host, with its own
     # memories, skills, and terminal access, used to delegate Docker/
     # system-control tasks it already knows how to do. Talks an
-    # OpenAI-style chat completions endpoint, unauthenticated. Empty
-    # base_url = the hermes_run_task tool isn't registered.
+    # OpenAI-style chat completions endpoint. Empty base_url = the
+    # hermes_run_task tool isn't registered. hermes_api_key is optional --
+    # some Hermes deployments are unauthenticated (the original
+    # assumption here), but not all: live-tested against a real instance
+    # that turned out to require `Authorization: Bearer <key>`, 401ing
+    # every unauthenticated request. Blank = no Authorization header sent
+    # at all, same as before this setting existed.
     hermes_base_url: str = ""
     hermes_model: str = "hermes"
+    hermes_api_key: str = ""
 
     # Presence-triggered scenes (milestone 42, app/skills/builtin/presence.py):
     # "everyone left" -> away scene, "someone's home" -> home scene.
