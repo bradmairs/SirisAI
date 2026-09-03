@@ -1385,12 +1385,43 @@ silently decided -- same posture as milestone 29's routine engine.
     confirmed `POST /siris/proactive/check` composed the warning
     correctly with the new `"goals"` classification end to end.
 
-41. Behavioral pattern anomalies. The same mean/stdev-over-history
-    mechanism `event_timing_check` (37) already built for infrastructure
-    events ("the backup didn't run") applied to logged user-triggered
-    events instead ("the office lights are usually off by 11, they're
-    still on") -- extends `EventMemoryStore`'s existing timing baseline,
-    doesn't reinvent it.
+41. **Done** -- Behavioral pattern anomalies. The same mean/stdev-over-
+    history mechanism `event_timing_check` (37) already built for
+    infrastructure events ("the backup didn't run") applied to logged
+    user-triggered events instead ("the office lights are usually off by
+    11, they're still on"). Genuinely zero new detection logic: the
+    entire milestone is `HomeAssistantCallServiceTool.run()`
+    (`app/plugins/builtin/home_assistant.py`) now also logging an
+    `Event` after a successful call, grouped as `"{domain}.{service}"`
+    (e.g. `"light.turn_off"`) with `entity_name=entity_id` (e.g.
+    `"light.office"`) -- the exact `(description, entity_name)` shape
+    `EventMemoryStore.distinct_recurring_signatures()`/`timing_baseline()`
+    already group and baseline by. Once "the lights usually go off around
+    11pm" exists as a recurring Event signature, `event_timing_check`
+    already knows how to notice it's late, exactly the same way it
+    already notices a backup didn't run -- extends what 37 built, doesn't
+    reinvent it. Deliberately scoped to this one tool (not every tool
+    call): `home_assistant_call_service` is the concrete, homelab-relevant
+    "user behavior" action the brainstorm's own example was about; making
+    *every* tool call generate an Event would blur the Event/ToolExecution
+    distinction the codebase already draws (an Event is a thing that
+    happened, a ToolExecution is SirisAI's own internal record of what it
+    did -- see `app/db/models.py`).
+
+    Verified: full suite (286 passed, up from 284) including 2 new
+    `tests/test_home_assistant.py` tests (a call logs the expected
+    Event with the right description/entity_name/source; a call with no
+    `entity_id` logs one with `entity_name: null`) plus the existing
+    `call_service` test updated for the tool's new constructor
+    dependency. Live-verified against a real `uvicorn` process and a
+    real mock Home Assistant server: a real `home_assistant_call_service`
+    call produced a real Event visible via `GET /siris/events`; then,
+    after seeding six realistic nightly occurrences directly in the live
+    SQLite file (most recent ~30h ago, well past a ~24h rhythm), a real
+    call to `event_timing_check` correctly flagged `"light.turn_off" on
+    "light.office"` as overdue -- the literal "office lights are usually
+    off by now, they're still on" scenario, using nothing but the
+    existing machinery.
 
 42. Presence-triggered scenes. UniFi presence (who's home) composed with
     Home Assistant scene calls -- "everyone left" -> arm/away scene,
