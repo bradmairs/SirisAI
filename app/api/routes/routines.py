@@ -16,9 +16,12 @@ from pydantic import BaseModel
 
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
+from app.core.user_context import resolve_user_id
 from app.routines.runner import RoutineRunner
 
-router = APIRouter(prefix="/siris/routines", tags=["routines"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/siris/routines", tags=["routines"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)]
+)
 
 
 class RoutineResponse(BaseModel):

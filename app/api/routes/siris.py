@@ -13,12 +13,15 @@ from pydantic import BaseModel
 
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
+from app.core.user_context import resolve_user_id
 from app.cortex.orchestrator import Cortex, CortexResult, ToolCallOutcome
 from app.plugins.base import ConfirmationRequired
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/siris", tags=["siris"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/siris", tags=["siris"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)]
+)
 
 
 @router.get("/status")

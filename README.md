@@ -1600,15 +1600,82 @@ silently decided -- same posture as milestone 29's routine engine.
     and with context also enabled, the real payload carried both system
     messages in the correct order -- persona first, context second.
 
-46. Multi-user recognition. The biggest, most invasive entry in this
-    batch: memory, goals, and permission tiers are all global today,
-    with no concept of *whose* preference "I like my coffee black" is.
-    Open question this entry flags rather than decides: how a "user" is
-    even identified in a text/voice API with no camera or biometric
-    input -- a per-user API key, a client-supplied user id header, or a
-    voice-satellite-only concept (satellites already know which physical
-    device spoke) -- each has different blast radius on the existing
-    schema and deserves picking deliberately, not guessing.
+46. **Done** -- Multi-user recognition. The biggest, most invasive entry
+    in this batch: memory and goals were global before this, with no
+    concept of *whose* preference "I like my coffee black" is. This
+    entry's own open question -- how a "user" is even identified with no
+    camera/biometric input -- was put to the user rather than decided
+    silently (same posture as milestone 44's escalation channel choice);
+    the answer was a client-supplied user id header (`X-Siris-User`),
+    over a per-user API key or a voice-satellite-only concept, for the
+    lowest blast radius and uniform behavior across text, voice, and any
+    future client -- absent the header, everything is the single
+    `"default"` user, so an unconfigured deployment behaves exactly as
+    before this milestone.
+
+    The header alone doesn't get you multi-user support, though:
+    `SirisAI` and every tool/skill are process-wide singletons
+    (`app/core/siris.py`), built once at startup with no per-request
+    injection today -- threading a real `user_id` parameter through
+    would touch `Tool.run`/`Skill.run`'s base signatures and every
+    subclass in `app/plugins/builtin/` and `app/skills/builtin/`, for
+    one column. Used a request-scoped contextvar instead
+    (`app/core/user_context.py`): a new `resolve_user_id` dependency,
+    wired into every authenticated router alongside `require_api_key`,
+    sets it from the header; `MemoryStore`/`GoalStore` methods
+    (`app/memory/service.py`, `app/goals/service.py`) default their own
+    `user_id` keyword to `get_current_user_id()` when a caller doesn't
+    pass one explicitly. Every existing route, tool, and skill that
+    already just calls `siris.memory.remember(...)` or
+    `siris.goals.list_goals(...)` -- including `ContextEngine.build()`,
+    `daily_briefing`, and `goal_check_in` -- picked up correct per-user
+    scoping with zero call-site changes.
+
+    Cross-user goal mutation (`update_goal_status`/`add_objective`/
+    `complete_objective` on a `goal_id` you don't own) is treated
+    identically to an unknown id -- `None`, the same 502 an actually
+    unknown id gets -- rather than a 403, so a caller can't use the
+    error to enumerate which ids exist for someone else.
+
+    Scope cuts, deliberate: entity facts/relationships and events
+    (`EntityMemoryStore`/`EventMemoryStore`) and conversations stay
+    global -- the roadmap entry itself only named "memory, goals," and
+    the world model (what Plex runs on, what depends on what) is
+    arguably infrastructure knowledge that *shouldn't* be siloed per
+    user anyway. Permission tiers, also named in the original framing,
+    stay untouched too -- `ToolPermission` is orthogonal to whose data a
+    call touches, a separate axis this milestone didn't need to move.
+
+    This codebase had no Alembic (`app/db/base.py`'s docstring: "add
+    migrations before the first model lands") and relied entirely on
+    `Base.metadata.create_all()`, which creates missing *tables* but
+    never adds a missing *column* to a table that already exists on
+    disk -- so a real deployment's existing `memories`/`goals` tables
+    needed `user_id` added by hand or every query against them would
+    start erroring outright. Added the narrowest thing that fixes it
+    (`app/db/migrate.py`): a short, explicit list of (table, column,
+    DDL) patches, applied via `PRAGMA table_info` + `ALTER TABLE ADD
+    COLUMN` right after `create_all()` -- not a generic schema-diffing
+    engine, since there's only ever been this one case so far.
+
+    Verified: full suite (326 passed, up from 310) including 16 new
+    `tests/test_multi_user.py` tests -- `resolve_user_id`'s header
+    parsing, `MemoryStore`/`GoalStore` isolation at the unit level
+    (explicit `user_id`), the cross-user "not found" behavior for every
+    goal-mutating method, `stale_goals()` scoping, three migration tests
+    against a hand-built pre-milestone-46 SQLite schema (missing column
+    added and backfilled, idempotent on a second call, a no-op against
+    an empty DB), and endpoint-level isolation over the real
+    `X-Siris-User` header for both memory and goals. Live-verified
+    against a real `uvicorn` process started against a hand-built SQLite
+    file mimicking a genuine pre-milestone-46 database (tables present,
+    `user_id` column absent, one pre-existing row in each): confirmed
+    the column got added and the old row backfilled to `"default"` on
+    startup, confirmed memories/goals created as `alice`/`bob` over real
+    HTTP were invisible to each other and to the no-header request, and
+    confirmed `bob` attempting `update_goal_status` on `alice`'s real
+    goal id got the same 502 "unknown goal_id" an actually-nonexistent
+    id gets.
 
 47. Cost/resource dashboard. LLM token spend and homelab power draw
     tracked over time as their own metrics -- direct reuse of

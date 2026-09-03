@@ -14,10 +14,13 @@ from pydantic import BaseModel
 
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
+from app.core.user_context import resolve_user_id
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/siris/voice", tags=["voice"], dependencies=[Depends(require_api_key)])
+router = APIRouter(
+    prefix="/siris/voice", tags=["voice"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)]
+)
 
 
 class TranscribeResponse(BaseModel):
