@@ -10,6 +10,14 @@ the only one that can carry `actions` (milestone 43, actionable push
 notifications): https://ntfy.sh/docs/publish/#action-buttons. A plain
 title-only message still round-trips through this the same way it always
 did, just as a JSON body instead of a header.
+
+`priority` (escalation tiers, milestone 44) is ntfy's own vocabulary --
+"min"/"low"/"default"/"high"/"urgent" (or the 1-5 equivalent, both are
+accepted: https://ntfy.sh/docs/publish/#message-priority) -- passed
+through as-is rather than validated here; an invalid value fails loudly
+against the real ntfy server rather than silently, same "let a mismatch
+surface rather than hiding it" posture as this codebase's other
+thin-client integrations.
 """
 
 from typing import Any
@@ -24,12 +32,20 @@ class NotifyClient:
         self._topic = topic
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
 
-    def send(self, message: str, title: str | None = None, actions: list[dict[str, Any]] | None = None) -> None:
+    def send(
+        self,
+        message: str,
+        title: str | None = None,
+        actions: list[dict[str, Any]] | None = None,
+        priority: str | None = None,
+    ) -> None:
         payload: dict[str, Any] = {"topic": self._topic, "message": message}
         if title:
             payload["title"] = title
         if actions:
             payload["actions"] = actions
+        if priority:
+            payload["priority"] = priority
         response = self._client.post("/", json=payload)
         response.raise_for_status()
 

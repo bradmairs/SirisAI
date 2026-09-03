@@ -1531,15 +1531,42 @@ silently decided -- same posture as milestone 29's routine engine.
     explainable chain: blocked pending confirmation -> notified with
     evidence -> explicitly confirmed and run.
 
-44. Escalation tiers beyond notify. Every proactive notification goes to
-    one channel today regardless of severity. ntfy itself supports
-    priority levels and could carry a second "urgent" topic without a new
-    external dependency -- but a real emergency channel (SMS, a phone
-    call) needs a third-party service this codebase doesn't have
-    credentials for yet. Open question this entry flags rather than
-    decides: ntfy-priority-only (no new dependency), or wire up a real
-    second channel (needs picking a provider and the user's own
-    account/API key for it).
+44. **Done** -- Escalation tiers beyond notify. This entry's open
+    question (ntfy-priority-only vs. a real second channel needing a
+    third-party provider and the user's own credentials) was decided in
+    favor of ntfy-priority-only -- no new external dependency. Every
+    proactive notification used to go out at the exact same ntfy
+    priority regardless of severity: `NotificationManager`'s (26)
+    `"urgent"` classification only ever changed the notification's
+    *title* ("SirisAI: urgent" vs. "SirisAI: server health check"), not
+    anything that could actually break through a phone's silent/do-not-
+    disturb settings the way ntfy's own priority levels are designed to.
+
+    `NotifyClient.send()` (`app/notify/client.py`) gained a `priority`
+    parameter -- ntfy's own vocabulary (`min`/`low`/`default`/`high`/`urgent`,
+    passed straight through unvalidated, same "let a mismatch fail loudly
+    against the real service" posture as this codebase's other thin
+    clients) -- and `POST /siris/proactive/check`
+    (`app/api/routes/proactive.py`) now sets `priority: "urgent"`
+    whenever any item it's sending was classified `"urgent"`, omitted
+    otherwise (unchanged default behavior). `NotifyTool` also exposes
+    `priority` as a proper LLM-facing parameter (an `enum` of the five
+    ntfy levels) -- unlike `actions` (43), this one *is* something worth
+    letting the model choose directly when it calls `notify` itself, not
+    just an internal/programmatic concern.
+
+    Verified: full suite (305 passed, up from 303) including 2 new
+    `tests/test_notify.py` tests (`priority` included when given, omitted
+    when not) and an updated `tests/test_proactive.py` assertion proving
+    the correlated-urgent-warning test's notification actually carries
+    `priority: "urgent"`. Live-verified against a real `uvicorn` process,
+    a real mock ntfy server, and a real mock Docker Engine API: reported
+    a container as `exited` (a real `critical`/`urgent` classification,
+    not a fake), confirmed the notification the mock ntfy server actually
+    received carried `"priority": "urgent"` in its JSON body; then
+    reported the container healthy again and confirmed a routine
+    "notify"-tier (and a fully healthy, no-notification-at-all) proactive
+    check both still behave exactly as they did before this milestone.
 
 45. Persona/voice consistency layer. A configurable tone/personality
     profile applied consistently via the system message Cortex already

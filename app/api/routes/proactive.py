@@ -69,7 +69,13 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
     schedule from outside this process -- see the README for a crontab
     example. `notifications` in the response shows every item's
     classification regardless of whether anything was actually sent, so a
-    caller can see what was judged worth surfacing (and what wasn't)."""
+    caller can see what was judged worth surfacing (and what wasn't).
+
+    Escalation tiers (milestone 44): an "urgent" item raises the
+    notification's ntfy priority, not just its title -- so it can
+    actually break through a phone's do-not-disturb/silent settings the
+    way ntfy's own urgent priority is designed to, instead of arriving
+    with the exact same priority as a routine "notify"-tier warning."""
     trigger = "proactive check: automated schedule (see POST /siris/proactive/check)"
     result = siris.run_tool("server_health_check", {}, trigger=trigger)
     event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
@@ -81,12 +87,18 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
 
     notified = False
     if to_send and siris.tools.get("notify") is not None:
-        title = "SirisAI: urgent" if any(item.action == "urgent" for item in to_send) else "SirisAI: server health check"
+        urgent = any(item.action == "urgent" for item in to_send)
+        title = "SirisAI: urgent" if urgent else "SirisAI: server health check"
         summary = "; ".join(item.message for item in to_send)
         # Evidence (milestone 28): the classified items that justified
         # sending, not just the notify call's own title/message.
         evidence = [{"message": item.message, "severity": item.severity, "action": item.action} for item in to_send]
-        siris.run_tool("notify", {"title": title, "message": summary}, trigger=trigger, evidence=evidence)
+        siris.run_tool(
+            "notify",
+            {"title": title, "message": summary, "priority": "urgent" if urgent else None},
+            trigger=trigger,
+            evidence=evidence,
+        )
         notified = True
 
     return HealthCheckResponse(

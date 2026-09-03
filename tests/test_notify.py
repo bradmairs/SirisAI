@@ -67,6 +67,30 @@ def test_send_with_actions_includes_them() -> None:
     client.close()
 
 
+def test_send_without_priority_omits_it() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert "priority" not in body
+        return httpx.Response(200)
+
+    client = _mock_client(handler)
+    client.send("plain message")
+    client.close()
+
+
+def test_send_with_priority_includes_it() -> None:
+    """Escalation tiers (milestone 44)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["priority"] == "urgent"
+        return httpx.Response(200)
+
+    client = _mock_client(handler)
+    client.send("the roof is on fire", priority="urgent")
+    client.close()
+
+
 def test_notify_tool_not_registered_by_default() -> None:
     siris = SirisAI(settings=Settings())
     assert siris.tools.get("notify") is None

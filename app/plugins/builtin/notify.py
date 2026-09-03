@@ -27,6 +27,14 @@ class NotifyTool(Tool):
         "properties": {
             "message": {"type": "string", "description": "The notification body."},
             "title": {"type": "string", "description": "Optional notification title."},
+            "priority": {
+                "type": "string",
+                "enum": ["min", "low", "default", "high", "urgent"],
+                "description": (
+                    "Optional urgency level -- defaults to normal. Use 'urgent' sparingly, only for "
+                    "things that genuinely need immediate attention."
+                ),
+            },
         },
         "required": ["message"],
     }
@@ -35,7 +43,12 @@ class NotifyTool(Tool):
         self._client = client
 
     def run(
-        self, message: str = "", title: str | None = None, actions: list[dict[str, Any]] | None = None, **kwargs: Any
+        self,
+        message: str = "",
+        title: str | None = None,
+        priority: str | None = None,
+        actions: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
     ) -> Any:
-        self._client.send(message, title=title, actions=actions)
+        self._client.send(message, title=title, actions=actions, priority=priority)
         return {"sent": True}
