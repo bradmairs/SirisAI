@@ -451,6 +451,18 @@ class SirisAI:
         level plus `confirmed`, since that's determined by SirisAI, not by
         whoever's calling. Together they're what
         `explain_recent_action` reads back later.
+
+        Deterministic per-tool verification (a hardening pass): after a
+        successful `run()`, also calls the tool's own `verify()` if it
+        defines one -- an independent check of whether the result
+        actually reflects success (e.g. a restarted container that's
+        actually running afterward, not just that the restart API call
+        returned 200). Recorded to the same audit entry as
+        `verified`/`verification_detail`, null for the tools (most of
+        them) that don't define a verifier. Never changes this method's
+        own return value or raises on its own account -- a failed or
+        missing verification is information about the outcome, not a
+        reason to treat the call itself as having failed.
         """
         start = time.monotonic()
 
@@ -515,6 +527,18 @@ class SirisAI:
             )
             raise
 
+        verification = None
+        try:
+            verification = tool.verify(arguments, result)
+        except NotImplementedError:
+            pass
+        except Exception:
+            # Verification is a bonus check on top of an already-successful
+            # call, not a dependency of it -- a broken verify() shouldn't
+            # take the tool call down with it, same "best-effort" posture
+            # as the chat follow-up call in Cortex._run_single_tool.
+            logger.exception("Tool '%s' verify() failed", name)
+
         duration_ms = (time.monotonic() - start) * 1000
         self.audit.record(
             name,
@@ -525,6 +549,8 @@ class SirisAI:
             trigger=trigger,
             evidence=evidence,
             policy=policy,
+            verified=verification.verified if verification is not None else None,
+            verification_detail=verification.detail if verification is not None else None,
         )
         return result
 

@@ -16,8 +16,11 @@ class ExplainRecentActionTool(Tool):
         "Explain why SirisAI took a specific action recently, e.g. 'why did you restart plex' -> "
         "tool_name='docker_restart_container', argument_contains='plex'. Looks up the most "
         "recent matching audit log entries and returns each one's trigger (what caused it), "
-        "evidence (supporting data that justified it, if any was recorded), and policy (what "
-        "allowed it to run without asking first)."
+        "evidence (supporting data that justified it, if any was recorded), policy (what "
+        "allowed it to run without asking first), and -- for tools that support it, e.g. "
+        "docker_restart_container -- verified/verification_detail: an independent, deterministic "
+        "check of whether the action's result actually reflects success, not just that the call "
+        "itself didn't error."
     )
     permission = ToolPermission.READ
     parameters = {

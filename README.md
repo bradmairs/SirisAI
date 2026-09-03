@@ -504,8 +504,13 @@ noted inline rather than building the same thing twice under two names.
     verification pass that can tell "this 200 OK doesn't actually mean
     the service is healthy" independent of the model's own judgment --
     that needs per-tool success criteria this milestone doesn't define,
-    and would have been overclaiming a rigor that isn't really there.
-    What it does implement is real, just more modest: every tool result
+    and would have been overclaiming a rigor that isn't really there. (A
+    later hardening pass, after milestone 37, added exactly that as an
+    opt-in per-tool mechanism -- `Tool.verify()` -- without changing what's
+    described here: the model's own re-assessment is still what drives
+    the planner loop; verification is a separate, always-on, independent
+    check recorded to the audit log alongside it.) What it does implement
+    here is real, just more modest: every tool result
     is fed back to the model before it decides on a next step, so
     "verification" is the model re-assessing actual result *content*
     against the original request each iteration (not just whether the
@@ -1211,6 +1216,77 @@ deliberately left out, and why" treatment as everything above.
     `GET /siris/capabilities`, and `POST /siris/proactive/check`, and
     (after the fix) confirmed the burst scenario no longer produces a
     false positive.
+
+38. **Done** -- Hardening pass: deterministic per-tool verification.
+    Milestone 24's own writeup was explicit about what its "verification"
+    actually was and wasn't: the model re-assessing tool result content
+    against the original request, not "a separate deterministic
+    verification pass that can tell 'this 200 OK doesn't actually mean
+    the service is healthy' independent of the model's own judgment" --
+    that needed per-tool success criteria the milestone deliberately
+    didn't define, to avoid overclaiming a rigor that wasn't there. This
+    defines it.
+
+    `Tool` (`app/plugins/base.py`) gains an optional `verify(arguments,
+    result) -> ToolVerification` hook -- same shape and convention as
+    `dry_run()` (milestone 25): raises `NotImplementedError` by default
+    (most tools have no meaningful post-condition beyond "the call
+    succeeded," already covered by `run()` not raising), override only
+    where a real gap exists. `SirisAI.run_tool()` calls it after every
+    successful `run()`, best-effort (`NotImplementedError` means
+    unsupported; any other exception is logged and swallowed -- a broken
+    verifier doesn't take the tool call down with it), and records the
+    outcome to the *same* audit entry as two new nullable columns,
+    `verified`/`verification_detail` (same "extend what's already
+    recorded" principle milestone 28 established for
+    trigger/evidence/policy) -- never mutates `run_tool()`'s own return
+    value or raises on its own account: a failed verification is
+    information about the outcome, not a reason to treat the call as
+    having failed. `GET /siris/activity` and the `explain_recent_action`
+    tool (28) both expose the new fields for free, since both already
+    just serialize the full audit entry.
+
+    `DockerRestartContainerTool.verify()` is the reference implementation
+    -- and the literal scenario milestone 24's own text used as its
+    example: Docker's `/restart` call can return 200 even though the
+    container's entrypoint crashes immediately back out, a real and
+    common failure mode a raw HTTP-success check can't see. One state
+    check right after the restart call returns, not a health monitor --
+    explicitly does NOT catch a slower crash-loop (fine for a few
+    seconds, then dies), which would need polling over time; same
+    "don't overclaim rigor that isn't there" honesty as the thing it's
+    closing the gap on.
+
+    Deliberately scoped to the audit log, not threaded into the same-turn
+    model context (the planner's `working_messages`, the chat follow-up
+    call): doing that would mean reshaping what every tool call returns
+    across three different code paths for a benefit -- automatic
+    same-turn awareness -- that `explain_recent_action` already gives the
+    model on demand, and a human already gets via `GET /siris/activity`.
+    A real, deterministic, independent verification pass now exists and
+    is always computed; making the model *automatically* see it inline
+    is a separate, larger feature left as its own future boundary rather
+    than folded in here.
+
+    Verified: full suite (261 passed, up from 251) including 10 new tests
+    (`tests/test_verification.py`: the default raises `NotImplementedError`,
+    an override doesn't affect `run()`'s own return value,
+    `run_tool()` records nothing for a tool without a verifier, records a
+    successful verification, records a *failed* verification without
+    treating the call itself as failed -- the core case this exists for
+    -- tolerates a broken verifier without crashing, and the activity
+    endpoint exposes the new fields; three new `tests/test_docker.py`
+    tests for the reference implementation: verified when running,
+    correctly flagged when exited, correctly flagged when the container's
+    gone missing after restart). Live-verified against a real `uvicorn`
+    process and a real mock Docker Engine API: restarting a container
+    that came back `running` recorded `verified: true`; restarting one
+    the mock then reported as `exited` (simulating the exact "the restart
+    call succeeded, the container still isn't up" scenario) recorded
+    `verified: false` with a real, specific reason -- while `result`
+    (`{"restarted": true}`) and the absence of `error` show the tool call
+    itself was never treated as having failed -- confirmed visible via
+    both `GET /siris/activity` and a live `explain_recent_action` call.
 
 ## Running locally
 

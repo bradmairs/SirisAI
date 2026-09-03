@@ -61,6 +61,46 @@ def test_restart_container_posts_to_correct_path() -> None:
     client.close()
 
 
+def test_verify_reports_success_when_container_is_running_after_restart() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "running"}])
+
+    client = _mock_client(handler)
+    verification = DockerRestartContainerTool(client, _entities()).verify({"container": "plex"}, {"restarted": True})
+
+    assert verification.verified is True
+    assert "running" in verification.detail
+    client.close()
+
+
+def test_verify_reports_failure_when_container_is_not_running_after_restart() -> None:
+    """The exact gap this hardening pass exists for: the restart API call
+    can return 200 even though the container immediately crashed back
+    out -- this is the independent check that catches it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "exited"}])
+
+    client = _mock_client(handler)
+    verification = DockerRestartContainerTool(client, _entities()).verify({"container": "plex"}, {"restarted": True})
+
+    assert verification.verified is False
+    assert "exited" in verification.detail
+    client.close()
+
+
+def test_verify_reports_failure_when_container_is_missing_after_restart() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    verification = DockerRestartContainerTool(client, _entities()).verify({"container": "ghost"}, {"restarted": True})
+
+    assert verification.verified is False
+    assert "not found" in verification.detail
+    client.close()
+
+
 def test_dry_run_reports_current_state_and_world_model_dependents() -> None:
     container_name = f"media-server-{uuid.uuid4()}"
 
