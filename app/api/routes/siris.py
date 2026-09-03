@@ -5,7 +5,6 @@ liveness probe, `/siris/status` is app-level introspection (what's
 registered, what backend is active) that will grow as the core does.
 """
 
-import json
 import logging
 from typing import Any
 
@@ -14,8 +13,7 @@ from pydantic import BaseModel
 
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
-from app.llm.base import LLMClient
-from app.planning.planner import Planner
+from app.cortex.orchestrator import Cortex, CortexResult, ToolCallOutcome
 from app.plugins.base import ConfirmationRequired
 
 logger = logging.getLogger(__name__)
@@ -173,134 +171,30 @@ class ChatResponse(BaseModel):
     plan: list[ToolCallResult] | None = None
 
 
-def _load_messages(siris: SirisAI, conversation_id: str) -> list[dict[str, Any]]:
-    history = siris.conversation.get_messages(conversation_id)
-    return [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
+def _to_tool_call_result(outcome: ToolCallOutcome) -> ToolCallResult:
+    return ToolCallResult(name=outcome.name, arguments=outcome.arguments, result=outcome.result)
 
 
-async def _execute_tool_call(
-    siris: SirisAI,
-    conversation_id: str,
-    name: str,
-    arguments: dict[str, Any],
-    *,
-    confirmed: bool,
-    model_role: str = "general",
-    messages: list[dict[str, Any]] | None = None,
-    llm_client: LLMClient | None = None,
-    trigger: str = "chat: model chose this tool while responding to the user's request",
-) -> ChatResponse:
-    """Shared by POST /chat and POST /chat/confirm: run a tool, persist the
-    exchange, and shape the response -- including the ConfirmationRequired
-    case, so a client can display and then confirm a proposed action.
+def _shape_response(result: CortexResult) -> ChatResponse:
+    """Turn a Cortex result -- plain dataclasses, no HTTP awareness -- into
+    the ChatResponse shape POST /chat and /chat/confirm both return,
+    raising the appropriate HTTPException for the `error` case. This is the
+    entire route/orchestration boundary: everything upstream of this
+    function is Cortex's job, everything downstream is HTTP shaping."""
+    if result.error:
+        status_code = 403 if result.permission_denied else 502
+        raise HTTPException(status_code=status_code, detail=result.error)
 
-    When `messages`/`llm_client` are given, also feeds the tool result back
-    to the model for a final natural-language answer (a second round-trip)
-    instead of returning the raw result alone -- both `response` and
-    `tool_call` are set on the returned `ChatResponse` so a client can show
-    either or both. Falls back to the tool-call-only shape (`response` left
-    unset) if no LLM client is available, or if the follow-up call fails or
-    the model doesn't produce text -- callers should already treat a raw
-    tool result as an acceptable response, this is a best-effort upgrade.
-
-    `trigger` (milestone 28) is recorded to the audit log alongside the
-    call -- POST /chat/confirm passes its own, since a confirmed action's
-    trigger is meaningfully different (a human explicitly approved it,
-    not the model deciding on its own)."""
-    try:
-        output = siris.run_tool(name, arguments, conversation_id=conversation_id, confirmed=confirmed, trigger=trigger)
-    except ConfirmationRequired:
-        return ChatResponse(
-            conversation_id=conversation_id,
-            confirmation_required=PendingToolCall(name=name, arguments=arguments),
-            model_role=model_role,
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from None
-    except Exception:
-        logger.exception("Tool '%s' failed", name)
-        raise HTTPException(status_code=502, detail=f"Tool '{name}' failed.") from None
-
-    siris.conversation.add_message(
-        conversation_id,
-        role="tool",
-        content=json.dumps(output),
-        tool_name=name,
-        tool_arguments=arguments,
+    return ChatResponse(
+        conversation_id=result.conversation_id,
+        response=result.response,
+        tool_call=_to_tool_call_result(result.tool_call) if result.tool_call else None,
+        confirmation_required=PendingToolCall(name=result.pending_confirmation[0], arguments=result.pending_confirmation[1])
+        if result.pending_confirmation
+        else None,
+        model_role=result.model_role,
+        plan=[_to_tool_call_result(step) for step in result.plan] or None,
     )
-    tool_call = ToolCallResult(name=name, arguments=arguments, result=output)
-
-    if llm_client is not None and messages is not None:
-        follow_up_messages = [
-            *messages,
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
-            },
-            {"role": "tool", "content": json.dumps(output)},
-        ]
-        try:
-            # No `tools` offered here on purpose -- this call is meant to
-            # produce a final text answer, not choose another tool.
-            follow_up = await llm_client.generate(follow_up_messages)
-        except Exception:
-            logger.exception("Follow-up LLM call after tool '%s' failed", name)
-        else:
-            if follow_up.text:
-                siris.conversation.add_message(conversation_id, role="assistant", content=follow_up.text)
-                return ChatResponse(
-                    conversation_id=conversation_id,
-                    response=follow_up.text,
-                    tool_call=tool_call,
-                    model_role=model_role,
-                )
-
-    return ChatResponse(conversation_id=conversation_id, tool_call=tool_call, model_role=model_role)
-
-
-async def _run_planned_chat(
-    siris: SirisAI,
-    conversation_id: str,
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None,
-    llm_client: LLMClient,
-    model_role: str,
-    max_steps: int,
-) -> ChatResponse:
-    """The `request.use_planner=True` path of POST /chat: run the planner
-    (app/planning/planner.py) instead of at most one tool call, persist
-    every step it took, and shape the response the same way a
-    ConfirmationRequired/failed/successful single tool call already is."""
-    try:
-        plan_result = await Planner(max_steps=max_steps).run(siris, conversation_id, messages, tools, llm_client)
-    except Exception:
-        logger.exception("Planner's LLM generate() failed")
-        raise HTTPException(status_code=502, detail="LLM backend call failed.") from None
-
-    for step in plan_result.steps:
-        siris.conversation.add_message(
-            conversation_id, role="tool", content=json.dumps(step.result), tool_name=step.name, tool_arguments=step.arguments
-        )
-    plan = [ToolCallResult(name=s.name, arguments=s.arguments, result=s.result) for s in plan_result.steps] or None
-
-    if plan_result.pending_confirmation:
-        name, arguments = plan_result.pending_confirmation
-        return ChatResponse(
-            conversation_id=conversation_id,
-            plan=plan,
-            confirmation_required=PendingToolCall(name=name, arguments=arguments),
-            model_role=model_role,
-        )
-
-    if plan_result.error:
-        status_code = 403 if plan_result.permission_denied else 502
-        raise HTTPException(status_code=status_code, detail=plan_result.error)
-
-    if plan_result.final_text:
-        siris.conversation.add_message(conversation_id, role="assistant", content=plan_result.final_text)
-
-    return ChatResponse(conversation_id=conversation_id, response=plan_result.final_text, plan=plan, model_role=model_role)
 
 
 @router.post("/chat")
@@ -346,45 +240,16 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     if conversation_id is None or not siris.conversation.conversation_exists(conversation_id):
         conversation_id = siris.conversation.create_conversation()
 
-    siris.conversation.add_message(conversation_id, role="user", content=request.prompt)
-
-    messages = _load_messages(siris, conversation_id)
-
-    if request.use_context:
-        context_text = siris.context.build(siris, request.prompt)
-        if context_text:
-            system_message = {"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"}
-            messages = [system_message, *messages]
-
-    tools = siris.available_tool_specs() if request.use_tools else None
-
-    assert siris.model_router is not None
-    model_role, llm_client = siris.model_router.pick(siris.llm, request.prompt, role=request.model_role)
-
-    if request.use_planner:
-        return await _run_planned_chat(siris, conversation_id, messages, tools, llm_client, model_role, request.max_plan_steps)
-
-    try:
-        result = await llm_client.generate(messages, tools=tools)
-    except Exception:
-        logger.exception("LLM generate() failed")
-        raise HTTPException(status_code=502, detail="LLM backend call failed.") from None
-
-    if result.tool_calls:
-        call = result.tool_calls[0]
-        return await _execute_tool_call(
-            siris,
-            conversation_id,
-            call.name,
-            call.arguments,
-            confirmed=False,
-            model_role=model_role,
-            messages=messages,
-            llm_client=llm_client,
-        )
-
-    siris.conversation.add_message(conversation_id, role="assistant", content=result.text)
-    return ChatResponse(conversation_id=conversation_id, response=result.text, model_role=model_role)
+    result = await Cortex(max_plan_steps=request.max_plan_steps).process(
+        siris,
+        conversation_id,
+        request.prompt,
+        use_context=request.use_context,
+        use_tools=request.use_tools,
+        use_planner=request.use_planner,
+        model_role=request.model_role,
+    )
+    return _shape_response(result)
 
 
 class ConfirmToolRequest(BaseModel):
@@ -402,17 +267,8 @@ async def confirm_tool_call(request: ConfirmToolRequest, siris: SirisAI = Depend
     service behind SIRISAI_API_KEY, not a multi-tenant approval queue)."""
     if not siris.conversation.conversation_exists(request.conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    messages = _load_messages(siris, request.conversation_id)
-    return await _execute_tool_call(
-        siris,
-        request.conversation_id,
-        request.tool_name,
-        request.arguments,
-        confirmed=True,
-        messages=messages,
-        llm_client=siris.llm,
-        trigger="chat: user explicitly confirmed a previously-proposed action",
-    )
+    result = await Cortex().confirm(siris, request.conversation_id, request.tool_name, request.arguments)
+    return _shape_response(result)
 
 
 class MessageResponse(BaseModel):
