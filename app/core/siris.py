@@ -57,6 +57,7 @@ from app.plugins.builtin.goals import (
 from app.plugins.builtin.hermes import HermesRunTaskTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
+    HomeAssistantGetLogbookTool,
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
 )
@@ -260,6 +261,7 @@ class SirisAI:
             self.tools.register(HomeAssistantListEntitiesTool(self._home_assistant_client))
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
             self.tools.register(HomeAssistantCallServiceTool(self._home_assistant_client, self.events))
+            self.tools.register(HomeAssistantGetLogbookTool(self._home_assistant_client))
 
         # Plex before Docker on purpose: DockerRestartContainerTool's
         # dry_run() optionally reports active Plex sessions a restart

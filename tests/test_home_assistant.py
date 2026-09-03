@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 
 import httpx
 
@@ -8,6 +9,7 @@ from app.home_assistant.client import HomeAssistantClient
 from app.memory.events import EventMemoryStore
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
+    HomeAssistantGetLogbookTool,
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
 )
@@ -16,6 +18,7 @@ _HOME_ASSISTANT_TOOL_NAMES = {
     "home_assistant_list_entities",
     "home_assistant_get_state",
     "home_assistant_call_service",
+    "home_assistant_get_logbook",
 }
 
 
@@ -131,4 +134,70 @@ def test_call_service_logs_an_event_without_entity_id() -> None:
     logged = events.recent_events(limit=1)
     assert logged[0]["description"] == "homeassistant.restart"
     assert logged[0]["entity_name"] is None
+    client.close()
+
+
+# -- get_logbook / home_assistant_get_logbook ("why did X happen", not just
+# current state -- see the README's write-up on the SirisAI vision doc)
+
+
+def test_get_logbook_hits_timestamped_path_and_forwards_entity_filter() -> None:
+    since = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == f"/api/logbook/{since.isoformat()}"
+        assert request.url.params["entity"] == "light.hallway"
+        return httpx.Response(
+            200,
+            json=[{"when": "2026-01-01T12:30:00+00:00", "name": "Hallway light", "message": "turned on"}],
+        )
+
+    client = _mock_client(handler)
+    result = client.get_logbook(entity_id="light.hallway", since=since)
+    assert result == [{"when": "2026-01-01T12:30:00+00:00", "name": "Hallway light", "message": "turned on"}]
+    client.close()
+
+
+def test_get_logbook_omits_entity_filter_and_timestamp_when_not_given() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/logbook"
+        assert "entity" not in request.url.params
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    client.get_logbook()
+    client.close()
+
+
+def test_home_assistant_get_logbook_tool_defaults_to_24_hours_back() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["entity"] = request.url.params.get("entity")
+        return httpx.Response(200, json=[{"message": "turned on"}])
+
+    client = _mock_client(handler)
+    tool = HomeAssistantGetLogbookTool(client)
+    result = tool.run()
+
+    assert result == [{"message": "turned on"}]
+    assert seen["entity"] is None
+    # a timestamped path was used (default hours=24 always passes a `since`)
+    assert str(seen["path"]).startswith("/api/logbook/")
+    client.close()
+
+
+def test_home_assistant_get_logbook_tool_forwards_entity_id_and_hours() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["entity"] = request.url.params.get("entity")
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    tool = HomeAssistantGetLogbookTool(client)
+    tool.run(entity_id="light.hallway", hours=6)
+
+    assert seen["entity"] == "light.hallway"
     client.close()
