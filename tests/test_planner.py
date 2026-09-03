@@ -7,7 +7,7 @@ from app.core.siris import SirisAI, get_siris
 from app.llm.base import LLMResponse, ToolCall
 from app.main import app
 from app.planning.planner import Planner
-from app.plugins.base import ConfirmationRequired
+from app.plugins.base import ConfirmationRequired, Tool, ToolPermission
 
 
 class _SequenceLLMClient:
@@ -200,5 +200,71 @@ def test_chat_without_planner_still_stops_at_one_tool_call(client: TestClient) -
         body = response.json()
         assert body["plan"] is None
         assert body["tool_call"]["name"] == "echo"
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+# -- Endpoint-level: POST /siris/chat/confirm continuing a plan (Cortex.confirm's
+# use_planner path) rather than just running one confirmed step and stopping.
+
+
+class _ConfirmRequiredTool(Tool):
+    name = "dangerous_action"
+    description = "Test tool requiring confirmation."
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}
+
+    def run(self, target: str = "", **kwargs: Any) -> Any:
+        return {"acted_on": target}
+
+
+class _FakePlannerConfirmThenContinueLLMClient:
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        self.call_count += 1
+        if self.call_count == 1:
+            return LLMResponse(tool_calls=[ToolCall(name="dangerous_action", arguments={"target": "prod-server"})])
+        if self.call_count == 2:
+            return LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "after confirm"})])
+        return LLMResponse(text="Plan complete.")
+
+    async def aclose(self) -> None:
+        pass
+
+
+def test_chat_confirm_with_use_planner_continues_the_plan_over_http(client: TestClient) -> None:
+    fake_siris = _override_llm(_FakePlannerConfirmThenContinueLLMClient())
+    if fake_siris.tools.get("dangerous_action") is None:
+        fake_siris.tools.register(_ConfirmRequiredTool())
+    try:
+        first = client.post("/siris/chat", json={"prompt": "do the risky thing then echo", "use_planner": True})
+        assert first.status_code == 200
+        first_body = first.json()
+        assert first_body["tool_call"] is None
+        assert first_body["plan"] is None  # nothing ran yet -- stopped immediately for confirmation
+        assert first_body["confirmation_required"] == {"name": "dangerous_action", "arguments": {"target": "prod-server"}}
+        conversation_id = first_body["conversation_id"]
+
+        confirm = client.post(
+            "/siris/chat/confirm",
+            json={
+                "conversation_id": conversation_id,
+                "tool_name": "dangerous_action",
+                "arguments": {"target": "prod-server"},
+                "use_planner": True,
+            },
+        )
+        assert confirm.status_code == 200
+        confirm_body = confirm.json()
+        assert [step["name"] for step in confirm_body["plan"]] == ["dangerous_action", "echo"]
+        assert confirm_body["response"] == "Plan complete."
+        assert confirm_body["confirmation_required"] is None
+
+        history = client.get(f"/siris/conversations/{conversation_id}").json()
+        assert [m["role"] for m in history] == ["user", "tool", "tool", "assistant"]
     finally:
         app.dependency_overrides.pop(get_siris, None)

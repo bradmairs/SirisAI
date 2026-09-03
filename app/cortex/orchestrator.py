@@ -130,20 +130,62 @@ class Cortex:
         return CortexResult(conversation_id=conversation_id, response=result.text, model_role=resolved_role)
 
     async def confirm(
-        self, siris: "SirisAI", conversation_id: str, name: str, arguments: dict[str, Any]
+        self, siris: "SirisAI", conversation_id: str, name: str, arguments: dict[str, Any], *, use_planner: bool = False
     ) -> CortexResult:
-        """Actually run a tool call a previous `process()` result flagged as
-        `pending_confirmation` -- the human has now explicitly approved it."""
+        """Actually run a tool call a previous result flagged as
+        `pending_confirmation` -- the human has now explicitly approved it.
+
+        `use_planner` is for when that confirmation came from a planner run
+        that stopped mid-plan (the original response carried `plan` rather
+        than `tool_call` -- see `PlanResult.pending_confirmation`): rather
+        than this turn ending after just the one confirmed step, the
+        confirmed tool's result is fed into the same kind of loop that
+        stopped for it, and `Planner.run()` picks up from there -- further
+        tool calls, another `pending_confirmation` if one of those also
+        needs approval, or a final answer. `plan` on the result returned is
+        the confirmed step followed by whatever the continuation executed
+        (this turn's work, same as `process()`'s `plan` is this turn's --
+        the earlier steps from before the confirmation are still visible
+        via GET /siris/conversations/{id}, not repeated here).
+
+        Without `use_planner` (default), behavior is unchanged from before
+        this: the confirmed tool runs, gets one follow-up call for a final
+        answer, and the turn ends there -- same as confirming a single
+        non-planned tool call always has."""
         messages = self._load_messages(siris, conversation_id)
-        return await self._run_single_tool(
+        confirmed = await self._run_single_tool(
             siris,
             conversation_id,
             name,
             arguments,
             confirmed=True,
-            messages=messages,
-            llm_client=siris.llm,
+            messages=None if use_planner else messages,
+            llm_client=None if use_planner else siris.llm,
             trigger="chat: user explicitly confirmed a previously-proposed action",
+        )
+        if not use_planner or confirmed.error or confirmed.tool_call is None or siris.llm is None:
+            return confirmed
+
+        continuation_messages = [
+            *messages,
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
+            },
+            {"role": "tool", "content": json.dumps(confirmed.tool_call.result)},
+        ]
+        rest = await self._run_planned(
+            siris, conversation_id, continuation_messages, siris.available_tool_specs(), siris.llm, "general"
+        )
+        return CortexResult(
+            conversation_id=conversation_id,
+            response=rest.response,
+            plan=[confirmed.tool_call, *rest.plan],
+            pending_confirmation=rest.pending_confirmation,
+            model_role=rest.model_role,
+            error=rest.error,
+            permission_denied=rest.permission_denied,
         )
 
     @staticmethod

@@ -164,10 +164,12 @@ class ChatResponse(BaseModel):
     # app/llm/router.py) -- "general" unless a "fast" model is configured
     # and either requested or selected by the routing policy.
     model_role: str = "general"
-    # Set instead of tool_call when request.use_planner was true and at
-    # least one step ran -- every tool call the planner made this turn, in
-    # order (see app/planning/planner.py). Empty/absent for a plan that
-    # produced a final answer without needing any tool.
+    # Set instead of tool_call when request.use_planner was true (on
+    # /siris/chat) or use_planner was true on a /siris/chat/confirm that
+    # continued a plan past a confirmed step, and at least one call ran --
+    # every tool call made this turn, in order (see
+    # app/planning/planner.py). Empty/absent for a plan that produced a
+    # final answer without needing any tool.
     plan: list[ToolCallResult] | None = None
 
 
@@ -258,6 +260,14 @@ class ConfirmToolRequest(BaseModel):
     conversation_id: str
     tool_name: str
     arguments: dict[str, Any]
+    # Set true when this confirmation came from a use_planner=true turn
+    # that stopped mid-plan (the response that carried `confirmation_required`
+    # also carried `plan`, not `tool_call`) -- continues the rest of the
+    # plan after the confirmed step runs, instead of ending the turn there.
+    # False by default: confirming a single non-planned tool call behaves
+    # exactly as before.
+    use_planner: bool = False
+    max_plan_steps: int = 5
 
 
 @router.post("/chat/confirm")
@@ -266,10 +276,17 @@ async def confirm_tool_call(request: ConfirmToolRequest, siris: SirisAI = Depend
     `confirmation_required` -- re-submit the exact name/arguments it
     returned. There's no server-side pending-action state to look up by id;
     the client is trusted to relay what it was shown (this is a single-user
-    service behind SIRISAI_API_KEY, not a multi-tenant approval queue)."""
+    service behind SIRISAI_API_KEY, not a multi-tenant approval queue).
+
+    Pass `use_planner: true` if the original response also carried `plan`
+    (i.e. it came from a use_planner=true turn that stopped mid-plan for
+    this confirmation) to continue the rest of the plan afterward instead
+    of ending the turn after just this one step -- see Cortex.confirm()."""
     if not siris.conversation.conversation_exists(request.conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    result = await Cortex().confirm(siris, request.conversation_id, request.tool_name, request.arguments)
+    result = await Cortex(max_plan_steps=request.max_plan_steps).confirm(
+        siris, request.conversation_id, request.tool_name, request.arguments, use_planner=request.use_planner
+    )
     return _shape_response(result)
 
 
