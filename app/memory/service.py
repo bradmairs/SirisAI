@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from app.core.user_context import get_current_user_id
 from app.db.models import MemoryEntry
 
 
@@ -20,17 +21,24 @@ class MemoryStore:
     def __init__(self, session_factory: sessionmaker) -> None:
         self._session_factory = session_factory
 
-    def remember(self, content: str) -> dict[str, Any]:
+    def remember(self, content: str, *, user_id: str | None = None) -> dict[str, Any]:
+        user_id = user_id or get_current_user_id()
         with self._session_factory() as session:
-            entry = MemoryEntry(content=content)
+            entry = MemoryEntry(content=content, user_id=user_id)
             session.add(entry)
             session.commit()
             session.refresh(entry)
             return self._serialize(entry)
 
-    def recall(self, query: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    def recall(self, query: str | None = None, limit: int = 20, *, user_id: str | None = None) -> list[dict[str, Any]]:
+        user_id = user_id or get_current_user_id()
         with self._session_factory() as session:
-            stmt = select(MemoryEntry).order_by(MemoryEntry.created_at.desc()).limit(limit)
+            stmt = (
+                select(MemoryEntry)
+                .where(MemoryEntry.user_id == user_id)
+                .order_by(MemoryEntry.created_at.desc())
+                .limit(limit)
+            )
             if query:
                 stmt = stmt.where(MemoryEntry.content.ilike(f"%{query}%"))
             entries = session.scalars(stmt).all()
@@ -46,12 +54,16 @@ class MemoryStore:
 
             return [self._serialize(entry) for entry in entries]
 
-    def list_all(self) -> list[dict[str, Any]]:
-        """Every memory, for the self_maintenance_check skill -- unlike
-        recall(), does NOT count as a use (it's an inspection pass over
-        everything, not the model actually recalling something relevant)."""
+    def list_all(self, *, user_id: str | None = None) -> list[dict[str, Any]]:
+        """Every memory belonging to one user, for the self_maintenance_check
+        skill -- unlike recall(), does NOT count as a use (it's an
+        inspection pass over everything, not the model actually recalling
+        something relevant)."""
+        user_id = user_id or get_current_user_id()
         with self._session_factory() as session:
-            stmt = select(MemoryEntry).order_by(MemoryEntry.created_at.desc())
+            stmt = (
+                select(MemoryEntry).where(MemoryEntry.user_id == user_id).order_by(MemoryEntry.created_at.desc())
+            )
             return [self._serialize(entry) for entry in session.scalars(stmt).all()]
 
     @staticmethod

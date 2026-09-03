@@ -16,6 +16,11 @@ class MemoryEntry(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     content: Mapped[str] = mapped_column(Text)
+    # Multi-user recognition (milestone 46) -- see app/core/user_context.py.
+    # Defaults to the single "default" user, so an unconfigured deployment
+    # (no X-Siris-User header ever sent) behaves exactly as before this
+    # column existed.
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     # Usage tracking (milestone 30) -- bumped every time this entry is
     # returned by MemoryStore.recall(), so the self_maintenance_check
@@ -156,6 +161,9 @@ class Goal(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="active")
+    # Multi-user recognition (milestone 46) -- see MemoryEntry.user_id
+    # above and app/core/user_context.py; same default, same reasoning.
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
