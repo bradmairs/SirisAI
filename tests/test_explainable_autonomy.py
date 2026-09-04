@@ -155,6 +155,8 @@ def test_proactive_check_notify_call_carries_trigger_and_evidence() -> None:
                 return {"healthy": True, "warnings": [], "overdue_events": []}
             if name == "goal_check_in":
                 return {"healthy": True, "warnings": [], "stale_goals": []}
+            if name == "new_device_alert":
+                return {"checked": True, "new_devices": [], "warnings": []}
             return {"sent": True}
 
     from app.api.routes.proactive import run_health_check_and_notify

@@ -27,6 +27,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.docker.client import DockerClient
 from app.goals.service import GoalStore
+from app.network_devices.service import KnownDeviceStore
 from app.hermes.client import HermesClient
 from app.home_assistant.client import HomeAssistantClient
 from app.integrations.openapi import DiscoveredOperation, discover_get_operations
@@ -103,6 +104,7 @@ from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_timing import EventTimingSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
+from app.skills.builtin.new_device_alert import NewDeviceAlertSkill
 from app.skills.builtin.presence import PresenceSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
@@ -222,6 +224,7 @@ class SirisAI:
     capability_gaps: CapabilityGapStore = field(default_factory=lambda: CapabilityGapStore(SessionLocal))
     routines: RoutineStore = field(default_factory=lambda: RoutineStore(SessionLocal))
     satellites: SatelliteStore = field(default_factory=lambda: SatelliteStore(SessionLocal))
+    known_devices: KnownDeviceStore = field(default_factory=lambda: KnownDeviceStore(SessionLocal))
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
     integrations: IntegrationStore = field(default_factory=lambda: IntegrationStore(SessionLocal))
     conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
@@ -438,6 +441,7 @@ class SirisAI:
         self.tools.register(SkillTool(EventTimingSkill(), self))
         self.tools.register(SkillTool(DailyBriefingSkill(), self))
         self.tools.register(SkillTool(GoalCheckInSkill(), self))
+        self.tools.register(SkillTool(NewDeviceAlertSkill(), self))
 
     def _register_discovered_integrations(self) -> None:
         """Re-registers every persisted integration's tools (milestone 32)

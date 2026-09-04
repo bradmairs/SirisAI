@@ -2215,6 +2215,80 @@ provider for the same capability actually exists to design against.
     server -- confirmed by inspecting what the mock server actually
     received, not just a 200 OK.
 
+55. **Done** -- Unrecognized network device alert. The last pick from
+    the same brainstorm, with a real detour: the original plan was to
+    build this on `unifi_list_clients`, but reading `app/unifi/client.py`
+    first turned up that it always raises `NotImplementedError` -- a
+    parallel session's live test against a real controller found the
+    configured API key only authenticates against UniFi's cloud Site
+    Manager API, which has no client-listing endpoint at all (only a
+    local controller's own Integration API exposes that). Building a new
+    feature on a call that's confirmed to always fail wasn't worth doing
+    quietly, so this got a mid-flight redesign rather than silently
+    inheriting a foundation that was already known-broken -- and it
+    surfaces a real, separate problem worth knowing: `presence_check`
+    (42) calls the exact same `unifi_list_clients`, so it's likely
+    non-functional too, against this same real deployment, independent
+    of this milestone.
+
+    Put to the user rather than guessed: build this on Home Assistant's
+    `device_tracker` domain instead (a working, already-verified path,
+    if HA is tracking devices at all -- via a UniFi HACS integration,
+    ping, or anything else), scaffold it anyway against the broken UniFi
+    path, or skip it. Answer: Home Assistant.
+
+    New `NewDeviceAlertSkill` (`new_device_alert`) composes
+    `home_assistant_list_entities` (domain='device_tracker') with a new
+    small store, `KnownDeviceStore` (`app/network_devices/service.py`,
+    `known_network_devices` table) -- same "own small purpose-built
+    store" shape as `SatelliteStore`/`GoalStore`, global rather than
+    per-user (milestone 46) for the same reason `SatelliteStore` is:
+    which devices are on the household network is physical
+    infrastructure, not conversation content scoped to whoever's
+    chatting. Persisted rather than an in-memory set on purpose -- this
+    process restarts, and an in-memory set would forget every known
+    device on every restart and flag the whole household as "new" the
+    next time it ran. The first-ever check (same "baseline, not a guess"
+    pattern `PresenceSkill` already established) records what's there
+    instead of treating everything as newly arrived; only a device that
+    appears *after* a baseline exists gets flagged, and a previously-known
+    device that's currently absent (out of range, powered off) is left
+    alone -- silently staying in the known set -- rather than treated as
+    a departure worth reporting, since that's not what this milestone is
+    for.
+
+    Composed into `POST /siris/proactive/check` alongside
+    `server_health_check`/`event_timing_check`/`goal_check_in`, same
+    NotificationManager (26) pass as the rest -- a new `"network"`
+    category classification was added for its warning shape. Deliberately
+    never escalates to `critical`/`urgent` the way a `Container 'X' is
+    exited` warning can: a guest's phone or a new IoT device is a
+    plausible, non-alarming explanation, not confirmed trouble, so
+    "notify" (surfaced, not buried, but not breaking through
+    do-not-disturb either) is the honest default given that
+    false-positive rate.
+
+    Verified: full suite (434 passed, up from 423) covering
+    `KnownDeviceStore` directly (an isolated in-memory DB, same pattern
+    as `test_satellites.py`), the skill (baseline establishment, a new
+    device flagged once a baseline exists, a disappeared device raising
+    no warning, graceful no-op when Home Assistant isn't configured), and
+    its composition into `POST /siris/proactive/check` (the new field
+    present in the response, a `"network"`-category notification
+    produced). Two pre-existing test files
+    (`tests/test_proactive.py`, `tests/test_explainable_autonomy.py`)
+    needed their own fake `siris.run_tool()` stubs extended for the new
+    composed call -- caught immediately by the full suite, not shipped
+    broken. Live-verified against a real `uvicorn` process and a real
+    mock Home Assistant server with a mutable device list: the first
+    `POST /siris/proactive/check` established a baseline with zero
+    warnings, adding a new `device_tracker` entity to the mock server and
+    checking again correctly flagged it (`category: "network"`,
+    `action: "notify"`, not `"urgent"`), and a third check with no
+    further changes went quiet again -- confirming the full
+    baseline -> flag -> steady-state cycle against a real running
+    process, not just mocked tool calls.
+
 ## Running locally
 
 ```bash
