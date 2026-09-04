@@ -4,9 +4,21 @@
 Synchronous on purpose: `Tool.run()` is a synchronous interface (see
 app/plugins/base.py) and these are cheap, local-network requests, so there's
 no need to bridge async/sync just for this.
+
+`create_automation()` (milestone 54) is the one method here that isn't on
+the documented REST API page above -- there's no public endpoint to
+persist a new automation. It uses Home Assistant's config-editor API
+(`/api/config/automation/config/<id>`, the same endpoint the frontend's
+own automation editor calls), which takes the same bearer-token auth as
+everything else here and is widely used by community tooling, but isn't
+part of the officially documented REST surface -- confirm it against a
+real instance before relying on it (see the README's milestone 54
+writeup for exactly what is and isn't verified).
 """
 
+import time
 from datetime import datetime
+from typing import Any
 
 import httpx
 
@@ -52,6 +64,49 @@ class HomeAssistantClient:
         response = self._client.get(path, params={"entity": entity_id} if entity_id else None)
         response.raise_for_status()
         return response.json()
+
+    def create_automation(
+        self,
+        alias: str,
+        trigger: list[dict[str, Any]],
+        action: list[dict[str, Any]],
+        condition: list[dict[str, Any]] | None = None,
+        mode: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        """Creates a new automation and returns Home Assistant's response
+        with `automation_id` merged in (not something HA's own response
+        includes -- there's no other way to hand the caller back which id
+        got used).
+
+        `trigger`/`condition`/`action` are passed through as-is rather
+        than validated against Home Assistant's own trigger/condition/
+        action schema -- that schema is exactly the kind of thing an LLM
+        already knows well from training data (it's extensively
+        documented, public YAML), and re-encoding it here as a rigid tool
+        schema risks this codebase's own copy drifting from Home
+        Assistant's, or missing a trigger/condition/action type this
+        codebase's author never thought to include. Home Assistant's own
+        config validation is still the real backstop either way -- a
+        malformed payload gets rejected by HA, not silently accepted.
+
+        The automation's id is a fresh millisecond timestamp, the same
+        convention Home Assistant's own UI uses when you create a new
+        automation there -- colliding with an existing one (and silently
+        overwriting it) is realistically not going to happen."""
+        automation_id = str(int(time.time() * 1000))
+        config: dict[str, Any] = {"alias": alias, "trigger": trigger, "action": action}
+        if condition:
+            config["condition"] = condition
+        if mode:
+            config["mode"] = mode
+        if description:
+            config["description"] = description
+        response = self._client.post(f"/api/config/automation/config/{automation_id}", json=config)
+        response.raise_for_status()
+        result = response.json()
+        result["automation_id"] = automation_id
+        return result
 
     def close(self) -> None:
         self._client.close()

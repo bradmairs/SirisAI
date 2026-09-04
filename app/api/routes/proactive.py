@@ -14,6 +14,11 @@ entry draws still holds. `event_timing_check` and `goal_check_in`
 (app/skills/builtin/, later hardening passes) compose in the same way --
 their warnings go through the same NotificationManager pass as
 server_health_check's.
+
+POST /briefing (milestone 53) also speaks its summary aloud via
+speak_in_current_room, alongside the push notification -- a second,
+independent delivery channel, not a replacement; either, both, or
+neither fire depending on what's configured/currently reachable.
 """
 
 from typing import Any
@@ -116,18 +121,26 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
 class BriefingResponse(BaseModel):
     result: dict[str, Any]
     notified: bool
+    # Voice delivery (milestone 53): whether the summary was actually
+    # spoken aloud, not just whether speaking was attempted --
+    # speak_in_current_room returns sent: False (not an error) when no
+    # satellite is currently known, e.g. nobody's home to hear it.
+    spoken: bool
 
 
 @router.post("/briefing", response_model=BriefingResponse)
 def run_daily_briefing(siris: SirisAI = Depends(get_siris)) -> BriefingResponse:
-    """Run daily_briefing (milestone 39) and send its summary as one
-    notification -- if a notify channel is configured (SIRISAI_NTFY_TOPIC).
-    Meant to be triggered on a schedule from outside this process, same as
-    POST /siris/proactive/check -- see the README for a crontab example.
-    Unlike /check, always sends when a channel is configured (a briefing
-    is the point of calling this at all, not a conditional alert), and
-    doesn't go through NotificationManager -- there's nothing to score or
-    correlate, `daily_briefing` already composed one summary."""
+    """Run daily_briefing (milestone 39) and deliver its summary through
+    whatever channels are configured -- if a notify channel is configured
+    (SIRISAI_NTFY_TOPIC), and/or a voice satellite is currently known
+    (milestone 53, via speak_in_current_room), always sends/speaks to
+    both independently. Meant to be triggered on a schedule from outside
+    this process, same as POST /siris/proactive/check -- see the README
+    for a crontab example. Unlike /check, always sends/speaks when a
+    channel is configured (a briefing is the point of calling this at
+    all, not a conditional alert), and doesn't go through
+    NotificationManager -- there's nothing to score or correlate,
+    `daily_briefing` already composed one summary."""
     trigger = "proactive check: automated schedule (see POST /siris/proactive/briefing)"
     result = siris.run_tool("daily_briefing", {}, trigger=trigger)
 
@@ -138,7 +151,14 @@ def run_daily_briefing(siris: SirisAI = Depends(get_siris)) -> BriefingResponse:
         )
         notified = True
 
-    return BriefingResponse(result=result, notified=notified)
+    spoken = False
+    if siris.tools.get("speak_in_current_room") is not None:
+        speak_result = siris.run_tool(
+            "speak_in_current_room", {"message": result["summary"]}, trigger=trigger, evidence=result
+        )
+        spoken = bool(speak_result.get("sent"))
+
+    return BriefingResponse(result=result, notified=notified, spoken=spoken)
 
 
 class PresenceCheckResponse(BaseModel):

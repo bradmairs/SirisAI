@@ -14,6 +14,16 @@ same division of responsibility milestone 19 already drew between
 (app/db/models.py) has no due-date field -- this surfaces what's still
 *active* instead, an honest match for what the data actually supports
 rather than inventing a due-date concept this milestone doesn't need.
+
+Recent Plex activity (milestone 53) is the same idea applied to Tautulli:
+the original brainstorm framing was "overnight activity," but
+`tautulli_recent_history`'s `date` field is whatever Tautulli's API
+hands back (see app/tautulli/client.py -- never parsed into a real
+datetime anywhere in this codebase), so filtering to an "overnight"
+window would mean inventing a time-parsing rule this milestone can't
+actually verify against a real instance. Surfacing the last few plays
+as-is, same "recent" framing `tautulli_recent_history` already uses, is
+the honest match for what the data supports.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -27,9 +37,9 @@ if TYPE_CHECKING:
 class DailyBriefingSkill(Skill):
     name = "daily_briefing"
     description = (
-        "Compose a summary of the day: weather, upcoming calendar events, any health or "
-        "recurring-event warnings, and active goals. Read-only -- doesn't send anything on its "
-        "own; POST /siris/proactive/briefing does that, this just builds the content."
+        "Compose a summary of the day: weather, upcoming calendar events, recent Plex activity, any "
+        "health or recurring-event warnings, and active goals. Read-only -- doesn't send anything on "
+        "its own; POST /siris/proactive/briefing does that, this just builds the content."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
 
@@ -52,6 +62,12 @@ class DailyBriefingSkill(Skill):
         if siris.tools.get("calendar_upcoming_events") is not None:
             try:
                 briefing["calendar"] = siris.run_tool("calendar_upcoming_events", {"days_ahead": 1})
+            except Exception:
+                pass
+
+        if siris.tools.get("tautulli_recent_history") is not None:
+            try:
+                briefing["plex_recent_activity"] = siris.run_tool("tautulli_recent_history", {"length": 5})
             except Exception:
                 pass
 
@@ -78,6 +94,14 @@ class DailyBriefingSkill(Skill):
                 lines.append(f"Today: {events}.")
             else:
                 lines.append("Nothing on the calendar today.")
+
+        plex_activity = briefing.get("plex_recent_activity")
+        if plex_activity is not None:
+            if plex_activity:
+                watched = "; ".join(f"{a['title']} ({a['user']})" for a in plex_activity)
+                lines.append(f"Recently watched: {watched}.")
+            else:
+                lines.append("Nothing recently watched.")
 
         warnings = briefing["warnings"]
         lines.append(f"{len(warnings)} warning(s): {'; '.join(warnings)}" if warnings else "All systems normal.")

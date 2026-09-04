@@ -132,6 +132,78 @@ class HomeAssistantCallServiceTool(Tool):
         return result
 
 
+class HomeAssistantCreateAutomationTool(Tool):
+    name = "home_assistant_create_automation"
+    description = (
+        "Create a new Home Assistant automation -- a standing rule that keeps firing on its own "
+        "(e.g. 'if motion is detected and it's dark, turn on the hallway light'), not a one-off "
+        "action. trigger/condition/action use Home Assistant's own automation YAML shape (the same "
+        "one used in automations.yaml or the UI's 'edit in YAML' view) -- pass them through as you "
+        "already know them, they aren't re-validated here. Use home_assistant_list_entities first "
+        "to find real entity_ids for the trigger/condition/action to reference. Use "
+        "home_assistant_list_entities with domain='automation' to see automations that already exist."
+    )
+    # CONFIRM_REQUIRED, and deliberately not eligible for the
+    # SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS allowlist that
+    # HomeAssistantCallServiceTool.needs_confirmation() checks (this is a
+    # separate Tool class, so it just gets Tool.needs_confirmation()'s
+    # default of True, unconditionally) -- creating a standing automation
+    # is a different order of consequence than one call_service
+    # invocation. A one-off "turn on the kitchen light" being allowlisted
+    # says nothing about whether "always turn on the kitchen light when
+    # motion is detected, forever, until someone notices and removes it"
+    # should skip a human actually looking at it first.
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "alias": {"type": "string", "description": "The automation's display name in Home Assistant."},
+            "trigger": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "One or more Home Assistant triggers, e.g. "
+                "[{'platform': 'state', 'entity_id': 'binary_sensor.hallway_motion', 'to': 'on'}].",
+            },
+            "action": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "One or more Home Assistant actions, e.g. "
+                "[{'service': 'light.turn_on', 'target': {'entity_id': 'light.hallway'}}].",
+            },
+            "condition": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Optional conditions that must also hold, e.g. "
+                "[{'condition': 'sun', 'after': 'sunset'}].",
+            },
+            "mode": {
+                "type": "string",
+                "description": "Optional: how overlapping runs are handled -- 'single' (default), "
+                "'restart', 'queued', or 'parallel'.",
+            },
+            "description": {"type": "string", "description": "Optional longer description of what this does."},
+        },
+        "required": ["alias", "trigger", "action"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(
+        self,
+        alias: str = "",
+        trigger: list[dict[str, Any]] | None = None,
+        action: list[dict[str, Any]] | None = None,
+        condition: list[dict[str, Any]] | None = None,
+        mode: str | None = None,
+        description: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        return self._client.create_automation(
+            alias, trigger or [], action or [], condition=condition, mode=mode, description=description
+        )
+
+
 class HomeAssistantGetLogbookTool(Tool):
     name = "home_assistant_get_logbook"
     description = (
