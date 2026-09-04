@@ -106,12 +106,12 @@ class Settings(BaseSettings):
     plex_base_url: str = ""
     plex_token: str = ""
 
-    # UniFi (app/unifi/, app/plugins/builtin/unifi.py) -- UniFi's cloud
-    # Site Manager API (api.ui.com), API-key auth (see app/unifi/client.py
-    # for why not the local controller's own Integration API). Empty
+    # UniFi (app/unifi/, app/plugins/builtin/unifi.py) -- a local
+    # controller's own "Integration API", API-key auth (see
+    # app/unifi/client.py for why not UniFi's cloud account API). Empty
     # base_url or api_key = unifi_* tools aren't registered.
-    # unifi_verify_ssl only matters if base_url points at a local
-    # controller with a self-signed cert instead.
+    # unifi_verify_ssl=false for a self-hosted controller's usual
+    # self-signed cert.
     unifi_base_url: str = ""
     unifi_api_key: str = ""
     unifi_site: str = "default"

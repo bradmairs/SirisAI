@@ -1,19 +1,27 @@
-"""Thin client for UniFi's cloud "Site Manager API" (https://api.ui.com,
-API-key auth, generated at unifi.ui.com -> Settings -> API). Originally
-written against the local self-hosted controller's "Integration API"
-(/proxy/network/integration/v1/...) per developer.ui.com, but live-tested
-against a real controller (2026-09) and that path 401'd -- this
-controller's key only authenticates against the cloud API. Same key,
-different product: the Integration API is exposed by the controller
-itself; the Site Manager API is UI's own cloud backend, aggregating
-every console/site tied to the account. If a future controller's key
-turns out to work against the local Integration API instead, that's the
-one other shape to support -- this is still the one file to adjust.
+"""Thin client for a local UniFi controller's own "Integration API"
+(API-key auth, generated locally: the controller's own UI at its LAN IP
+-> Settings -> Control Plane -> Integrations -> Create API Key), per
+developer.ui.com/network/integration.
+
+Not the same key or product as UniFi's cloud "Site Manager API"
+(https://api.ui.com, generated at unifi.ui.com -> Settings -> API):
+that cloud key 401'd against this local API when first tried, and a
+genuine local key was needed instead (live-tested 2026-09, both against
+a real Cloud Gateway Ultra console). The cloud API is more limited too
+-- devices only, no live client list -- so the local API is strictly
+better when it's reachable, which it normally is for a homelab setup
+running SirisAI on the same LAN.
+
+Site scoping is real but indirect: the per-site endpoints below need the
+site's internal id (a UUID, e.g. from GET /sites), not the human-readable
+name/reference SIRISAI_UNIFI_SITE is configured with (default "default")
+-- passing that name directly in the URL 400s. Resolved once via
+`_resolve_site_id()` and cached for the client's lifetime.
 
 This is the least-verified integration in this tool library: exact paths
-can shift and there's no local sandbox to test against. Kept read-only
-for that reason -- a path mismatch fails loudly (404/401) rather than
-doing anything destructive.
+can shift across controller/UniFi OS versions. Kept read-only for that
+reason -- a path mismatch fails loudly (404/401/400) rather than doing
+anything destructive.
 """
 
 import httpx
@@ -29,13 +37,8 @@ class UniFiClient:
         verify_ssl: bool = True,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        # Unused for now -- the Site Manager API scopes by host/site id,
-        # not the local controller's site *name*, and a single-home
-        # account only ever has the one site anyway. Kept as a
-        # constructor param (rather than removed) so a future filtered
-        # call (GET /v1/devices?siteIds[]=...) is a small addition, not a
-        # signature change every caller has to follow.
         self._site = site
+        self._site_id: str | None = None
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
             timeout=timeout,
@@ -44,33 +47,43 @@ class UniFiClient:
             transport=transport,
         )
 
-    def list_devices(self) -> list[dict]:
-        # Response shape: {"data": [{"hostId": ..., "hostName": ...,
-        # "devices": [{"name", "model", "status", ...}, ...]}, ...]} --
-        # one entry per host/console on the account, each carrying its
-        # own device list; flatten into one list across all of them.
-        response = self._client.get("/v1/devices")
+    def _resolve_site_id(self) -> str:
+        if self._site_id is not None:
+            return self._site_id
+        response = self._client.get("/proxy/network/integration/v1/sites", params={"limit": 200})
         response.raise_for_status()
-        hosts = self._unwrap(response.json())
-        return [
-            {"name": item.get("name"), "model": item.get("model"), "state": item.get("status")}
-            for host in hosts
-            for item in host.get("devices", [])
-        ]
+        sites = self._unwrap(response.json())
+        for entry in sites:
+            if entry.get("internalReference") == self._site or entry.get("name") == self._site:
+                self._site_id = entry["id"]
+                return self._site_id
+        known = [entry.get("internalReference") or entry.get("name") for entry in sites]
+        raise ValueError(f"UniFi site '{self._site}' not found (known sites: {known})")
+
+    def list_devices(self) -> list[dict]:
+        site_id = self._resolve_site_id()
+        response = self._client.get(f"/proxy/network/integration/v1/sites/{site_id}/devices", params={"limit": 200})
+        response.raise_for_status()
+        items = self._unwrap(response.json())
+        return [{"name": item.get("name"), "model": item.get("model"), "state": item.get("state")} for item in items]
 
     def list_clients(self) -> list[dict]:
-        # No equivalent on the Site Manager API -- live client lists
-        # (who's currently connected) aren't exposed by UI's cloud
-        # backend, only by a local controller's own Integration API.
-        # Fail with a clear reason rather than a raw, confusing 404.
-        raise NotImplementedError(
-            "UniFi's cloud Site Manager API (api.ui.com) has no client-listing endpoint -- "
-            "only a local controller's own Integration API exposes live connected clients."
-        )
+        site_id = self._resolve_site_id()
+        response = self._client.get(f"/proxy/network/integration/v1/sites/{site_id}/clients", params={"limit": 200})
+        response.raise_for_status()
+        items = self._unwrap(response.json())
+        return [
+            {
+                "name": item.get("name") or item.get("hostname"),
+                "ip_address": item.get("ipAddress") or item.get("ip"),
+                "connected_at": item.get("connectedAt"),
+            }
+            for item in items
+        ]
 
     @staticmethod
     def _unwrap(data: object) -> list[dict]:
-        """The Site Manager API wraps list responses as {"data": [...]}."""
+        """The Integration API wraps list responses as {"data": [...]}."""
         if isinstance(data, dict):
             return data.get("data", [])
         return data if isinstance(data, list) else []
