@@ -12,8 +12,9 @@ link instead of surfacing as two separate, seemingly unrelated warnings.
 Classification here is deliberately simple keyword/pattern matching
 against known message shapes ("CPU usage is high: ...", "Container 'X'
 is exited", "Expected recurring event is overdue: ...", "Goal 'X' hasn't
-been updated ...", ...) -- server_health_check's (15) and, since later
-hardening passes, event_timing_check's and goal_check_in's -- not a
+been updated ...", "Unrecognized device connected: ...", ...) --
+server_health_check's (15) and, since later hardening passes,
+event_timing_check's, goal_check_in's, and new_device_alert's -- not a
 general NLP/anomaly detection system; confidence is always 1.0 because
 every warning reaching here already cleared its own deterministic
 threshold check, so nothing here ever lands on "ignore" either. A future
@@ -60,6 +61,7 @@ class NotificationManager:
         is_resource = warning.startswith(("CPU usage", "Memory usage", "Disk usage"))
         is_timing = warning.startswith("Expected recurring event is overdue")
         is_goal = warning.startswith("Goal '")
+        is_network = warning.startswith("Unrecognized device connected")
         category = (
             "docker"
             if is_docker
@@ -69,9 +71,17 @@ class NotificationManager:
             if is_timing
             else "goals"
             if is_goal
+            else "network"
+            if is_network
             else "other"
         )
 
+        # A "network" item never escalates to critical/urgent (only
+        # is_docker can) -- a guest's phone or a new IoT device is a
+        # plausible, non-alarming reason for this, not just a compromised
+        # network; "notify" (surfaced, not buried) without treating it as
+        # confirmed trouble is the honest default given that false-positive
+        # rate.
         critical = is_docker and any(state in warning for state in ("exited", "dead"))
         severity = "critical" if critical else "warning"
 

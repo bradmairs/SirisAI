@@ -318,3 +318,20 @@ class Integration(Base):
     auth_header_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     auth_header_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class KnownNetworkDevice(Base):
+    """A Home Assistant device_tracker entity_id NewDeviceAlertSkill (a
+    hardening pass) has already seen -- one row per device, so a later
+    check can tell "already known" from "just appeared" without keeping
+    that set anywhere in memory (this process restarts; SQLite doesn't).
+    Nothing beyond entity_id/first_seen_at is stored -- no friendly name,
+    no MAC -- since all this needs to answer is set membership; anything
+    richer belongs to Home Assistant's own device registry, not a copy of
+    it here."""
+
+    __tablename__ = "known_network_devices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_id: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

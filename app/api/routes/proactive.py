@@ -10,10 +10,10 @@ rather than joining every warning into one flat message, each warning is
 scored and correlated, and only "notify"/"urgent" items actually get
 pushed -- still deterministic scoring, not fuzzy LLM judgment, so the
 "stops well short of autonomous action" boundary this milestone's roadmap
-entry draws still holds. `event_timing_check` and `goal_check_in`
-(app/skills/builtin/, later hardening passes) compose in the same way --
-their warnings go through the same NotificationManager pass as
-server_health_check's.
+entry draws still holds. `event_timing_check`, `goal_check_in`, and
+`new_device_alert` (app/skills/builtin/, later hardening passes) compose
+in the same way -- their warnings go through the same NotificationManager
+pass as server_health_check's.
 
 POST /briefing (milestone 53) also speaks its summary aloud via
 speak_in_current_room, alongside the push notification -- a second,
@@ -47,11 +47,13 @@ class NotificationItemResponse(BaseModel):
 
 class HealthCheckResponse(BaseModel):
     result: dict[str, Any]
-    # event_timing_check's and goal_check_in's own output (hardening
-    # passes) -- composed alongside server_health_check the same way,
-    # their warnings feeding the same NotificationManager pass below.
+    # event_timing_check's, goal_check_in's, and new_device_alert's own
+    # output (hardening passes) -- composed alongside server_health_check
+    # the same way, their warnings feeding the same NotificationManager
+    # pass below.
     event_timing: dict[str, Any]
     goal_check_in: dict[str, Any]
+    new_device_alert: dict[str, Any]
     notified: bool
     notifications: list[NotificationItemResponse]
 
@@ -69,8 +71,8 @@ def _to_response(item: NotificationItem) -> NotificationItemResponse:
 
 @router.post("/check", response_model=HealthCheckResponse)
 def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCheckResponse:
-    """Run server_health_check, event_timing_check, and goal_check_in,
-    score and correlate whatever warnings any of them finds
+    """Run server_health_check, event_timing_check, goal_check_in, and
+    new_device_alert, score and correlate whatever warnings any of them finds
     (NotificationManager), and send one notification covering every
     "notify"/"urgent" item -- if a notify channel is configured
     (SIRISAI_NTFY_TOPIC) -- summarizing them. Meant to be triggered on a
@@ -88,8 +90,9 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
     result = siris.run_tool("server_health_check", {}, trigger=trigger)
     event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
     goal_check_in = siris.run_tool("goal_check_in", {}, trigger=trigger)
+    new_device_alert = siris.run_tool("new_device_alert", {}, trigger=trigger)
 
-    warnings = result["warnings"] + event_timing["warnings"] + goal_check_in["warnings"]
+    warnings = result["warnings"] + event_timing["warnings"] + goal_check_in["warnings"] + new_device_alert["warnings"]
     items = NotificationManager(siris.entities).summarize(warnings) if warnings else []
     to_send = [item for item in items if item.action in ("notify", "urgent")]
 
@@ -113,6 +116,7 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
         result=result,
         event_timing=event_timing,
         goal_check_in=goal_check_in,
+        new_device_alert=new_device_alert,
         notified=notified,
         notifications=[_to_response(i) for i in items],
     )
