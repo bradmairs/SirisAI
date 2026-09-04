@@ -2101,6 +2101,53 @@ provider for the same capability actually exists to design against.
     file: `PRAGMA journal_mode` reads back `wal`, and
     `sqlite_master` shows `ix_goals_created_at` present after startup.
 
+53. **Done** -- Richer, voice-delivered daily briefing. Direct follow-up
+    to a "what else fits the Jarvis concept" brainstorm: the cheapest,
+    highest-value idea on the table was composing what already exists
+    (`DailyBriefingSkill`, milestone 39, and `speak_in_current_room`,
+    milestone 48) rather than building anything new -- no new
+    integration, no new subsystem.
+
+    `DailyBriefingSkill` gained recent Plex activity via
+    `tautulli_recent_history`, registered only when Tautulli is
+    configured, same "enrichment, not the point -- an unreachable
+    backend shouldn't take the whole briefing down" try/except precedent
+    as weather and calendar. The original brainstorm framing was
+    "overnight activity," but Tautulli's `date` field is never parsed
+    into a real datetime anywhere in this codebase (app/tautulli/client.py
+    passes it through as-is) -- filtering to an "overnight" window would
+    mean inventing a time-parsing rule this milestone can't verify
+    against a real instance, so it surfaces the last few plays as-is
+    instead, the same honest-about-what-the-data-supports call milestone
+    39 already made for "goals due soon" (no due-date field) vs. "active
+    goals."
+
+    `POST /siris/proactive/briefing` now also speaks the summary aloud
+    via `speak_in_current_room`, alongside (not instead of) the existing
+    push notification -- two independent delivery channels, each fires
+    only if configured/currently reachable. `BriefingResponse` gained a
+    `spoken` field reporting whether it actually went out loud, not just
+    whether speaking was attempted: `speak_in_current_room` returns
+    `sent: false` (not an error) when no satellite is currently known --
+    e.g. nobody's home to hear it -- and the endpoint has to report that
+    honestly rather than claiming success.
+
+    Verified: full suite (418 passed, up from 411) covering the skill's
+    new Tautulli inclusion (present when configured, absent and
+    non-fatal when unreachable or unconfigured, correctly reports "Nothing
+    recently watched" when history is empty) and the endpoint's new
+    speak path (spoken: true when a satellite answers, spoken: false and
+    honestly reported -- not an error -- when none is known, no call
+    attempted at all when no TTS backend is configured). Live-verified
+    against a real `uvicorn` process, a real mock TTS server, a real mock
+    Tautulli server, and a real mock satellite callback server: a real
+    `speak_in_current_room` call round-tripped actual synthesized audio
+    bytes from the mock TTS server through to the mock satellite's
+    `/play` endpoint (confirmed by byte count, not just a 200 OK), and
+    `daily_briefing`'s summary correctly included "Recently watched: The
+    Matrix (brad); Inception (brad)" sourced from the mock Tautulli
+    server's real HTTP response.
+
 ## Running locally
 
 ```bash

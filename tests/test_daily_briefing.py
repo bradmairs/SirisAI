@@ -9,7 +9,14 @@ from app.skills.builtin.daily_briefing import DailyBriefingSkill
 
 
 class _FakeTools:
-    def __init__(self, has_weather: bool = False, has_calendar: bool = False, has_notify: bool = False) -> None:
+    def __init__(
+        self,
+        has_weather: bool = False,
+        has_calendar: bool = False,
+        has_notify: bool = False,
+        has_tautulli: bool = False,
+        has_speak: bool = False,
+    ) -> None:
         self._present = set()
         if has_weather:
             self._present.add("weather_current")
@@ -17,6 +24,10 @@ class _FakeTools:
             self._present.add("calendar_upcoming_events")
         if has_notify:
             self._present.add("notify")
+        if has_tautulli:
+            self._present.add("tautulli_recent_history")
+        if has_speak:
+            self._present.add("speak_in_current_room")
 
     def get(self, name: str) -> object | None:
         return object() if name in self._present else None
@@ -36,23 +47,32 @@ class _FakeSirisForBriefing:
         has_weather: bool = False,
         has_calendar: bool = False,
         has_notify: bool = False,
+        has_tautulli: bool = False,
+        has_speak: bool = False,
         weather_result: dict[str, Any] | None = None,
         calendar_result: list[dict[str, Any]] | None = None,
+        tautulli_result: list[dict[str, Any]] | None = None,
         health_warnings: list[str] | None = None,
         timing_warnings: list[str] | None = None,
         goals: list[dict[str, Any]] | None = None,
         weather_raises: bool = False,
         calendar_raises: bool = False,
+        tautulli_raises: bool = False,
+        speak_sent: bool = True,
     ) -> None:
-        self.tools = _FakeTools(has_weather, has_calendar, has_notify)
+        self.tools = _FakeTools(has_weather, has_calendar, has_notify, has_tautulli, has_speak)
         self.goals = _FakeGoals(goals)
         self._weather_result = weather_result
         self._calendar_result = calendar_result if calendar_result is not None else []
+        self._tautulli_result = tautulli_result if tautulli_result is not None else []
         self._health_warnings = health_warnings or []
         self._timing_warnings = timing_warnings or []
         self._weather_raises = weather_raises
         self._calendar_raises = calendar_raises
+        self._tautulli_raises = tautulli_raises
+        self._speak_sent = speak_sent
         self.notify_calls: list[dict[str, Any]] = []
+        self.speak_calls: list[dict[str, Any]] = []
 
     def run_tool(self, name: str, arguments: dict[str, Any], **kwargs: Any) -> Any:
         if name == "weather_current":
@@ -63,6 +83,10 @@ class _FakeSirisForBriefing:
             if self._calendar_raises:
                 raise ConnectionError("caldav server unreachable")
             return self._calendar_result
+        if name == "tautulli_recent_history":
+            if self._tautulli_raises:
+                raise ConnectionError("tautulli unreachable")
+            return self._tautulli_result
         if name == "server_health_check":
             return {"warnings": self._health_warnings, "healthy": not self._health_warnings}
         if name == "event_timing_check":
@@ -70,6 +94,9 @@ class _FakeSirisForBriefing:
         if name == "notify":
             self.notify_calls.append(arguments)
             return {"sent": True}
+        if name == "speak_in_current_room":
+            self.speak_calls.append(arguments)
+            return {"sent": self._speak_sent} if self._speak_sent else {"sent": False, "reason": "no satellite currently known"}
         if name == "daily_briefing":
             # POST /siris/proactive/briefing calls run_tool("daily_briefing", ...)
             # the same way it would for a real registered skill -- route it
@@ -149,6 +176,35 @@ def test_briefing_merges_health_and_event_timing_warnings() -> None:
     assert "2 warning(s)" in briefing["summary"]
 
 
+def test_briefing_includes_recent_plex_activity_when_configured() -> None:
+    activity = [{"title": "Inception", "user": "brad", "date": "2026-01-01"}]
+    siris = _FakeSirisForBriefing(has_tautulli=True, tautulli_result=activity)
+    briefing = DailyBriefingSkill().run(siris)
+
+    assert briefing["plex_recent_activity"] == activity
+    assert "Recently watched: Inception (brad)." in briefing["summary"]
+
+
+def test_briefing_reports_nothing_watched_when_tautulli_history_is_empty() -> None:
+    siris = _FakeSirisForBriefing(has_tautulli=True, tautulli_result=[])
+    briefing = DailyBriefingSkill().run(siris)
+    assert "Nothing recently watched." in briefing["summary"]
+
+
+def test_briefing_survives_tautulli_being_unreachable() -> None:
+    siris = _FakeSirisForBriefing(has_tautulli=True, tautulli_raises=True)
+    briefing = DailyBriefingSkill().run(siris)
+
+    assert "plex_recent_activity" not in briefing
+    assert briefing["summary"]  # still produced a summary despite the failure
+
+
+def test_briefing_omits_plex_activity_when_tautulli_not_configured() -> None:
+    siris = _FakeSirisForBriefing()
+    briefing = DailyBriefingSkill().run(siris)
+    assert "plex_recent_activity" not in briefing
+
+
 def test_briefing_lists_active_goals() -> None:
     goals = [{"title": "Reduce power consumption", "status": "active"}, {"title": "Old goal", "status": "completed"}]
     siris = _FakeSirisForBriefing(goals=goals)
@@ -188,6 +244,45 @@ def test_briefing_endpoint_does_not_notify_without_a_configured_channel(client: 
         response = client.post("/siris/proactive/briefing")
         assert response.status_code == 200
         assert response.json()["notified"] is False
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+def test_briefing_endpoint_speaks_when_a_satellite_is_known(client: TestClient) -> None:
+    fake_siris = _FakeSirisForBriefing(has_speak=True, speak_sent=True, goals=[{"title": "Ship SirisAI", "status": "active"}])
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/proactive/briefing")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["spoken"] is True
+        assert fake_siris.speak_calls == [{"message": body["result"]["summary"]}]
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+def test_briefing_endpoint_reports_not_spoken_when_no_satellite_is_known(client: TestClient) -> None:
+    """speak_in_current_room returns sent: False (not an error) when
+    nobody's home to hear it -- the endpoint must still succeed and
+    honestly report spoken: False, not just "attempted"."""
+    fake_siris = _FakeSirisForBriefing(has_speak=True, speak_sent=False)
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/proactive/briefing")
+        assert response.status_code == 200
+        assert response.json()["spoken"] is False
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+def test_briefing_endpoint_does_not_speak_without_a_known_satellite_tool(client: TestClient) -> None:
+    fake_siris = _FakeSirisForBriefing(has_speak=False)
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/proactive/briefing")
+        assert response.status_code == 200
+        assert response.json()["spoken"] is False
+        assert fake_siris.speak_calls == []
     finally:
         app.dependency_overrides.pop(get_siris, None)
 
