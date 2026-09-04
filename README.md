@@ -2148,6 +2148,73 @@ provider for the same capability actually exists to design against.
     Matrix (brad); Inception (brad)" sourced from the mock Tautulli
     server's real HTTP response.
 
+54. **Done** -- Home Assistant automation authoring. Another pick from
+    the same "what else fits the Jarvis concept" brainstorm: until now
+    `home_assistant_call_service` (9) can only *call* an existing
+    service once -- it can't create the standing rule ("if motion and
+    it's dark, turn on the hallway light") that today has to be built by
+    hand in Home Assistant's own UI. New `home_assistant_create_automation`
+    tool closes that gap.
+
+    Home Assistant's officially documented REST API
+    (https://developers.home-assistant.io/docs/api/rest/) has no
+    endpoint to persist a new automation -- there's no public equivalent
+    of `POST /api/services/<domain>/<service>` for "create this
+    automation." `HomeAssistantClient.create_automation()` uses
+    `POST /api/config/automation/config/<id>` instead: the same
+    config-editor endpoint Home Assistant's own frontend calls when you
+    edit an automation in the UI, takes the same bearer-token auth as
+    every other call this client makes, and is widely used by community
+    tooling -- but it isn't part of the documented public surface the
+    way `list_states`/`call_service`/`get_logbook` are. Flagging that
+    explicitly rather than presenting it with the same confidence as the
+    rest of this client, same "confidence-tiered" precedent milestone
+    50 set for Listenarr/Cleanuparr: this should be confirmed against a
+    real instance, not just this milestone's mock server, before relying
+    on it.
+
+    `trigger`/`condition`/`action` are passed through to Home Assistant
+    as-is rather than re-encoded as a rigid tool parameter schema --
+    that shape is extensively documented, public YAML an LLM already
+    knows from training data, and hand-modeling it here risks this
+    codebase's own copy drifting from Home Assistant's, or omitting a
+    trigger/condition/action type this codebase's author never thought
+    of. Home Assistant's own config validation is still the real
+    backstop against a malformed payload either way. The automation's id
+    is a fresh millisecond timestamp -- the same convention Home
+    Assistant's own UI uses for a new automation -- generated fresh
+    per call so a collision (and silently overwriting an unrelated
+    automation) isn't realistically going to happen.
+
+    Discovering automations that already exist doesn't need a new tool
+    at all: `home_assistant_list_entities` with `domain='automation'`
+    already lists them (automations are entities), so this milestone is
+    purely additive.
+
+    Standing rules are a different order of consequence than one
+    `call_service` invocation -- "turn on the kitchen light once" being
+    allowlisted (51) says nothing about whether "always turn on the
+    kitchen light when motion is detected, forever, until someone
+    notices and removes it" should skip a human looking at it first. So
+    `home_assistant_create_automation` is its own `Tool` class with no
+    `needs_confirmation()` override, unconditionally `CONFIRM_REQUIRED`
+    regardless of `SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS` -- that
+    allowlist only ever applies to `home_assistant_call_service`.
+
+    Verified: full suite (423 passed, up from 418) covering the request
+    payload (required fields, and that `condition`/`mode`/`description`
+    are included only when given), the generated id's shape, and that
+    confirmation is required unconditionally end-to-end (blocked
+    unconfirmed, runs and returns the generated `automation_id` once
+    confirmed) via `siris.run_tool()`. Live-verified against a real
+    `uvicorn` process and a real mock Home Assistant config-API server:
+    an unconfirmed call correctly returned `confirmation_required`
+    instead of running, and confirming it sent the exact expected
+    `trigger`/`action`/`condition` payload to
+    `POST /api/config/automation/config/<generated-id>` on the mock
+    server -- confirmed by inspecting what the mock server actually
+    received, not just a 200 OK.
+
 ## Running locally
 
 ```bash

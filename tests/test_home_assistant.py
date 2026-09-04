@@ -1,14 +1,18 @@
 import json
 from datetime import UTC, datetime
+from unittest import mock
 
 import httpx
+import pytest
 
 from app.core.config import Settings
 from app.core.siris import SirisAI, get_siris
 from app.home_assistant.client import HomeAssistantClient
 from app.memory.events import EventMemoryStore
+from app.plugins.base import ConfirmationRequired, ToolPermission
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
+    HomeAssistantCreateAutomationTool,
     HomeAssistantGetLogbookTool,
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
@@ -19,6 +23,7 @@ _HOME_ASSISTANT_TOOL_NAMES = {
     "home_assistant_get_state",
     "home_assistant_call_service",
     "home_assistant_get_logbook",
+    "home_assistant_create_automation",
 }
 
 
@@ -222,6 +227,107 @@ def test_non_allowlisted_domain_still_requires_confirmation_end_to_end() -> None
             siris.run_tool("home_assistant_call_service", {"domain": "lock", "service": "unlock", "entity_id": "lock.front_door"})
     finally:
         assert siris._home_assistant_client is not None
+        siris._home_assistant_client.close()
+
+
+# -- create_automation / home_assistant_create_automation (milestone 54)
+
+
+def test_create_automation_posts_to_config_api_with_a_generated_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path.startswith("/api/config/automation/config/")
+        automation_id = request.url.path.rsplit("/", 1)[-1]
+        assert automation_id.isdigit()  # a millisecond timestamp
+        body = json.loads(request.content)
+        assert body == {
+            "alias": "Hallway motion light",
+            "trigger": [{"platform": "state", "entity_id": "binary_sensor.hallway_motion", "to": "on"}],
+            "action": [{"service": "light.turn_on", "target": {"entity_id": "light.hallway"}}],
+        }
+        return httpx.Response(200, json={"result": "ok"})
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCreateAutomationTool(client)
+    result = tool.run(
+        alias="Hallway motion light",
+        trigger=[{"platform": "state", "entity_id": "binary_sensor.hallway_motion", "to": "on"}],
+        action=[{"service": "light.turn_on", "target": {"entity_id": "light.hallway"}}],
+    )
+    assert result["result"] == "ok"
+    assert result["automation_id"].isdigit()
+    client.close()
+
+
+def test_create_automation_includes_condition_mode_and_description_when_given() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["condition"] == [{"condition": "sun", "after": "sunset"}]
+        assert body["mode"] == "restart"
+        assert body["description"] == "Only after dark"
+        return httpx.Response(200, json={"result": "ok"})
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCreateAutomationTool(client)
+    tool.run(
+        alias="Hallway motion light",
+        trigger=[{"platform": "state", "entity_id": "binary_sensor.hallway_motion", "to": "on"}],
+        action=[{"service": "light.turn_on", "target": {"entity_id": "light.hallway"}}],
+        condition=[{"condition": "sun", "after": "sunset"}],
+        mode="restart",
+        description="Only after dark",
+    )
+    client.close()
+
+
+def test_create_automation_omits_optional_fields_when_not_given() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert "condition" not in body
+        assert "mode" not in body
+        assert "description" not in body
+        return httpx.Response(200, json={"result": "ok"})
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCreateAutomationTool(client)
+    tool.run(alias="X", trigger=[{"platform": "state"}], action=[{"service": "light.turn_on"}])
+    client.close()
+
+
+def test_create_automation_tool_requires_confirmation_unconditionally() -> None:
+    """Unlike home_assistant_call_service, this is a separate Tool class
+    with no needs_confirmation() override -- there's no allowlist that
+    can skip confirming a standing automation, regardless of
+    SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS."""
+    client = _mock_client(lambda request: httpx.Response(200, json={"result": "ok"}))
+    tool = HomeAssistantCreateAutomationTool(client)
+    assert tool.permission == ToolPermission.CONFIRM_REQUIRED
+    assert tool.needs_confirmation({"alias": "X", "trigger": [], "action": []}) is True
+    client.close()
+
+
+def test_create_automation_tool_is_registered_and_confirm_required_end_to_end() -> None:
+    siris = SirisAI(
+        settings=Settings(home_assistant_base_url="http://ha.local:8123", home_assistant_token="secret")
+    )
+    try:
+        assert siris._home_assistant_client is not None
+        with mock.patch.object(
+            siris._home_assistant_client, "create_automation", return_value={"result": "ok", "automation_id": "123"}
+        ):
+            with pytest.raises(ConfirmationRequired):
+                siris.run_tool(
+                    "home_assistant_create_automation",
+                    {"alias": "X", "trigger": [{"platform": "state"}], "action": [{"service": "light.turn_on"}]},
+                )
+
+            result = siris.run_tool(
+                "home_assistant_create_automation",
+                {"alias": "X", "trigger": [{"platform": "state"}], "action": [{"service": "light.turn_on"}]},
+                confirmed=True,
+            )
+            assert result["automation_id"] == "123"
+    finally:
         siris._home_assistant_client.close()
 
 
