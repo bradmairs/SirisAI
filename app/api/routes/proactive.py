@@ -7,10 +7,13 @@ doesn't decide on its own when to check. Something external (a cron job,
 a systemd timer) decides the cadence. What runs on that cadence got
 smarter in milestone 26 (app/notify/manager.py, `NotificationManager`):
 rather than joining every warning into one flat message, each warning is
-scored and correlated, and only "notify"/"urgent" items actually get
-pushed -- still deterministic scoring, not fuzzy LLM judgment, so the
-"stops well short of autonomous action" boundary this milestone's roadmap
-entry draws still holds. `event_timing_check`, `goal_check_in`, and
+scored and correlated -- still deterministic scoring, not fuzzy LLM
+judgment, so the "stops well short of autonomous action" boundary this
+milestone's roadmap entry draws still holds. Only "urgent" items actually
+push immediately; "notify"-tier items are queued instead (an
+interruption controller, milestone 72, app/notify/pending.py) and
+surface in the next daily_briefing rather than interrupting the user for
+something that can wait. `event_timing_check`, `goal_check_in`, and
 `new_device_alert` (app/skills/builtin/, later hardening passes) compose
 in the same way -- their warnings go through the same NotificationManager
 pass as server_health_check's.
@@ -32,7 +35,9 @@ from app.core.user_context import resolve_user_id
 from app.notify.manager import NotificationItem, NotificationManager
 
 router = APIRouter(
-    prefix="/siris/proactive", tags=["proactive"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)]
+    prefix="/siris/proactive",
+    tags=["proactive"],
+    dependencies=[Depends(require_api_key), Depends(resolve_user_id)],
 )
 
 
@@ -55,6 +60,11 @@ class HealthCheckResponse(BaseModel):
     goal_check_in: dict[str, Any]
     new_device_alert: dict[str, Any]
     notified: bool
+    # Interruption controller (milestone 72): "notify"-tier items no
+    # longer push immediately alongside "urgent" ones -- they're queued
+    # here instead, to surface in the next daily_briefing rather than
+    # interrupting the user for something that can wait.
+    queued: int
     notifications: list[NotificationItemResponse]
 
 
@@ -70,47 +80,65 @@ def _to_response(item: NotificationItem) -> NotificationItemResponse:
 
 
 @router.post("/check", response_model=HealthCheckResponse)
-def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCheckResponse:
+def run_health_check_and_notify(
+    siris: SirisAI = Depends(get_siris),
+) -> HealthCheckResponse:
     """Run server_health_check, event_timing_check, goal_check_in, and
-    new_device_alert, score and correlate whatever warnings any of them finds
-    (NotificationManager), and send one notification covering every
-    "notify"/"urgent" item -- if a notify channel is configured
-    (SIRISAI_NTFY_TOPIC) -- summarizing them. Meant to be triggered on a
-    schedule from outside this process -- see the README for a crontab
+    new_device_alert, score and correlate whatever warnings any of them
+    finds (NotificationManager), push "urgent" items immediately -- if a
+    notify channel is configured (SIRISAI_NTFY_TOPIC) -- and queue
+    "notify"-tier items instead of pushing them. Meant to be triggered on
+    a schedule from outside this process -- see the README for a crontab
     example. `notifications` in the response shows every item's
-    classification regardless of whether anything was actually sent, so a
-    caller can see what was judged worth surfacing (and what wasn't).
+    classification regardless of whether anything was actually sent or
+    queued, so a caller can see what was judged worth surfacing (and what
+    wasn't).
 
-    Escalation tiers (milestone 44): an "urgent" item raises the
-    notification's ntfy priority, not just its title -- so it can
-    actually break through a phone's do-not-disturb/silent settings the
-    way ntfy's own urgent priority is designed to, instead of arriving
-    with the exact same priority as a routine "notify"-tier warning."""
+    Escalation tiers (milestone 44) plus an interruption controller
+    (milestone 72): "urgent" still raises the notification's ntfy
+    priority so it can break through a phone's do-not-disturb/silent
+    settings, and now "notify"-tier items don't push at all -- they're
+    queued (app/notify/pending.py) to surface in the next daily_briefing
+    instead of interrupting the user for something that can wait for the
+    digest. `queued` in the response is how many landed there this call."""
     trigger = "proactive check: automated schedule (see POST /siris/proactive/check)"
     result = siris.run_tool("server_health_check", {}, trigger=trigger)
     event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
     goal_check_in = siris.run_tool("goal_check_in", {}, trigger=trigger)
     new_device_alert = siris.run_tool("new_device_alert", {}, trigger=trigger)
 
-    warnings = result["warnings"] + event_timing["warnings"] + goal_check_in["warnings"] + new_device_alert["warnings"]
+    warnings = (
+        result["warnings"]
+        + event_timing["warnings"]
+        + goal_check_in["warnings"]
+        + new_device_alert["warnings"]
+    )
     items = NotificationManager(siris.entities).summarize(warnings) if warnings else []
-    to_send = [item for item in items if item.action in ("notify", "urgent")]
+    urgent_items = [item for item in items if item.action == "urgent"]
+    deferred_items = [item for item in items if item.action == "notify"]
 
     notified = False
-    if to_send and siris.tools.get("notify") is not None:
-        urgent = any(item.action == "urgent" for item in to_send)
-        title = "SirisAI: urgent" if urgent else "SirisAI: server health check"
-        summary = "; ".join(item.message for item in to_send)
+    if urgent_items and siris.tools.get("notify") is not None:
+        title = "SirisAI: urgent"
+        summary = "; ".join(item.message for item in urgent_items)
         # Evidence (milestone 28): the classified items that justified
         # sending, not just the notify call's own title/message.
-        evidence = [{"message": item.message, "severity": item.severity, "action": item.action} for item in to_send]
+        evidence = [
+            {"message": item.message, "severity": item.severity, "action": item.action}
+            for item in urgent_items
+        ]
         siris.run_tool(
             "notify",
-            {"title": title, "message": summary, "priority": "urgent" if urgent else None},
+            {"title": title, "message": summary, "priority": "urgent"},
             trigger=trigger,
             evidence=evidence,
         )
         notified = True
+
+    for item in deferred_items:
+        siris.pending_notifications.queue(
+            item.message, severity=item.severity, category=item.category
+        )
 
     return HealthCheckResponse(
         result=result,
@@ -118,6 +146,7 @@ def run_health_check_and_notify(siris: SirisAI = Depends(get_siris)) -> HealthCh
         goal_check_in=goal_check_in,
         new_device_alert=new_device_alert,
         notified=notified,
+        queued=len(deferred_items),
         notifications=[_to_response(i) for i in items],
     )
 
@@ -151,14 +180,20 @@ def run_daily_briefing(siris: SirisAI = Depends(get_siris)) -> BriefingResponse:
     notified = False
     if siris.tools.get("notify") is not None:
         siris.run_tool(
-            "notify", {"title": "SirisAI: daily briefing", "message": result["summary"]}, trigger=trigger, evidence=result
+            "notify",
+            {"title": "SirisAI: daily briefing", "message": result["summary"]},
+            trigger=trigger,
+            evidence=result,
         )
         notified = True
 
     spoken = False
     if siris.tools.get("speak_in_current_room") is not None:
         speak_result = siris.run_tool(
-            "speak_in_current_room", {"message": result["summary"]}, trigger=trigger, evidence=result
+            "speak_in_current_room",
+            {"message": result["summary"]},
+            trigger=trigger,
+            evidence=result,
         )
         spoken = bool(speak_result.get("sent"))
 

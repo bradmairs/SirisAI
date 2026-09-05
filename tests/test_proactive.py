@@ -19,11 +19,26 @@ class _FakeEntities:
     behavior as the old flat logic for tests that aren't about
     correlation. `relationships` lets a specific test wire one up."""
 
-    def __init__(self, relationships: dict[str, dict[str, list[Any]]] | None = None) -> None:
+    def __init__(
+        self, relationships: dict[str, dict[str, list[Any]]] | None = None
+    ) -> None:
         self._relationships = relationships or {}
 
     def relationships_for(self, entity_name: str) -> dict[str, list[Any]]:
         return self._relationships.get(entity_name, {"outgoing": [], "incoming": []})
+
+
+class _FakePendingNotifications:
+    """Interruption controller (milestone 72) -- "notify"-tier items land
+    here instead of an immediate push; `queued` records what did."""
+
+    def __init__(self) -> None:
+        self.queued: list[dict[str, Any]] = []
+
+    def queue(self, message: str, severity: str, category: str) -> None:
+        self.queued.append(
+            {"message": message, "severity": severity, "category": category}
+        )
 
 
 class _FakeSirisForProactive:
@@ -38,10 +53,23 @@ class _FakeSirisForProactive:
     ) -> None:
         self.tools = _FakeTools(notify_present)
         self.entities = entities or _FakeEntities()
+        self.pending_notifications = _FakePendingNotifications()
         self._health_result = health_result
-        self._event_timing_result = event_timing_result or {"healthy": True, "warnings": [], "overdue_events": []}
-        self._goal_check_in_result = goal_check_in_result or {"healthy": True, "warnings": [], "stale_goals": []}
-        self._new_device_alert_result = new_device_alert_result or {"checked": True, "new_devices": [], "warnings": []}
+        self._event_timing_result = event_timing_result or {
+            "healthy": True,
+            "warnings": [],
+            "overdue_events": [],
+        }
+        self._goal_check_in_result = goal_check_in_result or {
+            "healthy": True,
+            "warnings": [],
+            "stale_goals": [],
+        }
+        self._new_device_alert_result = new_device_alert_result or {
+            "checked": True,
+            "new_devices": [],
+            "warnings": [],
+        }
         self.notify_calls: list[dict[str, Any]] = []
 
     def run_tool(self, name: str, arguments: dict[str, Any], **kwargs: Any) -> Any:
@@ -59,24 +87,65 @@ class _FakeSirisForProactive:
         raise AssertionError(f"unexpected tool call: {name}")
 
 
-def test_proactive_check_notifies_when_unhealthy(client: TestClient) -> None:
-    fake_siris = _FakeSirisForProactive({"healthy": False, "warnings": ["CPU usage is high: 95%"]}, notify_present=True)
+def test_proactive_check_queues_notify_tier_warnings_instead_of_pushing(
+    client: TestClient,
+) -> None:
+    """Interruption controller (milestone 72): a "notify"-tier warning
+    (not "urgent") used to push immediately -- now it's queued instead,
+    to surface in the next daily_briefing rather than interrupting."""
+    fake_siris = _FakeSirisForProactive(
+        {"healthy": False, "warnings": ["CPU usage is high: 95%"]}, notify_present=True
+    )
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/proactive/check")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["notified"] is False
+        assert body["queued"] == 1
+        assert body["result"]["healthy"] is False
+        assert fake_siris.notify_calls == []
+        assert fake_siris.pending_notifications.queued == [
+            {
+                "message": "CPU usage is high: 95%",
+                "severity": "warning",
+                "category": "resource",
+            }
+        ]
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+def test_proactive_check_still_pushes_urgent_items_immediately(
+    client: TestClient,
+) -> None:
+    fake_siris = _FakeSirisForProactive(
+        {"healthy": False, "warnings": ["Container 'plex' is exited"]},
+        notify_present=True,
+    )
     app.dependency_overrides[get_siris] = lambda: fake_siris
     try:
         response = client.post("/siris/proactive/check")
         assert response.status_code == 200
         body = response.json()
         assert body["notified"] is True
-        assert body["result"]["healthy"] is False
+        assert body["queued"] == 0
         assert fake_siris.notify_calls == [
-            {"title": "SirisAI: server health check", "message": "CPU usage is high: 95%", "priority": None}
+            {
+                "title": "SirisAI: urgent",
+                "message": "Container 'plex' is exited",
+                "priority": "urgent",
+            }
         ]
+        assert fake_siris.pending_notifications.queued == []
     finally:
         app.dependency_overrides.pop(get_siris, None)
 
 
 def test_proactive_check_does_not_notify_when_healthy(client: TestClient) -> None:
-    fake_siris = _FakeSirisForProactive({"healthy": True, "warnings": []}, notify_present=True)
+    fake_siris = _FakeSirisForProactive(
+        {"healthy": True, "warnings": []}, notify_present=True
+    )
     app.dependency_overrides[get_siris] = lambda: fake_siris
     try:
         response = client.post("/siris/proactive/check")
@@ -86,8 +155,12 @@ def test_proactive_check_does_not_notify_when_healthy(client: TestClient) -> Non
         app.dependency_overrides.pop(get_siris, None)
 
 
-def test_proactive_check_does_not_notify_without_a_configured_channel(client: TestClient) -> None:
-    fake_siris = _FakeSirisForProactive({"healthy": False, "warnings": ["disk full"]}, notify_present=False)
+def test_proactive_check_does_not_notify_without_a_configured_channel(
+    client: TestClient,
+) -> None:
+    fake_siris = _FakeSirisForProactive(
+        {"healthy": False, "warnings": ["disk full"]}, notify_present=False
+    )
     app.dependency_overrides[get_siris] = lambda: fake_siris
     try:
         response = client.post("/siris/proactive/check")
@@ -96,7 +169,9 @@ def test_proactive_check_does_not_notify_without_a_configured_channel(client: Te
         app.dependency_overrides.pop(get_siris, None)
 
 
-def test_proactive_check_real_end_to_end_without_notify_configured(client: TestClient) -> None:
+def test_proactive_check_real_end_to_end_without_notify_configured(
+    client: TestClient,
+) -> None:
     # Default test settings have no ntfy topic, so this should never
     # notify regardless of the real health check's outcome.
     response = client.post("/siris/proactive/check")
@@ -106,10 +181,20 @@ def test_proactive_check_real_end_to_end_without_notify_configured(client: TestC
     assert body["notified"] is False
 
 
-def test_proactive_check_correlates_related_warnings_into_one_notification(client: TestClient) -> None:
-    entities = _FakeEntities({"plex": {"outgoing": [{"object_entity": "media-storage"}], "incoming": []}})
+def test_proactive_check_correlates_related_warnings_into_one_notification(
+    client: TestClient,
+) -> None:
+    entities = _FakeEntities(
+        {"plex": {"outgoing": [{"object_entity": "media-storage"}], "incoming": []}}
+    )
     fake_siris = _FakeSirisForProactive(
-        {"healthy": False, "warnings": ["Container 'plex' is exited", "Disk usage on media-storage is high: 96%"]},
+        {
+            "healthy": False,
+            "warnings": [
+                "Container 'plex' is exited",
+                "Disk usage on media-storage is high: 96%",
+            ],
+        },
         notify_present=True,
         entities=entities,
     )
@@ -126,7 +211,10 @@ def test_proactive_check_correlates_related_warnings_into_one_notification(clien
         assert len(fake_siris.notify_calls) == 1
         assert fake_siris.notify_calls[0]["title"] == "SirisAI: urgent"
         assert "Container 'plex' is exited" in fake_siris.notify_calls[0]["message"]
-        assert "Disk usage on media-storage is high" in fake_siris.notify_calls[0]["message"]
+        assert (
+            "Disk usage on media-storage is high"
+            in fake_siris.notify_calls[0]["message"]
+        )
         # Escalation tiers (milestone 44): an urgent item raises the
         # notification's ntfy priority, not just its title.
         assert fake_siris.notify_calls[0]["priority"] == "urgent"
@@ -134,7 +222,9 @@ def test_proactive_check_correlates_related_warnings_into_one_notification(clien
         app.dependency_overrides.pop(get_siris, None)
 
 
-def test_proactive_check_exposes_notifications_even_when_nothing_sent(client: TestClient) -> None:
+def test_proactive_check_exposes_notifications_even_when_nothing_sent(
+    client: TestClient,
+) -> None:
     fake_siris = _FakeSirisForProactive(
         {"healthy": False, "warnings": ["CPU usage is high: 95%"]}, notify_present=False
     )
@@ -143,6 +233,7 @@ def test_proactive_check_exposes_notifications_even_when_nothing_sent(client: Te
         response = client.post("/siris/proactive/check")
         body = response.json()
         assert body["notified"] is False
+        assert body["queued"] == 1
         assert len(body["notifications"]) == 1
         assert body["notifications"][0]["action"] == "notify"
     finally:

@@ -41,6 +41,7 @@ from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
 from app.metrics.service import MetricsStore
 from app.notify.client import NotifyClient
+from app.notify.pending import PendingNotificationStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
 from app.plugins.builtin.audit import ExplainRecentActionTool
@@ -93,7 +94,7 @@ from app.plugins.builtin.memory import (
     RememberEntityRelationshipTool,
     RememberTool,
 )
-from app.plugins.builtin.notify import NotifyTool
+from app.plugins.builtin.notify import ListPendingNotificationsTool, NotifyTool
 from app.plugins.builtin.obsidian import (
     ObsidianCreateOrUpdateNoteTool,
     ObsidianGetNoteTool,
@@ -203,6 +204,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "log_event": "memory",
     "recall_events": "memory",
     "notify": "notify",
+    "list_pending_notifications": "notify",
     "system_info": "system",
     "explain_recent_action": "audit",
     "report_capability_gap": "capabilities",
@@ -294,6 +296,9 @@ class SirisAI:
         default_factory=lambda: KnownDeviceStore(SessionLocal)
     )
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
+    pending_notifications: PendingNotificationStore = field(
+        default_factory=lambda: PendingNotificationStore(SessionLocal)
+    )
     integrations: IntegrationStore = field(
         default_factory=lambda: IntegrationStore(SessionLocal)
     )
@@ -373,6 +378,7 @@ class SirisAI:
         self.tools.register(SetRoutineEnabledTool(self.routines))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
         self.tools.register(CheckServiceEndpointTool())
+        self.tools.register(ListPendingNotificationsTool(self.pending_notifications))
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
 

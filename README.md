@@ -3050,6 +3050,51 @@ provider for the same capability actually exists to design against.
     correctly flattened both into one three-item list through a real
     HTTP round trip via `POST /siris/tools/plex_search/run`.
 
+72. **Done** -- Interruption controller for proactive notifications.
+    Picked from the "Communications and productivity" thread: "Interruption
+    controller — decide whether information is urgent enough to interrupt
+    you or should wait for a digest." `POST /siris/proactive/check` used
+    to push one combined message for every "notify"-*and*-"urgent" item
+    NotificationManager (26) classified, with only the ntfy priority
+    distinguishing them (milestone 44) -- routine, non-critical warnings
+    still interrupted the user immediately, exactly like a genuinely
+    urgent one.
+
+    What shipped: "urgent" items still push right away, unchanged.
+    "notify"-tier items no longer push at all -- they're queued
+    (`PendingNotification`, `app/notify/pending.py`, a small new table
+    alongside `MemoryEntry`/`Event`'s in `app/db/models.py`) and instead
+    surface the next time `daily_briefing` runs, folded into its summary
+    under "Also since last time: ...", then cleared -- read-once,
+    digest-delivered, not left to repeat on every future briefing. A new
+    `list_pending_notifications` tool (always registered, independent of
+    whether a push channel is configured) lets the model check what's
+    queued without waiting for the next briefing either.
+
+    `PendingNotificationStore` is deliberately not user-scoped like
+    `MemoryStore` -- one shared queue, not one per user, since these are
+    system-level warnings, not personal facts.
+
+    Verified: full suite (560 passed, up from 552) covering the store
+    itself (queuing, ordering, clearing, clearing an already-empty
+    queue), the tool reading it, `POST /siris/proactive/check` now
+    queuing "notify"-tier items instead of pushing them while still
+    pushing "urgent" ones immediately, and `daily_briefing` folding
+    queued items into its summary and clearing them -- including the
+    case where nothing's queued (no stray "Also since last time" line).
+    Several pre-existing tests for the old combined-push behavior were
+    updated to reflect the new split (e.g. the trigger/evidence test in
+    `test_explainable_autonomy.py` now uses an urgent-tier warning, since
+    its original notify-tier one no longer triggers a push at all).
+    Live-verified against a real `uvicorn` process: seeded a real
+    "notify"-tier row directly into the running server's own SQLite file
+    (there's no public write endpoint for this queue by design -- it's
+    populated only by the proactive check), confirmed
+    `list_pending_notifications` saw it, then called the real
+    `daily_briefing` tool and confirmed the summary included "Also since
+    last time: CPU usage is high: 95%" and the queue was empty
+    immediately afterward.
+
 ## Running locally
 
 ```bash

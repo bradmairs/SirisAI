@@ -28,7 +28,9 @@ class MemoryEntry(Base):
     # app/db/migrate.py for how an existing pre-this-milestone SQLite
     # file picks the index up too, since create_all() only creates it
     # for a brand-new table.
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), index=True
+    )
     # Usage tracking (milestone 30) -- bumped every time this entry is
     # returned by MemoryStore.recall(), so the self_maintenance_check
     # skill can flag memories that have genuinely never come back up
@@ -41,19 +43,27 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(primary_key=True, default=lambda: str(uuid.uuid4()))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id"), index=True
+    )
     role: Mapped[str] = mapped_column(Text)  # "user" | "assistant" | "tool"
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tool_arguments: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    tool_arguments: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # JSON-encoded
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class ToolExecution(Base):
@@ -62,10 +72,14 @@ class ToolExecution(Base):
     __tablename__ = "tool_executions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), nullable=True, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id"), nullable=True, index=True
+    )
     tool_name: Mapped[str] = mapped_column(Text)
     arguments: Mapped[str] = mapped_column(Text)  # JSON-encoded
-    result: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded; unset if error is set
+    result: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # JSON-encoded; unset if error is set
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # True when this row is a CONFIRM_REQUIRED tool's pending proposal --
     # the tool did NOT actually run (see app/plugins/base.py's
@@ -99,7 +113,9 @@ class ToolExecution(Base):
     # row) and AuditLogStore.list_recent()/find_recent() both order by
     # this on every read (GET /siris/activity, explain_recent_action);
     # see MemoryEntry.created_at's comment above for the full reasoning.
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), index=True
+    )
 
 
 class EntityFact(Base):
@@ -114,7 +130,9 @@ class EntityFact(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     entity_name: Mapped[str] = mapped_column(Text, index=True)
     fact: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class EntityRelationship(Base):
@@ -133,7 +151,9 @@ class EntityRelationship(Base):
     subject_entity: Mapped[str] = mapped_column(Text, index=True)
     relation: Mapped[str] = mapped_column(Text)
     object_entity: Mapped[str] = mapped_column(Text, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class Event(Base):
@@ -157,7 +177,29 @@ class Event(Base):
     data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
     # Indexed (a performance hardening pass) -- EventMemoryStore.recent_events()
     # orders by this on every call; see MemoryEntry.created_at's comment above.
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), index=True
+    )
+
+
+class PendingNotification(Base):
+    """A notification-worthy item (milestone 72, an "interruption
+    controller") that's deliberately NOT been pushed immediately -- only
+    NotificationManager's non-urgent "notify" tier ever lands here;
+    "urgent" still pushes right away via the `notify` tool, same as
+    before this existed. Queued here instead, to be folded into the next
+    daily_briefing rather than interrupting the user for something that
+    can wait for the digest. See app/notify/pending.py."""
+
+    __tablename__ = "pending_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), index=True
+    )
 
 
 class Goal(Base):
@@ -184,7 +226,9 @@ class Goal(Base):
     # that query already filters to status="active" first, a small
     # subset in practice, so the extra index wouldn't earn its upkeep
     # cost the way created_at's does for the unfiltered full list.
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -200,7 +244,9 @@ class GoalObjective(Base):
     goal_id: Mapped[int] = mapped_column(ForeignKey("goals.id"), index=True)
     description: Mapped[str] = mapped_column(Text)
     done: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class MetricSample(Base):
@@ -219,7 +265,9 @@ class MetricSample(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     metric_name: Mapped[str] = mapped_column(Text, index=True)
     value: Mapped[float] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class Routine(Base):
@@ -248,11 +296,15 @@ class Routine(Base):
     name: Mapped[str] = mapped_column(Text)
     trigger_description: Mapped[str] = mapped_column(Text)  # free text, e.g. "nightly"
     interval_minutes: Mapped[int] = mapped_column(Integer)
-    actions: Mapped[str] = mapped_column(Text)  # JSON-encoded list[str] of tool names, run in order
+    actions: Mapped[str] = mapped_column(
+        Text
+    )  # JSON-encoded list[str] of tool names, run in order
     output_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
@@ -275,8 +327,12 @@ class CapabilityGap(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     requested_capability: Mapped[str] = mapped_column(Text)
     suggested_integration: Mapped[str | None] = mapped_column(Text, nullable=True)
-    suggested_tool_spec: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON-encoded
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    suggested_tool_spec: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # JSON-encoded
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class SatelliteRegistration(Base):
@@ -294,7 +350,9 @@ class SatelliteRegistration(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     room: Mapped[str] = mapped_column(Text, unique=True, index=True)
     callback_url: Mapped[str] = mapped_column(Text)
-    last_active_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class Integration(Base):
@@ -312,12 +370,16 @@ class Integration(Base):
     __tablename__ = "integrations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(Text)  # prefixes every tool this integration generates
+    name: Mapped[str] = mapped_column(
+        Text
+    )  # prefixes every tool this integration generates
     base_url: Mapped[str] = mapped_column(Text)
     spec: Mapped[str] = mapped_column(Text)  # JSON-encoded OpenAPI spec
     auth_header_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     auth_header_value: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )
 
 
 class KnownNetworkDevice(Base):
@@ -334,4 +396,6 @@ class KnownNetworkDevice(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     entity_id: Mapped[str] = mapped_column(Text, unique=True, index=True)
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )

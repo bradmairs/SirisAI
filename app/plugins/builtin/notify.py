@@ -1,10 +1,15 @@
-"""Notify tool -- send a push notification via ntfy.sh
-(app/notify/client.py). Registered only when SIRISAI_NTFY_TOPIC is set.
+"""Notify tools -- send a push notification via ntfy.sh
+(app/notify/client.py), and read back queued non-urgent ones
+(app/notify/pending.py, milestone 72). `NotifyTool` registers only when
+SIRISAI_NTFY_TOPIC is set; `ListPendingNotificationsTool` is always
+registered -- pending items can exist and be worth reading regardless of
+whether a push channel is configured at all.
 """
 
 from typing import Any
 
 from app.notify.client import NotifyClient
+from app.notify.pending import PendingNotificationStore
 from app.plugins.base import Tool, ToolPermission
 
 
@@ -52,3 +57,21 @@ class NotifyTool(Tool):
     ) -> Any:
         self._client.send(message, title=title, actions=actions, priority=priority)
         return {"sent": True}
+
+
+class ListPendingNotificationsTool(Tool):
+    name = "list_pending_notifications"
+    description = (
+        "List non-urgent notifications queued but not yet pushed -- warnings that were "
+        "worth noting but not worth interrupting the user for right away. Normally these get "
+        "folded into the next daily_briefing and cleared; this lets you check what's queued "
+        "without waiting for that."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, pending: PendingNotificationStore) -> None:
+        self._pending = pending
+
+    def run(self, **kwargs: Any) -> Any:
+        return self._pending.list_pending()

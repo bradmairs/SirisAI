@@ -41,7 +41,10 @@ def test_safe_action_policy_is_recorded() -> None:
     siris.tools.register(_SafeActionTool())
     siris.run_tool("test_safe_action", {})
     entry = siris.audit.list_recent(limit=1)[0]
-    assert entry["policy"] == "SAFE_ACTION: routine and reversible, runs immediately without confirmation"
+    assert (
+        entry["policy"]
+        == "SAFE_ACTION: routine and reversible, runs immediately without confirmation"
+    )
 
 
 def test_confirm_required_policy_differs_before_and_after_confirmation() -> None:
@@ -64,7 +67,12 @@ def test_confirm_required_policy_differs_before_and_after_confirmation() -> None
 
 def test_trigger_and_evidence_are_recorded_when_supplied() -> None:
     siris = SirisAI(settings=get_siris().settings)
-    siris.run_tool("echo", {"message": "hi"}, trigger="test: a specific reason", evidence={"why": "because"})
+    siris.run_tool(
+        "echo",
+        {"message": "hi"},
+        trigger="test: a specific reason",
+        evidence={"why": "because"},
+    )
     entry = siris.audit.list_recent(limit=1)[0]
     assert entry["trigger"] == "test: a specific reason"
     assert entry["evidence"] == {"why": "because"}
@@ -80,10 +88,16 @@ def test_trigger_and_evidence_default_to_none() -> None:
 
 class _FakeToolCallingLLMClient:
     async def generate(
-        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: object,
     ) -> LLMResponse:
         if tools:
-            return LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "hi"})])
+            return LLMResponse(
+                tool_calls=[ToolCall(name="echo", arguments={"message": "hi"})]
+            )
         return LLMResponse(text="Done.")
 
     async def aclose(self) -> None:
@@ -101,24 +115,38 @@ def test_chat_driven_tool_call_records_a_chat_trigger(client: TestClient) -> Non
 
     entries = fake_siris.audit.list_recent(limit=5)
     echo_entry = next(e for e in entries if e["tool_name"] == "echo")
-    assert echo_entry["trigger"] == "chat: model chose this tool while responding to the user's request"
+    assert (
+        echo_entry["trigger"]
+        == "chat: model chose this tool while responding to the user's request"
+    )
 
 
 def test_direct_invocation_records_a_non_autonomous_trigger(client: TestClient) -> None:
     client.post("/siris/tools/echo/run", json={"arguments": {"message": "hi"}})
     activity = client.get("/siris/activity", params={"limit": 5}).json()
     echo_entry = next(e for e in activity if e["tool_name"] == "echo")
-    assert echo_entry["trigger"] == "direct API request: a human explicitly asked for exactly this tool"
+    assert (
+        echo_entry["trigger"]
+        == "direct API request: a human explicitly asked for exactly this tool"
+    )
 
 
-def test_explain_recent_action_tool_finds_and_filters_by_argument(client: TestClient) -> None:
+def test_explain_recent_action_tool_finds_and_filters_by_argument(
+    client: TestClient,
+) -> None:
     marker = str(uuid.uuid4())
-    client.post("/siris/tools/echo/run", json={"arguments": {"message": f"unrelated-{marker}"}})
-    client.post("/siris/tools/echo/run", json={"arguments": {"message": f"plex-{marker}"}})
+    client.post(
+        "/siris/tools/echo/run", json={"arguments": {"message": f"unrelated-{marker}"}}
+    )
+    client.post(
+        "/siris/tools/echo/run", json={"arguments": {"message": f"plex-{marker}"}}
+    )
 
     response = client.post(
         "/siris/tools/explain_recent_action/run",
-        json={"arguments": {"tool_name": "echo", "argument_contains": f"plex-{marker}"}},
+        json={
+            "arguments": {"tool_name": "echo", "argument_contains": f"plex-{marker}"}
+        },
     )
     assert response.status_code == 200
     entries = response.json()["tool_call"]["result"]
@@ -141,16 +169,31 @@ def test_proactive_check_notify_call_carries_trigger_and_evidence() -> None:
         def relationships_for(self, entity_name: str) -> dict[str, list[Any]]:
             return {"outgoing": [], "incoming": []}
 
+    class _FakePendingNotifications:
+        def __init__(self) -> None:
+            self.queued: list[dict[str, Any]] = []
+
+        def queue(self, message: str, severity: str, category: str) -> None:
+            self.queued.append(
+                {"message": message, "severity": severity, "category": category}
+            )
+
     class _FakeSirisForProactive:
         def __init__(self) -> None:
             self.tools = _FakeTools()
             self.entities = _FakeEntities()
+            self.pending_notifications = _FakePendingNotifications()
             self.calls: list[dict[str, Any]] = []
 
         def run_tool(self, name: str, arguments: dict[str, Any], **kwargs: Any) -> Any:
             self.calls.append({"name": name, "arguments": arguments, **kwargs})
             if name == "server_health_check":
-                return {"healthy": False, "warnings": ["CPU usage is high: 95%"]}
+                # A docker-exited warning classifies as "urgent" (not
+                # "notify") -- this test needs an item that still triggers
+                # an actual notify call under milestone 72's interruption
+                # controller, which now queues "notify"-tier items instead
+                # of pushing them.
+                return {"healthy": False, "warnings": ["Container 'plex' is exited"]}
             if name == "event_timing_check":
                 return {"healthy": True, "warnings": [], "overdue_events": []}
             if name == "goal_check_in":
@@ -165,5 +208,14 @@ def test_proactive_check_notify_call_carries_trigger_and_evidence() -> None:
     run_health_check_and_notify(siris=fake_siris)  # type: ignore[arg-type]
 
     notify_call = next(c for c in fake_siris.calls if c["name"] == "notify")
-    assert notify_call["trigger"] == "proactive check: automated schedule (see POST /siris/proactive/check)"
-    assert notify_call["evidence"] == [{"message": "CPU usage is high: 95%", "severity": "warning", "action": "notify"}]
+    assert (
+        notify_call["trigger"]
+        == "proactive check: automated schedule (see POST /siris/proactive/check)"
+    )
+    assert notify_call["evidence"] == [
+        {
+            "message": "Container 'plex' is exited",
+            "severity": "critical",
+            "action": "urgent",
+        }
+    ]
