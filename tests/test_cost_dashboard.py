@@ -161,6 +161,95 @@ def test_metered_client_skips_total_when_only_one_side_is_known() -> None:
     assert metrics.sample_count("llm_tokens_total") == 0
 
 
+# -- record_samples() / MeteredLLMClient batching (a performance hardening
+# pass): three separate record_sample() round trips per LLM call, directly
+# on the response path of every chat turn, became one record_samples()
+# call via asyncio.to_thread() -- one DB round trip, off the event loop.
+
+
+def test_record_samples_writes_every_metric_given() -> None:
+    metrics = _isolated_metrics()
+    metrics.record_samples({"llm_tokens_prompt": 30.0, "llm_tokens_completion": 12.0, "llm_tokens_total": 42.0})
+
+    assert metrics.total("llm_tokens_prompt") == 30.0
+    assert metrics.total("llm_tokens_completion") == 12.0
+    assert metrics.total("llm_tokens_total") == 42.0
+
+
+def test_record_samples_with_an_empty_dict_writes_nothing() -> None:
+    metrics = _isolated_metrics()
+    metrics.record_samples({})
+    assert metrics.sample_count("llm_tokens_prompt") == 0
+
+
+def test_metered_client_calls_record_samples_once_not_record_sample_three_times() -> None:
+    """Regression guard for the batching: this used to be three separate
+    record_sample() calls -- each its own session/commit/round trip --
+    directly on generate()'s response path. The real claim isn't about
+    how many INSERT statements SQLAlchemy emits (three rows still means
+    three INSERTs, whether batched into one transaction or not) -- it's
+    that there's one session/commit instead of three, which is what
+    actually saves round trips. Spying on the store's own methods proves
+    that directly rather than trying to infer it from SQL statement
+    counts."""
+    import asyncio
+    from unittest import mock
+
+    metrics = _isolated_metrics()
+    inner = _FixedResponseClient(LLMResponse(text="ok", prompt_tokens=30, completion_tokens=12))
+    metered = MeteredLLMClient(inner, metrics)
+
+    with mock.patch.object(metrics, "record_sample") as record_sample, mock.patch.object(
+        metrics, "record_samples", wraps=metrics.record_samples
+    ) as record_samples:
+        asyncio.run(metered.generate([{"role": "user", "content": "hi"}]))
+
+    record_sample.assert_not_called()
+    record_samples.assert_called_once_with(
+        {"llm_tokens_prompt": 30.0, "llm_tokens_completion": 12.0, "llm_tokens_total": 42.0}
+    )
+    assert metrics.total("llm_tokens_total") == 42.0
+
+
+def test_metered_client_generate_does_not_block_a_concurrent_call() -> None:
+    """Same property milestone 52 established for run_tool()/
+    ContextEngine.build(): a slow DB write recording usage must not block
+    a second, concurrent generate() call sharing the same process.
+
+    Uses the real production SessionLocal/engine (app/db/session.py), not
+    an isolated in-memory StaticPool engine -- a StaticPool shares one raw
+    SQLite connection across threads, which isn't safe for two genuinely
+    concurrent flushes at once (confirmed live: it raised a SQLAlchemy
+    FlushError under this exact test). The real engine's connection pool
+    plus WAL mode is what milestone 52 already established as safe for
+    concurrent cross-thread access -- same reason its own concurrency
+    tests use the real engine too."""
+    import asyncio
+    import time
+
+    from app.db.session import SessionLocal
+
+    class _SlowMetricsStore(MetricsStore):
+        def record_samples(self, samples: dict[str, float]) -> None:
+            time.sleep(0.3)
+            super().record_samples(samples)
+
+    metrics = _SlowMetricsStore(SessionLocal)
+    inner = _FixedResponseClient(LLMResponse(text="ok", prompt_tokens=30, completion_tokens=12))
+    metered = MeteredLLMClient(inner, metrics)
+
+    async def _run_both() -> float:
+        start = time.monotonic()
+        await asyncio.gather(
+            metered.generate([{"role": "user", "content": "hi"}]),
+            metered.generate([{"role": "user", "content": "hi"}]),
+        )
+        return time.monotonic() - start
+
+    elapsed = asyncio.run(_run_both())
+    assert elapsed < 0.5  # well under the 0.6s two serialized 0.3s writes would take
+
+
 # -- ServerHealthSkill: power draw recording (reuses Home Assistant, no new integration)
 
 

@@ -2454,6 +2454,47 @@ provider for the same capability actually exists to design against.
     second call returning a real non-zero CPU reading (27.8%) -- proving
     the priming call actually works end to end, not just in isolation.
 
+59. **Done** -- Batched LLM token-usage recording into one DB round trip
+    off the event loop. Same "keep hunting for hot-path latency" request
+    that produced milestone 58, and the same category of miss:
+    `MeteredLLMClient.generate()` (47) recorded up to three metrics
+    (prompt/completion/total tokens) via three separate synchronous
+    `MetricsStore.record_sample()` calls -- three session-open/insert/
+    commit round trips -- directly in an `async def` method on the
+    response path of *every* chat turn. This predates milestone 52's
+    `asyncio.to_thread()` pass (which covered `run_tool()`/
+    `ContextEngine.build()`) and was simply missed, not a new problem.
+
+    New `MetricsStore.record_samples(dict[str, float])` writes any number
+    of named samples in one session/commit; `MeteredLLMClient.generate()`
+    now builds one dict and makes one `asyncio.to_thread()`-wrapped call
+    instead of up to three direct ones. `record_sample()` itself is
+    untouched -- other call sites (`server_health.py`'s per-metric
+    recording) aren't on this hot path and don't need to change.
+
+    Verified: full suite (479 passed, up from 475). A spy-based test
+    (`unittest.mock.patch.object`, wrapping the real method rather than
+    replacing it) confirms `record_sample()` is never called and
+    `record_samples()` is called exactly once with all three values --
+    the actual claim being made, not an SQL-statement count (three rows
+    still means three INSERT statements whether batched into one
+    transaction or not; what changed is the number of sessions/commits,
+    not the row count). A concurrency test (same shape as milestone 52's
+    Cortex/Planner ones) proves a slow `record_samples()` doesn't block a
+    second, concurrent `generate()` call -- confirmed to actually catch
+    the regression by temporarily removing the `asyncio.to_thread()` wrap
+    and seeing it fail at ~0.6s (serialized), then restoring the fix.
+    That test uses the real production `SessionLocal`/engine rather than
+    an isolated in-memory one, for a reason worth recording: an isolated
+    `StaticPool` engine (this test suite's usual pattern for isolation)
+    shares one raw SQLite connection across threads, which isn't safe for
+    two genuinely concurrent flushes at once -- confirmed live, it raised
+    a SQLAlchemy `FlushError` under this exact test. The real engine's
+    connection pool + WAL mode (52) is what actually makes concurrent
+    cross-thread writes safe; milestone 52's own concurrency tests used
+    the real engine for the same reason, this just hadn't come up again
+    until a test finally exercised concurrent writes through it.
+
 ## Running locally
 
 ```bash
