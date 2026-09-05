@@ -11,13 +11,15 @@ a routine search.
 
 from typing import Any
 
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
 from app.sonarr.client import SonarrClient
 
 
 class SonarrListSeriesTool(Tool):
     name = "sonarr_list_series"
-    description = "List TV series in the Sonarr library -- title, year, monitored status."
+    description = (
+        "List TV series in the Sonarr library -- title, year, monitored status."
+    )
     permission = ToolPermission.READ
     parameters = {"type": "object", "properties": {}, "required": []}
 
@@ -51,7 +53,12 @@ class SonarrSearchSeriesTool(Tool):
     permission = ToolPermission.SAFE_ACTION
     parameters = {
         "type": "object",
-        "properties": {"series_id": {"type": "integer", "description": "The Sonarr series id to search for."}},
+        "properties": {
+            "series_id": {
+                "type": "integer",
+                "description": "The Sonarr series id to search for.",
+            }
+        },
         "required": ["series_id"],
     }
 
@@ -71,7 +78,12 @@ class SonarrLookupSeriesTool(Tool):
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
-        "properties": {"term": {"type": "string", "description": "Series title to search for, e.g. 'Severance'."}},
+        "properties": {
+            "term": {
+                "type": "string",
+                "description": "Series title to search for, e.g. 'Severance'.",
+            }
+        },
         "required": ["term"],
     }
 
@@ -125,13 +137,22 @@ class SonarrAddSeriesTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "tvdb_id": {"type": "integer", "description": "The series' TVDB id, from sonarr_lookup_series."},
-            "title": {"type": "string", "description": "The series' title, from sonarr_lookup_series."},
+            "tvdb_id": {
+                "type": "integer",
+                "description": "The series' TVDB id, from sonarr_lookup_series.",
+            },
+            "title": {
+                "type": "string",
+                "description": "The series' title, from sonarr_lookup_series.",
+            },
             "quality_profile_id": {
                 "type": "integer",
                 "description": "A valid profile id, from sonarr_list_quality_profiles.",
             },
-            "root_folder_path": {"type": "string", "description": "A valid path, from sonarr_list_root_folders."},
+            "root_folder_path": {
+                "type": "string",
+                "description": "A valid path, from sonarr_list_root_folders.",
+            },
             "monitored": {
                 "type": "boolean",
                 "description": "Whether Sonarr should watch for/download this series. Defaults to true.",
@@ -158,7 +179,32 @@ class SonarrAddSeriesTool(Tool):
         **kwargs: Any,
     ) -> Any:
         return self._client.add_series(
-            tvdb_id, title, quality_profile_id, root_folder_path, monitored=monitored, search_now=search_now
+            tvdb_id,
+            title,
+            quality_profile_id,
+            root_folder_path,
+            monitored=monitored,
+            search_now=search_now,
+        )
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Independent check that the series actually landed in the
+        library -- same "the call not raising doesn't mean it happened"
+        gap RadarrAddMovieTool.verify() closes for movies."""
+        series_id = result.get("id") if isinstance(result, dict) else None
+        if not series_id:
+            return ToolVerification(
+                verified=False,
+                detail="Sonarr's add response didn't include a series id.",
+            )
+        if any(s["id"] == series_id for s in self._client.list_series()):
+            return ToolVerification(
+                verified=True,
+                detail=f"Series id {series_id} now appears in the Sonarr library.",
+            )
+        return ToolVerification(
+            verified=False,
+            detail=f"Series id {series_id} does not appear in the Sonarr library.",
         )
 
 
@@ -172,7 +218,10 @@ class SonarrDeleteSeriesTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "series_id": {"type": "integer", "description": "The Sonarr series id to remove."},
+            "series_id": {
+                "type": "integer",
+                "description": "The Sonarr series id to remove.",
+            },
             "delete_files": {
                 "type": "boolean",
                 "description": "Also delete the downloaded episode file(s) from disk. Defaults to false.",
@@ -195,7 +244,10 @@ class SonarrCalendarTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "days_ahead": {"type": "integer", "description": "How many days ahead to look. Defaults to 7."},
+            "days_ahead": {
+                "type": "integer",
+                "description": "How many days ahead to look. Defaults to 7.",
+            },
         },
         "required": [],
     }
@@ -218,7 +270,10 @@ class SonarrRemoveQueueItemTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "queue_id": {"type": "integer", "description": "The queue item id, from sonarr_queue."},
+            "queue_id": {
+                "type": "integer",
+                "description": "The queue item id, from sonarr_queue.",
+            },
             "blocklist": {
                 "type": "boolean",
                 "description": "Also blocklist this release so it isn't grabbed again. Defaults to false.",

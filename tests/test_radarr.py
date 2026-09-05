@@ -20,7 +20,11 @@ from app.radarr.client import RadarrClient
 
 
 def _mock_client(handler) -> RadarrClient:
-    return RadarrClient(base_url="http://radarr.local:7878", api_key="test-key", transport=httpx.MockTransport(handler))
+    return RadarrClient(
+        base_url="http://radarr.local:7878",
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
 
 
 def test_list_movies_maps_fields_and_sends_api_key_header() -> None:
@@ -29,13 +33,29 @@ def test_list_movies_maps_fields_and_sends_api_key_header() -> None:
         assert request.headers["x-api-key"] == "test-key"
         return httpx.Response(
             200,
-            json=[{"id": 1, "title": "The Matrix", "year": 1999, "monitored": True, "hasFile": True, "status": "released"}],
+            json=[
+                {
+                    "id": 1,
+                    "title": "The Matrix",
+                    "year": 1999,
+                    "monitored": True,
+                    "hasFile": True,
+                    "status": "released",
+                }
+            ],
         )
 
     client = _mock_client(handler)
     result = RadarrListMoviesTool(client).run()
     assert result == [
-        {"id": 1, "title": "The Matrix", "year": 1999, "monitored": True, "has_file": True, "status": "released"}
+        {
+            "id": 1,
+            "title": "The Matrix",
+            "year": 1999,
+            "monitored": True,
+            "has_file": True,
+            "status": "released",
+        }
     ]
     client.close()
 
@@ -47,7 +67,14 @@ def test_queue_maps_records() -> None:
             200,
             json={
                 "records": [
-                    {"id": 9, "title": "The Matrix", "status": "downloading", "timeleft": "00:10:00", "size": 1000, "sizeleft": 200}
+                    {
+                        "id": 9,
+                        "title": "The Matrix",
+                        "status": "downloading",
+                        "timeleft": "00:10:00",
+                        "size": 1000,
+                        "sizeleft": 200,
+                    }
                 ]
             },
         )
@@ -55,7 +82,14 @@ def test_queue_maps_records() -> None:
     client = _mock_client(handler)
     result = RadarrQueueTool(client).run()
     assert result == [
-        {"id": 9, "title": "The Matrix", "status": "downloading", "timeleft": "00:10:00", "size": 1000, "sizeleft": 200}
+        {
+            "id": 9,
+            "title": "The Matrix",
+            "status": "downloading",
+            "timeleft": "00:10:00",
+            "size": 1000,
+            "sizeleft": 200,
+        }
     ]
     client.close()
 
@@ -81,12 +115,27 @@ def test_lookup_movie_searches_tmdb_and_maps_fields() -> None:
         assert request.url.path == "/api/v3/movie/lookup"
         assert request.url.params["term"] == "Dune 2021"
         return httpx.Response(
-            200, json=[{"tmdbId": 438631, "title": "Dune", "year": 2021, "overview": "A mythic journey."}]
+            200,
+            json=[
+                {
+                    "tmdbId": 438631,
+                    "title": "Dune",
+                    "year": 2021,
+                    "overview": "A mythic journey.",
+                }
+            ],
         )
 
     client = _mock_client(handler)
     result = RadarrLookupMovieTool(client).run(term="Dune 2021")
-    assert result == [{"tmdb_id": 438631, "title": "Dune", "year": 2021, "overview": "A mythic journey."}]
+    assert result == [
+        {
+            "tmdb_id": 438631,
+            "title": "Dune",
+            "year": 2021,
+            "overview": "A mythic journey.",
+        }
+    ]
     client.close()
 
 
@@ -96,7 +145,9 @@ def test_lookup_movie_searches_tmdb_and_maps_fields() -> None:
 def test_list_root_folders_maps_fields_and_converts_free_space() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/v3/rootfolder"
-        return httpx.Response(200, json=[{"id": 1, "path": "/movies", "freeSpace": 5_000_000_000}])
+        return httpx.Response(
+            200, json=[{"id": 1, "path": "/movies", "freeSpace": 5_000_000_000}]
+        )
 
     client = _mock_client(handler)
     result = RadarrListRootFoldersTool(client).run()
@@ -134,7 +185,9 @@ def test_add_movie_posts_expected_payload_and_maps_the_response() -> None:
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }
-        return httpx.Response(201, json={"id": 7, "title": "Dune", "year": 2021, "monitored": True})
+        return httpx.Response(
+            201, json={"id": 7, "title": "Dune", "year": 2021, "monitored": True}
+        )
 
     client = _mock_client(handler)
     result = RadarrAddMovieTool(client).run(
@@ -153,7 +206,9 @@ def test_add_movie_forwards_monitored_and_search_now_false() -> None:
         body = json.loads(request.content)
         assert body["monitored"] is False
         assert body["addOptions"] == {"searchForMovie": False}
-        return httpx.Response(201, json={"id": 8, "title": "Dune", "year": 2021, "monitored": False})
+        return httpx.Response(
+            201, json={"id": 8, "title": "Dune", "year": 2021, "monitored": False}
+        )
 
     client = _mock_client(handler)
     RadarrAddMovieTool(client).run(
@@ -164,6 +219,52 @@ def test_add_movie_forwards_monitored_and_search_now_false() -> None:
         monitored=False,
         search_now=False,
     )
+    client.close()
+
+
+# -- verify(): result validation (milestone 69) -- the add can return
+# success while Radarr silently fails to actually add the movie (e.g. an
+# invalid root folder it accepts anyway), same "success doesn't mean it
+# happened" gap DockerRestartContainerTool.verify() closes for restarts.
+
+
+def test_add_movie_verify_reports_success_when_movie_appears_in_library() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 7,
+                    "title": "Dune",
+                    "year": 2021,
+                    "monitored": True,
+                    "hasFile": False,
+                    "status": "announced",
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    verification = RadarrAddMovieTool(client).verify({}, {"id": 7, "title": "Dune"})
+    assert verification.verified is True
+    assert "7" in verification.detail
+    client.close()
+
+
+def test_add_movie_verify_reports_failure_when_movie_never_appears() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    verification = RadarrAddMovieTool(client).verify({}, {"id": 7, "title": "Dune"})
+    assert verification.verified is False
+    client.close()
+
+
+def test_add_movie_verify_reports_failure_when_result_has_no_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    verification = RadarrAddMovieTool(client).verify({}, {})
+    assert verification.verified is False
     client.close()
 
 
@@ -210,7 +311,12 @@ def test_calendar_maps_release_dates() -> None:
     client = _mock_client(handler)
     result = RadarrCalendarTool(client).run(days_ahead=14)
     assert result == [
-        {"title": "Dune: Part Three", "in_cinemas": "2026-12-18", "physical_release": None, "digital_release": None}
+        {
+            "title": "Dune: Part Three",
+            "in_cinemas": "2026-12-18",
+            "physical_release": None,
+            "digital_release": None,
+        }
     ]
     client.close()
 
@@ -224,21 +330,37 @@ def test_add_movie_blocks_and_then_runs_once_confirmed() -> None:
     from app.core.config import Settings
     from app.core.siris import SirisAI
 
-    siris = SirisAI(settings=Settings(radarr_base_url="http://radarr.local:7878", radarr_api_key="secret"))
+    siris = SirisAI(
+        settings=Settings(
+            radarr_base_url="http://radarr.local:7878", radarr_api_key="secret"
+        )
+    )
     try:
         assert siris._radarr_client is not None
         with mock.patch.object(
-            siris._radarr_client, "add_movie", return_value={"id": 7, "title": "Dune", "year": 2021, "monitored": True}
+            siris._radarr_client,
+            "add_movie",
+            return_value={"id": 7, "title": "Dune", "year": 2021, "monitored": True},
         ):
             with pytest.raises(ConfirmationRequired):
                 siris.run_tool(
                     "radarr_add_movie",
-                    {"tmdb_id": 438631, "title": "Dune", "quality_profile_id": 4, "root_folder_path": "/movies"},
+                    {
+                        "tmdb_id": 438631,
+                        "title": "Dune",
+                        "quality_profile_id": 4,
+                        "root_folder_path": "/movies",
+                    },
                 )
 
             result = siris.run_tool(
                 "radarr_add_movie",
-                {"tmdb_id": 438631, "title": "Dune", "quality_profile_id": 4, "root_folder_path": "/movies"},
+                {
+                    "tmdb_id": 438631,
+                    "title": "Dune",
+                    "quality_profile_id": 4,
+                    "root_folder_path": "/movies",
+                },
                 confirmed=True,
             )
             assert result["id"] == 7

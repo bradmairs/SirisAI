@@ -20,18 +20,41 @@ from app.sonarr.client import SonarrClient
 
 
 def _mock_client(handler) -> SonarrClient:
-    return SonarrClient(base_url="http://sonarr.local:8989", api_key="test-key", transport=httpx.MockTransport(handler))
+    return SonarrClient(
+        base_url="http://sonarr.local:8989",
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
 
 
 def test_list_series_maps_fields_and_sends_api_key_header() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/v3/series"
         assert request.headers["x-api-key"] == "test-key"
-        return httpx.Response(200, json=[{"id": 1, "title": "Breaking Bad", "year": 2008, "monitored": True, "status": "ended"}])
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 1,
+                    "title": "Breaking Bad",
+                    "year": 2008,
+                    "monitored": True,
+                    "status": "ended",
+                }
+            ],
+        )
 
     client = _mock_client(handler)
     result = SonarrListSeriesTool(client).run()
-    assert result == [{"id": 1, "title": "Breaking Bad", "year": 2008, "monitored": True, "status": "ended"}]
+    assert result == [
+        {
+            "id": 1,
+            "title": "Breaking Bad",
+            "year": 2008,
+            "monitored": True,
+            "status": "ended",
+        }
+    ]
     client.close()
 
 
@@ -42,7 +65,14 @@ def test_queue_maps_records() -> None:
             200,
             json={
                 "records": [
-                    {"id": 3, "title": "Breaking Bad S01E01", "status": "downloading", "timeleft": "00:05:00", "size": 500, "sizeleft": 50}
+                    {
+                        "id": 3,
+                        "title": "Breaking Bad S01E01",
+                        "status": "downloading",
+                        "timeleft": "00:05:00",
+                        "size": 500,
+                        "sizeleft": 50,
+                    }
                 ]
             },
         )
@@ -50,7 +80,14 @@ def test_queue_maps_records() -> None:
     client = _mock_client(handler)
     result = SonarrQueueTool(client).run()
     assert result == [
-        {"id": 3, "title": "Breaking Bad S01E01", "status": "downloading", "timeleft": "00:05:00", "size": 500, "sizeleft": 50}
+        {
+            "id": 3,
+            "title": "Breaking Bad S01E01",
+            "status": "downloading",
+            "timeleft": "00:05:00",
+            "size": 500,
+            "sizeleft": 50,
+        }
     ]
     client.close()
 
@@ -76,12 +113,27 @@ def test_lookup_series_searches_tvdb_and_maps_fields() -> None:
         assert request.url.path == "/api/v3/series/lookup"
         assert request.url.params["term"] == "Severance"
         return httpx.Response(
-            200, json=[{"tvdbId": 371980, "title": "Severance", "year": 2022, "overview": "A workplace thriller."}]
+            200,
+            json=[
+                {
+                    "tvdbId": 371980,
+                    "title": "Severance",
+                    "year": 2022,
+                    "overview": "A workplace thriller.",
+                }
+            ],
         )
 
     client = _mock_client(handler)
     result = SonarrLookupSeriesTool(client).run(term="Severance")
-    assert result == [{"tvdb_id": 371980, "title": "Severance", "year": 2022, "overview": "A workplace thriller."}]
+    assert result == [
+        {
+            "tvdb_id": 371980,
+            "title": "Severance",
+            "year": 2022,
+            "overview": "A workplace thriller.",
+        }
+    ]
     client.close()
 
 
@@ -91,7 +143,9 @@ def test_lookup_series_searches_tvdb_and_maps_fields() -> None:
 def test_list_root_folders_maps_fields_and_converts_free_space() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/v3/rootfolder"
-        return httpx.Response(200, json=[{"id": 1, "path": "/tv", "freeSpace": 5_000_000_000}])
+        return httpx.Response(
+            200, json=[{"id": 1, "path": "/tv", "freeSpace": 5_000_000_000}]
+        )
 
     client = _mock_client(handler)
     result = SonarrListRootFoldersTool(client).run()
@@ -130,7 +184,9 @@ def test_add_series_posts_expected_payload_and_maps_the_response() -> None:
             "seasonFolder": True,
             "addOptions": {"searchForMissingEpisodes": True},
         }
-        return httpx.Response(201, json={"id": 7, "title": "Severance", "year": 2022, "monitored": True})
+        return httpx.Response(
+            201, json={"id": 7, "title": "Severance", "year": 2022, "monitored": True}
+        )
 
     client = _mock_client(handler)
     result = SonarrAddSeriesTool(client).run(
@@ -149,7 +205,9 @@ def test_add_series_forwards_monitored_and_search_now_false() -> None:
         body = json.loads(request.content)
         assert body["monitored"] is False
         assert body["addOptions"] == {"searchForMissingEpisodes": False}
-        return httpx.Response(201, json={"id": 8, "title": "Severance", "year": 2022, "monitored": False})
+        return httpx.Response(
+            201, json={"id": 8, "title": "Severance", "year": 2022, "monitored": False}
+        )
 
     client = _mock_client(handler)
     SonarrAddSeriesTool(client).run(
@@ -160,6 +218,53 @@ def test_add_series_forwards_monitored_and_search_now_false() -> None:
         monitored=False,
         search_now=False,
     )
+    client.close()
+
+
+# -- verify(): result validation (milestone 69) -- same "success doesn't
+# mean it happened" gap RadarrAddMovieTool.verify() closes for movies.
+
+
+def test_add_series_verify_reports_success_when_series_appears_in_library() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 7,
+                    "title": "Severance",
+                    "year": 2022,
+                    "monitored": True,
+                    "status": "continuing",
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    verification = SonarrAddSeriesTool(client).verify(
+        {}, {"id": 7, "title": "Severance"}
+    )
+    assert verification.verified is True
+    assert "7" in verification.detail
+    client.close()
+
+
+def test_add_series_verify_reports_failure_when_series_never_appears() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    verification = SonarrAddSeriesTool(client).verify(
+        {}, {"id": 7, "title": "Severance"}
+    )
+    assert verification.verified is False
+    client.close()
+
+
+def test_add_series_verify_reports_failure_when_result_has_no_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    verification = SonarrAddSeriesTool(client).verify({}, {})
+    assert verification.verified is False
     client.close()
 
 
@@ -228,23 +333,42 @@ def test_add_series_blocks_and_then_runs_once_confirmed() -> None:
     from app.core.config import Settings
     from app.core.siris import SirisAI
 
-    siris = SirisAI(settings=Settings(sonarr_base_url="http://sonarr.local:8989", sonarr_api_key="secret"))
+    siris = SirisAI(
+        settings=Settings(
+            sonarr_base_url="http://sonarr.local:8989", sonarr_api_key="secret"
+        )
+    )
     try:
         assert siris._sonarr_client is not None
         with mock.patch.object(
             siris._sonarr_client,
             "add_series",
-            return_value={"id": 7, "title": "Severance", "year": 2022, "monitored": True},
+            return_value={
+                "id": 7,
+                "title": "Severance",
+                "year": 2022,
+                "monitored": True,
+            },
         ):
             with pytest.raises(ConfirmationRequired):
                 siris.run_tool(
                     "sonarr_add_series",
-                    {"tvdb_id": 371980, "title": "Severance", "quality_profile_id": 4, "root_folder_path": "/tv"},
+                    {
+                        "tvdb_id": 371980,
+                        "title": "Severance",
+                        "quality_profile_id": 4,
+                        "root_folder_path": "/tv",
+                    },
                 )
 
             result = siris.run_tool(
                 "sonarr_add_series",
-                {"tvdb_id": 371980, "title": "Severance", "quality_profile_id": 4, "root_folder_path": "/tv"},
+                {
+                    "tvdb_id": 371980,
+                    "title": "Severance",
+                    "quality_profile_id": 4,
+                    "root_folder_path": "/tv",
+                },
                 confirmed=True,
             )
             assert result["id"] == 7

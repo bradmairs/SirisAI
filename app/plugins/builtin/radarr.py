@@ -19,13 +19,15 @@ changes future behavior, not just a status query.
 
 from typing import Any
 
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
 from app.radarr.client import RadarrClient
 
 
 class RadarrListMoviesTool(Tool):
     name = "radarr_list_movies"
-    description = "List movies in the Radarr library -- title, year, monitored/download status."
+    description = (
+        "List movies in the Radarr library -- title, year, monitored/download status."
+    )
     permission = ToolPermission.READ
     parameters = {"type": "object", "properties": {}, "required": []}
 
@@ -58,7 +60,12 @@ class RadarrSearchMovieTool(Tool):
     permission = ToolPermission.SAFE_ACTION
     parameters = {
         "type": "object",
-        "properties": {"movie_id": {"type": "integer", "description": "The Radarr movie id to search for."}},
+        "properties": {
+            "movie_id": {
+                "type": "integer",
+                "description": "The Radarr movie id to search for.",
+            }
+        },
         "required": ["movie_id"],
     }
 
@@ -78,7 +85,12 @@ class RadarrLookupMovieTool(Tool):
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
-        "properties": {"term": {"type": "string", "description": "Movie title to search for, e.g. 'Dune 2021'."}},
+        "properties": {
+            "term": {
+                "type": "string",
+                "description": "Movie title to search for, e.g. 'Dune 2021'.",
+            }
+        },
         "required": ["term"],
     }
 
@@ -132,13 +144,22 @@ class RadarrAddMovieTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "tmdb_id": {"type": "integer", "description": "The movie's TMDB id, from radarr_lookup_movie."},
-            "title": {"type": "string", "description": "The movie's title, from radarr_lookup_movie."},
+            "tmdb_id": {
+                "type": "integer",
+                "description": "The movie's TMDB id, from radarr_lookup_movie.",
+            },
+            "title": {
+                "type": "string",
+                "description": "The movie's title, from radarr_lookup_movie.",
+            },
             "quality_profile_id": {
                 "type": "integer",
                 "description": "A valid profile id, from radarr_list_quality_profiles.",
             },
-            "root_folder_path": {"type": "string", "description": "A valid path, from radarr_list_root_folders."},
+            "root_folder_path": {
+                "type": "string",
+                "description": "A valid path, from radarr_list_root_folders.",
+            },
             "monitored": {
                 "type": "boolean",
                 "description": "Whether Radarr should watch for/download this movie. Defaults to true.",
@@ -165,7 +186,36 @@ class RadarrAddMovieTool(Tool):
         **kwargs: Any,
     ) -> Any:
         return self._client.add_movie(
-            tmdb_id, title, quality_profile_id, root_folder_path, monitored=monitored, search_now=search_now
+            tmdb_id,
+            title,
+            quality_profile_id,
+            root_folder_path,
+            monitored=monitored,
+            search_now=search_now,
+        )
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Independent check that the movie actually landed in the
+        library, not just that Radarr's own POST returned success -- the
+        same "the call not raising doesn't mean it happened" gap this
+        tool library's other verify()s close (DockerRestartContainerTool,
+        HomeAssistantCallServiceTool, CalendarCreateEventTool): a
+        malformed root folder or a profile Radarr silently can't apply
+        can leave the add half-done without ever surfacing as an error."""
+        movie_id = result.get("id") if isinstance(result, dict) else None
+        if not movie_id:
+            return ToolVerification(
+                verified=False,
+                detail="Radarr's add response didn't include a movie id.",
+            )
+        if any(m["id"] == movie_id for m in self._client.list_movies()):
+            return ToolVerification(
+                verified=True,
+                detail=f"Movie id {movie_id} now appears in the Radarr library.",
+            )
+        return ToolVerification(
+            verified=False,
+            detail=f"Movie id {movie_id} does not appear in the Radarr library.",
         )
 
 
@@ -179,7 +229,10 @@ class RadarrDeleteMovieTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "movie_id": {"type": "integer", "description": "The Radarr movie id to remove."},
+            "movie_id": {
+                "type": "integer",
+                "description": "The Radarr movie id to remove.",
+            },
             "delete_files": {
                 "type": "boolean",
                 "description": "Also delete the downloaded movie file(s) from disk. Defaults to false.",
@@ -202,7 +255,10 @@ class RadarrCalendarTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "days_ahead": {"type": "integer", "description": "How many days ahead to look. Defaults to 7."},
+            "days_ahead": {
+                "type": "integer",
+                "description": "How many days ahead to look. Defaults to 7.",
+            },
         },
         "required": [],
     }
@@ -225,7 +281,10 @@ class RadarrRemoveQueueItemTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "queue_id": {"type": "integer", "description": "The queue item id, from radarr_queue."},
+            "queue_id": {
+                "type": "integer",
+                "description": "The queue item id, from radarr_queue.",
+            },
             "blocklist": {
                 "type": "boolean",
                 "description": "Also blocklist this release so it isn't grabbed again. Defaults to false.",

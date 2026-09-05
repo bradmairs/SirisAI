@@ -2935,6 +2935,44 @@ provider for the same capability actually exists to design against.
     behavior against, so a live test here would only prove the fake
     server does what the fake server was told to do.
 
+69. **Done** -- Result validation for Radarr/Sonarr library additions.
+    Closes the two remaining candidates explicitly named as "not done
+    here" in milestones 65/68's writeups: `radarr_add_movie` and
+    `sonarr_add_series`'s own API calls not raising doesn't prove the
+    movie/series actually landed in the library -- same "success
+    doesn't mean it happened" gap `DockerRestartContainerTool.verify()`,
+    `HomeAssistantCallServiceTool.verify()`, and
+    `CalendarCreateEventTool.verify()` already close elsewhere. Both
+    tools' `verify()` re-query `list_movies()`/`list_series()` (already
+    existing methods -- no new client code needed) and check the
+    returned id actually appears; a missing `id` in the add response
+    (should never happen, but not assumed) is reported unverified
+    rather than raising.
+
+    This closes out the whole "does the API success actually reflect
+    reality" pass across every tool in this codebase whose own write
+    has a natural way to re-check itself: Docker restarts, Home
+    Assistant device control, calendar events, and now Radarr/Sonarr
+    library adds. Not every write tool gets this -- `hermes_run_task`'s
+    result is whatever the delegated instruction produced, with no
+    single "did it work" check to run, and `obsidian_create_or_update_note`
+    already returns exactly what it wrote with nothing further to
+    independently confirm -- verify() stays opt-in for tools with a real
+    gap to close, not a blanket requirement.
+
+    Verified: full suite (542 passed, up from 536) covering both
+    verify() outcomes for each tool, plus the missing-id case, mocked at
+    the same `RadarrClient`/`SonarrClient` transport boundary their
+    other tests already use. Live-verified against a real `uvicorn`
+    process and fake Radarr/Sonarr v3 API servers -- Radarr's server
+    simulated the exact silent-failure case (POST returns success, but
+    `GET /api/v3/movie` never lists the new movie): `GET /siris/activity`
+    showed `radarr_add_movie` correctly flagged `verified: false`, while
+    a genuinely successful `sonarr_add_series` call against a server
+    that actually listed the series back came through `verified: true`
+    -- both through real HTTP round trips, not mocked at the tool
+    boundary.
+
 ## Running locally
 
 ```bash
