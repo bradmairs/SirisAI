@@ -2761,6 +2761,49 @@ provider for the same capability actually exists to design against.
     `path`/`excerpts` citation shape end-to-end through
     `POST /siris/tools/{name}/run`.
 
+65. **Done** -- Result validation for Home Assistant device control.
+    First pick from "trustworthiness infrastructure" -- the part of the
+    original brainstormed list flagged as "less exciting, but arguably
+    the most important." `Tool.verify()` (milestone 38) already existed
+    as a mechanism, but only `DockerRestartContainerTool` used it; every
+    other consequential tool, including the single most-used
+    physical-device tool in the whole system, had none.
+
+    `HomeAssistantCallServiceTool.verify()` closes the exact same gap
+    Docker's own restart verification closed, applied to physical
+    devices: the service call returning success from Home Assistant's
+    API doesn't mean the entity actually changed state -- an
+    unreachable or offline device is the common real failure mode, and
+    without this a `turn_on` against a dead bulb reports success both
+    to the model and in the audit log. Checked only for services with
+    one unambiguous expected end state (`turn_on`/`turn_off`,
+    `lock`/`unlock`, `open_cover`/`close_cover`, the `arm_*`/`disarm`
+    alarm services) and a concrete `entity_id` -- a scene activation, a
+    non-boolean `set_temperature`, or a `notify` call has no single
+    "correct" resulting state to check against, so those honestly raise
+    `NotImplementedError` (this project's established "don't overclaim
+    rigor that isn't there" convention) rather than guessing.
+
+    Deliberately scoped to one tool, not "add verify() everywhere" --
+    `calendar_create_event` and the Radarr/Sonarr add-movie/add-series
+    tools are similarly-shaped future candidates (query back after
+    acting to confirm it actually took), left for a later pass rather
+    than done as a sweep here.
+
+    Verified: full suite (521 passed, up from 516) covering a
+    successful turn_on reaching the expected state, a failed one that
+    doesn't (the exact "API said yes, device said no" case), the
+    lock/cover domains too, and both `NotImplementedError` cases
+    (no `entity_id`; a service with no single expected state).
+    Live-verified against a real `uvicorn` process and a fake Home
+    Assistant server that accepts a `light.turn_on` call (still returns
+    200) while the simulated bulb never actually turns on: `GET
+    /siris/activity` showed `verified: false` with `"'light.kitchen' is
+    'off', not the expected 'on'"` for that call, and `verified: true`
+    for a `lock.lock` call against a device that genuinely reached the
+    expected state -- both real HTTP round trips, not mocked at the
+    tool boundary.
+
 ## Running locally
 
 ```bash

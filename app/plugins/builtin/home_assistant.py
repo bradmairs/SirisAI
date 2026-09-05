@@ -13,7 +13,30 @@ from typing import Any
 
 from app.home_assistant.client import HomeAssistantClient
 from app.memory.events import EventMemoryStore
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
+
+# Result validation (a hardening pass, milestone 65): services with an
+# unambiguous expected end state, so HomeAssistantCallServiceTool.verify()
+# below can check "did this actually happen" rather than just "did the API
+# call return 200" -- the same gap DockerRestartContainerTool.verify()
+# (milestone 38) closed for container restarts, applied here to physical
+# devices, which can go unresponsive/offline in a way the API call alone
+# doesn't surface. Deliberately not exhaustive: a scene activation, a
+# non-boolean set_temperature, or a notify call has no single "correct"
+# resulting state to check against, so those are left to raise
+# NotImplementedError rather than this guessing at a shape that doesn't fit.
+_EXPECTED_STATE_BY_SERVICE: dict[str, str] = {
+    "turn_on": "on",
+    "turn_off": "off",
+    "lock": "locked",
+    "unlock": "unlocked",
+    "open_cover": "open",
+    "close_cover": "closed",
+    "arm_away": "armed_away",
+    "arm_home": "armed_home",
+    "arm_night": "armed_night",
+    "disarm": "disarmed",
+}
 
 
 class HomeAssistantListEntitiesTool(Tool):
@@ -40,7 +63,10 @@ class HomeAssistantListEntitiesTool(Tool):
         self._client = client
 
     def run(self, domain: str | None = None, **kwargs: Any) -> Any:
-        return [{"entity_id": s["entity_id"], "state": s["state"]} for s in self._client.list_states(domain=domain)]
+        return [
+            {"entity_id": s["entity_id"], "state": s["state"]}
+            for s in self._client.list_states(domain=domain)
+        ]
 
 
 class HomeAssistantGetStateTool(Tool):
@@ -50,7 +76,10 @@ class HomeAssistantGetStateTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "entity_id": {"type": "string", "description": "The entity to look up, e.g. 'light.living_room'."},
+            "entity_id": {
+                "type": "string",
+                "description": "The entity to look up, e.g. 'light.living_room'.",
+            },
         },
         "required": ["entity_id"],
     }
@@ -82,12 +111,18 @@ class HomeAssistantCallServiceTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "domain": {"type": "string", "description": "Service domain, e.g. 'light', 'switch', 'climate'."},
+            "domain": {
+                "type": "string",
+                "description": "Service domain, e.g. 'light', 'switch', 'climate'.",
+            },
             "service": {
                 "type": "string",
                 "description": "Service to call, e.g. 'turn_on', 'turn_off', 'toggle', 'set_temperature'.",
             },
-            "entity_id": {"type": "string", "description": "The entity to target, e.g. 'light.living_room'."},
+            "entity_id": {
+                "type": "string",
+                "description": "The entity to target, e.g. 'light.living_room'.",
+            },
             "service_data": {
                 "type": "object",
                 "description": "Extra service-specific fields, e.g. {'brightness_pct': 50}.",
@@ -97,7 +132,10 @@ class HomeAssistantCallServiceTool(Tool):
     }
 
     def __init__(
-        self, client: HomeAssistantClient, events: EventMemoryStore, no_confirm_domains: list[str] | None = None
+        self,
+        client: HomeAssistantClient,
+        events: EventMemoryStore,
+        no_confirm_domains: list[str] | None = None,
     ) -> None:
         self._client = client
         self._events = events
@@ -118,7 +156,9 @@ class HomeAssistantCallServiceTool(Tool):
         service_data: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
-        result = self._client.call_service(domain, service, entity_id=entity_id, **(service_data or {}))
+        result = self._client.call_service(
+            domain, service, entity_id=entity_id, **(service_data or {})
+        )
         # Behavioral pattern anomalies (milestone 41): log this as an
         # Event, grouped by "{domain}.{service}" + entity_id (e.g.
         # "light.turn_off" on "light.office"), so EventMemoryStore's
@@ -128,8 +168,40 @@ class HomeAssistantCallServiceTool(Tool):
         # "the backup didn't run", once the action is visible as a
         # recurring Event signature. No new detection logic needed:
         # event_timing_check already does the rest once this exists.
-        self._events.log_event(f"{domain}.{service}", entity_name=entity_id, source="home_assistant_call_service")
+        self._events.log_event(
+            f"{domain}.{service}",
+            entity_name=entity_id,
+            source="home_assistant_call_service",
+        )
         return result
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Independent check that the call actually took effect, not just
+        that Home Assistant's API accepted it -- an unreachable/offline
+        device is the common real failure mode this exists for: the
+        service call can return success while the entity's state never
+        actually changes. Only checked when both a concrete `entity_id`
+        and a service in `_EXPECTED_STATE_BY_SERVICE` are given; anything
+        else honestly raises `NotImplementedError` (this tool's base
+        class's own "doesn't support verify" convention) rather than
+        claiming to check something with no single correct end state."""
+        entity_id = arguments.get("entity_id")
+        expected_state = _EXPECTED_STATE_BY_SERVICE.get(arguments.get("service", ""))
+        if entity_id is None or expected_state is None:
+            raise NotImplementedError(
+                f"{self.name} does not support verify for this domain/service"
+            )
+
+        actual_state = self._client.get_state(entity_id).get("state")
+        if actual_state == expected_state:
+            return ToolVerification(
+                verified=True,
+                detail=f"'{entity_id}' is now '{actual_state}', as expected.",
+            )
+        return ToolVerification(
+            verified=False,
+            detail=f"'{entity_id}' is '{actual_state}', not the expected '{expected_state}'.",
+        )
 
 
 class HomeAssistantCreateAutomationTool(Tool):
@@ -157,7 +229,10 @@ class HomeAssistantCreateAutomationTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "alias": {"type": "string", "description": "The automation's display name in Home Assistant."},
+            "alias": {
+                "type": "string",
+                "description": "The automation's display name in Home Assistant.",
+            },
             "trigger": {
                 "type": "array",
                 "items": {"type": "object"},
@@ -181,7 +256,10 @@ class HomeAssistantCreateAutomationTool(Tool):
                 "description": "Optional: how overlapping runs are handled -- 'single' (default), "
                 "'restart', 'queued', or 'parallel'.",
             },
-            "description": {"type": "string", "description": "Optional longer description of what this does."},
+            "description": {
+                "type": "string",
+                "description": "Optional longer description of what this does.",
+            },
         },
         "required": ["alias", "trigger", "action"],
     }
@@ -200,7 +278,12 @@ class HomeAssistantCreateAutomationTool(Tool):
         **kwargs: Any,
     ) -> Any:
         return self._client.create_automation(
-            alias, trigger or [], action or [], condition=condition, mode=mode, description=description
+            alias,
+            trigger or [],
+            action or [],
+            condition=condition,
+            mode=mode,
+            description=description,
         )
 
 
@@ -250,8 +333,14 @@ class HomeAssistantGetHistoryTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "entity_id": {"type": "string", "description": "The entity to look up, e.g. 'sensor.living_room_temperature'."},
-            "hours": {"type": "integer", "description": "How far back to look, in hours. Defaults to 24."},
+            "entity_id": {
+                "type": "string",
+                "description": "The entity to look up, e.g. 'sensor.living_room_temperature'.",
+            },
+            "hours": {
+                "type": "integer",
+                "description": "How far back to look, in hours. Defaults to 24.",
+            },
         },
         "required": ["entity_id"],
     }
