@@ -2905,6 +2905,36 @@ provider for the same capability actually exists to design against.
     `recall` tool with `query: "what is my name"` returned the same
     memory. Neither would have found anything before this fix.
 
+68. **Done** -- Result validation for calendar event creation. The
+    other explicitly-flagged follow-up from milestone 65's writeup:
+    `calendar_create_event`'s `caldav.add_event()` call not raising
+    doesn't prove the server actually persisted anything -- the same
+    "success doesn't mean it happened" gap `DockerRestartContainerTool.
+    verify()` (38) and `HomeAssistantCallServiceTool.verify()` (65)
+    close elsewhere, here for a CalDAV PUT that could silently drop a
+    UID collision or reject an unrecognized property without ever
+    surfacing an error.
+
+    `CalendarCreateEventTool.verify()` re-queries `events_between()`
+    for the same window right after creating and checks the new
+    event's `summary` actually comes back. Reuses the same
+    `events_between()` milestone 63 already built for conflict
+    checking -- no new client method needed.
+
+    Radarr/Sonarr's add-movie/add-series tools remain a similarly-shaped
+    candidate, still not done here -- staying with one tool per pass
+    rather than a sweep, same choice milestone 65 made explicitly.
+
+    Verified: full suite (536 passed, up from 534) covering both the
+    successful (event found) and failed (event never appears) cases,
+    mocked at the same `CalendarClient` boundary `test_calendar.py`
+    already uses for this tool's other tests. Not live-verified: same
+    acknowledged gap as milestones 39/63 -- CalDAV is a real WebDAV
+    protocol (PROPFIND/REPORT XML, not simple REST), and there's no
+    real CalDAV server in this environment to exercise the actual wire
+    behavior against, so a live test here would only prove the fake
+    server does what the fake server was told to do.
+
 ## Running locally
 
 ```bash
