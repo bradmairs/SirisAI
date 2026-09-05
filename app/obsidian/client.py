@@ -8,7 +8,10 @@ self-signed-controller support. Bearer-token auth, the API key shown in
 the plugin's own settings pane.
 """
 
+import io
+
 import httpx
+from pypdf import PdfReader
 
 
 class ObsidianClient:
@@ -35,9 +38,27 @@ class ObsidianClient:
         return response.json().get("files", [])
 
     def get_note(self, path: str) -> str:
+        """Text content of the file at `path`. A vault can hold more than
+        markdown notes -- a manual or contract dropped in as a PDF is a
+        real, expected case for "document knowledge with citations" -- so
+        a `.pdf` path is extracted to plain text via `pypdf` instead of
+        being decoded as UTF-8 (which would just be garbage bytes). Any
+        other non-text extension is deliberately not guessed at: it comes
+        back as a clear placeholder rather than mojibake that looks like
+        real content but isn't."""
         response = self._client.get(f"/vault/{path.lstrip('/')}")
         response.raise_for_status()
-        return response.text
+
+        if path.lower().endswith(".pdf"):
+            reader = PdfReader(io.BytesIO(response.content))
+            return "\n\n".join(
+                page.extract_text() or "" for page in reader.pages
+            ).strip()
+
+        try:
+            return response.content.decode("utf-8")
+        except UnicodeDecodeError:
+            return f"[Cannot display '{path}': not a text file.]"
 
     def create_or_update_note(self, path: str, content: str) -> None:
         """Fully replaces the note's content if it already exists --
@@ -47,14 +68,34 @@ class ObsidianClient:
         this reason: an accidental overwrite silently loses whatever was
         there before, with no built-in undo."""
         response = self._client.put(
-            f"/vault/{path.lstrip('/')}", content=content.encode("utf-8"), headers={"Content-Type": "text/markdown"}
+            f"/vault/{path.lstrip('/')}",
+            content=content.encode("utf-8"),
+            headers={"Content-Type": "text/markdown"},
         )
         response.raise_for_status()
 
     def search(self, query: str, context_length: int = 100) -> list[dict]:
-        response = self._client.post("/search/simple/", params={"query": query, "contextLength": context_length})
+        """Normalized into a consistent citation shape -- `path` +
+        `excerpts` -- rather than passing the plugin's own response
+        straight through: the raw shape (`filename` + a `matches` list of
+        `{match: {start, end}, context}` objects) makes a caller dig
+        through nesting just to know which file a hit came from and quote
+        it, exactly the kind of provenance friction milestone 5's
+        `remember`/`recall` design and the entity/relationship tools were
+        built to avoid for memory -- documents deserve the same "know
+        where this came from" treatment."""
+        response = self._client.post(
+            "/search/simple/", params={"query": query, "contextLength": context_length}
+        )
         response.raise_for_status()
-        return response.json()
+        return [
+            {
+                "path": result["filename"],
+                "score": result.get("score"),
+                "excerpts": [match["context"] for match in result.get("matches", [])],
+            }
+            for result in response.json()
+        ]
 
     def close(self) -> None:
         self._client.close()

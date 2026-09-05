@@ -10,7 +10,36 @@ from app.plugins.builtin.obsidian import (
 
 
 def _mock_client(handler) -> ObsidianClient:
-    return ObsidianClient(base_url="https://obsidian.local:27124", api_key="test-key", transport=httpx.MockTransport(handler))
+    return ObsidianClient(
+        base_url="https://obsidian.local:27124",
+        api_key="test-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+
+def _minimal_pdf_bytes(text: str) -> bytes:
+    """A hand-built, minimally valid single-page PDF containing `text` as
+    real extractable content -- there's no PDF-writing library in this
+    project's dependencies (pypdf itself only reads), so this is the
+    smallest fixture that a real PDF parser accepts."""
+    content = f"BT /F1 18 Tf 10 100 Td ({text}) Tj ET".encode()
+    header = (
+        b"%PDF-1.4\n"
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> "
+        b"/MediaBox [0 0 300 144] /Contents 5 0 R >>\nendobj\n"
+        b"4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+    )
+    stream_obj = (
+        b"5 0 obj\n<< /Length "
+        + str(len(content)).encode()
+        + b" >>\nstream\n"
+        + content
+        + b"\nendstream\nendobj\n"
+    )
+    footer = b"xref\n0 6\n0000000000 65535 f \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n0\n%%EOF\n"
+    return header + stream_obj + footer
 
 
 def test_list_notes_at_vault_root() -> None:
@@ -47,16 +76,96 @@ def test_get_note_returns_raw_content() -> None:
     client.close()
 
 
+def test_get_note_extracts_text_from_a_pdf() -> None:
+    """The gap this milestone exists for: a manual or contract dropped
+    into the vault as a PDF used to come back as garbled/undecodable
+    bytes via a plain UTF-8 decode -- now extracted to real text."""
+    pdf_bytes = _minimal_pdf_bytes(
+        "Restart the router by holding the button for 10 seconds."
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/vault/Manuals/Router.pdf"
+        return httpx.Response(
+            200, content=pdf_bytes, headers={"Content-Type": "application/pdf"}
+        )
+
+    client = _mock_client(handler)
+    result = ObsidianGetNoteTool(client).run(path="Manuals/Router.pdf")
+    assert "Restart the router by holding the button for 10 seconds." in result
+    client.close()
+
+
+def test_get_note_returns_a_placeholder_for_undecodable_binary_content() -> None:
+    """Deliberately doesn't guess at content it can't safely render --
+    see the client's own docstring for why a placeholder beats mojibake
+    that looks like real text but isn't."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\xff\xfe"
+        )
+
+    client = _mock_client(handler)
+    result = ObsidianGetNoteTool(client).run(path="Photos/diagram.jpg")
+    assert result == "[Cannot display 'Photos/diagram.jpg': not a text file.]"
+    client.close()
+
+
 def test_search_forwards_query_and_context_length() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/search/simple/"
         assert request.url.params["query"] == "homelab"
         assert request.url.params["contextLength"] == "50"
-        return httpx.Response(200, json=[{"filename": "Notes.md", "matches": []}])
+        return httpx.Response(
+            200, json=[{"filename": "Notes.md", "score": 1.5, "matches": []}]
+        )
 
     client = _mock_client(handler)
     result = ObsidianSearchTool(client).run(query="homelab", context_length=50)
-    assert result == [{"filename": "Notes.md", "matches": []}]
+    assert result == [{"path": "Notes.md", "score": 1.5, "excerpts": []}]
+    client.close()
+
+
+def test_search_normalizes_matches_into_a_citation_shape() -> None:
+    """The exact gap this milestone exists for: the plugin's own raw
+    shape buries the source filename and each match's text behind nested
+    `matches[].context` -- normalized here into a flat, quotable `path` +
+    `excerpts` a caller can cite directly."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "filename": "Projects/Router-Manual.md",
+                    "score": 2.1,
+                    "matches": [
+                        {
+                            "match": {"start": 0, "end": 5},
+                            "context": "The default admin password is...",
+                        },
+                        {
+                            "match": {"start": 50, "end": 55},
+                            "context": "To reset, hold the button for 10s.",
+                        },
+                    ],
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = ObsidianSearchTool(client).run(query="password")
+    assert result == [
+        {
+            "path": "Projects/Router-Manual.md",
+            "score": 2.1,
+            "excerpts": [
+                "The default admin password is...",
+                "To reset, hold the button for 10s.",
+            ],
+        }
+    ]
     client.close()
 
 
@@ -69,7 +178,9 @@ def test_create_or_update_note_puts_markdown_content() -> None:
         return httpx.Response(204)
 
     client = _mock_client(handler)
-    result = ObsidianCreateOrUpdateNoteTool(client).run(path="Projects/SirisAI.md", content="# Updated")
+    result = ObsidianCreateOrUpdateNoteTool(client).run(
+        path="Projects/SirisAI.md", content="# Updated"
+    )
     assert result == {"written": True, "path": "Projects/SirisAI.md"}
     client.close()
 

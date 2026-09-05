@@ -2720,6 +2720,47 @@ provider for the same capability actually exists to design against.
     the (deliberately unreachable, per the gap above) configured CalDAV
     URL.
 
+64. **Done** -- Document search with citations. The next pick from the
+    same brainstormed list, scoped down deliberately: asked whether this
+    meant building a real multi-source document index/RAG pipeline
+    (chunking, embeddings, ranked retrieval -- a multi-week
+    architectural project) or enhancing the existing Obsidian
+    integration; the answer was the latter -- `obsidian_search`
+    already returns a filename and matched context per hit, which *is*
+    a citation, it just wasn't shaped like one.
+
+    What shipped, both in `app/obsidian/client.py`:
+    - `search()` now normalizes the plugin's raw response (`filename` +
+      a `matches` list of `{match: {start, end}, context}` objects) into
+      a flat `{path, score, excerpts}` shape -- `path` is exactly what
+      to cite ("According to Projects/Router-Manual.md: ..."), `excerpts`
+      exactly what to quote, without a caller digging through nesting
+      first.
+    - `get_note()` now handles PDFs: a manual or contract dropped into
+      the vault as a `.pdf` used to come back through a plain UTF-8
+      decode as garbage bytes (or a decode error) -- now extracted to
+      real text via a new `pypdf` dependency. Any other non-text
+      extension deliberately isn't guessed at further: it returns a
+      clear `"[Cannot display '{path}': not a text file.]"` placeholder
+      rather than mojibake that looks like real content but isn't.
+
+    No new tools, no new settings -- both existing tools
+    (`obsidian_search`, `obsidian_get_note`) just got more useful outputs
+    from the same inputs, plus updated descriptions telling the model to
+    actually cite `path` when answering from a search hit.
+
+    Verified: full suite (516 passed, up from 513) covering the
+    normalized search shape (including a multi-excerpt result), PDF text
+    extraction (against a hand-built minimal real PDF -- there's no
+    PDF-writing library in this project's dependencies, `pypdf` itself
+    only reads), and the placeholder path for genuinely undecodable
+    binary content. Live-verified against a real `uvicorn` process and a
+    fake Obsidian Local REST API server: `obsidian_get_note` correctly
+    extracted real text from a real (if minimal) PDF and still returned
+    plain markdown unchanged, and `obsidian_search` returned the new
+    `path`/`excerpts` citation shape end-to-end through
+    `POST /siris/tools/{name}/run`.
+
 ## Running locally
 
 ```bash
