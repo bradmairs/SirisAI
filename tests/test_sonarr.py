@@ -13,6 +13,7 @@ from app.plugins.builtin.sonarr import (
     SonarrListSeriesTool,
     SonarrLookupSeriesTool,
     SonarrQueueTool,
+    SonarrRemoveQueueItemTool,
     SonarrSearchSeriesTool,
 )
 from app.sonarr.client import SonarrClient
@@ -39,13 +40,17 @@ def test_queue_maps_records() -> None:
         assert request.url.path == "/api/v3/queue"
         return httpx.Response(
             200,
-            json={"records": [{"title": "Breaking Bad S01E01", "status": "downloading", "timeleft": "00:05:00", "size": 500, "sizeleft": 50}]},
+            json={
+                "records": [
+                    {"id": 3, "title": "Breaking Bad S01E01", "status": "downloading", "timeleft": "00:05:00", "size": 500, "sizeleft": 50}
+                ]
+            },
         )
 
     client = _mock_client(handler)
     result = SonarrQueueTool(client).run()
     assert result == [
-        {"title": "Breaking Bad S01E01", "status": "downloading", "timeleft": "00:05:00", "size": 500, "sizeleft": 50}
+        {"id": 3, "title": "Breaking Bad S01E01", "status": "downloading", "timeleft": "00:05:00", "size": 500, "sizeleft": 50}
     ]
     client.close()
 
@@ -245,3 +250,34 @@ def test_add_series_blocks_and_then_runs_once_confirmed() -> None:
             assert result["id"] == 7
     finally:
         siris._sonarr_client.close()
+
+
+# -- remove_queue_item / sonarr_remove_queue_item
+
+
+def test_remove_queue_item_sends_remove_from_client_and_blocklist_params() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/api/v3/queue/3"
+        assert request.url.params["removeFromClient"] == "true"
+        assert request.url.params["blocklist"] == "true"
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    result = SonarrRemoveQueueItemTool(client).run(queue_id=3, blocklist=True)
+    assert result == {"removed": True, "queue_id": 3, "blocklisted": True}
+    client.close()
+
+
+def test_remove_queue_item_defaults_blocklist_to_false() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["blocklist"] == "false"
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    SonarrRemoveQueueItemTool(client).run(queue_id=3)
+    client.close()
+
+
+def test_remove_queue_item_requires_confirmation() -> None:
+    assert SonarrRemoveQueueItemTool.permission is ToolPermission.CONFIRM_REQUIRED

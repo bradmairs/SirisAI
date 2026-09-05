@@ -13,9 +13,12 @@ from app.plugins.base import ConfirmationRequired, ToolPermission
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
     HomeAssistantCreateAutomationTool,
+    HomeAssistantDeleteAutomationTool,
+    HomeAssistantGetHistoryTool,
     HomeAssistantGetLogbookTool,
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
+    HomeAssistantRenderTemplateTool,
 )
 
 _HOME_ASSISTANT_TOOL_NAMES = {
@@ -395,3 +398,76 @@ def test_home_assistant_get_logbook_tool_forwards_entity_id_and_hours() -> None:
 
     assert seen["entity"] == "light.hallway"
     client.close()
+
+
+# -- get_history / home_assistant_get_history
+
+
+def test_get_history_hits_timestamped_path_and_maps_state_series() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["entity"] = request.url.params.get("filter_entity_id")
+        return httpx.Response(
+            200,
+            json=[
+                [
+                    {"state": "18.0", "last_changed": "2026-01-01T00:00:00+00:00"},
+                    {"state": "19.5", "last_changed": "2026-01-01T06:00:00+00:00"},
+                ]
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantGetHistoryTool(client).run(entity_id="sensor.living_room_temperature", hours=12)
+
+    assert result == [
+        {"state": "18.0", "last_changed": "2026-01-01T00:00:00+00:00"},
+        {"state": "19.5", "last_changed": "2026-01-01T06:00:00+00:00"},
+    ]
+    assert seen["entity"] == "sensor.living_room_temperature"
+    assert str(seen["path"]).startswith("/api/history/period/")
+    client.close()
+
+
+def test_get_history_returns_empty_list_when_no_series_present() -> None:
+    client = _mock_client(lambda request: httpx.Response(200, json=[]))
+    result = HomeAssistantGetHistoryTool(client).run(entity_id="sensor.unknown")
+    assert result == []
+    client.close()
+
+
+# -- render_template / home_assistant_render_template
+
+
+def test_render_template_posts_template_and_returns_rendered_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/template"
+        body = json.loads(request.content)
+        assert body == {"template": "{{ states('sensor.living_room_temperature') }}"}
+        return httpx.Response(200, text="19.5")
+
+    client = _mock_client(handler)
+    result = HomeAssistantRenderTemplateTool(client).run(template="{{ states('sensor.living_room_temperature') }}")
+    assert result == {"rendered": "19.5"}
+    client.close()
+
+
+# -- delete_automation / home_assistant_delete_automation
+
+
+def test_delete_automation_sends_delete_to_config_api() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/api/config/automation/config/1735689000000"
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    result = HomeAssistantDeleteAutomationTool(client).run(automation_id="1735689000000")
+    assert result == {"deleted": True, "automation_id": "1735689000000"}
+    client.close()
+
+
+def test_delete_automation_requires_confirmation() -> None:
+    assert HomeAssistantDeleteAutomationTool.permission is ToolPermission.CONFIRM_REQUIRED

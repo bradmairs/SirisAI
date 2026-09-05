@@ -13,6 +13,7 @@ from app.plugins.builtin.radarr import (
     RadarrListRootFoldersTool,
     RadarrLookupMovieTool,
     RadarrQueueTool,
+    RadarrRemoveQueueItemTool,
     RadarrSearchMovieTool,
 )
 from app.radarr.client import RadarrClient
@@ -44,13 +45,17 @@ def test_queue_maps_records() -> None:
         assert request.url.path == "/api/v3/queue"
         return httpx.Response(
             200,
-            json={"records": [{"title": "The Matrix", "status": "downloading", "timeleft": "00:10:00", "size": 1000, "sizeleft": 200}]},
+            json={
+                "records": [
+                    {"id": 9, "title": "The Matrix", "status": "downloading", "timeleft": "00:10:00", "size": 1000, "sizeleft": 200}
+                ]
+            },
         )
 
     client = _mock_client(handler)
     result = RadarrQueueTool(client).run()
     assert result == [
-        {"title": "The Matrix", "status": "downloading", "timeleft": "00:10:00", "size": 1000, "sizeleft": 200}
+        {"id": 9, "title": "The Matrix", "status": "downloading", "timeleft": "00:10:00", "size": 1000, "sizeleft": 200}
     ]
     client.close()
 
@@ -239,3 +244,34 @@ def test_add_movie_blocks_and_then_runs_once_confirmed() -> None:
             assert result["id"] == 7
     finally:
         siris._radarr_client.close()
+
+
+# -- remove_queue_item / radarr_remove_queue_item
+
+
+def test_remove_queue_item_sends_remove_from_client_and_blocklist_params() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/api/v3/queue/9"
+        assert request.url.params["removeFromClient"] == "true"
+        assert request.url.params["blocklist"] == "true"
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    result = RadarrRemoveQueueItemTool(client).run(queue_id=9, blocklist=True)
+    assert result == {"removed": True, "queue_id": 9, "blocklisted": True}
+    client.close()
+
+
+def test_remove_queue_item_defaults_blocklist_to_false() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["blocklist"] == "false"
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    RadarrRemoveQueueItemTool(client).run(queue_id=9)
+    client.close()
+
+
+def test_remove_queue_item_requires_confirmation() -> None:
+    assert RadarrRemoveQueueItemTool.permission is ToolPermission.CONFIRM_REQUIRED

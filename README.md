@@ -2341,6 +2341,76 @@ provider for the same capability actually exists to design against.
     exact expected payload -- checked by inspecting what each mock server
     actually received, not just a 200 OK.
 
+57. **Done** -- More tool coverage across Home Assistant, UniFi, Hermes
+    Agent, Tautulli, Radarr, Sonarr, and Bazarr. Direct follow-up request
+    to keep going on all seven. Two of the seven get nothing new, on
+    purpose, and that's worth explaining rather than silently skipping:
+
+    - **UniFi**: stays read-only. Its own client docstring, rewritten
+      days ago after live-testing against a real controller (milestone
+      56's merge), says exactly why: "the least-verified integration in
+      this tool library... kept read-only for that reason -- a path
+      mismatch fails loudly rather than doing anything destructive."
+      Adding a write action (e.g. blocking a client) now would mean
+      overriding a deliberate, very recently and carefully verified
+      decision without the means to re-verify it against real hardware
+      from here. Left alone.
+    - **Hermes Agent**: stays a single delegate tool. Its docstring is
+      explicit: "one delegate tool, not a growing set of Hermes-specific
+      ones, since the actual capability lives on Hermes's side." Adding
+      Hermes-specific tools here would contradict that design directly,
+      not extend it.
+
+    The other five each gained real, scoped additions:
+
+    **Home Assistant**: `home_assistant_get_history` (a raw state-over-
+    time series for one entity -- "how has the temperature changed
+    today" -- distinct from `get_logbook`'s discrete named events),
+    `home_assistant_render_template` (evaluates a Jinja2 template
+    against current state via Home Assistant's own official templating
+    endpoint, read-only, for values no single tool returns directly,
+    e.g. an average across several sensors), and
+    `home_assistant_delete_automation` (removes an automation by its
+    config id, `CONFIRM_REQUIRED` and not eligible for the no-confirm
+    allowlist, same reasoning as `create_automation`, 54). A
+    `list_automations` tool was considered and dropped: `home_assistant_
+    list_entities` with `domain='automation'` already covers discovery
+    (automations are entities), and an automation's config id -- needed
+    to delete it -- turns out to already be exposed as the `id`
+    attribute on that same entity's state, so no new lookup method was
+    needed either.
+
+    **Radarr and Sonarr**: `*_remove_queue_item`, `CONFIRM_REQUIRED` --
+    clearing a stuck or errored download, with an optional blocklist so
+    it isn't grabbed again. `queue()`'s mapped output gained the
+    item's `id`, previously dropped, since removal needs it.
+
+    **Tautulli**: `tautulli_get_users` (who has access to the server, not
+    who's watching right now) and `tautulli_get_libraries` (per-library
+    item counts -- distinct from `PlexLibrarySectionsTool`, which only
+    lists section names).
+
+    **Bazarr**: `bazarr_search_wanted_subtitles`, `SAFE_ACTION` (same
+    "queues a background search" treatment as Radarr's/Sonarr's search
+    tools) -- runs Bazarr's own built-in scheduled task by name rather
+    than a per-item search: Bazarr's per-item endpoints need a specific
+    provider/language selection this codebase doesn't have enough
+    verified detail on yet, so this sticks to the one whole-library
+    action simple enough to be confident about.
+
+    Verified: full suite (474 passed, up from 459) covering every new
+    client method/tool (request/response mapping, `CONFIRM_REQUIRED` on
+    every delete/remove tool, `SAFE_ACTION` on the Bazarr trigger).
+    Live-verified against a real `uvicorn` process and real mock Home
+    Assistant/Radarr/Sonarr/Tautulli/Bazarr servers: every new READ tool
+    returned real mapped data from real HTTP responses (including
+    `render_template`'s plain-text, non-JSON response), and every
+    `CONFIRM_REQUIRED` tool (`home_assistant_delete_automation`,
+    `radarr_remove_queue_item`, `sonarr_remove_queue_item`) was confirmed
+    to block unconfirmed and then, once confirmed, send the exact
+    expected payload -- checked by inspecting what each mock server
+    actually received.
+
 ## Running locally
 
 ```bash

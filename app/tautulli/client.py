@@ -64,5 +64,29 @@ class TautulliClient:
         self._call("terminate_session", session_id=session_id, message=message)
         return {"terminated": True, "session_id": session_id}
 
+    def get_users(self) -> list[dict]:
+        """Plex users Tautulli has ever seen -- who's on the server, not
+        who's watching right now (current_activity() is that)."""
+        users = self._call("get_users")
+        return [
+            {"user_id": u.get("user_id"), "username": u.get("username"), "friendly_name": u.get("friendly_name")}
+            for u in users
+        ]
+
+    def get_libraries(self) -> list[dict]:
+        """Per-library item counts, distinct from PlexLibrarySectionsTool
+        (app/plugins/builtin/plex.py), which just lists section names --
+        this is Tautulli's own tracked stats about each one."""
+        libraries = self._call("get_libraries")
+        return [
+            {
+                "section_id": lib.get("section_id"),
+                "name": lib.get("section_name"),
+                "type": lib.get("section_type"),
+                "count": lib.get("count"),
+            }
+            for lib in libraries
+        ]
+
     def close(self) -> None:
         self._client.close()

@@ -236,3 +236,88 @@ class HomeAssistantGetLogbookTool(Tool):
     def run(self, entity_id: str | None = None, hours: int = 24, **kwargs: Any) -> Any:
         since = datetime.now(UTC) - timedelta(hours=hours)
         return self._client.get_logbook(entity_id=entity_id, since=since)
+
+
+class HomeAssistantGetHistoryTool(Tool):
+    name = "home_assistant_get_history"
+    description = (
+        "Get how one Home Assistant entity's state has changed over time (e.g. 'how has the "
+        "temperature changed today') -- a raw value series, not discrete named events with a cause "
+        "(use home_assistant_get_logbook for that). entity_id must be the real Home Assistant id "
+        "(e.g. 'sensor.living_room_temperature'), not a friendly name."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "entity_id": {"type": "string", "description": "The entity to look up, e.g. 'sensor.living_room_temperature'."},
+            "hours": {"type": "integer", "description": "How far back to look, in hours. Defaults to 24."},
+        },
+        "required": ["entity_id"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, entity_id: str = "", hours: int = 24, **kwargs: Any) -> Any:
+        return self._client.get_history(entity_id, hours=hours)
+
+
+class HomeAssistantRenderTemplateTool(Tool):
+    name = "home_assistant_render_template"
+    description = (
+        "Evaluate a Home Assistant Jinja2 template against its current state and return the "
+        "rendered text -- read-only, for computing something no single existing tool returns "
+        "directly (e.g. an average across several sensors), using Home Assistant's own templating "
+        "(https://www.home-assistant.io/docs/configuration/templating/) rather than fetching every "
+        "entity and computing it yourself."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "template": {
+                "type": "string",
+                "description": "The Jinja2 template to render, e.g. "
+                "\"{{ states('sensor.living_room_temperature') }}\".",
+            },
+        },
+        "required": ["template"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, template: str = "", **kwargs: Any) -> Any:
+        return {"rendered": self._client.render_template(template)}
+
+
+class HomeAssistantDeleteAutomationTool(Tool):
+    name = "home_assistant_delete_automation"
+    description = (
+        "Delete a Home Assistant automation, using its automation_id -- not the entity_id. Find it "
+        "via home_assistant_get_state on the automation's entity_id (e.g. 'automation.hallway_light'); "
+        "the id is in its attributes."
+    )
+    # Same reasoning as HomeAssistantCreateAutomationTool: removing a
+    # standing rule is a different order of consequence than a one-off
+    # call_service, and deliberately not eligible for the
+    # SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS allowlist -- this is a
+    # separate Tool class with no needs_confirmation() override.
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "automation_id": {
+                "type": "string",
+                "description": "The automation's config id, from its entity's 'id' attribute.",
+            },
+        },
+        "required": ["automation_id"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, automation_id: str = "", **kwargs: Any) -> Any:
+        return self._client.delete_automation(automation_id)

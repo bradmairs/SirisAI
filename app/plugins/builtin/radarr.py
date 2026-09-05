@@ -11,7 +11,10 @@ consequential action" this file's docstring used to defer -- now built,
 CONFIRM_REQUIRED: unlike a search, these change what's actually in the
 library (and delete_movie can remove files from disk), so they get the
 same human-in-the-loop treatment as HomeAssistantCallServiceTool by
-default, not SAFE_ACTION's "runs immediately" treatment.
+default, not SAFE_ACTION's "runs immediately" treatment. Removing a
+stuck/errored queue item (a later hardening pass) is CONFIRM_REQUIRED for
+the same reason -- it's a real removal, optionally with a blocklist that
+changes future behavior, not just a status query.
 """
 
 from typing import Any
@@ -209,3 +212,30 @@ class RadarrCalendarTool(Tool):
 
     def run(self, days_ahead: int = 7, **kwargs: Any) -> Any:
         return self._client.calendar(days_ahead=days_ahead)
+
+
+class RadarrRemoveQueueItemTool(Tool):
+    name = "radarr_remove_queue_item"
+    description = (
+        "Remove one item from Radarr's download queue (e.g. a stuck or errored download), using "
+        "its id from radarr_queue. Optionally blocklists it so Radarr won't grab that same release "
+        "again."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "queue_id": {"type": "integer", "description": "The queue item id, from radarr_queue."},
+            "blocklist": {
+                "type": "boolean",
+                "description": "Also blocklist this release so it isn't grabbed again. Defaults to false.",
+            },
+        },
+        "required": ["queue_id"],
+    }
+
+    def __init__(self, client: RadarrClient) -> None:
+        self._client = client
+
+    def run(self, queue_id: int = 0, blocklist: bool = False, **kwargs: Any) -> Any:
+        return self._client.remove_queue_item(queue_id, blocklist=blocklist)

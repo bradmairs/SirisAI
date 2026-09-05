@@ -3,9 +3,10 @@ app/sonarr/client.py. Registered only when SIRISAI_SONARR_BASE_URL and
 SIRISAI_SONARR_API_KEY are both set. Same scope reasoning as Radarr's
 tools (app/plugins/builtin/radarr.py) -- READ for listing/queue/lookup/
 calendar/root-folders/quality-profiles, SAFE_ACTION for triggering a
-search, CONFIRM_REQUIRED (a hardening pass) for adding/removing a series
--- these change what's actually in the library (and delete_series can
-remove files from disk), unlike a routine search.
+search, CONFIRM_REQUIRED for adding/removing a series or a stuck queue
+item -- these change what's actually in the library (and delete_series/
+remove_queue_item's blocklist option can affect future behavior), unlike
+a routine search.
 """
 
 from typing import Any
@@ -204,3 +205,30 @@ class SonarrCalendarTool(Tool):
 
     def run(self, days_ahead: int = 7, **kwargs: Any) -> Any:
         return self._client.calendar(days_ahead=days_ahead)
+
+
+class SonarrRemoveQueueItemTool(Tool):
+    name = "sonarr_remove_queue_item"
+    description = (
+        "Remove one item from Sonarr's download queue (e.g. a stuck or errored download), using "
+        "its id from sonarr_queue. Optionally blocklists it so Sonarr won't grab that same release "
+        "again."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "queue_id": {"type": "integer", "description": "The queue item id, from sonarr_queue."},
+            "blocklist": {
+                "type": "boolean",
+                "description": "Also blocklist this release so it isn't grabbed again. Defaults to false.",
+            },
+        },
+        "required": ["queue_id"],
+    }
+
+    def __init__(self, client: SonarrClient) -> None:
+        self._client = client
+
+    def run(self, queue_id: int = 0, blocklist: bool = False, **kwargs: Any) -> Any:
+        return self._client.remove_queue_item(queue_id, blocklist=blocklist)
