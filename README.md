@@ -2411,6 +2411,49 @@ provider for the same capability actually exists to design against.
     expected payload -- checked by inspecting what each mock server
     actually received.
 
+58. **Done** -- Removed a 200ms blocking wait from nearly every chat
+    turn. Direct follow-up to "I want the responses to be faster,"
+    after milestone 52's event-loop-blocking fix: that milestone moved
+    blocking tool calls onto a worker thread so they stop freezing
+    *other* requests, but the *user's own* turn still waited out every
+    blocking call in full -- this milestone hunts for one of those on
+    the single most common path, a plain chat turn.
+
+    Found it in `SystemInfoTool` (`app/plugins/builtin/system_info.py`):
+    `psutil.cpu_percent(interval=0.2)` deliberately blocks for 200ms to
+    measure CPU usage over a fresh window. `ContextEngine.build()` --
+    which runs by default on every `POST /siris/chat` call
+    (`use_context=True`) -- calls this tool for its "current system
+    status" line, so that 200ms landed on essentially every chat
+    response, on top of everything else the turn was already doing.
+    `server_health_check` (15) hits the same cost on every proactive
+    check for the same reason.
+
+    Fixed with psutil's own standard non-blocking pattern, not a
+    workaround: `psutil.cpu_percent(interval=None)` returns instantly,
+    using the delta since whenever `cpu_percent()` was last called
+    anywhere in this process -- so `app/main.py`'s startup lifespan now
+    primes it once at boot (so the first real call gets something to
+    diff against instead of a meaningless `0.0`), and every call after
+    that is free. The tradeoff this accepts: a reading over "however
+    long it's been since the last call" instead of a controlled 200ms
+    window -- for a tool re-invoked every chat turn and health check
+    anyway, that's normally seconds to minutes, arguably more
+    informative than a narrow 200ms snapshot, not less.
+
+    Verified: full suite (475 passed, up from 474) including a new
+    regression test asserting two consecutive real `SystemInfoTool.run()`
+    calls together complete in well under 150ms -- confirmed to actually
+    catch the regression by temporarily reverting to `interval=0.2` and
+    seeing it fail at ~400ms (two blocking calls), then restoring the fix
+    and confirming it passes again, same rigor as milestone 52's
+    concurrency tests. Live-verified against a real `uvicorn` process:
+    two consecutive real `POST /siris/tools/system_info/run` calls
+    completed in 70ms and 12ms respectively (both including real HTTP
+    round-trip overhead, not just the bare function call), with the
+    second call returning a real non-zero CPU reading (27.8%) -- proving
+    the priming call actually works end to end, not just in isolation.
+
 ## Running locally
 
 ```bash

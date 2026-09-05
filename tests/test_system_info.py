@@ -1,4 +1,22 @@
+import time
+
 from app.plugins.builtin.system_info import SystemInfoTool
+
+
+def test_system_info_does_not_block_on_cpu_sampling() -> None:
+    """Performance hardening pass: this used to call psutil.cpu_percent(
+    interval=0.2), a guaranteed 200ms block on nearly every chat turn
+    (ContextEngine.build() calls this tool). Regression guard: a real
+    call, run twice back to back, should complete in well under 200ms
+    each time -- a blocking interval reintroduced here would fail this."""
+    tool = SystemInfoTool(disk_paths=["/"])
+
+    start = time.monotonic()
+    tool.run()
+    tool.run()
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 0.15  # well under the 0.2s a single blocking call used to take
 
 
 def test_system_info_returns_expected_shape() -> None:
