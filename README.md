@@ -2848,6 +2848,63 @@ provider for the same capability actually exists to design against.
     "plex" each correctly resolved to exactly one match -- all through
     real HTTP round trips via `POST /siris/tools/{name}/run`.
 
+67. **Done** -- Bug fix: `recall()` couldn't find memories from a
+    natural-language question. Direct bug report: SirisAI had recorded
+    the user's name, but asked "what's my name?" it said it couldn't
+    recall it. Root cause, in `MemoryStore.recall()`
+    (app/memory/service.py): `query` had to appear as one single,
+    literal substring of a memory's *entire* content -- fine for a
+    caller passing a short keyword, but `ContextEngine.build()` (the
+    mechanism that's supposed to make this automatic, no tool call
+    needed) passes the user's whole raw prompt as `query` on every
+    turn, and "What's my name?" is nowhere close to being a substring
+    of "User's name is Brad". The `recall` tool the model can call
+    directly had the same fragility if it passed a full question rather
+    than a keyword, which its own description didn't warn against.
+    SirisAI was then telling the truth about its query finding nothing
+    -- just not the truth the user needed, since the fact really was
+    there.
+
+    Fix: split `query` into individual significant words and match a
+    memory if it contains *any* of them (still plain SQL `ILIKE`, OR'd
+    across terms) instead of requiring the whole string as one
+    substring -- turns a natural-language question into an actual
+    search instead of a near-guaranteed miss, with no change to
+    `recall()`'s signature or any caller. A small stopword list (the
+    usual pronouns/function words, plus a domain-specific one: "user",
+    since nearly every memory here is phrased as a fact *about* "the
+    user" and so the word itself carries no signal) and a 3-character
+    minimum keep single common words from matching everything; a query
+    where every word gets filtered out (e.g. "who am I") falls back to
+    the old literal-substring behavior rather than matching
+    indiscriminately. Still no embeddings/semantic search and no
+    relevance ranking beyond the existing recency order -- both
+    explicitly out of scope, called out in the module's own docstring
+    as a future real search backend's job, not this fix's.
+
+    One pre-existing test (`test_recall_bumps_usage_on_matching_entries_only`)
+    had two memory entries sharing one literal marker string between
+    them, relying on the old exact-substring rule to tell them apart --
+    updated to use two distinct markers instead, since the point of that
+    test (usage bumps only for entries the query actually matches) is
+    still true, it just needed data that doesn't accidentally collide
+    under the new, intentionally broader matching.
+
+    Verified: full suite (534 passed, up from 529), including new tests
+    for matching a multi-word natural-language query, not requiring the
+    whole query to match, falling back to literal matching when every
+    word is filtered out, and short exact queries still working
+    unchanged -- run three times end-to-end against a fresh database
+    each time to rule out the shared-word false-positive risk this fix
+    trades in for (confirmed stable). Live-verified against a real
+    `uvicorn` process and a fake Ollama-compatible backend that echoes
+    back its own system message: recorded "User's name is Brad" via
+    `POST /siris/memory`, then asked "What is my name?" as a normal chat
+    turn -- the context actually sent to the model included
+    "Relevant memories: User's name is Brad", and a direct call to the
+    `recall` tool with `query: "what is my name"` returned the same
+    memory. Neither would have found anything before this fix.
+
 ## Running locally
 
 ```bash
