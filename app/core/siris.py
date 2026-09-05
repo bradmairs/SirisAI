@@ -48,7 +48,7 @@ from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
 from app.plugins.builtin.bazarr import BazarrSearchWantedSubtitlesTool, BazarrWantedEpisodesTool, BazarrWantedMoviesTool
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
-from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
+from app.plugins.builtin.docker import DockerGetContainerLogsTool, DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
 from app.plugins.builtin.goals import (
     AddGoalObjectiveTool,
@@ -102,6 +102,7 @@ from app.plugins.builtin.radarr import (
 )
 from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
 from app.plugins.builtin.satellites import SpeakInCurrentRoomTool
+from app.plugins.builtin.service_health import CheckServiceEndpointTool
 from app.plugins.builtin.sonarr import (
     SonarrAddSeriesTool,
     SonarrCalendarTool,
@@ -328,6 +329,7 @@ class SirisAI:
         self.tools.register(ListRoutinesTool(self.routines))
         self.tools.register(SetRoutineEnabledTool(self.routines))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
+        self.tools.register(CheckServiceEndpointTool())
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
 
@@ -361,6 +363,7 @@ class SirisAI:
         if self.settings.docker_base_url:
             self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
             self.tools.register(DockerListContainersTool(self._docker_client))
+            self.tools.register(DockerGetContainerLogsTool(self._docker_client))
             self.tools.register(DockerRestartContainerTool(self._docker_client, self.entities, self._plex_client))
 
         if self.settings.unifi_base_url and self.settings.unifi_api_key:

@@ -2606,6 +2606,73 @@ provider for the same capability actually exists to design against.
     stayed exactly `["user", "assistant"]` -- no extraction step mixed
     in.
 
+62. **Done** -- Diagnostic tools for the "Plex isn't working" flow.
+    Follow-up to a large brainstormed list of tool ideas (with the
+    project-management-for-GVW-work section explicitly excluded, per
+    the request). Rather than build any of it blindly, the list was
+    checked against what's already shipped first -- most of the
+    "recommended first ten" turned out to already exist (Home
+    Assistant, Hermes delegation, notifications, memory/entity
+    registry, audit logging, tool-result verification). Asked which
+    genuinely-new item to tackle first; the pick was the "Plex isn't
+    working" incident recipe the list itself used as its example of
+    "SirisAI thinks, tools chain" in action.
+
+    What shipped is deliberately small, matching that same philosophy:
+    two new narrow, single-purpose tools, not a bespoke "diagnose an
+    incident" skill --
+    - `docker_get_container_logs` -- fetches recent stdout+stderr log
+      lines from a container, with an optional case-insensitive
+      `contains` filter to cut noise before it reaches the model. Adds
+      `DockerClient.get_container_logs()`, which has to demultiplex
+      Docker's own log-streaming wire format: a non-TTY container's
+      logs come back as 8-byte-header-prefixed frames (stream type +
+      payload length) rather than plain text, while a TTY container's
+      don't -- there's no separate signal for which, so an invalid
+      first-byte stream type is treated as "not framed" and the raw
+      bytes are decoded as-is.
+    - `check_service_endpoint` -- a generic HTTP(S) reachability check
+      (reachable/status code/latency only, deliberately never the
+      response body, so it can't double as a general "fetch any URL"
+      tool) for confirming a dependent service is actually serving
+      requests, not just that its container is "running" -- Docker's
+      own state can lie about that, the same gap `DockerRestartContainerTool.
+      verify()` (milestone 38) already called out for restarts.
+      Certificate-expiry checking from the original idea list was
+      considered and deliberately left out: httpx doesn't expose the
+      peer certificate, so it would need its own raw `ssl` socket
+      implementation -- a reasonable follow-up, not bundled in here.
+
+    No new orchestration code ties these together -- the planner
+    (already existing, `use_planner=True`) chains `docker_list_containers`
+    (existing) -> `docker_get_container_logs` -> `check_service_endpoint`
+    -> a delegated fix (`hermes_run_task`/`docker_restart_container`,
+    both already existing) entirely through the model's own reasoning,
+    exactly the "small dependable tools, no giant monolith" shape asked
+    for. `check_service_endpoint` is always registered (it takes its
+    target as a call-time argument, unlike every other tool in this
+    package which needs a configured `base_url`); the logs tool
+    registers alongside the rest of Docker's, gated on
+    `SIRISAI_DOCKER_BASE_URL` same as always.
+
+    Verified: full suite (505 passed, up from 496) covering the wire-format
+    demuxing for both a framed and a TTY/unframed container, the
+    `contains` filter, and `check_service_endpoint`'s reachable/
+    unreachable/timeout/non-2xx cases -- including an explicit test that
+    a response body can never leak through the tool's return value.
+    Live-verified against a real `uvicorn` process, a fake Docker Engine
+    API, and a fake Plex endpoint: asked "Plex isn't working" with
+    `use_planner: true`, and the planner chained all three tools on its
+    own -- `docker_list_containers` (looked "running"), then
+    `docker_get_container_logs` with `contains: "error"` (surfaced a
+    locked database and a failed transcoder), then `check_service_endpoint`
+    (confirmed the endpoint itself was returning 500 despite the
+    container's "running" state) -- landing on a correct diagnosis
+    entirely from the model's own reasoning. `GET /siris/activity`
+    confirmed each step recorded with its own honest
+    `"planner: step N of an in-progress plan"` trigger and the prior
+    steps' results as `evidence`.
+
 ## Running locally
 
 ```bash

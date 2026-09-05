@@ -43,5 +43,41 @@ class DockerClient:
         response.raise_for_status()
         return {"container": container, "restarted": True}
 
+    def get_container_logs(self, container: str, tail: int = 200) -> str:
+        response = self._client.get(
+            f"/containers/{container}/logs",
+            params={"stdout": "true", "stderr": "true", "tail": str(tail), "timestamps": "true"},
+        )
+        response.raise_for_status()
+        return _demux_log_stream(response.content)
+
     def close(self) -> None:
         self._client.close()
+
+
+def _demux_log_stream(raw: bytes) -> str:
+    """Docker's logs endpoint multiplexes stdout/stderr behind an 8-byte
+    header (1-byte stream type + 3 zero bytes + 4-byte big-endian payload
+    length) before each chunk -- but only for a container created without
+    a TTY; a TTY container's logs come back as plain, unframed text
+    instead. There's no separate signal for which one this response is,
+    so this treats "first byte isn't a valid stream type" as "not framed"
+    and falls back to decoding the raw bytes untouched."""
+    if len(raw) < 8 or raw[0] not in (0, 1, 2):
+        return raw.decode("utf-8", errors="replace")
+
+    chunks: list[str] = []
+    offset = 0
+    while offset + 8 <= len(raw):
+        stream_type = raw[offset]
+        if stream_type not in (0, 1, 2):
+            break
+        length = int.from_bytes(raw[offset + 4 : offset + 8], "big")
+        payload_start = offset + 8
+        payload_end = payload_start + length
+        if payload_end > len(raw):
+            break
+        chunks.append(raw[payload_start:payload_end].decode("utf-8", errors="replace"))
+        offset = payload_end
+
+    return "".join(chunks) if chunks else raw.decode("utf-8", errors="replace")
