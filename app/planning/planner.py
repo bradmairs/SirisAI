@@ -30,6 +30,14 @@ app/cortex/orchestrator.py's module docstring for why (this process is a
 single event loop; a blocking tool call made directly here would freeze
 every other concurrent request for the call's duration, not just this
 plan's own steps).
+
+`trigger_template` (a hardening pass, automatic memory extraction) lets a
+caller other than the user-visible chat flow reuse this same multi-step
+tool-calling loop honestly -- Cortex._maybe_extract_memory() runs a
+plan of its own (recall existing memory, then decide whether to save
+something new) via this exact class, and needs its audit trail to say so
+plainly rather than every step reading "planner: step N of an
+in-progress plan" as if a user's own request drove it.
 """
 
 import asyncio
@@ -82,6 +90,8 @@ class Planner:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
         llm_client: LLMClient,
+        *,
+        trigger_template: str = "planner: step {step} of an in-progress plan",
     ) -> PlanResult:
         working_messages = list(messages)
         steps: list[PlanStep] = []
@@ -105,7 +115,7 @@ class Planner:
                     call.arguments,
                     conversation_id=conversation_id,
                     confirmed=False,
-                    trigger=f"planner: step {step_number} of an in-progress plan",
+                    trigger=trigger_template.format(step=step_number),
                     evidence=evidence,
                 )
             except ConfirmationRequired:

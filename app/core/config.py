@@ -210,8 +210,24 @@ class Settings(BaseSettings):
     hermes_base_url: str = ""
     hermes_model: str = "hermes"
     hermes_api_key: str = ""
+    # A hardening pass: HermesClient's default (120s) is already generous
+    # for Hermes doing its own multi-step tool use/terminal work before
+    # responding, but that's still a guess at what any given deployment's
+    # heaviest delegated task actually needs -- configurable rather than
+    # a silent hard ceiling a genuinely long-running task could hit.
+    hermes_timeout_seconds: float = 120.0
 
-    # Presence-triggered scenes (milestone 42, app/skills/builtin/presence.py):
+    # Automatic memory extraction (a hardening pass, app/cortex/orchestrator.py):
+    # after a chat turn produces a real answer, a separate "fast"-role LLM
+    # pass (see app/llm/router.py) reviews the exchange and decides, using
+    # its own judgment via a small recall/remember tool set (Planner-driven,
+    # so it can check existing memory before saving), whether anything is
+    # worth keeping long-term -- on by default, since "record things worth
+    # remembering without being asked" was the direct ask this exists for.
+    # Off entirely turns off the extra LLM call/cost per turn, not just the
+    # writes; existing memory tools remain available to the model exactly
+    # as they always have either way.
+    auto_memory_extraction_enabled: bool = True
     # "everyone left" -> away scene, "someone's home" -> home scene.
     # presence_device_names is comma-separated UniFi client names/hostnames
     # (e.g. "brads-iphone,jans-iphone") that count as "someone is home"

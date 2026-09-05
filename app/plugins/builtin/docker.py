@@ -34,6 +34,45 @@ class DockerListContainersTool(Tool):
         return self._client.list_containers(all_containers=all_containers)
 
 
+class DockerGetContainerLogsTool(Tool):
+    name = "docker_get_container_logs"
+    description = (
+        "Fetch recent log lines (stdout+stderr, timestamped) from a Docker container -- "
+        "for diagnosing why a service is failing, before deciding whether to restart it "
+        "or delegate a repair to Hermes."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "container": {"type": "string", "description": "Container name or id."},
+            "tail": {
+                "type": "integer",
+                "description": "Number of most recent log lines to fetch. Defaults to 200.",
+            },
+            "contains": {
+                "type": "string",
+                "description": (
+                    "Optional case-insensitive substring -- if given, only lines containing it are "
+                    "returned (e.g. \"error\"), to cut noise out of a large log instead of reading it all."
+                ),
+            },
+        },
+        "required": ["container"],
+    }
+
+    def __init__(self, client: DockerClient) -> None:
+        self._client = client
+
+    def run(self, container: str = "", tail: int = 200, contains: str | None = None, **kwargs: Any) -> Any:
+        logs = self._client.get_container_logs(container, tail=tail)
+        lines = logs.splitlines()
+        if contains:
+            needle = contains.lower()
+            lines = [line for line in lines if needle in line.lower()]
+        return {"container": container, "lines": lines}
+
+
 class DockerRestartContainerTool(Tool):
     name = "docker_restart_container"
     description = "Restart a Docker container by name or id."

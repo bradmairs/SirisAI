@@ -455,3 +455,149 @@ def test_a_slow_context_build_does_not_block_a_concurrent_chat_call() -> None:
 
     elapsed = asyncio.run(_run_both())
     assert elapsed < 0.5  # well under 0.6s (what serialized execution would take)
+
+
+# -- Automatic memory extraction (a hardening pass): SIRISAI_AUTO_MEMORY_EXTRACTION_ENABLED,
+# defaulted to False for the whole test suite (see conftest.py) so every
+# test above this line is unaffected -- these opt back in explicitly.
+
+
+class _MainThenExtractionLLMClient:
+    """Returns a fixed main-turn response for anything else, but
+    recognizes _maybe_extract_memory()'s own system prompt and, on its
+    first call, chooses to call `remember`; on the follow-up call (whose
+    last message is the tool result), says there's nothing more to add.
+    Stateless per exchange (keyed off message shape, not call count), so
+    it's safe to reuse across multiple process()/confirm() calls."""
+
+    def __init__(self, main_response: LLMResponse, memory_content: str = "User prefers dark roast coffee.") -> None:
+        self._main_response = main_response
+        self._memory_content = memory_content
+        self.extraction_calls = 0
+
+    async def generate(
+        self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+    ) -> LLMResponse:
+        if messages and messages[0].get("content", "").startswith("You just handled one exchange"):
+            self.extraction_calls += 1
+            if messages[-1].get("role") == "tool":
+                return LLMResponse(text="Saved.")
+            return LLMResponse(tool_calls=[ToolCall(name="remember", arguments={"content": self._memory_content})])
+        return self._main_response
+
+    async def aclose(self) -> None:
+        pass
+
+
+def test_process_runs_automatic_memory_extraction_after_a_real_response() -> None:
+    settings = Settings(auto_memory_extraction_enabled=True)
+    siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Sure, here's the weather.")), settings=settings)
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "what's the weather", use_context=False, use_tools=False))
+
+    assert result.response == "Sure, here's the weather."
+    assert any("dark roast coffee" in m["content"] for m in siris.memory.recall())
+
+
+def test_automatic_memory_extraction_stays_off_by_default() -> None:
+    siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Sure.")))  # default Settings() -- disabled
+    conversation_id = siris.conversation.create_conversation()
+    before_ids = {m["id"] for m in siris.memory.recall()}
+
+    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+
+    # The shared test database can already carry memories from earlier tests in
+    # this run, so assert no new row was added rather than an empty store --
+    # recall() itself bumps recall_count/last_recalled_at on existing rows, so
+    # comparing ids (not full dicts) avoids a false positive from that.
+    assert {m["id"] for m in siris.memory.recall()} == before_ids
+
+
+def test_automatic_memory_extraction_never_touches_the_visible_transcript() -> None:
+    settings = Settings(auto_memory_extraction_enabled=True)
+    siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Sure.")), settings=settings)
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+
+    transcript = siris.conversation.get_messages(conversation_id)
+    assert [m["role"] for m in transcript] == ["user", "assistant"]  # no extraction tool-call rows mixed in
+
+
+def test_automatic_memory_extraction_failure_does_not_affect_the_turns_own_response() -> None:
+    class _RaisingOnExtractionClient:
+        async def generate(
+            self, messages: list[dict[str, Any]], *, tools: list[dict[str, Any]] | None = None, **kwargs: object
+        ) -> LLMResponse:
+            if messages and messages[0].get("content", "").startswith("You just handled one exchange"):
+                raise RuntimeError("extraction backend unreachable")
+            return LLMResponse(text="Sure.")
+
+        async def aclose(self) -> None:
+            pass
+
+    settings = Settings(auto_memory_extraction_enabled=True)
+    siris = _siris(_RaisingOnExtractionClient(), settings=settings)
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+
+    assert result.response == "Sure."  # the turn's own answer is unaffected by extraction blowing up
+    assert result.error is None
+
+
+def test_automatic_memory_extraction_is_skipped_when_the_turn_itself_errored() -> None:
+    settings = Settings(auto_memory_extraction_enabled=True)
+    siris = _siris(_FailingLLMClient(), settings=settings)
+    conversation_id = siris.conversation.create_conversation()
+    before_ids = {m["id"] for m in siris.memory.recall()}
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+
+    assert result.error is not None
+    # Shared test database again -- compare ids, not full rows: assert no new
+    # memory was added, not that the store is empty (see comment above).
+    assert {m["id"] for m in siris.memory.recall()} == before_ids
+
+
+def test_automatic_memory_extraction_records_its_own_honest_audit_trigger() -> None:
+    settings = Settings(auto_memory_extraction_enabled=True)
+    siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Sure.")), settings=settings)
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+
+    entries = siris.audit.find_recent("remember", limit=5)
+    assert entries
+    assert "automatic memory extraction" in entries[0]["trigger"]
+    assert "planner: step" not in entries[0]["trigger"]
+
+
+def test_confirm_also_runs_automatic_memory_extraction() -> None:
+    settings = Settings(auto_memory_extraction_enabled=True)
+    siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Confirmed and done.")), settings=settings)
+    siris.tools.register(_ConfirmRequiredTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().confirm(siris, conversation_id, "dangerous_action", {"target": "the-thing"}))
+
+    assert result.tool_call is not None
+    assert any("dark roast coffee" in m["content"] for m in siris.memory.recall())
+
+
+def test_automatic_memory_extraction_uses_the_fast_model_role_when_configured() -> None:
+    from app.llm.router import ModelRouter
+
+    main = _MainThenExtractionLLMClient(LLMResponse(text="Sure."))
+    fast = _MainThenExtractionLLMClient(LLMResponse(text="(fast client should not answer the main turn)"))
+    settings = Settings(auto_memory_extraction_enabled=True)
+    siris = _siris(main, settings=settings)
+    siris.model_router = ModelRouter(fast=fast, policy="off", fast_max_prompt_chars=120)
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+
+    assert result.response == "Sure."  # the main turn still used the general client, unaffected
+    assert fast.extraction_calls > 0  # but extraction itself ran on the fast client
+    assert any("dark roast coffee" in m["content"] for m in siris.memory.recall())

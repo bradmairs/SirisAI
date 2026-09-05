@@ -6,7 +6,11 @@ from app.core.siris import SirisAI, get_siris
 from app.docker.client import DockerClient
 from app.memory.entities import EntityMemoryStore
 from app.plex.client import PlexClient
-from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
+from app.plugins.builtin.docker import (
+    DockerGetContainerLogsTool,
+    DockerListContainersTool,
+    DockerRestartContainerTool,
+)
 
 
 def _mock_client(handler) -> DockerClient:
@@ -174,6 +178,64 @@ def test_dry_run_omits_plex_sessions_for_a_non_plex_container_even_with_plex_con
     assert "active_plex_sessions_would_be_interrupted" not in report
     docker_client.close()
     plex_client.close()
+
+
+def _framed_log_line(text: str, stream_type: int = 1) -> bytes:
+    """Builds one frame of Docker's multiplexed log stream format: a
+    1-byte stream type, 3 zero padding bytes, a 4-byte big-endian payload
+    length, then the payload itself."""
+    payload = text.encode()
+    return bytes([stream_type, 0, 0, 0]) + len(payload).to_bytes(4, "big") + payload
+
+
+def test_get_container_logs_demuxes_a_framed_stream() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/containers/plex/logs"
+        assert request.url.params["tail"] == "50"
+        body = _framed_log_line("2026-09-05T00:00:00Z first line\n") + _framed_log_line(
+            "2026-09-05T00:00:01Z second line\n", stream_type=2
+        )
+        return httpx.Response(200, content=body)
+
+    client = _mock_client(handler)
+    logs = client.get_container_logs("plex", tail=50)
+    assert logs == "2026-09-05T00:00:00Z first line\n2026-09-05T00:00:01Z second line\n"
+    client.close()
+
+
+def test_get_container_logs_falls_back_to_raw_text_for_a_tty_container() -> None:
+    """A TTY container's logs come back unframed -- the first byte won't
+    be a valid stream type (0/1/2), so this is decoded as plain text."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"plain unframed log output\n")
+
+    client = _mock_client(handler)
+    logs = client.get_container_logs("plex")
+    assert logs == "plain unframed log output\n"
+    client.close()
+
+
+def test_docker_get_container_logs_tool_splits_into_lines() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _framed_log_line("line one\n") + _framed_log_line("line two\n")
+        return httpx.Response(200, content=body)
+
+    client = _mock_client(handler)
+    result = DockerGetContainerLogsTool(client).run(container="plex")
+    assert result == {"container": "plex", "lines": ["line one", "line two"]}
+    client.close()
+
+
+def test_docker_get_container_logs_tool_filters_by_contains_case_insensitively() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _framed_log_line("INFO: all good\n") + _framed_log_line("ERROR: it broke\n")
+        return httpx.Response(200, content=body)
+
+    client = _mock_client(handler)
+    result = DockerGetContainerLogsTool(client).run(container="plex", contains="error")
+    assert result == {"container": "plex", "lines": ["ERROR: it broke"]}
+    client.close()
 
 
 def test_dry_run_survives_plex_being_unreachable() -> None:

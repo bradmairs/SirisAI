@@ -19,12 +19,17 @@ from app.plugins.base import Tool, ToolPermission
 
 class ObsidianListNotesTool(Tool):
     name = "obsidian_list_notes"
-    description = "List note/file names in an Obsidian vault, optionally within one folder."
+    description = (
+        "List note/file names in an Obsidian vault, optionally within one folder."
+    )
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
         "properties": {
-            "folder": {"type": "string", "description": "Optional folder path to list, e.g. 'Projects'. Omit for the vault root."},
+            "folder": {
+                "type": "string",
+                "description": "Optional folder path to list, e.g. 'Projects'. Omit for the vault root.",
+            },
         },
         "required": [],
     }
@@ -38,11 +43,20 @@ class ObsidianListNotesTool(Tool):
 
 class ObsidianGetNoteTool(Tool):
     name = "obsidian_get_note"
-    description = "Read the full content of one note, by its vault-relative path (e.g. 'Projects/SirisAI.md')."
+    description = (
+        "Read the full text content of one file in the vault, by its vault-relative path "
+        "(e.g. 'Projects/SirisAI.md'). Works for markdown notes and PDFs (text is extracted); "
+        "any other file type returns a placeholder rather than unreadable raw bytes."
+    )
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
-        "properties": {"path": {"type": "string", "description": "Vault-relative path to the note."}},
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Vault-relative path to the note.",
+            }
+        },
         "required": ["path"],
     }
 
@@ -55,7 +69,12 @@ class ObsidianGetNoteTool(Tool):
 
 class ObsidianSearchTool(Tool):
     name = "obsidian_search"
-    description = "Search the Obsidian vault for notes containing a given text, with surrounding context."
+    description = (
+        "Search the Obsidian vault for notes containing a given text. Each result gives a "
+        "`path` (cite this as the source) and matching `excerpts` -- enough to answer with "
+        "provenance, e.g. \"According to Projects/Router-Manual.md: '...'\", rather than an "
+        "unsourced claim."
+    )
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
@@ -87,8 +106,14 @@ class ObsidianCreateOrUpdateNoteTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Vault-relative path for the note, e.g. 'Projects/SirisAI.md'."},
-            "content": {"type": "string", "description": "The note's full new content (markdown)."},
+            "path": {
+                "type": "string",
+                "description": "Vault-relative path for the note, e.g. 'Projects/SirisAI.md'.",
+            },
+            "content": {
+                "type": "string",
+                "description": "The note's full new content (markdown).",
+            },
         },
         "required": ["path", "content"],
     }

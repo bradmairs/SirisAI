@@ -2495,6 +2495,272 @@ provider for the same capability actually exists to design against.
     the real engine for the same reason, this just hadn't come up again
     until a test finally exercised concurrent writes through it.
 
+60. **Done** -- Strengthened the Hermes Agent connection. Direct
+    request, following a question about whether reaching other hosts
+    (e.g. a Raspberry Pi) should be Hermes's job or SirisAI's own --
+    answer: Hermes's, since it already exists so SirisAI doesn't
+    reimplement system-level capabilities as its own tools, and whether
+    it can reach another host is a Hermes-side configuration question,
+    not something to build here. This milestone strengthens the
+    *connection itself*, not what Hermes can be asked to do.
+
+    Two ideas considered and dropped before writing any code, because
+    they'd have been solving problems that don't exist: giving
+    `hermes_run_task` the SirisAI `conversation_id` for "continuity"
+    across delegated calls, and threading planner `evidence` into what's
+    sent to Hermes. Neither holds up -- `SirisAI.run_tool()` calls
+    `tool.run(**arguments)`, nothing else; no tool anywhere gets
+    `conversation_id` or `evidence` at runtime, both are audit-log-only.
+    The model choosing to call `hermes_run_task` already sees the full
+    conversation (and, mid-plan, every prior step's result) before
+    composing the `instruction` argument -- threading either through
+    the `Tool` interface just for Hermes would mean special-casing one
+    tool's call signature to duplicate context the model can already
+    just write into a better-composed instruction. Also considered and
+    left alone: whether `hermes_run_task` should be `CONFIRM_REQUIRED`
+    rather than `SAFE_ACTION`, given "terminal access" is a wide-open
+    capability -- that's a real, deliberate tradeoff already reasoned
+    about in this file's own docstring, not a bug, so it's flagged here
+    rather than silently relitigated.
+
+    What actually shipped: new `hermes_status` tool (`HermesClient.
+    check_status()`, `GET /v1/models` -- the same OpenAI-compatible
+    convention `run_task()` already relies on) answers "is Hermes
+    actually reachable" and which models it currently reports, without
+    spending a real delegated task finding that out the hard way --
+    doesn't reopen "one delegate tool," since it's connectivity
+    introspection, not a second way to get something *done*. And a new
+    `SIRISAI_HERMES_TIMEOUT_SECONDS` setting (default 120, matching the
+    existing hardcoded value) -- Hermes may do its own multi-step tool
+    use/terminal work before responding, and a fixed ceiling with no
+    override risked cutting off a genuinely heavy delegated task with no
+    way to raise it.
+
+    Verified: full suite (486 passed, up from 479) covering
+    `check_status()`'s request/response mapping and error propagation,
+    `hermes_status`'s registration and `READ` permission, and the
+    configured timeout actually reaching the real `httpx.Client` both
+    directly and through `SirisAI`'s registration path. Live-verified
+    against a real `uvicorn` process and a real mock Hermes server:
+    `hermes_status` returned the real reachable/model-list response, and
+    `hermes_run_task` round-tripped a real instruction through a real
+    `POST /v1/chat/completions` call and back.
+
+61. **Done** -- Automatic memory extraction. Direct request: "SirisAI
+    should be self-learning and automatically record things to memory
+    if they are worth remembering." The `remember`/`remember_entity_fact`
+    tools were already callable by the model on its own initiative --
+    nothing gated that. The actual gap was structural: a normal chat
+    turn allows exactly one tool call, so the model can't both answer
+    the user's real request *and* separately save a memory in the same
+    turn. Asked the user how this should be decided (an extra pass
+    after each turn / a periodic batch review / relying on planner mode
+    already being on); they picked the extra pass.
+
+    What shipped: after `Cortex.process()`/`confirm()` produce a real
+    response, a separate best-effort pass reviews the exchange and
+    decides, using its own judgment, whether anything is worth keeping
+    long-term. It runs through `Planner.run()` directly (not
+    `Cortex._run_planned()`), so it can check existing memory before
+    writing and isn't capped at one call -- but that `Planner.run()`
+    call never touches `siris.conversation`, so the extraction pass
+    never appears in the visible transcript. It's given only six tool
+    specs (`recall`, `remember`, `recall_entity_facts`,
+    `remember_entity_fact`, `recall_entity_relationships`,
+    `remember_entity_relationship`) via `ToolRegistry.specs(exclude=...)`
+    -- deliberately not `log_event`/`recall_events` (events aren't
+    durable facts) or anything else (Docker, Home Assistant, Radarr,
+    etc.), so even a misbehaving extraction pass can't do anything
+    consequential. It's routed through `ModelRouter`'s "fast" role when
+    one is configured, since this is a cheap background pass, not the
+    user-facing answer. Every write it makes is tagged with an honest
+    audit trigger (`"automatic memory extraction: post-turn review (step
+    N)"`, via a new `trigger_template` parameter on `Planner.run()`) so
+    `explain_recent_action`/`GET /siris/activity` can always tell "the
+    user asked for this" apart from "SirisAI decided to remember this
+    on its own" -- the same discipline milestone 28 established.
+    Failures are swallowed (logged, never surfacing to the turn's own
+    response) and it's skipped entirely when the turn itself errored,
+    matching the existing best-effort precedent set by
+    `ContextEngine.build()`/`server_health_check`. A new
+    `SIRISAI_AUTO_MEMORY_EXTRACTION_ENABLED` setting (default `true`)
+    turns off the extra LLM call/cost per turn, not the underlying
+    tools -- the model can still be asked to remember something
+    directly either way.
+
+    Verified: full suite (496 passed, up from 486) covering successful
+    end-to-end extraction, default-on/off behavior, that the extraction
+    pass never pollutes the visible transcript, that its failures don't
+    affect the turn's own response, that it's skipped when the turn
+    errored, its honest audit trigger, `confirm()` going through the
+    same path as `process()`, fast-model-role routing, and (in
+    `test_planner.py`) that `Planner.run()`'s new `trigger_template`
+    defaults to the existing per-step string and can be overridden.
+    Live-verified against a real `uvicorn` process and a real mock
+    Ollama-compatible backend: told it "My favorite color is teal,"
+    got back the turn's own unrelated answer with no tool call visible
+    to the caller, then confirmed via `GET /siris/memory` that the fact
+    was actually saved, `GET /siris/activity` showed the write tagged
+    with the automatic-extraction trigger rather than a user-initiated
+    one, and `GET /siris/conversations/{id}` confirmed the transcript
+    stayed exactly `["user", "assistant"]` -- no extraction step mixed
+    in.
+
+62. **Done** -- Diagnostic tools for the "Plex isn't working" flow.
+    Follow-up to a large brainstormed list of tool ideas (with the
+    project-management-for-GVW-work section explicitly excluded, per
+    the request). Rather than build any of it blindly, the list was
+    checked against what's already shipped first -- most of the
+    "recommended first ten" turned out to already exist (Home
+    Assistant, Hermes delegation, notifications, memory/entity
+    registry, audit logging, tool-result verification). Asked which
+    genuinely-new item to tackle first; the pick was the "Plex isn't
+    working" incident recipe the list itself used as its example of
+    "SirisAI thinks, tools chain" in action.
+
+    What shipped is deliberately small, matching that same philosophy:
+    two new narrow, single-purpose tools, not a bespoke "diagnose an
+    incident" skill --
+    - `docker_get_container_logs` -- fetches recent stdout+stderr log
+      lines from a container, with an optional case-insensitive
+      `contains` filter to cut noise before it reaches the model. Adds
+      `DockerClient.get_container_logs()`, which has to demultiplex
+      Docker's own log-streaming wire format: a non-TTY container's
+      logs come back as 8-byte-header-prefixed frames (stream type +
+      payload length) rather than plain text, while a TTY container's
+      don't -- there's no separate signal for which, so an invalid
+      first-byte stream type is treated as "not framed" and the raw
+      bytes are decoded as-is.
+    - `check_service_endpoint` -- a generic HTTP(S) reachability check
+      (reachable/status code/latency only, deliberately never the
+      response body, so it can't double as a general "fetch any URL"
+      tool) for confirming a dependent service is actually serving
+      requests, not just that its container is "running" -- Docker's
+      own state can lie about that, the same gap `DockerRestartContainerTool.
+      verify()` (milestone 38) already called out for restarts.
+      Certificate-expiry checking from the original idea list was
+      considered and deliberately left out: httpx doesn't expose the
+      peer certificate, so it would need its own raw `ssl` socket
+      implementation -- a reasonable follow-up, not bundled in here.
+
+    No new orchestration code ties these together -- the planner
+    (already existing, `use_planner=True`) chains `docker_list_containers`
+    (existing) -> `docker_get_container_logs` -> `check_service_endpoint`
+    -> a delegated fix (`hermes_run_task`/`docker_restart_container`,
+    both already existing) entirely through the model's own reasoning,
+    exactly the "small dependable tools, no giant monolith" shape asked
+    for. `check_service_endpoint` is always registered (it takes its
+    target as a call-time argument, unlike every other tool in this
+    package which needs a configured `base_url`); the logs tool
+    registers alongside the rest of Docker's, gated on
+    `SIRISAI_DOCKER_BASE_URL` same as always.
+
+    Verified: full suite (505 passed, up from 496) covering the wire-format
+    demuxing for both a framed and a TTY/unframed container, the
+    `contains` filter, and `check_service_endpoint`'s reachable/
+    unreachable/timeout/non-2xx cases -- including an explicit test that
+    a response body can never leak through the tool's return value.
+    Live-verified against a real `uvicorn` process, a fake Docker Engine
+    API, and a fake Plex endpoint: asked "Plex isn't working" with
+    `use_planner: true`, and the planner chained all three tools on its
+    own -- `docker_list_containers` (looked "running"), then
+    `docker_get_container_logs` with `contains: "error"` (surfaced a
+    locked database and a failed transcoder), then `check_service_endpoint`
+    (confirmed the endpoint itself was returning 500 despite the
+    container's "running" state) -- landing on a correct diagnosis
+    entirely from the model's own reasoning. `GET /siris/activity`
+    confirmed each step recorded with its own honest
+    `"planner: step N of an in-progress plan"` trigger and the prior
+    steps' results as `evidence`.
+
+63. **Done** -- Calendar write and conflict checking. The next pick from
+    the same brainstormed feature list (milestone 62), chosen as the
+    smallest, most contained remaining item: `calendar_upcoming_events`
+    (milestone 39) was read-only, with no way to create an event or
+    check whether a proposed time was already taken.
+
+    What shipped:
+    - `CalendarClient.events_between(start, end)` -- the existing
+      `upcoming_events()` query generalized to an arbitrary window
+      instead of always "now plus N days" (which now just calls this
+      with `start=now`). This turned out to *be* conflict checking:
+      "what already exists in this window" is the same query either way.
+    - `calendar_check_conflicts` -- a narrow READ tool wrapping
+      `events_between()` directly, for "am I free then" questions that
+      aren't about creating anything.
+    - `calendar_create_event` -- creates an event via `caldav`'s
+      `Calendar.add_event()`, on a named calendar or the first available
+      one. Deliberately does not refuse or block on a conflict itself --
+      its `dry_run()` (reusing the milestone-25 preview mechanism, same
+      shape as `DockerRestartContainerTool`'s) reports what would be
+      created *and* any conflicting existing events in that window
+      up front, so the model (or a human confirming) decides, rather
+      than a hardcoded refusal getting in the way of a deliberate
+      double-booking. `SAFE_ACTION`, not `CONFIRM_REQUIRED`: an event is
+      easy to edit or delete afterwards, and `dry_run` already surfaces
+      the one thing worth pausing over.
+
+    Same acknowledged gap as milestone 39 itself (see
+    `app/calendar/client.py`'s module docstring): no live CalDAV server
+    was available in this environment to verify the real wire protocol
+    against, particularly timezone/recurrence edge cases on a specific
+    server implementation.
+
+    Verified: full suite (513 passed, up from 505) covering
+    `events_between()`'s query window, `create_event()` against the
+    default vs. a named calendar and its error for an unknown one, both
+    tools' ISO-8601 parsing and delegation, and `dry_run()` reporting
+    conflicts (or their absence) without ever calling `create_event()` --
+    all mocked at the `caldav.DAVClient` boundary, the same approach
+    `test_calendar.py` already used for the read-only tool. Live-verified
+    tool registration/schema and the real HTTP round trip through
+    `POST /siris/tools/{name}/run` (including `dry_run: true`) against a
+    real `uvicorn` process: both tools correctly parsed real ISO-8601
+    arguments and surfaced a clean, non-leaking error once they reached
+    the (deliberately unreachable, per the gap above) configured CalDAV
+    URL.
+
+64. **Done** -- Document search with citations. The next pick from the
+    same brainstormed list, scoped down deliberately: asked whether this
+    meant building a real multi-source document index/RAG pipeline
+    (chunking, embeddings, ranked retrieval -- a multi-week
+    architectural project) or enhancing the existing Obsidian
+    integration; the answer was the latter -- `obsidian_search`
+    already returns a filename and matched context per hit, which *is*
+    a citation, it just wasn't shaped like one.
+
+    What shipped, both in `app/obsidian/client.py`:
+    - `search()` now normalizes the plugin's raw response (`filename` +
+      a `matches` list of `{match: {start, end}, context}` objects) into
+      a flat `{path, score, excerpts}` shape -- `path` is exactly what
+      to cite ("According to Projects/Router-Manual.md: ..."), `excerpts`
+      exactly what to quote, without a caller digging through nesting
+      first.
+    - `get_note()` now handles PDFs: a manual or contract dropped into
+      the vault as a `.pdf` used to come back through a plain UTF-8
+      decode as garbage bytes (or a decode error) -- now extracted to
+      real text via a new `pypdf` dependency. Any other non-text
+      extension deliberately isn't guessed at further: it returns a
+      clear `"[Cannot display '{path}': not a text file.]"` placeholder
+      rather than mojibake that looks like real content but isn't.
+
+    No new tools, no new settings -- both existing tools
+    (`obsidian_search`, `obsidian_get_note`) just got more useful outputs
+    from the same inputs, plus updated descriptions telling the model to
+    actually cite `path` when answering from a search hit.
+
+    Verified: full suite (516 passed, up from 513) covering the
+    normalized search shape (including a multi-excerpt result), PDF text
+    extraction (against a hand-built minimal real PDF -- there's no
+    PDF-writing library in this project's dependencies, `pypdf` itself
+    only reads), and the placeholder path for genuinely undecodable
+    binary content. Live-verified against a real `uvicorn` process and a
+    fake Obsidian Local REST API server: `obsidian_get_note` correctly
+    extracted real text from a real (if minimal) PDF and still returned
+    plain markdown unchanged, and `obsidian_search` returned the new
+    `path`/`excerpts` citation shape end-to-end through
+    `POST /siris/tools/{name}/run`.
+
 ## Running locally
 
 ```bash

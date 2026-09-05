@@ -45,10 +45,22 @@ from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
 from app.plugins.builtin.audit import ExplainRecentActionTool
 from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
-from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
-from app.plugins.builtin.bazarr import BazarrSearchWantedSubtitlesTool, BazarrWantedEpisodesTool, BazarrWantedMoviesTool
+from app.plugins.builtin.calendar import (
+    CalendarCheckConflictsTool,
+    CalendarCreateEventTool,
+    CalendarUpcomingEventsTool,
+)
+from app.plugins.builtin.bazarr import (
+    BazarrSearchWantedSubtitlesTool,
+    BazarrWantedEpisodesTool,
+    BazarrWantedMoviesTool,
+)
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
-from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
+from app.plugins.builtin.docker import (
+    DockerGetContainerLogsTool,
+    DockerListContainersTool,
+    DockerRestartContainerTool,
+)
 from app.plugins.builtin.echo import EchoTool
 from app.plugins.builtin.goals import (
     AddGoalObjectiveTool,
@@ -57,7 +69,7 @@ from app.plugins.builtin.goals import (
     ListGoalsTool,
     UpdateGoalStatusTool,
 )
-from app.plugins.builtin.hermes import HermesRunTaskTool
+from app.plugins.builtin.hermes import HermesRunTaskTool, HermesStatusTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
     HomeAssistantCreateAutomationTool,
@@ -100,8 +112,13 @@ from app.plugins.builtin.radarr import (
     RadarrRemoveQueueItemTool,
     RadarrSearchMovieTool,
 )
-from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
+from app.plugins.builtin.routines import (
+    CreateRoutineTool,
+    ListRoutinesTool,
+    SetRoutineEnabledTool,
+)
 from app.plugins.builtin.satellites import SpeakInCurrentRoomTool
+from app.plugins.builtin.service_health import CheckServiceEndpointTool
 from app.plugins.builtin.sonarr import (
     SonarrAddSeriesTool,
     SonarrCalendarTool,
@@ -223,7 +240,9 @@ def _describe_policy(tool: Tool, confirmed: bool, call_needs_confirmation: bool)
     if tool.permission is ToolPermission.READ:
         return "READ: no side effects, always runs"
     if tool.permission is ToolPermission.SAFE_ACTION:
-        return "SAFE_ACTION: routine and reversible, runs immediately without confirmation"
+        return (
+            "SAFE_ACTION: routine and reversible, runs immediately without confirmation"
+        )
     if tool.permission is ToolPermission.CONFIRM_REQUIRED:
         if not call_needs_confirmation:
             return "CONFIRM_REQUIRED: this call's arguments are allowlisted to skip confirmation"
@@ -250,16 +269,30 @@ class SirisAI:
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     context: ContextEngine = field(default_factory=ContextEngine)
     memory: MemoryStore = field(default_factory=lambda: MemoryStore(SessionLocal))
-    entities: EntityMemoryStore = field(default_factory=lambda: EntityMemoryStore(SessionLocal))
-    events: EventMemoryStore = field(default_factory=lambda: EventMemoryStore(SessionLocal))
+    entities: EntityMemoryStore = field(
+        default_factory=lambda: EntityMemoryStore(SessionLocal)
+    )
+    events: EventMemoryStore = field(
+        default_factory=lambda: EventMemoryStore(SessionLocal)
+    )
     goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
-    capability_gaps: CapabilityGapStore = field(default_factory=lambda: CapabilityGapStore(SessionLocal))
+    capability_gaps: CapabilityGapStore = field(
+        default_factory=lambda: CapabilityGapStore(SessionLocal)
+    )
     routines: RoutineStore = field(default_factory=lambda: RoutineStore(SessionLocal))
-    satellites: SatelliteStore = field(default_factory=lambda: SatelliteStore(SessionLocal))
-    known_devices: KnownDeviceStore = field(default_factory=lambda: KnownDeviceStore(SessionLocal))
+    satellites: SatelliteStore = field(
+        default_factory=lambda: SatelliteStore(SessionLocal)
+    )
+    known_devices: KnownDeviceStore = field(
+        default_factory=lambda: KnownDeviceStore(SessionLocal)
+    )
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
-    integrations: IntegrationStore = field(default_factory=lambda: IntegrationStore(SessionLocal))
-    conversation: ConversationStore = field(default_factory=lambda: ConversationStore(SessionLocal))
+    integrations: IntegrationStore = field(
+        default_factory=lambda: IntegrationStore(SessionLocal)
+    )
+    conversation: ConversationStore = field(
+        default_factory=lambda: ConversationStore(SessionLocal)
+    )
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
 
     def __post_init__(self) -> None:
@@ -269,7 +302,11 @@ class SirisAI:
             # `metrics` -- entirely transparent to Cortex/Planner, which
             # only ever see the plain LLMClient interface either way.
             self.llm = MeteredLLMClient(
-                build_llm_client(self.settings.llm_provider, self.settings.ollama_base_url, self.settings.ollama_model),
+                build_llm_client(
+                    self.settings.llm_provider,
+                    self.settings.ollama_base_url,
+                    self.settings.ollama_model,
+                ),
                 self.metrics,
             )
         if self.model_router is None:
@@ -328,6 +365,7 @@ class SirisAI:
         self.tools.register(ListRoutinesTool(self.routines))
         self.tools.register(SetRoutineEnabledTool(self.routines))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
+        self.tools.register(CheckServiceEndpointTool())
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
 
@@ -336,32 +374,53 @@ class SirisAI:
                 base_url=self.settings.home_assistant_base_url,
                 token=self.settings.home_assistant_token,
             )
-            self.tools.register(HomeAssistantListEntitiesTool(self._home_assistant_client))
+            self.tools.register(
+                HomeAssistantListEntitiesTool(self._home_assistant_client)
+            )
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
             self.tools.register(
                 HomeAssistantCallServiceTool(
-                    self._home_assistant_client, self.events, self.settings.home_assistant_no_confirm_domain_list()
+                    self._home_assistant_client,
+                    self.events,
+                    self.settings.home_assistant_no_confirm_domain_list(),
                 )
             )
-            self.tools.register(HomeAssistantGetLogbookTool(self._home_assistant_client))
-            self.tools.register(HomeAssistantCreateAutomationTool(self._home_assistant_client))
-            self.tools.register(HomeAssistantGetHistoryTool(self._home_assistant_client))
-            self.tools.register(HomeAssistantRenderTemplateTool(self._home_assistant_client))
-            self.tools.register(HomeAssistantDeleteAutomationTool(self._home_assistant_client))
+            self.tools.register(
+                HomeAssistantGetLogbookTool(self._home_assistant_client)
+            )
+            self.tools.register(
+                HomeAssistantCreateAutomationTool(self._home_assistant_client)
+            )
+            self.tools.register(
+                HomeAssistantGetHistoryTool(self._home_assistant_client)
+            )
+            self.tools.register(
+                HomeAssistantRenderTemplateTool(self._home_assistant_client)
+            )
+            self.tools.register(
+                HomeAssistantDeleteAutomationTool(self._home_assistant_client)
+            )
 
         # Plex before Docker on purpose: DockerRestartContainerTool's
         # dry_run() optionally reports active Plex sessions a restart
         # would interrupt, so self._plex_client needs to exist (or stay
         # None) before that tool is constructed.
         if self.settings.plex_base_url and self.settings.plex_token:
-            self._plex_client = PlexClient(base_url=self.settings.plex_base_url, token=self.settings.plex_token)
+            self._plex_client = PlexClient(
+                base_url=self.settings.plex_base_url, token=self.settings.plex_token
+            )
             self.tools.register(PlexNowPlayingTool(self._plex_client))
             self.tools.register(PlexLibrarySectionsTool(self._plex_client))
 
         if self.settings.docker_base_url:
             self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
             self.tools.register(DockerListContainersTool(self._docker_client))
-            self.tools.register(DockerRestartContainerTool(self._docker_client, self.entities, self._plex_client))
+            self.tools.register(DockerGetContainerLogsTool(self._docker_client))
+            self.tools.register(
+                DockerRestartContainerTool(
+                    self._docker_client, self.entities, self._plex_client
+                )
+            )
 
         if self.settings.unifi_base_url and self.settings.unifi_api_key:
             self._unifi_client = UniFiClient(
@@ -374,9 +433,16 @@ class SirisAI:
             self.tools.register(UniFiListClientsTool(self._unifi_client))
 
             if self.settings.presence_device_names:
-                self.tools.register(SkillTool(PresenceSkill(), self, permission=ToolPermission.SAFE_ACTION))
+                self.tools.register(
+                    SkillTool(
+                        PresenceSkill(), self, permission=ToolPermission.SAFE_ACTION
+                    )
+                )
 
-        if self.settings.weather_latitude is not None and self.settings.weather_longitude is not None:
+        if (
+            self.settings.weather_latitude is not None
+            and self.settings.weather_longitude is not None
+        ):
             self._weather_client = WeatherClient(
                 base_url=self.settings.weather_base_url,
                 latitude=self.settings.weather_latitude,
@@ -391,9 +457,13 @@ class SirisAI:
                 password=self.settings.caldav_password,
             )
             self.tools.register(CalendarUpcomingEventsTool(calendar_client))
+            self.tools.register(CalendarCheckConflictsTool(calendar_client))
+            self.tools.register(CalendarCreateEventTool(calendar_client))
 
         if self.settings.ntfy_topic:
-            self._notify_client = NotifyClient(base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic)
+            self._notify_client = NotifyClient(
+                base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic
+            )
             self.tools.register(NotifyTool(self._notify_client))
 
         if self.settings.hermes_base_url:
@@ -401,12 +471,15 @@ class SirisAI:
                 base_url=self.settings.hermes_base_url,
                 model=self.settings.hermes_model,
                 api_key=self.settings.hermes_api_key or None,
+                timeout=self.settings.hermes_timeout_seconds,
             )
             self.tools.register(HermesRunTaskTool(self._hermes_client))
+            self.tools.register(HermesStatusTool(self._hermes_client))
 
         if self.settings.tautulli_base_url and self.settings.tautulli_api_key:
             self._tautulli_client = TautulliClient(
-                base_url=self.settings.tautulli_base_url, api_key=self.settings.tautulli_api_key
+                base_url=self.settings.tautulli_base_url,
+                api_key=self.settings.tautulli_api_key,
             )
             self.tools.register(TautulliCurrentActivityTool(self._tautulli_client))
             self.tools.register(TautulliRecentHistoryTool(self._tautulli_client))
@@ -416,7 +489,10 @@ class SirisAI:
             self.tools.register(TautulliGetLibrariesTool(self._tautulli_client))
 
         if self.settings.radarr_base_url and self.settings.radarr_api_key:
-            self._radarr_client = RadarrClient(base_url=self.settings.radarr_base_url, api_key=self.settings.radarr_api_key)
+            self._radarr_client = RadarrClient(
+                base_url=self.settings.radarr_base_url,
+                api_key=self.settings.radarr_api_key,
+            )
             self.tools.register(RadarrListMoviesTool(self._radarr_client))
             self.tools.register(RadarrQueueTool(self._radarr_client))
             self.tools.register(RadarrSearchMovieTool(self._radarr_client))
@@ -429,7 +505,10 @@ class SirisAI:
             self.tools.register(RadarrRemoveQueueItemTool(self._radarr_client))
 
         if self.settings.sonarr_base_url and self.settings.sonarr_api_key:
-            self._sonarr_client = SonarrClient(base_url=self.settings.sonarr_base_url, api_key=self.settings.sonarr_api_key)
+            self._sonarr_client = SonarrClient(
+                base_url=self.settings.sonarr_base_url,
+                api_key=self.settings.sonarr_api_key,
+            )
             self.tools.register(SonarrListSeriesTool(self._sonarr_client))
             self.tools.register(SonarrQueueTool(self._sonarr_client))
             self.tools.register(SonarrSearchSeriesTool(self._sonarr_client))
@@ -442,21 +521,26 @@ class SirisAI:
             self.tools.register(SonarrRemoveQueueItemTool(self._sonarr_client))
 
         if self.settings.bazarr_base_url and self.settings.bazarr_api_key:
-            self._bazarr_client = BazarrClient(base_url=self.settings.bazarr_base_url, api_key=self.settings.bazarr_api_key)
+            self._bazarr_client = BazarrClient(
+                base_url=self.settings.bazarr_base_url,
+                api_key=self.settings.bazarr_api_key,
+            )
             self.tools.register(BazarrWantedMoviesTool(self._bazarr_client))
             self.tools.register(BazarrWantedEpisodesTool(self._bazarr_client))
             self.tools.register(BazarrSearchWantedSubtitlesTool(self._bazarr_client))
 
         if self.settings.listenarr_base_url and self.settings.listenarr_api_key:
             self._listenarr_client = ListenarrClient(
-                base_url=self.settings.listenarr_base_url, api_key=self.settings.listenarr_api_key
+                base_url=self.settings.listenarr_base_url,
+                api_key=self.settings.listenarr_api_key,
             )
             self.tools.register(ListenarrSystemStatusTool(self._listenarr_client))
             self.tools.register(ListenarrQueueTool(self._listenarr_client))
 
         if self.settings.cleanuparr_base_url and self.settings.cleanuparr_api_key:
             self._cleanuparr_client = CleanuparrClient(
-                base_url=self.settings.cleanuparr_base_url, api_key=self.settings.cleanuparr_api_key
+                base_url=self.settings.cleanuparr_base_url,
+                api_key=self.settings.cleanuparr_api_key,
             )
             self.tools.register(CleanuparrStatusTool(self._cleanuparr_client))
 
@@ -532,7 +616,9 @@ class SirisAI:
         exactly one place."""
         if not operations:
             return []
-        tools, client = build_dynamic_tools(integration_name, operations, base_url, auth_header_name, auth_header_value)
+        tools, client = build_dynamic_tools(
+            integration_name, operations, base_url, auth_header_name, auth_header_value
+        )
         self._openapi_http_clients.append(client)
 
         registered = []
@@ -676,10 +762,16 @@ class SirisAI:
             )
             raise ValueError(f"Unknown tool: {name}")
 
-        call_needs_confirmation = tool.permission is ToolPermission.CONFIRM_REQUIRED and tool.needs_confirmation(arguments)
+        call_needs_confirmation = (
+            tool.permission is ToolPermission.CONFIRM_REQUIRED
+            and tool.needs_confirmation(arguments)
+        )
         policy = _describe_policy(tool, confirmed, call_needs_confirmation)
 
-        if tool.permission is ToolPermission.RESTRICTED and name not in self.settings.restricted_tools_allowlist():
+        if (
+            tool.permission is ToolPermission.RESTRICTED
+            and name not in self.settings.restricted_tools_allowlist()
+        ):
             duration_ms = (time.monotonic() - start) * 1000
             error = "Restricted tool not enabled (SIRISAI_RESTRICTED_TOOLS_ENABLED)"
             self.audit.record(
@@ -747,7 +839,9 @@ class SirisAI:
             evidence=evidence,
             policy=policy,
             verified=verification.verified if verification is not None else None,
-            verification_detail=verification.detail if verification is not None else None,
+            verification_detail=verification.detail
+            if verification is not None
+            else None,
         )
         return result
 
@@ -762,7 +856,9 @@ class SirisAI:
             "model_router_policy": self.settings.model_router_policy,
             "model_router_roles": self.available_model_roles(),
             "tools": [tool.name for tool in self.tools.list()],
-            "restricted_tools_disabled": sorted(self.restricted_tool_names_to_exclude()),
+            "restricted_tools_disabled": sorted(
+                self.restricted_tool_names_to_exclude()
+            ),
         }
 
     async def aclose(self) -> None:
