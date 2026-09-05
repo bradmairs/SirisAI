@@ -2973,6 +2973,57 @@ provider for the same capability actually exists to design against.
     -- both through real HTTP round trips, not mocked at the tool
     boundary.
 
+70. **Done** -- Rollback tool. The last named item from "trustworthiness
+    infrastructure": a way to reverse a change, closing the loop the
+    verify() sweep (38/65/68/69) opened -- knowing a write didn't
+    actually happen is only half the story without a way to undo the
+    ones that did.
+
+    `rollback_last_action` (a `Skill`, not a plain `Tool` -- it needs
+    `siris.run_tool()` to actually invoke the inverse, the same
+    mechanism `PresenceSkill`'s scene activation already uses) looks up
+    the most recent recorded call to a named tool via the audit log's
+    existing `find_recent()` (28), and if that tool has a registered
+    inverse, calls it: `radarr_add_movie`/`sonarr_add_series` -> the
+    matching `radarr_delete_movie`/`sonarr_delete_series` using the id
+    from the original call's own result; `home_assistant_call_service`
+    -> the same domain/entity with the opposite service
+    (turn_on<->turn_off, lock<->unlock, open_cover<->close_cover).
+    Deliberately a fixed, explicit allowlist, not a generic "figure out
+    how to undo anything" mechanism -- guessing an inverse for an
+    arbitrary tool (what undoes a Docker restart? a Hermes-delegated
+    shell command?) would be worse than admitting it isn't supported, so
+    an unlisted tool gets exactly that answer. Also declines cleanly
+    when there's nothing to reverse: no recorded call, the original call
+    itself errored, or its result doesn't carry enough to act on (e.g.
+    no id).
+
+    `rollback_last_action` is itself `CONFIRM_REQUIRED` -- the same tier
+    as the delete/control calls it reverses -- but its own single
+    confirmation covers the one, already-identified inner action it
+    performs, and passes `confirmed=True` down to that specific call
+    rather than asking twice for what's really one decision. Same
+    reasoning `PresenceSkill`'s auto-confirmed scene call already
+    established: the narrow, specific thing being approved *is* the
+    approval, not a blank check to do anything -- confirmed here by a
+    dedicated test that `run_tool()`-level confirmation is still
+    enforced on `rollback_last_action` itself.
+
+    Verified: full suite (550 passed, up from 542; three separate runs
+    to rule out flakiness against the shared test audit log) covering
+    all three registered inverses actually invoking the right tool with
+    the right arguments, the confirmation gate on the skill itself, an
+    unsupported tool name, no recorded call, the original call having
+    errored, and a result with no id to act on. Live-verified against a
+    real `uvicorn` process and fake Radarr/Home Assistant servers:
+    added a movie then rolled it back -- the fake Radarr server's own
+    log showed a real `DELETE /api/v3/movie/42` -- and turned on a light
+    then rolled that back too, with the fake HA server logging a real
+    `POST /api/services/light/turn_off`. `GET /siris/activity` showed
+    each rollback's inverse call tagged with an honest
+    `"rollback_last_action: undoing <tool> (audit id N), itself
+    confirmed"` trigger, distinct from the original direct calls.
+
 ## Running locally
 
 ```bash
