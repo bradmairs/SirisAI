@@ -2,14 +2,16 @@
 app/radarr/client.py. Registered only when SIRISAI_RADARR_BASE_URL and
 SIRISAI_RADARR_API_KEY are both set.
 
-Deliberately narrow, same "GET-only where it matters, one routine action"
-scope as this codebase's other library-manager tools: listing/queue are
-READ, triggering a search is SAFE_ACTION (routine and reversible -- it
-just queues a background search, doesn't remove or overwrite anything).
-Adding new movies or deleting existing ones isn't built here -- a bigger,
-more consequential action (quality profile choice, disk space) that
-deserves its own careful design later, not folded in as a side effect of
-"add Radarr support".
+Listing/queue/lookup/calendar/root-folders/quality-profiles are READ,
+triggering a search is SAFE_ACTION (routine and reversible -- it just
+queues a background search, doesn't remove or overwrite anything).
+
+Adding/deleting a movie (a hardening pass) is the "bigger, more
+consequential action" this file's docstring used to defer -- now built,
+CONFIRM_REQUIRED: unlike a search, these change what's actually in the
+library (and delete_movie can remove files from disk), so they get the
+same human-in-the-loop treatment as HomeAssistantCallServiceTool by
+default, not SAFE_ACTION's "runs immediately" treatment.
 """
 
 from typing import Any
@@ -62,3 +64,148 @@ class RadarrSearchMovieTool(Tool):
 
     def run(self, movie_id: int = 0, **kwargs: Any) -> Any:
         return self._client.search_movie(movie_id)
+
+
+class RadarrLookupMovieTool(Tool):
+    name = "radarr_lookup_movie"
+    description = (
+        "Search TMDB (via Radarr) for a movie to add -- not a library search. Use this to find a "
+        "movie's tmdb_id and title before calling radarr_add_movie."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {"term": {"type": "string", "description": "Movie title to search for, e.g. 'Dune 2021'."}},
+        "required": ["term"],
+    }
+
+    def __init__(self, client: RadarrClient) -> None:
+        self._client = client
+
+    def run(self, term: str = "", **kwargs: Any) -> Any:
+        return self._client.lookup_movie(term)
+
+
+class RadarrListRootFoldersTool(Tool):
+    name = "radarr_list_root_folders"
+    description = (
+        "List Radarr's configured root folders (library paths) and their free space -- use this to "
+        "find a valid root_folder_path before calling radarr_add_movie."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, client: RadarrClient) -> None:
+        self._client = client
+
+    def run(self, **kwargs: Any) -> Any:
+        return self._client.list_root_folders()
+
+
+class RadarrListQualityProfilesTool(Tool):
+    name = "radarr_list_quality_profiles"
+    description = (
+        "List Radarr's configured quality profiles -- use this to find a valid quality_profile_id "
+        "before calling radarr_add_movie."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, client: RadarrClient) -> None:
+        self._client = client
+
+    def run(self, **kwargs: Any) -> Any:
+        return self._client.list_quality_profiles()
+
+
+class RadarrAddMovieTool(Tool):
+    name = "radarr_add_movie"
+    description = (
+        "Add a new movie to the Radarr library. Use radarr_lookup_movie first for tmdb_id/title, "
+        "and radarr_list_root_folders / radarr_list_quality_profiles for a valid root_folder_path / "
+        "quality_profile_id. Triggers an immediate search by default."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "tmdb_id": {"type": "integer", "description": "The movie's TMDB id, from radarr_lookup_movie."},
+            "title": {"type": "string", "description": "The movie's title, from radarr_lookup_movie."},
+            "quality_profile_id": {
+                "type": "integer",
+                "description": "A valid profile id, from radarr_list_quality_profiles.",
+            },
+            "root_folder_path": {"type": "string", "description": "A valid path, from radarr_list_root_folders."},
+            "monitored": {
+                "type": "boolean",
+                "description": "Whether Radarr should watch for/download this movie. Defaults to true.",
+            },
+            "search_now": {
+                "type": "boolean",
+                "description": "Trigger an immediate search after adding. Defaults to true.",
+            },
+        },
+        "required": ["tmdb_id", "title", "quality_profile_id", "root_folder_path"],
+    }
+
+    def __init__(self, client: RadarrClient) -> None:
+        self._client = client
+
+    def run(
+        self,
+        tmdb_id: int = 0,
+        title: str = "",
+        quality_profile_id: int = 0,
+        root_folder_path: str = "",
+        monitored: bool = True,
+        search_now: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        return self._client.add_movie(
+            tmdb_id, title, quality_profile_id, root_folder_path, monitored=monitored, search_now=search_now
+        )
+
+
+class RadarrDeleteMovieTool(Tool):
+    name = "radarr_delete_movie"
+    description = (
+        "Remove a movie from the Radarr library, using its movie_id from radarr_list_movies. "
+        "Optionally also deletes the downloaded file(s) from disk."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "movie_id": {"type": "integer", "description": "The Radarr movie id to remove."},
+            "delete_files": {
+                "type": "boolean",
+                "description": "Also delete the downloaded movie file(s) from disk. Defaults to false.",
+            },
+        },
+        "required": ["movie_id"],
+    }
+
+    def __init__(self, client: RadarrClient) -> None:
+        self._client = client
+
+    def run(self, movie_id: int = 0, delete_files: bool = False, **kwargs: Any) -> Any:
+        return self._client.delete_movie(movie_id, delete_files=delete_files)
+
+
+class RadarrCalendarTool(Tool):
+    name = "radarr_calendar"
+    description = "List upcoming movie releases Radarr is tracking (cinema/physical/digital release dates)."
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "days_ahead": {"type": "integer", "description": "How many days ahead to look. Defaults to 7."},
+        },
+        "required": [],
+    }
+
+    def __init__(self, client: RadarrClient) -> None:
+        self._client = client
+
+    def run(self, days_ahead: int = 7, **kwargs: Any) -> Any:
+        return self._client.calendar(days_ahead=days_ahead)

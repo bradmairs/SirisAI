@@ -1,6 +1,11 @@
 import httpx
 
-from app.plugins.builtin.tautulli import TautulliCurrentActivityTool, TautulliRecentHistoryTool
+from app.plugins.builtin.tautulli import (
+    TautulliCurrentActivityTool,
+    TautulliHomeStatsTool,
+    TautulliRecentHistoryTool,
+    TautulliTerminateSessionTool,
+)
 from app.tautulli.client import TautulliClient
 
 
@@ -20,7 +25,13 @@ def test_current_activity_maps_sessions_and_sends_apikey_and_cmd() -> None:
                     "result": "success",
                     "data": {
                         "sessions": [
-                            {"full_title": "The Matrix", "user": "brad", "state": "playing", "progress_percent": "42"}
+                            {
+                                "session_id": "abc123",
+                                "full_title": "The Matrix",
+                                "user": "brad",
+                                "state": "playing",
+                                "progress_percent": "42",
+                            }
                         ]
                     },
                 }
@@ -29,7 +40,9 @@ def test_current_activity_maps_sessions_and_sends_apikey_and_cmd() -> None:
 
     client = _mock_client(handler)
     result = TautulliCurrentActivityTool(client).run()
-    assert result == [{"title": "The Matrix", "user": "brad", "state": "playing", "progress_percent": "42"}]
+    assert result == [
+        {"session_id": "abc123", "title": "The Matrix", "user": "brad", "state": "playing", "progress_percent": "42"}
+    ]
     client.close()
 
 
@@ -55,4 +68,63 @@ def test_recent_history_defaults_length_to_ten() -> None:
 
     client = _mock_client(handler)
     TautulliRecentHistoryTool(client).run()
+    client.close()
+
+
+# -- home_stats / tautulli_home_stats
+
+
+def test_home_stats_maps_categories_and_forwards_days_and_count() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["cmd"] == "get_home_stats"
+        assert request.url.params["time_range"] == "7"
+        assert request.url.params["stats_count"] == "3"
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "result": "success",
+                    "data": [
+                        {
+                            "stat_id": "top_movies",
+                            "stat_title": "Most Watched Movies",
+                            "rows": [{"title": "The Matrix", "total_plays": 5}],
+                        }
+                    ],
+                }
+            },
+        )
+
+    client = _mock_client(handler)
+    result = TautulliHomeStatsTool(client).run(days=7, count=3)
+    assert result == [
+        {"stat_id": "top_movies", "title": "Most Watched Movies", "rows": [{"title": "The Matrix", "total_plays": 5}]}
+    ]
+    client.close()
+
+
+def test_home_stats_defaults_days_to_thirty_and_count_to_five() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["time_range"] == "30"
+        assert request.url.params["stats_count"] == "5"
+        return httpx.Response(200, json={"response": {"result": "success", "data": []}})
+
+    client = _mock_client(handler)
+    TautulliHomeStatsTool(client).run()
+    client.close()
+
+
+# -- terminate_session / tautulli_terminate_session
+
+
+def test_terminate_session_sends_session_id_and_message() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["cmd"] == "terminate_session"
+        assert request.url.params["session_id"] == "abc123"
+        assert request.url.params["message"] == "Please free up the stream"
+        return httpx.Response(200, json={"response": {"result": "success", "data": None}})
+
+    client = _mock_client(handler)
+    result = TautulliTerminateSessionTool(client).run(session_id="abc123", message="Please free up the stream")
+    assert result == {"terminated": True, "session_id": "abc123"}
     client.close()

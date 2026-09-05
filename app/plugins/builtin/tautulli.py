@@ -2,6 +2,11 @@
 Registered only when SIRISAI_TAUTULLI_BASE_URL and SIRISAI_TAUTULLI_API_KEY
 are both set. Generate an API key under Tautulli's Settings -> Web
 Interface -> API.
+
+home_stats is READ, same as the other listing tools here. terminate_session
+(a hardening pass) is CONFIRM_REQUIRED -- unlike everything else in this
+file, it has a real, immediate effect on another person's Plex playback,
+not just a query.
 """
 
 from typing import Any
@@ -40,3 +45,49 @@ class TautulliRecentHistoryTool(Tool):
 
     def run(self, length: int = 10, **kwargs: Any) -> Any:
         return self._client.recent_history(length=length)
+
+
+class TautulliHomeStatsTool(Tool):
+    name = "tautulli_home_stats"
+    description = (
+        "Get Tautulli's home-page stats: most-watched movies/shows, most active users, and similar "
+        "categories, over a recent time range."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "days": {"type": "integer", "description": "How many days back to summarize. Defaults to 30."},
+            "count": {"type": "integer", "description": "How many rows per category. Defaults to 5."},
+        },
+        "required": [],
+    }
+
+    def __init__(self, client: TautulliClient) -> None:
+        self._client = client
+
+    def run(self, days: int = 30, count: int = 5, **kwargs: Any) -> Any:
+        return self._client.home_stats(days=days, count=count)
+
+
+class TautulliTerminateSessionTool(Tool):
+    name = "tautulli_terminate_session"
+    description = (
+        "Stop a currently-playing Plex stream, using its session_id from tautulli_current_activity. "
+        "Interrupts whoever's watching -- use only when actually asked to stop a stream."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "The session to stop, from tautulli_current_activity."},
+            "message": {"type": "string", "description": "Optional message shown to the user in their Plex client."},
+        },
+        "required": ["session_id"],
+    }
+
+    def __init__(self, client: TautulliClient) -> None:
+        self._client = client
+
+    def run(self, session_id: str = "", message: str = "", **kwargs: Any) -> Any:
+        return self._client.terminate_session(session_id, message=message)

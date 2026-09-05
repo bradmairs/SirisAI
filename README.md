@@ -2289,6 +2289,58 @@ provider for the same capability actually exists to design against.
     baseline -> flag -> steady-state cycle against a real running
     process, not just mocked tool calls.
 
+56. **Done** -- Deeper Radarr/Sonarr/Tautulli tool coverage. Direct
+    request: "more tools/skills/actions" for these three, already
+    configured and live-verified since milestone 50. Radarr's and
+    Sonarr's tool files each carried an explicit note that adding/
+    removing library items was deliberately deferred ("a bigger, more
+    consequential action... deserves its own careful design later, not
+    folded in as a side effect") -- that's the work this milestone does.
+
+    Both gained the same shape, mirroring each other exactly (matching
+    the Servarr family's own shared API design): `*_lookup_*` (search
+    TMDB/TVDB for something to add -- not a library search),
+    `*_list_root_folders` / `*_list_quality_profiles` (discover valid
+    ids/paths a caller needs before adding anything), `*_add_*` and
+    `*_delete_*` (the actual library changes), and `*_calendar` (upcoming
+    release/air dates). `*_add_*`/`*_delete_*` are `CONFIRM_REQUIRED` --
+    unlike a routine search, these change what's actually in the library,
+    and delete can remove files from disk, so they get the same
+    human-in-the-loop treatment as `HomeAssistantCallServiceTool` by
+    default rather than `SAFE_ACTION`'s "runs immediately." Everything
+    else (lookup/root-folders/quality-profiles/calendar) is `READ`, same
+    as the tools already there.
+
+    Sonarr's episode-level monitoring (e.g. "only get season 2") isn't
+    built here -- `sonarr_search_series` already searches every monitored
+    episode of a series, which covers the common "get me this show" ask;
+    per-episode granularity is a separate, smaller feature this milestone
+    doesn't need.
+
+    Tautulli gained two: `tautulli_home_stats` (most-watched movies/
+    shows, most active users -- Tautulli's own home-page stat categories)
+    and `tautulli_terminate_session` (stop a currently-playing stream,
+    `CONFIRM_REQUIRED` since it interrupts someone's actual playback, not
+    just a query). `tautulli_current_activity` now also returns each
+    session's `session_id` -- previously dropped from the mapped output,
+    but exactly what `terminate_session` needs to target a specific
+    stream.
+
+    Verified: full suite (457 passed, up from 434) covering every new
+    client method and tool (request/response mapping, `required`
+    parameters, `CONFIRM_REQUIRED` on every add/delete/terminate tool)
+    plus end-to-end confirmation-gating tests via `siris.run_tool()`
+    (blocked unconfirmed, runs once confirmed) for `radarr_add_movie` and
+    `sonarr_add_series`. Live-verified against a real `uvicorn` process
+    and real mock Radarr/Sonarr/Tautulli servers: every new READ tool
+    (lookup, root folders, quality profiles, calendar, home stats)
+    returned real mapped data from real HTTP responses, and every
+    `CONFIRM_REQUIRED` tool (`radarr_add_movie`/`delete_movie`,
+    `sonarr_add_series`/`delete_series`, `tautulli_terminate_session`)
+    was confirmed to block unconfirmed and then, once confirmed, send the
+    exact expected payload -- checked by inspecting what each mock server
+    actually received, not just a 200 OK.
+
 ## Running locally
 
 ```bash
