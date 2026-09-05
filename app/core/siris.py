@@ -57,7 +57,7 @@ from app.plugins.builtin.goals import (
     ListGoalsTool,
     UpdateGoalStatusTool,
 )
-from app.plugins.builtin.hermes import HermesRunTaskTool
+from app.plugins.builtin.hermes import HermesRunTaskTool, HermesStatusTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
     HomeAssistantCreateAutomationTool,
@@ -401,8 +401,10 @@ class SirisAI:
                 base_url=self.settings.hermes_base_url,
                 model=self.settings.hermes_model,
                 api_key=self.settings.hermes_api_key or None,
+                timeout=self.settings.hermes_timeout_seconds,
             )
             self.tools.register(HermesRunTaskTool(self._hermes_client))
+            self.tools.register(HermesStatusTool(self._hermes_client))
 
         if self.settings.tautulli_base_url and self.settings.tautulli_api_key:
             self._tautulli_client = TautulliClient(

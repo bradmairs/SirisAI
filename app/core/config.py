@@ -210,6 +210,12 @@ class Settings(BaseSettings):
     hermes_base_url: str = ""
     hermes_model: str = "hermes"
     hermes_api_key: str = ""
+    # A hardening pass: HermesClient's default (120s) is already generous
+    # for Hermes doing its own multi-step tool use/terminal work before
+    # responding, but that's still a guess at what any given deployment's
+    # heaviest delegated task actually needs -- configurable rather than
+    # a silent hard ceiling a genuinely long-running task could hit.
+    hermes_timeout_seconds: float = 120.0
 
     # Presence-triggered scenes (milestone 42, app/skills/builtin/presence.py):
     # "everyone left" -> away scene, "someone's home" -> home scene.

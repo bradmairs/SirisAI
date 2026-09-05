@@ -2495,6 +2495,57 @@ provider for the same capability actually exists to design against.
     the real engine for the same reason, this just hadn't come up again
     until a test finally exercised concurrent writes through it.
 
+60. **Done** -- Strengthened the Hermes Agent connection. Direct
+    request, following a question about whether reaching other hosts
+    (e.g. a Raspberry Pi) should be Hermes's job or SirisAI's own --
+    answer: Hermes's, since it already exists so SirisAI doesn't
+    reimplement system-level capabilities as its own tools, and whether
+    it can reach another host is a Hermes-side configuration question,
+    not something to build here. This milestone strengthens the
+    *connection itself*, not what Hermes can be asked to do.
+
+    Two ideas considered and dropped before writing any code, because
+    they'd have been solving problems that don't exist: giving
+    `hermes_run_task` the SirisAI `conversation_id` for "continuity"
+    across delegated calls, and threading planner `evidence` into what's
+    sent to Hermes. Neither holds up -- `SirisAI.run_tool()` calls
+    `tool.run(**arguments)`, nothing else; no tool anywhere gets
+    `conversation_id` or `evidence` at runtime, both are audit-log-only.
+    The model choosing to call `hermes_run_task` already sees the full
+    conversation (and, mid-plan, every prior step's result) before
+    composing the `instruction` argument -- threading either through
+    the `Tool` interface just for Hermes would mean special-casing one
+    tool's call signature to duplicate context the model can already
+    just write into a better-composed instruction. Also considered and
+    left alone: whether `hermes_run_task` should be `CONFIRM_REQUIRED`
+    rather than `SAFE_ACTION`, given "terminal access" is a wide-open
+    capability -- that's a real, deliberate tradeoff already reasoned
+    about in this file's own docstring, not a bug, so it's flagged here
+    rather than silently relitigated.
+
+    What actually shipped: new `hermes_status` tool (`HermesClient.
+    check_status()`, `GET /v1/models` -- the same OpenAI-compatible
+    convention `run_task()` already relies on) answers "is Hermes
+    actually reachable" and which models it currently reports, without
+    spending a real delegated task finding that out the hard way --
+    doesn't reopen "one delegate tool," since it's connectivity
+    introspection, not a second way to get something *done*. And a new
+    `SIRISAI_HERMES_TIMEOUT_SECONDS` setting (default 120, matching the
+    existing hardcoded value) -- Hermes may do its own multi-step tool
+    use/terminal work before responding, and a fixed ceiling with no
+    override risked cutting off a genuinely heavy delegated task with no
+    way to raise it.
+
+    Verified: full suite (486 passed, up from 479) covering
+    `check_status()`'s request/response mapping and error propagation,
+    `hermes_status`'s registration and `READ` permission, and the
+    configured timeout actually reaching the real `httpx.Client` both
+    directly and through `SirisAI`'s registration path. Live-verified
+    against a real `uvicorn` process and a real mock Hermes server:
+    `hermes_status` returned the real reachable/model-list response, and
+    `hermes_run_task` round-tripped a real instruction through a real
+    `POST /v1/chat/completions` call and back.
+
 ## Running locally
 
 ```bash
