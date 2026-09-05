@@ -101,7 +101,11 @@ from app.plugins.builtin.obsidian import (
     ObsidianSearchTool,
 )
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
-from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
+from app.plugins.builtin.plex import (
+    PlexLibrarySectionsTool,
+    PlexNowPlayingTool,
+    PlexSearchTool,
+)
 from app.plugins.builtin.radarr import (
     RadarrAddMovieTool,
     RadarrCalendarTool,
@@ -417,6 +421,7 @@ class SirisAI:
             )
             self.tools.register(PlexNowPlayingTool(self._plex_client))
             self.tools.register(PlexLibrarySectionsTool(self._plex_client))
+            self.tools.register(PlexSearchTool(self._plex_client))
 
         if self.settings.docker_base_url:
             self._docker_client = DockerClient(base_url=self.settings.docker_base_url)

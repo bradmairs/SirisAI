@@ -3024,6 +3024,32 @@ provider for the same capability actually exists to design against.
     `"rollback_last_action: undoing <tool> (audit id N), itself
     confirmed"` trigger, distinct from the original direct calls.
 
+71. **Done** -- Unified Plex search. Picked up the "Media and lifestyle"
+    thread from the original brainstormed list: "Unified media search --
+    search Plex, music, podcasts and other libraries conversationally."
+    This deployment's only media server is Plex, but Plex itself already
+    spans movies, TV, and music in one library -- so "unified" here
+    means using Plex's own cross-library search rather than building a
+    new aggregation layer across services that don't exist here.
+
+    `PlexClient.search()` calls `/hubs/search`, the same endpoint
+    Plex's official clients use for "search everything" -- it already
+    groups results into "Hub"s (one per media type) internally, so no
+    per-library-section querying is needed. Flattened into one plain
+    list with each item's source hub attached as `library`, rather than
+    the model having to walk Plex's nested Hub/Metadata structure
+    itself. `plex_search` registers alongside the existing Plex tools,
+    gated on the same `SIRISAI_PLEX_BASE_URL`/`SIRISAI_PLEX_TOKEN`.
+
+    Verified: full suite (552 passed, up from 550) covering flattening
+    multiple hubs into one list with the right `library` attached and a
+    hub with no `Metadata` key at all (an empty-results hub Plex's API
+    can return) being skipped rather than raising. Live-verified against
+    a real `uvicorn` process and a fake Plex server returning results
+    across two different hubs (Movies, TV Shows): `plex_search`
+    correctly flattened both into one three-item list through a real
+    HTTP round trip via `POST /siris/tools/plex_search/run`.
+
 ## Running locally
 
 ```bash
