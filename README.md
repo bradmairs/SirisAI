@@ -2673,6 +2673,53 @@ provider for the same capability actually exists to design against.
     `"planner: step N of an in-progress plan"` trigger and the prior
     steps' results as `evidence`.
 
+63. **Done** -- Calendar write and conflict checking. The next pick from
+    the same brainstormed feature list (milestone 62), chosen as the
+    smallest, most contained remaining item: `calendar_upcoming_events`
+    (milestone 39) was read-only, with no way to create an event or
+    check whether a proposed time was already taken.
+
+    What shipped:
+    - `CalendarClient.events_between(start, end)` -- the existing
+      `upcoming_events()` query generalized to an arbitrary window
+      instead of always "now plus N days" (which now just calls this
+      with `start=now`). This turned out to *be* conflict checking:
+      "what already exists in this window" is the same query either way.
+    - `calendar_check_conflicts` -- a narrow READ tool wrapping
+      `events_between()` directly, for "am I free then" questions that
+      aren't about creating anything.
+    - `calendar_create_event` -- creates an event via `caldav`'s
+      `Calendar.add_event()`, on a named calendar or the first available
+      one. Deliberately does not refuse or block on a conflict itself --
+      its `dry_run()` (reusing the milestone-25 preview mechanism, same
+      shape as `DockerRestartContainerTool`'s) reports what would be
+      created *and* any conflicting existing events in that window
+      up front, so the model (or a human confirming) decides, rather
+      than a hardcoded refusal getting in the way of a deliberate
+      double-booking. `SAFE_ACTION`, not `CONFIRM_REQUIRED`: an event is
+      easy to edit or delete afterwards, and `dry_run` already surfaces
+      the one thing worth pausing over.
+
+    Same acknowledged gap as milestone 39 itself (see
+    `app/calendar/client.py`'s module docstring): no live CalDAV server
+    was available in this environment to verify the real wire protocol
+    against, particularly timezone/recurrence edge cases on a specific
+    server implementation.
+
+    Verified: full suite (513 passed, up from 505) covering
+    `events_between()`'s query window, `create_event()` against the
+    default vs. a named calendar and its error for an unknown one, both
+    tools' ISO-8601 parsing and delegation, and `dry_run()` reporting
+    conflicts (or their absence) without ever calling `create_event()` --
+    all mocked at the `caldav.DAVClient` boundary, the same approach
+    `test_calendar.py` already used for the read-only tool. Live-verified
+    tool registration/schema and the real HTTP round trip through
+    `POST /siris/tools/{name}/run` (including `dry_run: true`) against a
+    real `uvicorn` process: both tools correctly parsed real ISO-8601
+    arguments and surfaced a clean, non-leaking error once they reached
+    the (deliberately unreachable, per the gap above) configured CalDAV
+    URL.
+
 ## Running locally
 
 ```bash

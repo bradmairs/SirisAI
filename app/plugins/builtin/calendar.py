@@ -1,12 +1,18 @@
-"""Calendar tool via CalDAV (app/calendar/client.py). Registered only when
+"""Calendar tools via CalDAV (app/calendar/client.py). Registered only when
 SIRISAI_CALDAV_URL is set. Works with Nextcloud, Radicale, Baikal, iCloud,
 or any other CalDAV server.
 """
 
+from datetime import datetime
 from typing import Any
 
 from app.calendar.client import CalendarClient
 from app.plugins.base import Tool, ToolPermission
+
+_TIME_PARAMETER = {
+    "type": "string",
+    "description": "ISO 8601 date-time, e.g. 2026-09-10T14:00:00Z or 2026-09-10T14:00:00+10:00.",
+}
 
 
 class CalendarUpcomingEventsTool(Tool):
@@ -29,3 +35,97 @@ class CalendarUpcomingEventsTool(Tool):
 
     def run(self, days_ahead: int = 7, **kwargs: Any) -> Any:
         return self._client.upcoming_events(days_ahead=days_ahead)
+
+
+class CalendarCheckConflictsTool(Tool):
+    name = "calendar_check_conflicts"
+    description = (
+        "List any existing events across all calendars that overlap a given time window -- "
+        'for answering "am I free then" or checking before proposing a new event.'
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {"start": _TIME_PARAMETER, "end": _TIME_PARAMETER},
+        "required": ["start", "end"],
+    }
+
+    def __init__(self, client: CalendarClient) -> None:
+        self._client = client
+
+    def run(self, start: str = "", end: str = "", **kwargs: Any) -> Any:
+        return self._client.events_between(
+            datetime.fromisoformat(start), datetime.fromisoformat(end)
+        )
+
+
+class CalendarCreateEventTool(Tool):
+    name = "calendar_create_event"
+    description = (
+        "Create a new calendar event. Does not refuse or block on an overlapping existing "
+        "event -- call dry_run first (or calendar_check_conflicts) to see conflicts before "
+        "deciding whether to still go ahead."
+    )
+    # Reversible (the event can be edited/deleted afterwards) and routine,
+    # same "known, undoable action" reasoning as DockerRestartContainerTool
+    # -- not CONFIRM_REQUIRED, since dry_run already surfaces the one thing
+    # (a conflict) worth pausing over, without a required human-in-the-loop
+    # round trip for every event.
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string", "description": "Event title."},
+            "start": _TIME_PARAMETER,
+            "end": _TIME_PARAMETER,
+            "location": {"type": "string", "description": "Optional event location."},
+            "calendar_name": {
+                "type": "string",
+                "description": "Which calendar to create it on. Defaults to the first available calendar.",
+            },
+        },
+        "required": ["summary", "start", "end"],
+    }
+
+    def __init__(self, client: CalendarClient) -> None:
+        self._client = client
+
+    def run(
+        self,
+        summary: str = "",
+        start: str = "",
+        end: str = "",
+        location: str | None = None,
+        calendar_name: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        return self._client.create_event(
+            summary,
+            datetime.fromisoformat(start),
+            datetime.fromisoformat(end),
+            location=location,
+            calendar_name=calendar_name,
+        )
+
+    def dry_run(
+        self,
+        summary: str = "",
+        start: str = "",
+        end: str = "",
+        location: str | None = None,
+        calendar_name: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+        conflicts = self._client.events_between(start_dt, end_dt)
+        return {
+            "would_create": {
+                "summary": summary,
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+                "location": location,
+                "calendar": calendar_name,
+            },
+            "conflicts": conflicts,
+        }
