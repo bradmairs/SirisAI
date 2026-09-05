@@ -2546,6 +2546,66 @@ provider for the same capability actually exists to design against.
     `hermes_run_task` round-tripped a real instruction through a real
     `POST /v1/chat/completions` call and back.
 
+61. **Done** -- Automatic memory extraction. Direct request: "SirisAI
+    should be self-learning and automatically record things to memory
+    if they are worth remembering." The `remember`/`remember_entity_fact`
+    tools were already callable by the model on its own initiative --
+    nothing gated that. The actual gap was structural: a normal chat
+    turn allows exactly one tool call, so the model can't both answer
+    the user's real request *and* separately save a memory in the same
+    turn. Asked the user how this should be decided (an extra pass
+    after each turn / a periodic batch review / relying on planner mode
+    already being on); they picked the extra pass.
+
+    What shipped: after `Cortex.process()`/`confirm()` produce a real
+    response, a separate best-effort pass reviews the exchange and
+    decides, using its own judgment, whether anything is worth keeping
+    long-term. It runs through `Planner.run()` directly (not
+    `Cortex._run_planned()`), so it can check existing memory before
+    writing and isn't capped at one call -- but that `Planner.run()`
+    call never touches `siris.conversation`, so the extraction pass
+    never appears in the visible transcript. It's given only six tool
+    specs (`recall`, `remember`, `recall_entity_facts`,
+    `remember_entity_fact`, `recall_entity_relationships`,
+    `remember_entity_relationship`) via `ToolRegistry.specs(exclude=...)`
+    -- deliberately not `log_event`/`recall_events` (events aren't
+    durable facts) or anything else (Docker, Home Assistant, Radarr,
+    etc.), so even a misbehaving extraction pass can't do anything
+    consequential. It's routed through `ModelRouter`'s "fast" role when
+    one is configured, since this is a cheap background pass, not the
+    user-facing answer. Every write it makes is tagged with an honest
+    audit trigger (`"automatic memory extraction: post-turn review (step
+    N)"`, via a new `trigger_template` parameter on `Planner.run()`) so
+    `explain_recent_action`/`GET /siris/activity` can always tell "the
+    user asked for this" apart from "SirisAI decided to remember this
+    on its own" -- the same discipline milestone 28 established.
+    Failures are swallowed (logged, never surfacing to the turn's own
+    response) and it's skipped entirely when the turn itself errored,
+    matching the existing best-effort precedent set by
+    `ContextEngine.build()`/`server_health_check`. A new
+    `SIRISAI_AUTO_MEMORY_EXTRACTION_ENABLED` setting (default `true`)
+    turns off the extra LLM call/cost per turn, not the underlying
+    tools -- the model can still be asked to remember something
+    directly either way.
+
+    Verified: full suite (496 passed, up from 486) covering successful
+    end-to-end extraction, default-on/off behavior, that the extraction
+    pass never pollutes the visible transcript, that its failures don't
+    affect the turn's own response, that it's skipped when the turn
+    errored, its honest audit trigger, `confirm()` going through the
+    same path as `process()`, fast-model-role routing, and (in
+    `test_planner.py`) that `Planner.run()`'s new `trigger_template`
+    defaults to the existing per-step string and can be overridden.
+    Live-verified against a real `uvicorn` process and a real mock
+    Ollama-compatible backend: told it "My favorite color is teal,"
+    got back the turn's own unrelated answer with no tool call visible
+    to the caller, then confirmed via `GET /siris/memory` that the fact
+    was actually saved, `GET /siris/activity` showed the write tagged
+    with the automatic-extraction trigger rather than a user-initiated
+    one, and `GET /siris/conversations/{id}` confirmed the transcript
+    stayed exactly `["user", "assistant"]` -- no extraction step mixed
+    in.
+
 ## Running locally
 
 ```bash

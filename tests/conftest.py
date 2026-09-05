@@ -16,6 +16,16 @@ os.environ.setdefault("SIRISAI_ENV_FILE", ".env.test")
 # just from .env. Point tests at an isolated temp file instead.
 os.environ.setdefault("SIRISAI_DATABASE_URL", f"sqlite:///{tempfile.mkdtemp()}/test.db")
 
+# Same reasoning again, for automatic memory extraction (a hardening
+# pass): it defaults to enabled in real deployments (the whole point of
+# it), but that means a real extra LLM call after every chat turn that
+# produces a response -- most existing tests construct a fake LLM client
+# tailored to exactly one call, or assert an exact call count/order, and
+# have no reason to expect a second, unrelated call landing right after
+# theirs. Tests for the feature itself opt back in explicitly via their
+# own `Settings(auto_memory_extraction_enabled=True, ...)`.
+os.environ.setdefault("SIRISAI_AUTO_MEMORY_EXTRACTION_ENABLED", "false")
+
 import pytest
 from fastapi.testclient import TestClient
 

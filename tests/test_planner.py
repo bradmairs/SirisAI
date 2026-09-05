@@ -34,6 +34,7 @@ class _FakeSiris:
     def __init__(self, run_tool_fn: Any) -> None:
         self._run_tool_fn = run_tool_fn
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.triggers: list[str | None] = []
 
     def run_tool(
         self,
@@ -45,6 +46,7 @@ class _FakeSiris:
         evidence: Any = None,
     ) -> Any:
         self.calls.append((name, arguments))
+        self.triggers.append(trigger)
         return self._run_tool_fn(name, arguments, conversation_id, confirmed)
 
 
@@ -149,6 +151,43 @@ def test_planner_gives_up_after_max_steps_without_a_final_answer() -> None:
     assert result.final_text is None
     assert result.pending_confirmation is None
     assert result.error is None
+
+
+def test_planner_run_tool_uses_the_default_trigger_template() -> None:
+    siris = _FakeSiris(lambda name, arguments, *_: {"echo": arguments["message"]})
+    responses = [
+        LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "first"})]),
+        LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "second"})]),
+        LLMResponse(text="All done."),
+    ]
+
+    asyncio.run(Planner(max_steps=5).run(siris, "conv-1", [], tools=[], llm_client=_SequenceLLMClient(responses)))
+
+    assert siris.triggers == [
+        "planner: step 1 of an in-progress plan",
+        "planner: step 2 of an in-progress plan",
+    ]
+
+
+def test_planner_run_tool_honors_a_custom_trigger_template() -> None:
+    siris = _FakeSiris(lambda name, arguments, *_: {"echo": arguments["message"]})
+    responses = [
+        LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "first"})]),
+        LLMResponse(text="All done."),
+    ]
+
+    asyncio.run(
+        Planner(max_steps=5).run(
+            siris,
+            "conv-1",
+            [],
+            tools=[],
+            llm_client=_SequenceLLMClient(responses),
+            trigger_template="automatic memory extraction: post-turn review (step {step})",
+        )
+    )
+
+    assert siris.triggers == ["automatic memory extraction: post-turn review (step 1)"]
 
 
 # -- Endpoint-level: exercises the real SirisAI/echo tool through POST /siris/chat.

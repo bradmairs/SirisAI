@@ -38,6 +38,27 @@ are run via `asyncio.to_thread()` instead, so the blocking work happens
 on a worker thread and the event loop stays free to handle everything
 else meanwhile -- see app/db/session.py's WAL-mode comment for why this
 is safe to do concurrently against the same SQLite file.
+
+Automatic memory extraction (a hardening pass, SIRISAI_AUTO_MEMORY_EXTRACTION_ENABLED):
+`remember`/`remember_entity_fact`/etc. were already callable by the model
+on its own initiative, mid-conversation -- the actual gap was structural,
+not permissions. A normal (non-planner) turn gets exactly one tool call,
+so a model already spending it on the user's actual request has no room
+left to also save a memory in the same turn; "self-learning" would mean
+the model choosing memory-keeping over helping, which it correctly never
+does. `process()`/`confirm()` both wrap their real work and, once a real
+answer comes back (`response` set, no `error`), run `_maybe_extract_memory()`
+-- a *separate* small `Planner` run (recall existing memory, then decide
+whether to save something new, or nothing), off the "fast" model role
+when one's configured (app/llm/router.py) to keep the added cost down,
+and using `Planner`'s own `trigger_template` so its audit trail honestly
+reads "automatic memory extraction," never as if the user's own request
+drove it. Its steps are never added to the visible conversation transcript
+(`Planner.run()` itself never touches conversation persistence -- only
+`Cortex._run_planned()` does, which this bypasses on purpose) -- an
+internal side-process, not something that should show up replayed into
+a later turn's messages. Best-effort throughout: any failure here is
+swallowed and logged, never the reason a chat turn fails.
 """
 
 import asyncio
@@ -53,6 +74,33 @@ if TYPE_CHECKING:
     from app.core.siris import SirisAI
 
 logger = logging.getLogger(__name__)
+
+# Automatic memory extraction (a hardening pass): the only tools this
+# internal pass is ever offered -- durable-fact storage/lookup, not
+# log_event/recall_events (things that *happened*, a different concept
+# from a fact worth keeping) and definitely nothing else this codebase
+# can do. Restricting the toolset, not just the prompt, is the actual
+# safety boundary: even a misbehaving extraction pass can't call
+# anything but these six.
+_MEMORY_EXTRACTION_TOOL_NAMES = {
+    "recall",
+    "remember",
+    "recall_entity_facts",
+    "remember_entity_fact",
+    "recall_entity_relationships",
+    "remember_entity_relationship",
+}
+_MEMORY_EXTRACTION_MAX_STEPS = 3
+_MEMORY_EXTRACTION_SYSTEM_PROMPT = (
+    "You just handled one exchange in an ongoing conversation. Decide whether anything in it is "
+    "worth saving to long-term memory for future conversations.\n\n"
+    "Save something only if it's a durable fact that would still be useful weeks from now -- a "
+    "stated preference, an important fact about the user, their setup, or a named person/service/"
+    "device/project. Do not save routine questions, one-off requests, or small talk.\n\n"
+    "Before saving anything, use recall / recall_entity_facts / recall_entity_relationships to "
+    "check it isn't already known -- don't save a duplicate of something already remembered. If "
+    "nothing qualifies, don't call any tool at all -- just say so."
+)
 
 
 @dataclass
@@ -105,7 +153,32 @@ class Cortex:
     ) -> CortexResult:
         """request -> context -> route -> plan/act -> response, for a new
         user turn. Persists the user's prompt immediately, and whatever
-        tool/assistant messages the rest of the pipeline produces."""
+        tool/assistant messages the rest of the pipeline produces. Once a
+        real answer comes back, runs automatic memory extraction (see
+        module docstring) as a side effect before returning it."""
+        result = await self._process_inner(
+            siris,
+            conversation_id,
+            prompt,
+            use_context=use_context,
+            use_tools=use_tools,
+            use_planner=use_planner,
+            model_role=model_role,
+        )
+        await self._maybe_extract_memory(siris, conversation_id, prompt, result)
+        return result
+
+    async def _process_inner(
+        self,
+        siris: "SirisAI",
+        conversation_id: str,
+        prompt: str,
+        *,
+        use_context: bool = True,
+        use_tools: bool = True,
+        use_planner: bool = False,
+        model_role: str | None = None,
+    ) -> CortexResult:
         assert siris.llm is not None
         assert siris.model_router is not None
 
@@ -159,6 +232,10 @@ class Cortex:
     ) -> CortexResult:
         """Actually run a tool call a previous result flagged as
         `pending_confirmation` -- the human has now explicitly approved it.
+        Once a real answer comes back, runs automatic memory extraction
+        (see module docstring, and process()) as a side effect before
+        returning it -- a confirmed real action is, if anything, more
+        likely to be worth remembering than idle chat.
 
         `use_planner` is for when that confirmation came from a planner run
         that stopped mid-plan (the original response carried `plan` rather
@@ -177,6 +254,13 @@ class Cortex:
         this: the confirmed tool runs, gets one follow-up call for a final
         answer, and the turn ends there -- same as confirming a single
         non-planned tool call always has."""
+        result = await self._confirm_inner(siris, conversation_id, name, arguments, use_planner=use_planner)
+        await self._maybe_extract_memory(siris, conversation_id, f"(user confirmed: {name})", result)
+        return result
+
+    async def _confirm_inner(
+        self, siris: "SirisAI", conversation_id: str, name: str, arguments: dict[str, Any], *, use_planner: bool = False
+    ) -> CortexResult:
         messages = self._load_messages(siris, conversation_id)
         if siris.settings.persona:
             messages = [{"role": "system", "content": siris.settings.persona}, *messages]
@@ -375,3 +459,40 @@ class Cortex:
             siris.conversation.add_message(conversation_id, role="assistant", content=plan_result.final_text)
 
         return CortexResult(conversation_id=conversation_id, response=plan_result.final_text, plan=plan, model_role=model_role)
+
+    async def _maybe_extract_memory(
+        self, siris: "SirisAI", conversation_id: str, context_label: str, result: "CortexResult"
+    ) -> None:
+        """Automatic memory extraction (see module docstring). `context_label`
+        is the user's original prompt for process(), or a short stand-in
+        describing what was confirmed for confirm() -- either way, just
+        something to show the extraction pass what prompted `result.response`.
+
+        Best-effort and silent: nothing here ever raises out to the caller,
+        and it never touches `result` -- a turn's own response reaches the
+        user exactly as it would if this didn't exist."""
+        if not siris.settings.auto_memory_extraction_enabled:
+            return
+        if result.error or not result.response or siris.llm is None or siris.model_router is None:
+            return
+
+        try:
+            exclude = {t.name for t in siris.tools.list()} - _MEMORY_EXTRACTION_TOOL_NAMES
+            tools = siris.tools.specs(exclude=exclude)
+            if not tools:
+                return
+            _, llm_client = siris.model_router.pick(siris.llm, context_label, role="fast")
+            messages = [
+                {"role": "system", "content": _MEMORY_EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": f"User: {context_label}\n\nSirisAI: {result.response}"},
+            ]
+            await Planner(max_steps=_MEMORY_EXTRACTION_MAX_STEPS).run(
+                siris,
+                conversation_id,
+                messages,
+                tools,
+                llm_client,
+                trigger_template="automatic memory extraction: post-turn review (step {step})",
+            )
+        except Exception:
+            logger.exception("Automatic memory extraction failed")
