@@ -6,6 +6,13 @@ the other tools in this file's package there's no base_url/token to
 configure and it's always registered. Note this reflects the *container's*
 view unless deployed with the host's PID namespace and relevant mounts --
 see the README for the docker-compose tweak that gives it a real host view.
+
+CPU sampling (a performance hardening pass): `psutil.cpu_percent()` with
+no `interval` returns instantly, using the delta since whenever it was
+last called anywhere in this process, rather than blocking to measure a
+fresh window -- see app/main.py's startup priming call and the README's
+writeup for why a blocking interval here mattered more than it looks
+like it should.
 """
 
 from typing import Any
@@ -51,7 +58,7 @@ class SystemInfoTool(Tool):
             pass  # sensors_temperatures() is Linux-only and not always available.
 
         return {
-            "cpu_percent": psutil.cpu_percent(interval=0.2),
+            "cpu_percent": psutil.cpu_percent(interval=None),
             "cpu_count": psutil.cpu_count(),
             "memory": {
                 "total_gb": round(memory.total / 1e9, 1),

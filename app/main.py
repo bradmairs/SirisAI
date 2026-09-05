@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import psutil
 from fastapi import FastAPI
 
 from app.api.routes import events, health, integrations, memory, proactive, routines, satellites, siris, voice, web
@@ -29,6 +30,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Base.metadata.create_all(bind=engine)
     apply_column_patches(engine)
     apply_index_patches(engine)
+    # Primes psutil's internal last-call state (a performance hardening
+    # pass) so SystemInfoTool's non-blocking psutil.cpu_percent(interval=
+    # None) -- called on nearly every chat turn via ContextEngine.build()
+    # -- has something to diff against on its very first real call,
+    # instead of returning a meaningless 0.0.
+    psutil.cpu_percent()
     # Warm the shared SirisAI instance (and its tool registry) at boot
     # rather than on first request.
     siris = get_siris()
