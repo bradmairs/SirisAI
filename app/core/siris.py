@@ -46,7 +46,7 @@ from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolReg
 from app.plugins.builtin.audit import ExplainRecentActionTool
 from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
 from app.plugins.builtin.calendar import CalendarUpcomingEventsTool
-from app.plugins.builtin.bazarr import BazarrWantedEpisodesTool, BazarrWantedMoviesTool
+from app.plugins.builtin.bazarr import BazarrSearchWantedSubtitlesTool, BazarrWantedEpisodesTool, BazarrWantedMoviesTool
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
 from app.plugins.builtin.docker import DockerListContainersTool, DockerRestartContainerTool
 from app.plugins.builtin.echo import EchoTool
@@ -61,9 +61,12 @@ from app.plugins.builtin.hermes import HermesRunTaskTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
     HomeAssistantCreateAutomationTool,
+    HomeAssistantDeleteAutomationTool,
+    HomeAssistantGetHistoryTool,
     HomeAssistantGetLogbookTool,
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
+    HomeAssistantRenderTemplateTool,
 )
 from app.plugins.builtin.listenarr import ListenarrQueueTool, ListenarrSystemStatusTool
 from app.plugins.builtin.memory import (
@@ -94,6 +97,7 @@ from app.plugins.builtin.radarr import (
     RadarrListRootFoldersTool,
     RadarrLookupMovieTool,
     RadarrQueueTool,
+    RadarrRemoveQueueItemTool,
     RadarrSearchMovieTool,
 )
 from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
@@ -107,11 +111,14 @@ from app.plugins.builtin.sonarr import (
     SonarrListSeriesTool,
     SonarrLookupSeriesTool,
     SonarrQueueTool,
+    SonarrRemoveQueueItemTool,
     SonarrSearchSeriesTool,
 )
 from app.plugins.builtin.system_info import SystemInfoTool
 from app.plugins.builtin.tautulli import (
     TautulliCurrentActivityTool,
+    TautulliGetLibrariesTool,
+    TautulliGetUsersTool,
     TautulliHomeStatsTool,
     TautulliRecentHistoryTool,
     TautulliTerminateSessionTool,
@@ -338,6 +345,9 @@ class SirisAI:
             )
             self.tools.register(HomeAssistantGetLogbookTool(self._home_assistant_client))
             self.tools.register(HomeAssistantCreateAutomationTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantGetHistoryTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantRenderTemplateTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantDeleteAutomationTool(self._home_assistant_client))
 
         # Plex before Docker on purpose: DockerRestartContainerTool's
         # dry_run() optionally reports active Plex sessions a restart
@@ -402,6 +412,8 @@ class SirisAI:
             self.tools.register(TautulliRecentHistoryTool(self._tautulli_client))
             self.tools.register(TautulliHomeStatsTool(self._tautulli_client))
             self.tools.register(TautulliTerminateSessionTool(self._tautulli_client))
+            self.tools.register(TautulliGetUsersTool(self._tautulli_client))
+            self.tools.register(TautulliGetLibrariesTool(self._tautulli_client))
 
         if self.settings.radarr_base_url and self.settings.radarr_api_key:
             self._radarr_client = RadarrClient(base_url=self.settings.radarr_base_url, api_key=self.settings.radarr_api_key)
@@ -414,6 +426,7 @@ class SirisAI:
             self.tools.register(RadarrAddMovieTool(self._radarr_client))
             self.tools.register(RadarrDeleteMovieTool(self._radarr_client))
             self.tools.register(RadarrCalendarTool(self._radarr_client))
+            self.tools.register(RadarrRemoveQueueItemTool(self._radarr_client))
 
         if self.settings.sonarr_base_url and self.settings.sonarr_api_key:
             self._sonarr_client = SonarrClient(base_url=self.settings.sonarr_base_url, api_key=self.settings.sonarr_api_key)
@@ -426,11 +439,13 @@ class SirisAI:
             self.tools.register(SonarrAddSeriesTool(self._sonarr_client))
             self.tools.register(SonarrDeleteSeriesTool(self._sonarr_client))
             self.tools.register(SonarrCalendarTool(self._sonarr_client))
+            self.tools.register(SonarrRemoveQueueItemTool(self._sonarr_client))
 
         if self.settings.bazarr_base_url and self.settings.bazarr_api_key:
             self._bazarr_client = BazarrClient(base_url=self.settings.bazarr_base_url, api_key=self.settings.bazarr_api_key)
             self.tools.register(BazarrWantedMoviesTool(self._bazarr_client))
             self.tools.register(BazarrWantedEpisodesTool(self._bazarr_client))
+            self.tools.register(BazarrSearchWantedSubtitlesTool(self._bazarr_client))
 
         if self.settings.listenarr_base_url and self.settings.listenarr_api_key:
             self._listenarr_client = ListenarrClient(

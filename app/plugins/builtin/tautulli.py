@@ -91,3 +91,29 @@ class TautulliTerminateSessionTool(Tool):
 
     def run(self, session_id: str = "", message: str = "", **kwargs: Any) -> Any:
         return self._client.terminate_session(session_id, message=message)
+
+
+class TautulliGetUsersTool(Tool):
+    name = "tautulli_get_users"
+    description = "List Plex users Tautulli has ever seen on this server -- who has access, not who's watching now."
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, client: TautulliClient) -> None:
+        self._client = client
+
+    def run(self, **kwargs: Any) -> Any:
+        return self._client.get_users()
+
+
+class TautulliGetLibrariesTool(Tool):
+    name = "tautulli_get_libraries"
+    description = "Get per-library item counts from Tautulli (e.g. how many movies/shows in each library)."
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, client: TautulliClient) -> None:
+        self._client = client
+
+    def run(self, **kwargs: Any) -> Any:
+        return self._client.get_libraries()

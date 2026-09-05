@@ -43,6 +43,7 @@ class RadarrClient:
         response.raise_for_status()
         return [
             {
+                "id": r.get("id"),  # needed by remove_queue_item()
                 "title": r.get("title"),
                 "status": r.get("status"),
                 "timeleft": r.get("timeleft"),
@@ -139,6 +140,17 @@ class RadarrClient:
             }
             for m in response.json()
         ]
+
+    def remove_queue_item(self, queue_id: int, blocklist: bool = False) -> dict:
+        """Removes one item from the download queue -- e.g. a stuck or
+        errored download -- using its id from queue(). `blocklist` also
+        tells Radarr not to grab that same release again."""
+        response = self._client.delete(
+            f"/api/v3/queue/{queue_id}",
+            params={"removeFromClient": "true", "blocklist": "true" if blocklist else "false"},
+        )
+        response.raise_for_status()
+        return {"removed": True, "queue_id": queue_id, "blocklisted": blocklist}
 
     def close(self) -> None:
         self._client.close()

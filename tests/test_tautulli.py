@@ -2,6 +2,8 @@ import httpx
 
 from app.plugins.builtin.tautulli import (
     TautulliCurrentActivityTool,
+    TautulliGetLibrariesTool,
+    TautulliGetUsersTool,
     TautulliHomeStatsTool,
     TautulliRecentHistoryTool,
     TautulliTerminateSessionTool,
@@ -127,4 +129,48 @@ def test_terminate_session_sends_session_id_and_message() -> None:
     client = _mock_client(handler)
     result = TautulliTerminateSessionTool(client).run(session_id="abc123", message="Please free up the stream")
     assert result == {"terminated": True, "session_id": "abc123"}
+    client.close()
+
+
+# -- get_users / tautulli_get_users
+
+
+def test_get_users_maps_fields() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["cmd"] == "get_users"
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "result": "success",
+                    "data": [{"user_id": 1, "username": "brad", "friendly_name": "Brad"}],
+                }
+            },
+        )
+
+    client = _mock_client(handler)
+    result = TautulliGetUsersTool(client).run()
+    assert result == [{"user_id": 1, "username": "brad", "friendly_name": "Brad"}]
+    client.close()
+
+
+# -- get_libraries / tautulli_get_libraries
+
+
+def test_get_libraries_maps_fields() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["cmd"] == "get_libraries"
+        return httpx.Response(
+            200,
+            json={
+                "response": {
+                    "result": "success",
+                    "data": [{"section_id": 1, "section_name": "Movies", "section_type": "movie", "count": 250}],
+                }
+            },
+        )
+
+    client = _mock_client(handler)
+    result = TautulliGetLibrariesTool(client).run()
+    assert result == [{"section_id": 1, "name": "Movies", "type": "movie", "count": 250}]
     client.close()

@@ -5,19 +5,23 @@ Synchronous on purpose: `Tool.run()` is a synchronous interface (see
 app/plugins/base.py) and these are cheap, local-network requests, so there's
 no need to bridge async/sync just for this.
 
-`create_automation()` (milestone 54) is the one method here that isn't on
-the documented REST API page above -- there's no public endpoint to
-persist a new automation. It uses Home Assistant's config-editor API
+`create_automation()` (milestone 54) and `delete_automation()` (a
+hardening pass) are the two methods here that aren't on the documented
+REST API page above -- there's no public endpoint to persist or remove
+an automation. Both use Home Assistant's config-editor API
 (`/api/config/automation/config/<id>`, the same endpoint the frontend's
 own automation editor calls), which takes the same bearer-token auth as
 everything else here and is widely used by community tooling, but isn't
 part of the officially documented REST surface -- confirm it against a
 real instance before relying on it (see the README's milestone 54
-writeup for exactly what is and isn't verified).
+writeup for exactly what is and isn't verified). An automation's id
+(needed by delete_automation) is exposed as the `id` attribute on its
+entity's state -- `get_state("automation.some_slug")` already surfaces
+it, no separate lookup method needed.
 """
 
 import time
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -107,6 +111,37 @@ class HomeAssistantClient:
         result = response.json()
         result["automation_id"] = automation_id
         return result
+
+    def get_history(self, entity_id: str, hours: int = 24) -> list[dict]:
+        """State-over-time for one entity -- e.g. "how has the temperature
+        changed today" -- distinct from get_logbook, which is about
+        discrete named events and their cause, not a raw value series."""
+        since = datetime.now(UTC) - timedelta(hours=hours)
+        response = self._client.get(
+            f"/api/history/period/{since.isoformat()}", params={"filter_entity_id": entity_id}
+        )
+        response.raise_for_status()
+        series = response.json()
+        entries = series[0] if series else []
+        return [{"state": e.get("state"), "last_changed": e.get("last_changed")} for e in entries]
+
+    def render_template(self, template: str) -> str:
+        """Evaluates a Jinja2 template against Home Assistant's current
+        state (https://www.home-assistant.io/docs/configuration/templating/)
+        -- read-only: rendering computes a value, it doesn't act on
+        anything. Lets a caller ask for something no single existing tool
+        returns directly, e.g. an average across several sensors, using
+        Home Assistant's own templating instead of this codebase
+        reinventing a query language. Unlike every other call here, the
+        response is plain rendered text, not JSON."""
+        response = self._client.post("/api/template", json={"template": template})
+        response.raise_for_status()
+        return response.text
+
+    def delete_automation(self, automation_id: str) -> dict[str, Any]:
+        response = self._client.delete(f"/api/config/automation/config/{automation_id}")
+        response.raise_for_status()
+        return {"deleted": True, "automation_id": automation_id}
 
     def close(self) -> None:
         self._client.close()
