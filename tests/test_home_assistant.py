@@ -19,6 +19,7 @@ from app.plugins.builtin.home_assistant import (
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
     HomeAssistantRenderTemplateTool,
+    HomeAssistantResolveEntityTool,
 )
 
 _HOME_ASSISTANT_TOOL_NAMES = {
@@ -104,6 +105,99 @@ def test_get_state_hits_correct_path() -> None:
     tool = HomeAssistantGetStateTool(client)
     result = tool.run(entity_id="light.kitchen")
     assert result["state"] == "on"
+    client.close()
+
+
+def test_resolve_entity_matches_by_friendly_name() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/states"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "light.office_lamp_2",
+                    "state": "off",
+                    "attributes": {"friendly_name": "Office Lamp"},
+                },
+                {
+                    "entity_id": "switch.fan",
+                    "state": "off",
+                    "attributes": {"friendly_name": "Fan"},
+                },
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantResolveEntityTool(client).run(name_hint="office light")
+    assert result["ambiguous"] is False
+    assert result["matches"] == [
+        {
+            "entity_id": "light.office_lamp_2",
+            "friendly_name": "Office Lamp",
+            "state": "off",
+        }
+    ]
+    client.close()
+
+
+def test_resolve_entity_matches_by_entity_id_when_no_friendly_name() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json=[{"entity_id": "light.kitchen", "state": "on", "attributes": {}}]
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantResolveEntityTool(client).run(name_hint="kitchen")
+    assert result["ambiguous"] is False
+    assert result["matches"][0]["entity_id"] == "light.kitchen"
+    assert result["matches"][0]["friendly_name"] is None
+    client.close()
+
+
+def test_resolve_entity_flags_ambiguous_for_multiple_matches() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "light.office_desk",
+                    "state": "off",
+                    "attributes": {"friendly_name": "Office Desk Lamp"},
+                },
+                {
+                    "entity_id": "light.office_ceiling",
+                    "state": "on",
+                    "attributes": {"friendly_name": "Office Ceiling Light"},
+                },
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantResolveEntityTool(client).run(name_hint="office light")
+    assert result["ambiguous"] is True
+    assert len(result["matches"]) == 2
+    client.close()
+
+
+def test_resolve_entity_forwards_domain_filter() -> None:
+    """Domain filtering happens in HomeAssistantClient.list_states() itself
+    (client-side, on the full /api/states response) -- this proves the
+    tool actually passes `domain` through rather than ignoring it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {"entity_id": "light.office", "state": "off", "attributes": {}},
+                {"entity_id": "switch.office_fan", "state": "off", "attributes": {}},
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantResolveEntityTool(client).run(
+        name_hint="office", domain="light"
+    )
+    assert [m["entity_id"] for m in result["matches"]] == ["light.office"]
     client.close()
 
 

@@ -59,6 +59,7 @@ from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
 from app.plugins.builtin.docker import (
     DockerGetContainerLogsTool,
     DockerListContainersTool,
+    DockerResolveContainerTool,
     DockerRestartContainerTool,
 )
 from app.plugins.builtin.echo import EchoTool
@@ -79,6 +80,7 @@ from app.plugins.builtin.home_assistant import (
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
     HomeAssistantRenderTemplateTool,
+    HomeAssistantResolveEntityTool,
 )
 from app.plugins.builtin.listenarr import ListenarrQueueTool, ListenarrSystemStatusTool
 from app.plugins.builtin.memory import (
@@ -379,6 +381,9 @@ class SirisAI:
             )
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
             self.tools.register(
+                HomeAssistantResolveEntityTool(self._home_assistant_client)
+            )
+            self.tools.register(
                 HomeAssistantCallServiceTool(
                     self._home_assistant_client,
                     self.events,
@@ -415,6 +420,7 @@ class SirisAI:
         if self.settings.docker_base_url:
             self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
             self.tools.register(DockerListContainersTool(self._docker_client))
+            self.tools.register(DockerResolveContainerTool(self._docker_client))
             self.tools.register(DockerGetContainerLogsTool(self._docker_client))
             self.tools.register(
                 DockerRestartContainerTool(

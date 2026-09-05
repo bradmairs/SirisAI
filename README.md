@@ -2804,6 +2804,50 @@ provider for the same capability actually exists to design against.
     expected state -- both real HTTP round trips, not mocked at the
     tool boundary.
 
+66. **Done** -- Entity/container name resolution (an ambiguity gate).
+    Second pick from "trustworthiness infrastructure." Asked what a
+    "confidence and ambiguity gate" should actually mean in this
+    architecture first: there's no model-confidence signal to gate on
+    here (no logprobs, no self-reported certainty), so a literal
+    "block low-confidence actions" gate would be theater. The real,
+    buildable gap: `home_assistant_call_service` and
+    `docker_restart_container`/`docker_get_container_logs` need an
+    *exact* `entity_id`/`container` name, but the model's only path to
+    one was dumping a full `home_assistant_list_entities`/
+    `docker_list_containers` result and guessing which row matched a
+    loose reference like "the office light" -- silently, with no signal
+    back when more than one row plausibly matched.
+
+    What shipped: `home_assistant_resolve_entity` and
+    `docker_resolve_container`, matching a `name_hint` against
+    entity_id/friendly_name or container names/image (case-insensitive,
+    every word in the hint must appear somewhere in the haystack) and
+    returning *every* match plus an explicit `ambiguous` flag --
+    `ambiguous: true` is the gate: their descriptions tell the model to
+    ask which one was meant rather than picking one itself when it
+    comes back true. Both READ, no new settings, registered alongside
+    each integration's existing tools.
+
+    Deliberately not a hard enforcement mechanism -- nothing stops the
+    model from skipping straight to `call_service`/`restart_container`
+    with a guessed ID anyway, since the underlying tools still accept
+    any string. This raises the ambiguity to a first-class, visible
+    result instead of leaving it buried in a raw list the model has to
+    reason about unprompted; actually blocking the underlying calls
+    would need the confirmation layer to know about a resolution step
+    that hasn't happened, a bigger, more invasive change not attempted
+    here.
+
+    Verified: full suite (529 passed, up from 521) covering matches by
+    entity_id vs. friendly_name, matches by container name vs. image,
+    the ambiguous-multiple-matches case for both, the domain filter,
+    and no-match returning an empty list rather than erroring.
+    Live-verified against a real `uvicorn` process and fake Home
+    Assistant/Docker servers: "office light" correctly came back
+    `ambiguous: true` with both office lights listed, "ceiling" and
+    "plex" each correctly resolved to exactly one match -- all through
+    real HTTP round trips via `POST /siris/tools/{name}/run`.
+
 ## Running locally
 
 ```bash

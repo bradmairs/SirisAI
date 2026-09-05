@@ -91,6 +91,51 @@ class HomeAssistantGetStateTool(Tool):
         return self._client.get_state(entity_id)
 
 
+class HomeAssistantResolveEntityTool(Tool):
+    name = "home_assistant_resolve_entity"
+    description = (
+        "Find Home Assistant entities matching a loose name (e.g. 'office light' or 'front "
+        "door'), checking both entity_id and friendly name. Returns every match, not just the "
+        "best one -- use this before calling home_assistant_call_service on something the user "
+        "referred to by description rather than an exact entity_id, and if `ambiguous` comes "
+        "back true, ask which one was meant rather than guessing."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "name_hint": {
+                "type": "string",
+                "description": "Loose name or description to match, e.g. 'office light'.",
+            },
+            "domain": {
+                "type": "string",
+                "description": "Optional Home Assistant domain to narrow the search, e.g. 'light'.",
+            },
+        },
+        "required": ["name_hint"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, name_hint: str = "", domain: str | None = None, **kwargs: Any) -> Any:
+        needle_words = name_hint.lower().split()
+        matches = []
+        for state in self._client.list_states(domain=domain):
+            friendly_name = state.get("attributes", {}).get("friendly_name", "")
+            haystack = f"{state['entity_id']} {friendly_name}".lower()
+            if all(word in haystack for word in needle_words):
+                matches.append(
+                    {
+                        "entity_id": state["entity_id"],
+                        "friendly_name": friendly_name or None,
+                        "state": state["state"],
+                    }
+                )
+        return {"matches": matches, "ambiguous": len(matches) > 1}
+
+
 class HomeAssistantCallServiceTool(Tool):
     name = "home_assistant_call_service"
     description = (

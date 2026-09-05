@@ -34,6 +34,40 @@ class DockerListContainersTool(Tool):
         return self._client.list_containers(all_containers=all_containers)
 
 
+class DockerResolveContainerTool(Tool):
+    name = "docker_resolve_container"
+    description = (
+        "Find Docker containers matching a loose name (e.g. 'plex' or 'the media server'), "
+        "checking both container names and image. Returns every match, not just the best one -- "
+        "use this before docker_restart_container/docker_get_container_logs when the container "
+        "was referred to by description rather than an exact name, and if `ambiguous` comes back "
+        "true, ask which one was meant rather than guessing."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "name_hint": {
+                "type": "string",
+                "description": "Loose name or description to match, e.g. 'media server'.",
+            },
+        },
+        "required": ["name_hint"],
+    }
+
+    def __init__(self, client: DockerClient) -> None:
+        self._client = client
+
+    def run(self, name_hint: str = "", **kwargs: Any) -> Any:
+        needle_words = name_hint.lower().split()
+        matches = []
+        for container in self._client.list_containers(all_containers=True):
+            haystack = " ".join([*container["names"], container["image"] or ""]).lower()
+            if all(word in haystack for word in needle_words):
+                matches.append(container)
+        return {"matches": matches, "ambiguous": len(matches) > 1}
+
+
 class DockerGetContainerLogsTool(Tool):
     name = "docker_get_container_logs"
     description = (
@@ -54,7 +88,7 @@ class DockerGetContainerLogsTool(Tool):
                 "type": "string",
                 "description": (
                     "Optional case-insensitive substring -- if given, only lines containing it are "
-                    "returned (e.g. \"error\"), to cut noise out of a large log instead of reading it all."
+                    'returned (e.g. "error"), to cut noise out of a large log instead of reading it all.'
                 ),
             },
         },
@@ -64,7 +98,13 @@ class DockerGetContainerLogsTool(Tool):
     def __init__(self, client: DockerClient) -> None:
         self._client = client
 
-    def run(self, container: str = "", tail: int = 200, contains: str | None = None, **kwargs: Any) -> Any:
+    def run(
+        self,
+        container: str = "",
+        tail: int = 200,
+        contains: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
         logs = self._client.get_container_logs(container, tail=tail)
         lines = logs.splitlines()
         if contains:
@@ -87,7 +127,12 @@ class DockerRestartContainerTool(Tool):
         "required": ["container"],
     }
 
-    def __init__(self, client: DockerClient, entities: EntityMemoryStore, plex: PlexClient | None = None) -> None:
+    def __init__(
+        self,
+        client: DockerClient,
+        entities: EntityMemoryStore,
+        plex: PlexClient | None = None,
+    ) -> None:
         self._client = client
         self._entities = entities
         self._plex = plex
@@ -108,15 +153,24 @@ class DockerRestartContainerTool(Tool):
         the planner's own verification note."""
         container = arguments.get("container", "")
         containers = self._client.list_containers(all_containers=True)
-        match = next((c for c in containers if container in c["names"] or c["id"] == container), None)
+        match = next(
+            (c for c in containers if container in c["names"] or c["id"] == container),
+            None,
+        )
 
         if match is None:
-            return ToolVerification(verified=False, detail=f"Container '{container}' not found after restart.")
+            return ToolVerification(
+                verified=False,
+                detail=f"Container '{container}' not found after restart.",
+            )
         if match["state"] != "running":
             return ToolVerification(
-                verified=False, detail=f"Container '{container}' is '{match['state']}' after restart, not running."
+                verified=False,
+                detail=f"Container '{container}' is '{match['state']}' after restart, not running.",
             )
-        return ToolVerification(verified=True, detail=f"Container '{container}' is running after restart.")
+        return ToolVerification(
+            verified=True, detail=f"Container '{container}' is running after restart."
+        )
 
     def dry_run(self, container: str = "", **kwargs: Any) -> Any:
         """What restarting `container` would do, without doing it: its
@@ -131,7 +185,10 @@ class DockerRestartContainerTool(Tool):
         own. Best-effort: an unreachable Plex server doesn't fail the
         dry run, it just omits that detail."""
         containers = self._client.list_containers(all_containers=True)
-        match = next((c for c in containers if container in c["names"] or c["id"] == container), None)
+        match = next(
+            (c for c in containers if container in c["names"] or c["id"] == container),
+            None,
+        )
 
         report: dict[str, Any] = {
             "container": container,
