@@ -29,6 +29,7 @@ class TautulliClient:
         sessions = self._call("get_activity").get("sessions", [])
         return [
             {
+                "session_id": s.get("session_id"),  # needed by terminate_session()
                 "title": s.get("full_title"),
                 "user": s.get("user"),
                 "state": s.get("state"),
@@ -42,6 +43,26 @@ class TautulliClient:
         return [
             {"title": r.get("full_title"), "user": r.get("user"), "date": r.get("date")} for r in rows
         ]
+
+    def home_stats(self, days: int = 30, count: int = 5) -> list[dict]:
+        """Tautulli's own home-page stat cards (most watched movies/shows,
+        most active users, ...) -- one entry per category, each with its
+        own `rows`. `stat_title` is kept alongside the raw `stat_id`
+        (e.g. "top_movies") since it's the human-readable label Tautulli
+        itself uses for the same category."""
+        categories = self._call("get_home_stats", time_range=days, stats_count=count)
+        return [
+            {"stat_id": c.get("stat_id"), "title": c.get("stat_title"), "rows": c.get("rows", [])}
+            for c in categories
+        ]
+
+    def terminate_session(self, session_id: str, message: str = "") -> dict:
+        """Stops a currently-playing Plex stream -- consequential (it
+        interrupts whoever's watching), gated CONFIRM_REQUIRED at the tool
+        level (app/plugins/builtin/tautulli.py). `message` is shown to the
+        user in Plex's client as the reason, if given."""
+        self._call("terminate_session", session_id=session_id, message=message)
+        return {"terminated": True, "session_id": session_id}
 
     def close(self) -> None:
         self._client.close()

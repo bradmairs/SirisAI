@@ -85,12 +85,37 @@ from app.plugins.builtin.obsidian import (
 )
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
-from app.plugins.builtin.radarr import RadarrListMoviesTool, RadarrQueueTool, RadarrSearchMovieTool
+from app.plugins.builtin.radarr import (
+    RadarrAddMovieTool,
+    RadarrCalendarTool,
+    RadarrDeleteMovieTool,
+    RadarrListMoviesTool,
+    RadarrListQualityProfilesTool,
+    RadarrListRootFoldersTool,
+    RadarrLookupMovieTool,
+    RadarrQueueTool,
+    RadarrSearchMovieTool,
+)
 from app.plugins.builtin.routines import CreateRoutineTool, ListRoutinesTool, SetRoutineEnabledTool
 from app.plugins.builtin.satellites import SpeakInCurrentRoomTool
-from app.plugins.builtin.sonarr import SonarrListSeriesTool, SonarrQueueTool, SonarrSearchSeriesTool
+from app.plugins.builtin.sonarr import (
+    SonarrAddSeriesTool,
+    SonarrCalendarTool,
+    SonarrDeleteSeriesTool,
+    SonarrListQualityProfilesTool,
+    SonarrListRootFoldersTool,
+    SonarrListSeriesTool,
+    SonarrLookupSeriesTool,
+    SonarrQueueTool,
+    SonarrSearchSeriesTool,
+)
 from app.plugins.builtin.system_info import SystemInfoTool
-from app.plugins.builtin.tautulli import TautulliCurrentActivityTool, TautulliRecentHistoryTool
+from app.plugins.builtin.tautulli import (
+    TautulliCurrentActivityTool,
+    TautulliHomeStatsTool,
+    TautulliRecentHistoryTool,
+    TautulliTerminateSessionTool,
+)
 from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.bazarr.client import BazarrClient
@@ -375,18 +400,32 @@ class SirisAI:
             )
             self.tools.register(TautulliCurrentActivityTool(self._tautulli_client))
             self.tools.register(TautulliRecentHistoryTool(self._tautulli_client))
+            self.tools.register(TautulliHomeStatsTool(self._tautulli_client))
+            self.tools.register(TautulliTerminateSessionTool(self._tautulli_client))
 
         if self.settings.radarr_base_url and self.settings.radarr_api_key:
             self._radarr_client = RadarrClient(base_url=self.settings.radarr_base_url, api_key=self.settings.radarr_api_key)
             self.tools.register(RadarrListMoviesTool(self._radarr_client))
             self.tools.register(RadarrQueueTool(self._radarr_client))
             self.tools.register(RadarrSearchMovieTool(self._radarr_client))
+            self.tools.register(RadarrLookupMovieTool(self._radarr_client))
+            self.tools.register(RadarrListRootFoldersTool(self._radarr_client))
+            self.tools.register(RadarrListQualityProfilesTool(self._radarr_client))
+            self.tools.register(RadarrAddMovieTool(self._radarr_client))
+            self.tools.register(RadarrDeleteMovieTool(self._radarr_client))
+            self.tools.register(RadarrCalendarTool(self._radarr_client))
 
         if self.settings.sonarr_base_url and self.settings.sonarr_api_key:
             self._sonarr_client = SonarrClient(base_url=self.settings.sonarr_base_url, api_key=self.settings.sonarr_api_key)
             self.tools.register(SonarrListSeriesTool(self._sonarr_client))
             self.tools.register(SonarrQueueTool(self._sonarr_client))
             self.tools.register(SonarrSearchSeriesTool(self._sonarr_client))
+            self.tools.register(SonarrLookupSeriesTool(self._sonarr_client))
+            self.tools.register(SonarrListRootFoldersTool(self._sonarr_client))
+            self.tools.register(SonarrListQualityProfilesTool(self._sonarr_client))
+            self.tools.register(SonarrAddSeriesTool(self._sonarr_client))
+            self.tools.register(SonarrDeleteSeriesTool(self._sonarr_client))
+            self.tools.register(SonarrCalendarTool(self._sonarr_client))
 
         if self.settings.bazarr_base_url and self.settings.bazarr_api_key:
             self._bazarr_client = BazarrClient(base_url=self.settings.bazarr_base_url, api_key=self.settings.bazarr_api_key)
