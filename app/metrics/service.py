@@ -42,6 +42,18 @@ class MetricsStore:
             session.add(MetricSample(metric_name=metric_name, value=value))
             session.commit()
 
+    def record_samples(self, samples: dict[str, float]) -> None:
+        """Same as calling record_sample() once per entry, but one session/
+        commit for all of them -- MeteredLLMClient (a performance
+        hardening pass) records up to three token-count metrics per LLM
+        call, on the response path of every chat turn; three separate
+        round trips there was three times the DB latency this needed."""
+        if not samples:
+            return
+        with self._session_factory() as session:
+            session.add_all([MetricSample(metric_name=name, value=value) for name, value in samples.items()])
+            session.commit()
+
     def recent_values(self, metric_name: str, limit: int = 100) -> list[float]:
         with self._session_factory() as session:
             stmt = (
