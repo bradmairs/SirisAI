@@ -39,6 +39,8 @@ _ADDED_COLUMNS = [
     # Deterministic per-tool verification.
     ("tool_executions", "verified", "BOOLEAN"),
     ("tool_executions", "verification_detail", "TEXT"),
+    # Conversation handoff between rooms (milestone 75).
+    ("satellite_registrations", "last_conversation_id", "TEXT"),
 ]
 
 
@@ -49,10 +51,14 @@ def apply_column_patches(engine: Engine) -> None:
         for table_name, column_name, ddl_type in _ADDED_COLUMNS:
             if table_name not in existing_tables:
                 continue  # a brand-new DB -- create_all() already made it right
-            existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
+            existing_columns = {
+                col["name"] for col in inspector.get_columns(table_name)
+            }
             if column_name in existing_columns:
                 continue
-            conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_type}"))
+            conn.execute(
+                text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {ddl_type}")
+            )
 
 
 # (table, index name, column) -- same reasoning as _ADDED_COLUMNS above,
@@ -78,4 +84,8 @@ def apply_index_patches(engine: Engine) -> None:
         for table_name, index_name, column_name in _ADDED_INDEXES:
             if table_name not in existing_tables:
                 continue
-            conn.execute(text(f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})"))
+            conn.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name} ({column_name})"
+                )
+            )

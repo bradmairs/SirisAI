@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     # a dev's own `.env` (e.g. real LLM/Home Assistant settings) leaks into
     # every test run just by existing in the repo root.
     model_config = SettingsConfigDict(
-        env_file=os.environ.get("SIRISAI_ENV_FILE", ".env"), env_prefix="SIRISAI_", extra="ignore"
+        env_file=os.environ.get("SIRISAI_ENV_FILE", ".env"),
+        env_prefix="SIRISAI_",
+        extra="ignore",
     )
 
     app_name: str = "SirisAI"
@@ -75,7 +77,11 @@ class Settings(BaseSettings):
     home_assistant_no_confirm_domains: str = ""
 
     def home_assistant_no_confirm_domain_list(self) -> list[str]:
-        return [d.strip() for d in self.home_assistant_no_confirm_domains.split(",") if d.strip()]
+        return [
+            d.strip()
+            for d in self.home_assistant_no_confirm_domains.split(",")
+            if d.strip()
+        ]
 
     # Comma-separated tool names allowed to run despite being
     # ToolPermission.RESTRICTED (see app/plugins/base.py). Empty (default)
@@ -83,7 +89,11 @@ class Settings(BaseSettings):
     restricted_tools_enabled: str = ""
 
     def restricted_tools_allowlist(self) -> set[str]:
-        return {name.strip() for name in self.restricted_tools_enabled.split(",") if name.strip()}
+        return {
+            name.strip()
+            for name in self.restricted_tools_enabled.split(",")
+            if name.strip()
+        }
 
     # System info (app/plugins/builtin/system_info.py) -- always registered,
     # no external service, just local resource stats. Comma-separated mount
@@ -91,7 +101,11 @@ class Settings(BaseSettings):
     system_info_disk_paths: str = "/"
 
     def system_info_disk_path_list(self) -> list[str]:
-        return [path.strip() for path in self.system_info_disk_paths.split(",") if path.strip()]
+        return [
+            path.strip()
+            for path in self.system_info_disk_paths.split(",")
+            if path.strip()
+        ]
 
     # Docker (app/docker/, app/plugins/builtin/docker.py). Talks to the
     # Docker Engine API directly -- no docker-py dependency needed, it's a
@@ -245,7 +259,11 @@ class Settings(BaseSettings):
     presence_away_scene: str = ""
 
     def presence_device_name_list(self) -> list[str]:
-        return [name.strip() for name in self.presence_device_names.split(",") if name.strip()]
+        return [
+            name.strip()
+            for name in self.presence_device_names.split(",")
+            if name.strip()
+        ]
 
     # Tautulli (app/tautulli/, app/plugins/builtin/tautulli.py) -- Plex
     # activity/history companion, not a replacement for Plex itself. Both
@@ -309,6 +327,22 @@ class Settings(BaseSettings):
     obsidian_base_url: str = "https://127.0.0.1:27124"
     obsidian_api_key: str = ""
     obsidian_verify_ssl: bool = False
+
+    # Conversation handoff between rooms (app/satellites/service.py,
+    # milestone 75). Each satellite process keeps its own local
+    # conversation_id in memory (satellite/siris_satellite/client.py) --
+    # walking from one satellite's room to another's meant a fresh
+    # request with no conversation_id, silently starting a brand-new
+    # conversation and losing whatever was just discussed. This is the
+    # cutoff: another room's conversation only gets picked up if that
+    # room was active within this many seconds -- long enough to walk
+    # to another room, short enough that resuming a chat from hours ago
+    # would be surprising rather than helpful. Unlike current_room()
+    # itself (deliberately no staleness cutoff, per its own docstring --
+    # that's "where do I push a reply", where an old answer is still
+    # right), a handoff is a stronger claim ("you're still mid-thought"),
+    # so it needs its own bound.
+    satellite_handoff_window_seconds: float = 120.0
 
 
 @lru_cache

@@ -3188,6 +3188,68 @@ provider for the same capability actually exists to design against.
     returned a clean 502 rather than a leaking stack trace, the same
     verification milestone 63 used for `calendar_create_event` itself.
 
+75. **Done** -- Conversation handoff between rooms. Scoped down from the
+    ambiguous "conversation handoff" brainstorm item via a direct
+    question: it means following you physically between satellites
+    (kitchen to bedroom, mid-conversation), not summarizing a
+    conversation for another person or exporting session state between
+    clients -- this codebase already has the room/satellite plumbing
+    (milestone 48) to make the first one real.
+
+    The gap: each satellite process keeps its own `conversation_id` only
+    in its own memory (`satellite/siris_satellite/client.py`). Walk from
+    the kitchen's satellite to the bedroom's and the bedroom process has
+    never seen a conversation_id -- its next `POST /siris/chat` omits
+    one, which silently started a brand-new conversation, losing
+    whatever was just discussed, even though the server already tracks
+    which room was most recently active (`SatelliteStore.current_room()`,
+    milestone 48).
+
+    What shipped: `SatelliteRegistration` gets a new
+    `last_conversation_id` column (migration patch in
+    `app/db/migrate.py`, same pattern as every prior added column) --
+    `record_activity()` now optionally records which conversation was
+    last in play from a room, alongside the timestamp it already bumped.
+    A new `SatelliteStore.handoff_candidate(exclude_room, within_seconds)`
+    finds the most recently active *other* room's conversation, but only
+    if that activity is recent enough (`SIRISAI_SATELLITE_HANDOFF_WINDOW_SECONDS`,
+    default 120s) to plausibly be the same person having just walked
+    over, not an old conversation resurfacing hours later. `POST
+    /siris/chat` calls it exactly when the ambiguity it's meant to
+    resolve actually exists: `room` is set and no usable
+    conversation_id came with the request. A client with no `room` (the
+    web UI, or any non-satellite caller) is completely unaffected --
+    the new logic only ever runs in the one case it exists to fix.
+    Deliberately no staleness cutoff on `current_room()` itself (per its
+    own docstring, an old answer for "where do I push a reply" is still
+    right) -- a handoff is a stronger claim ("you're still mid-thought"),
+    so it gets its own bound rather than inheriting that one.
+
+    Verified: full suite (584 passed, up from 576, stable across 3
+    repeated runs) in `tests/test_satellites.py`, covering
+    `record_activity()` recording (and, when omitted, preserving)
+    `last_conversation_id`, `handoff_candidate()` picking the right
+    other room, ignoring one with no recorded conversation, returning
+    `None` with no other rooms at all, and (against an isolated store)
+    ignoring activity older than the window. One caught-live test
+    isolation issue: an end-to-end "stale conversation isn't handed
+    off" test against the real `/siris/chat` route was flaky --
+    this file's `client` fixture is session-scoped, sharing one
+    satellite registry across every test in it, so an unrelated,
+    still-fresh room left behind by an *earlier* test could legitimately
+    outrank the deliberately-backdated one and mask the exact thing
+    being tested. Dropped in favor of the isolated-store unit test,
+    which proves the same cutoff deterministically. Live-verified
+    against a real `uvicorn` process with a fake Ollama backend: registered
+    a kitchen and a bedroom satellite, sent `POST /siris/chat` to the
+    kitchen with no conversation_id (got a fresh one back), then to the
+    bedroom with no conversation_id of its own -- got the *same*
+    conversation_id back, and `GET /siris/conversations/{id}` confirmed
+    both rooms' turns landed in one real, persisted conversation. A
+    third call with no `room` at all correctly started an unrelated,
+    separate conversation, confirming non-satellite clients are
+    unaffected.
+
 ## Running locally
 
 ```bash

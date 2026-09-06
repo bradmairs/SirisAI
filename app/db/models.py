@@ -353,6 +353,11 @@ class SatelliteRegistration(Base):
     last_active_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC)
     )
+    # Conversation handoff (milestone 75): the conversation_id last in
+    # play from this room, so a fresh request from a *different* room
+    # with no conversation_id of its own can pick up where the last one
+    # left off -- see SatelliteStore.handoff_candidate().
+    last_conversation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Integration(Base):

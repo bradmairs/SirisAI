@@ -20,7 +20,9 @@ from app.plugins.base import ConfirmationRequired
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/siris", tags=["siris"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)]
+    prefix="/siris",
+    tags=["siris"],
+    dependencies=[Depends(require_api_key), Depends(resolve_user_id)],
 )
 
 
@@ -103,7 +105,9 @@ class GoalInfo(BaseModel):
 
 
 @router.get("/goals", response_model=list[GoalInfo])
-def list_goals(status: str | None = None, siris: SirisAI = Depends(get_siris)) -> list[GoalInfo]:
+def list_goals(
+    status: str | None = None, siris: SirisAI = Depends(get_siris)
+) -> list[GoalInfo]:
     """Goals (milestone 23), most recently created first -- the direct-read
     equivalent of the list_goals tool, same relationship as
     GET /siris/events has to the recall_events tool."""
@@ -119,11 +123,15 @@ class CapabilityGapInfo(BaseModel):
 
 
 @router.get("/capability_gaps", response_model=list[CapabilityGapInfo])
-def list_capability_gaps(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[CapabilityGapInfo]:
+def list_capability_gaps(
+    limit: int = 50, siris: SirisAI = Depends(get_siris)
+) -> list[CapabilityGapInfo]:
     """Every "SirisAI can't do this yet" the model has reported (milestone
     31, report_capability_gap tool), most recent first -- a development
     backlog someone (or Claude Code, working this same repo) can act on."""
-    return [CapabilityGapInfo(**g) for g in siris.capability_gaps.list_gaps(limit=limit)]
+    return [
+        CapabilityGapInfo(**g) for g in siris.capability_gaps.list_gaps(limit=limit)
+    ]
 
 
 class LLMTokenSpendResponse(BaseModel):
@@ -234,7 +242,9 @@ class ChatResponse(BaseModel):
 
 
 def _to_tool_call_result(outcome: ToolCallOutcome) -> ToolCallResult:
-    return ToolCallResult(name=outcome.name, arguments=outcome.arguments, result=outcome.result)
+    return ToolCallResult(
+        name=outcome.name, arguments=outcome.arguments, result=outcome.result
+    )
 
 
 def _shape_response(result: CortexResult) -> ChatResponse:
@@ -251,7 +261,10 @@ def _shape_response(result: CortexResult) -> ChatResponse:
         conversation_id=result.conversation_id,
         response=result.response,
         tool_call=_to_tool_call_result(result.tool_call) if result.tool_call else None,
-        confirmation_required=PendingToolCall(name=result.pending_confirmation[0], arguments=result.pending_confirmation[1])
+        confirmation_required=PendingToolCall(
+            name=result.pending_confirmation[0],
+            arguments=result.pending_confirmation[1],
+        )
         if result.pending_confirmation
         else None,
         model_role=result.model_role,
@@ -260,7 +273,9 @@ def _shape_response(result: CortexResult) -> ChatResponse:
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> ChatResponse:
+async def chat(
+    request: ChatRequest, siris: SirisAI = Depends(get_siris)
+) -> ChatResponse:
     """Call the configured LLM backend with tools offered, carrying prior
     turns of `conversation_id` as context.
 
@@ -310,15 +325,35 @@ async def chat(request: ChatRequest, siris: SirisAI = Depends(get_siris)) -> Cha
     SatelliteStore.current_room()) can push a reply to wherever the
     user most recently actually spoke from. Non-satellite clients omit
     it; nothing else here changes either way.
+
+    Conversation handoff between rooms (milestone 75): a satellite's own
+    conversation_id lives only in that satellite process's memory
+    (satellite/siris_satellite/client.py), so the *first* request from a
+    different room than the one you were just talking in always arrives
+    with no conversation_id -- without this, that would silently start a
+    brand-new conversation and lose whatever was just discussed. When a
+    request carries `room` but no usable conversation_id, and some
+    *other* room had activity within SIRISAI_SATELLITE_HANDOFF_WINDOW_SECONDS,
+    that room's last conversation is resumed instead of starting fresh.
+    Non-satellite clients (no `room`) are unaffected -- this only
+    triggers for the exact case it's meant to fix.
     """
     assert siris.llm is not None
 
-    if request.room:
-        siris.satellites.record_activity(request.room)
-
     conversation_id = request.conversation_id
-    if conversation_id is None or not siris.conversation.conversation_exists(conversation_id):
-        conversation_id = siris.conversation.create_conversation()
+    if conversation_id is None or not siris.conversation.conversation_exists(
+        conversation_id
+    ):
+        handoff_id = None
+        if request.room:
+            handoff_id = siris.satellites.handoff_candidate(
+                exclude_room=request.room,
+                within_seconds=siris.settings.satellite_handoff_window_seconds,
+            )
+        conversation_id = handoff_id or siris.conversation.create_conversation()
+
+    if request.room:
+        siris.satellites.record_activity(request.room, conversation_id=conversation_id)
 
     result = await Cortex(max_plan_steps=request.max_plan_steps).process(
         siris,
@@ -347,7 +382,9 @@ class ConfirmToolRequest(BaseModel):
 
 
 @router.post("/chat/confirm")
-async def confirm_tool_call(request: ConfirmToolRequest, siris: SirisAI = Depends(get_siris)) -> ChatResponse:
+async def confirm_tool_call(
+    request: ConfirmToolRequest, siris: SirisAI = Depends(get_siris)
+) -> ChatResponse:
     """Actually run a tool call a previous /siris/chat response flagged as
     `confirmation_required` -- re-submit the exact name/arguments it
     returned. There's no server-side pending-action state to look up by id;
@@ -361,7 +398,11 @@ async def confirm_tool_call(request: ConfirmToolRequest, siris: SirisAI = Depend
     if not siris.conversation.conversation_exists(request.conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
     result = await Cortex(max_plan_steps=request.max_plan_steps).confirm(
-        siris, request.conversation_id, request.tool_name, request.arguments, use_planner=request.use_planner
+        siris,
+        request.conversation_id,
+        request.tool_name,
+        request.arguments,
+        use_planner=request.use_planner,
     )
     return _shape_response(result)
 
@@ -375,10 +416,14 @@ class MessageResponse(BaseModel):
 
 
 @router.get("/conversations/{conversation_id}", response_model=list[MessageResponse])
-def get_conversation(conversation_id: str, siris: SirisAI = Depends(get_siris)) -> list[MessageResponse]:
+def get_conversation(
+    conversation_id: str, siris: SirisAI = Depends(get_siris)
+) -> list[MessageResponse]:
     if not siris.conversation.conversation_exists(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    return [MessageResponse(**m) for m in siris.conversation.get_messages(conversation_id)]
+    return [
+        MessageResponse(**m) for m in siris.conversation.get_messages(conversation_id)
+    ]
 
 
 class ActivityEntryResponse(BaseModel):
@@ -407,9 +452,13 @@ class ActivityEntryResponse(BaseModel):
 
 
 @router.get("/activity", response_model=list[ActivityEntryResponse])
-def get_activity(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[ActivityEntryResponse]:
+def get_activity(
+    limit: int = 50, siris: SirisAI = Depends(get_siris)
+) -> list[ActivityEntryResponse]:
     """Recent tool executions (successful or not), most recent first."""
-    return [ActivityEntryResponse(**entry) for entry in siris.audit.list_recent(limit=limit)]
+    return [
+        ActivityEntryResponse(**entry) for entry in siris.audit.list_recent(limit=limit)
+    ]
 
 
 class RunToolRequest(BaseModel):
@@ -428,7 +477,9 @@ class RunToolResponse(BaseModel):
 
 
 @router.post("/tools/{name}/run", response_model=RunToolResponse)
-def run_tool_directly(name: str, request: RunToolRequest, siris: SirisAI = Depends(get_siris)) -> RunToolResponse:
+def run_tool_directly(
+    name: str, request: RunToolRequest, siris: SirisAI = Depends(get_siris)
+) -> RunToolResponse:
     """Invoke any registered tool -- including a skill, which is just a
     tool whose implementation calls other tools -- directly, without going
     through the LLM. Outside of a chat turn, so nothing is added to a
@@ -448,11 +499,19 @@ def run_tool_directly(name: str, request: RunToolRequest, siris: SirisAI = Depen
         try:
             output = tool.dry_run(**request.arguments)
         except NotImplementedError:
-            raise HTTPException(status_code=501, detail=f"Tool '{name}' does not support dry_run.") from None
+            raise HTTPException(
+                status_code=501, detail=f"Tool '{name}' does not support dry_run."
+            ) from None
         except Exception:
             logger.exception("Tool '%s' dry_run failed", name)
-            raise HTTPException(status_code=502, detail=f"Tool '{name}' dry_run failed.") from None
-        return RunToolResponse(tool_call=ToolCallResult(name=name, arguments=request.arguments, result=output))
+            raise HTTPException(
+                status_code=502, detail=f"Tool '{name}' dry_run failed."
+            ) from None
+        return RunToolResponse(
+            tool_call=ToolCallResult(
+                name=name, arguments=request.arguments, result=output
+            )
+        )
 
     try:
         output = siris.run_tool(
@@ -462,11 +521,17 @@ def run_tool_directly(name: str, request: RunToolRequest, siris: SirisAI = Depen
             trigger="direct API request: a human explicitly asked for exactly this tool",
         )
     except ConfirmationRequired:
-        return RunToolResponse(confirmation_required=PendingToolCall(name=name, arguments=request.arguments))
+        return RunToolResponse(
+            confirmation_required=PendingToolCall(
+                name=name, arguments=request.arguments
+            )
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from None
     except Exception:
         logger.exception("Tool '%s' failed", name)
         raise HTTPException(status_code=502, detail=f"Tool '{name}' failed.") from None
 
-    return RunToolResponse(tool_call=ToolCallResult(name=name, arguments=request.arguments, result=output))
+    return RunToolResponse(
+        tool_call=ToolCallResult(name=name, arguments=request.arguments, result=output)
+    )
