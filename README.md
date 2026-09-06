@@ -3478,6 +3478,41 @@ provider for the same capability actually exists to design against.
     real HTTP round trip, and a nonsense hint correctly came back with
     an empty match list rather than erroring.
 
+82. **Done** -- UniFi client reconnect. Continuing the UniFi thread:
+    asked directly whether the next step should be a UniFi *device*
+    restart (explicitly flagged, again, as materially riskier -- could
+    take down the LAN segment SirisAI itself runs on, and with lower
+    confidence in the exact endpoint shape than client actions ever
+    had) or something else; the answer was a lower-risk alternative --
+    forcing one *client* to reconnect, for troubleshooting a flaky
+    device rather than restricting access.
+
+    What shipped: `UniFiClient.reconnect_client()` posts
+    `{"action": "RECONNECT"}` to the same per-client action endpoint
+    block/unblock already use, and a new `unifi_reconnect_client` tool.
+    Still `CONFIRM_REQUIRED` despite the smaller blast radius than
+    block -- it still has a real, immediate effect on whoever's
+    currently using the device, the same tier reasoning as block/
+    unblock -- but deliberately has no `verify()`: unlike blocking
+    (which leaves a persistent `blocked: true` to check), a forced
+    reconnect has no lasting flag to confirm against, the same "no
+    single correct end state within this call" gap
+    `HomeAssistantCallServiceTool.verify()` already raises
+    `NotImplementedError` for (a scene activation, a non-boolean
+    `set_temperature`) -- adding a check here that couldn't mean
+    anything would be worse than honestly having none.
+
+    Verified: full suite (653 passed, up from 650) covering the request
+    shape, the `CONFIRM_REQUIRED` tier, and that `verify()` correctly
+    raises `NotImplementedError` rather than fabricating a result.
+    Live-verified against a real `uvicorn` process and the same fake
+    UniFi controller from milestones 80-81: `POST
+    /siris/tools/unifi_reconnect_client/run` succeeded through a real
+    HTTP round trip, `GET /siris/activity` showed `verified: null` (no
+    check attempted, not a silently-skipped one), and re-querying the
+    fake controller directly confirmed the client's `blocked` state was
+    untouched by the reconnect.
+
 ## Running locally
 
 ```bash

@@ -153,6 +153,7 @@ from app.plugins.builtin.unifi import (
     UniFiBlockClientTool,
     UniFiListClientsTool,
     UniFiListDevicesTool,
+    UniFiReconnectClientTool,
     UniFiResolveClientTool,
     UniFiUnblockClientTool,
 )
@@ -359,9 +360,12 @@ class SirisAI:
         self._embedding_client: OllamaEmbeddingClient | None = None
         if self.settings.embedding_provider == "ollama":
             self._embedding_client = OllamaEmbeddingClient(
-                base_url=self.settings.ollama_base_url, model=self.settings.embedding_model
+                base_url=self.settings.ollama_base_url,
+                model=self.settings.embedding_model,
             )
-            self.memory = MemoryStore(SessionLocal, embedding_client=self._embedding_client)
+            self.memory = MemoryStore(
+                SessionLocal, embedding_client=self._embedding_client
+            )
         if self.stt is None:
             self.stt = build_stt_client(self.settings)
         if self.tts is None:
@@ -478,6 +482,7 @@ class SirisAI:
             self.tools.register(UniFiResolveClientTool(self._unifi_client))
             self.tools.register(UniFiBlockClientTool(self._unifi_client))
             self.tools.register(UniFiUnblockClientTool(self._unifi_client))
+            self.tools.register(UniFiReconnectClientTool(self._unifi_client))
 
             if self.settings.presence_device_names:
                 self.tools.register(

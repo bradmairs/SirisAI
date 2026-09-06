@@ -18,12 +18,18 @@ stance at explicit user request) are CONFIRM_REQUIRED -- blocking
 disconnects a device and keeps it off the network until unblocked, a
 real, immediate effect on whoever's using it, the same "don't run this
 without a human approving it first" tier as home_assistant_call_service
-locking a door or Radarr/Sonarr deleting a library item. Deliberately
-scoped to clients only, not devices: restarting a UniFi device (AP,
-switch, gateway) risks taking down the LAN segment this very SirisAI
-instance may be running on, a materially larger blast radius than
-disconnecting one client -- left for a future milestone that can weigh
-that risk on its own, not folded in here.
+locking a door or Radarr/Sonarr deleting a library item.
+reconnect_client (a direct follow-up, offered as the lower-risk
+alternative to a UniFi *device* restart) is the same CONFIRM_REQUIRED
+tier despite a smaller blast radius than block -- it never leaves a
+client unable to reconnect, just cycles it, for troubleshooting rather
+than restricting access.
+
+Deliberately scoped to clients only, not devices: restarting a UniFi
+device (AP, switch, gateway) risks taking down the LAN segment this
+very SirisAI instance may be running on, a materially larger blast
+radius than anything client-scoped -- left for a future milestone that
+can weigh that risk on its own, not folded in here.
 """
 
 from typing import Any
@@ -205,3 +211,40 @@ class UniFiUnblockClientTool(Tool):
         return ToolVerification(
             verified=False, detail=f"Client {client_id} still appears blocked."
         )
+
+
+class UniFiReconnectClientTool(Tool):
+    name = "unifi_reconnect_client"
+    description = (
+        "Force a device to disconnect and immediately re-associate with the UniFi network, "
+        "using its id from unifi_list_clients -- for troubleshooting a flaky connection, not "
+        "restricting access. Unlike unifi_block_client, the device is never left unable to "
+        "reconnect."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "client_id": {
+                "type": "string",
+                "description": "The UniFi client id to reconnect, from unifi_list_clients.",
+            },
+        },
+        "required": ["client_id"],
+    }
+
+    def __init__(self, client: UniFiClient) -> None:
+        self._client = client
+
+    def run(self, client_id: str = "", **kwargs: Any) -> Any:
+        return self._client.reconnect_client(client_id)
+
+    # No verify(): unlike block/unblock, a forced reconnect has no
+    # persistent flag to check afterward -- the client is expected to
+    # briefly drop and then re-associate on its own timing, the same
+    # "no single correct end state within this call" gap
+    # HomeAssistantCallServiceTool.verify() already raises
+    # NotImplementedError for (a scene activation, a non-boolean
+    # set_temperature). Honestly nothing to check here either, so this
+    # relies on Tool.verify()'s own base "doesn't support verify"
+    # default rather than adding one that can't mean anything.
