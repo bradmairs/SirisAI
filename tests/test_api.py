@@ -50,7 +50,11 @@ class _FakeToolCallingLLMClient:
     ) -> LLMResponse:
         if tools:
             return LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": messages[-1]["content"]})])
-        return LLMResponse(text="Done -- the tool said: " + messages[-1]["content"])
+        # The follow-up call's last message is now a fixed honesty nudge
+        # (see Cortex's _SYNTHESIS_HONESTY_NUDGE), not the tool result --
+        # find the actual tool message by role instead of assuming it's last.
+        tool_message = next(m for m in reversed(messages) if m["role"] == "tool")
+        return LLMResponse(text="Done -- the tool said: " + tool_message["content"])
 
     async def aclose(self) -> None:
         pass

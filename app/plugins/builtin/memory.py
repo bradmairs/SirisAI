@@ -4,8 +4,10 @@ conversation. Four categories, each with its own storage
 its own pair of tools below:
 
 - Free-text long-term memory (`remember`/`recall`) -- general facts and
-  preferences, searched by substring. The original, still the right choice
-  for anything that isn't clearly about one named thing.
+  preferences, searched by embedding similarity when SIRISAI_EMBEDDING_PROVIDER
+  is configured (plain substring match otherwise -- see app/memory/service.py).
+  The original, still the right choice for anything that isn't clearly about
+  one named thing.
 - Entity memory (`remember_entity_fact`/`recall_entity_facts`) -- facts
   about a specific named person/service/device/project, looked up by that
   name rather than searched.

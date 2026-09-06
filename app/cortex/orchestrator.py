@@ -102,6 +102,24 @@ _MEMORY_EXTRACTION_SYSTEM_PROMPT = (
     "nothing qualifies, don't call any tool at all -- just say so."
 )
 
+# Follow-up synthesis nudge (a hardening pass, live-hit 2026-09-06): the
+# non-planner path offers exactly one tool call per turn, so a compound
+# question ("what routines AND goals do you have?") gets real data for
+# only the part that tool covered -- confirmed live, a model asked this
+# called list_routines, then confidently invented an answer about goals
+# it never checked ("you have not set up any explicit, named goals"),
+# rather than saying it hadn't looked. This is appended as the last
+# message before the follow-up call in both _run_single_tool branches
+# (success and tool-failure) -- closest to generation, where it has the
+# most influence, not buried earlier in `messages`.
+_SYNTHESIS_HONESTY_NUDGE = (
+    "You have the result of exactly one tool call. Answer only the part of the user's question "
+    "that tool result actually covers. For any other part of their question, you have not "
+    "looked -- do not answer it at all, do not guess, and do not speculate about why "
+    "something might be true or absent. Instead say plainly that you have not checked that "
+    "part yet."
+)
+
 
 @dataclass
 class ToolCallOutcome:
@@ -378,6 +396,7 @@ class Cortex:
                         "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
                     },
                     {"role": "tool", "content": json.dumps(error_payload)},
+                    {"role": "system", "content": _SYNTHESIS_HONESTY_NUDGE},
                 ]
                 try:
                     follow_up = await llm_client.generate(follow_up_messages)
@@ -403,6 +422,7 @@ class Cortex:
                     "tool_calls": [{"function": {"name": name, "arguments": arguments}}],
                 },
                 {"role": "tool", "content": json.dumps(output)},
+                {"role": "system", "content": _SYNTHESIS_HONESTY_NUDGE},
             ]
             try:
                 # No `tools` offered here on purpose -- this call is meant

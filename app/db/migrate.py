@@ -41,6 +41,8 @@ _ADDED_COLUMNS = [
     ("tool_executions", "verification_detail", "TEXT"),
     # Conversation handoff between rooms (milestone 75).
     ("satellite_registrations", "last_conversation_id", "TEXT"),
+    # Semantic memory recall.
+    ("memories", "embedding", "TEXT"),
 ]
 
 

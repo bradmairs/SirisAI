@@ -48,6 +48,19 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3"
 
+    # Semantic memory recall (app/llm/embeddings.py, app/memory/service.py).
+    # "none" (default) keeps MemoryStore.recall() on its original plain
+    # substring match -- a paraphrased query that doesn't share literal
+    # words with the saved memory just won't find it, a real limitation
+    # live-hit in practice. "ollama" turns on real semantic search, reusing
+    # `ollama_base_url` above (embeddings and chat completions are almost
+    # always served by the same Ollama instance) with a separate model,
+    # since embedding models are a different, much smaller model family
+    # (e.g. nomic-embed-text, ~274MB) than a chat model -- `ollama pull
+    # nomic-embed-text` on the Ollama host to make one available.
+    embedding_provider: str = "none"
+    embedding_model: str = "nomic-embed-text"
+
     # Speech (app/voice/base.py). "openai_compatible" points at any local
     # server speaking OpenAI's audio API shape (whisper.cpp server,
     # speaches/faster-whisper-server, openedai-speech, ...).
