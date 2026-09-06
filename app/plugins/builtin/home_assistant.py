@@ -331,6 +331,39 @@ class HomeAssistantCreateAutomationTool(Tool):
             description=description,
         )
 
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Same gap as HomeAssistantCallServiceTool.verify() (milestone
+        65): create_automation() hitting HA's config-editor endpoint
+        without raising doesn't prove the automation actually persisted
+        -- that endpoint isn't part of HA's documented REST API (see
+        app/home_assistant/client.py's module docstring), so a
+        malformed payload or a version mismatch is exactly the kind of
+        thing that could accept the write and not actually register it.
+        Re-lists domain='automation' entities and checks the new
+        automation_id shows up among their `id` attributes -- the same
+        lookup this client's own docstring describes as the only way to
+        find an automation's id from its entity."""
+        automation_id = (
+            result.get("automation_id") if isinstance(result, dict) else None
+        )
+        if not automation_id:
+            raise NotImplementedError(
+                f"{self.name} does not support verify without an automation_id"
+            )
+
+        automations = self._client.list_states(domain="automation")
+        found = any(
+            a.get("attributes", {}).get("id") == automation_id for a in automations
+        )
+        if found:
+            return ToolVerification(
+                verified=True, detail=f"Automation {automation_id} confirmed present."
+            )
+        return ToolVerification(
+            verified=False,
+            detail=f"Automation {automation_id} not found among registered automations.",
+        )
+
 
 class HomeAssistantGetLogbookTool(Tool):
     name = "home_assistant_get_logbook"
@@ -455,3 +488,29 @@ class HomeAssistantDeleteAutomationTool(Tool):
 
     def run(self, automation_id: str = "", **kwargs: Any) -> Any:
         return self._client.delete_automation(automation_id)
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Mirror of HomeAssistantCreateAutomationTool.verify(): a 200
+        from HA's config-editor DELETE endpoint doesn't prove the
+        automation is actually gone, for the same reason a 200 from its
+        create counterpart doesn't prove it's actually there. Re-lists
+        domain='automation' entities and confirms the deleted
+        automation_id no longer shows up among their `id` attributes."""
+        automation_id = arguments.get("automation_id")
+        if not automation_id:
+            raise NotImplementedError(
+                f"{self.name} does not support verify without an automation_id"
+            )
+
+        automations = self._client.list_states(domain="automation")
+        still_present = any(
+            a.get("attributes", {}).get("id") == automation_id for a in automations
+        )
+        if not still_present:
+            return ToolVerification(
+                verified=True, detail=f"Automation {automation_id} confirmed removed."
+            )
+        return ToolVerification(
+            verified=False,
+            detail=f"Automation {automation_id} is still present after delete.",
+        )

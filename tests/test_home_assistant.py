@@ -564,6 +564,59 @@ def test_create_automation_omits_optional_fields_when_not_given() -> None:
     client.close()
 
 
+# -- verify(): same gap as HomeAssistantCallServiceTool's (milestone 65),
+# extended to automations (a hardening pass): create_automation() hits
+# HA's undocumented config-editor endpoint (see the client's module
+# docstring), so a 200 there doesn't prove the automation actually
+# persisted.
+
+
+def test_create_automation_verify_reports_success_when_automation_is_found() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/states"
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "automation.hallway_motion_light",
+                    "state": "on",
+                    "attributes": {"id": "123"},
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCreateAutomationTool(client)
+
+    verification = tool.verify({}, {"result": "ok", "automation_id": "123"})
+    assert verification.verified is True
+    assert "123" in verification.detail
+    client.close()
+
+
+def test_create_automation_verify_reports_failure_when_automation_is_missing() -> None:
+    client = _mock_client(lambda request: httpx.Response(200, json=[]))
+    tool = HomeAssistantCreateAutomationTool(client)
+
+    verification = tool.verify({}, {"result": "ok", "automation_id": "123"})
+    assert verification.verified is False
+    assert "123" in verification.detail
+    client.close()
+
+
+def test_create_automation_verify_raises_not_implemented_without_an_automation_id() -> (
+    None
+):
+    """The result HA itself returns has no automation_id -- only
+    create_automation() merges one in -- so a result missing it (e.g. a
+    caller passing something else through) can't be checked."""
+    tool = HomeAssistantCreateAutomationTool(
+        _mock_client(lambda r: httpx.Response(200, json=[]))
+    )
+    with pytest.raises(NotImplementedError):
+        tool.verify({}, {"result": "ok"})
+
+
 def test_create_automation_tool_requires_confirmation_unconditionally() -> None:
     """Unlike home_assistant_call_service, this is a separate Tool class
     with no needs_confirmation() override -- there's no allowlist that
@@ -771,3 +824,55 @@ def test_delete_automation_requires_confirmation() -> None:
     assert (
         HomeAssistantDeleteAutomationTool.permission is ToolPermission.CONFIRM_REQUIRED
     )
+
+
+# -- verify(): mirror of HomeAssistantCreateAutomationTool's -- a 200 from
+# the DELETE endpoint doesn't prove the automation is actually gone.
+
+
+def test_delete_automation_verify_reports_success_when_automation_is_gone() -> None:
+    client = _mock_client(lambda request: httpx.Response(200, json=[]))
+    tool = HomeAssistantDeleteAutomationTool(client)
+
+    verification = tool.verify(
+        {"automation_id": "123"}, {"deleted": True, "automation_id": "123"}
+    )
+    assert verification.verified is True
+    assert "123" in verification.detail
+    client.close()
+
+
+def test_delete_automation_verify_reports_failure_when_automation_still_present() -> (
+    None
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "automation.hallway_motion_light",
+                    "state": "on",
+                    "attributes": {"id": "123"},
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    tool = HomeAssistantDeleteAutomationTool(client)
+
+    verification = tool.verify(
+        {"automation_id": "123"}, {"deleted": True, "automation_id": "123"}
+    )
+    assert verification.verified is False
+    assert "123" in verification.detail
+    client.close()
+
+
+def test_delete_automation_verify_raises_not_implemented_without_an_automation_id() -> (
+    None
+):
+    tool = HomeAssistantDeleteAutomationTool(
+        _mock_client(lambda r: httpx.Response(200, json=[]))
+    )
+    with pytest.raises(NotImplementedError):
+        tool.verify({}, {"deleted": True})

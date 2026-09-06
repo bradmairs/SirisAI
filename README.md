@@ -3250,6 +3250,48 @@ provider for the same capability actually exists to design against.
     separate conversation, confirming non-satellite clients are
     unaffected.
 
+76. **Done** -- Extend the `Tool.verify()` sweep to Home Assistant
+    automations. With the brainstormed feature list now exhausted down
+    to items needing either hardware confirmation (room-presence,
+    speaker identification) or a new, unconfigured integration (email
+    triage) neither of which had been given, the next self-directed pick
+    was closing a gap this codebase's own hardening pattern had already
+    flagged as unfinished: `HomeAssistantCallServiceTool.verify()`
+    (milestone 65) covers one-off service calls, but
+    `HomeAssistantCreateAutomationTool`/`HomeAssistantDeleteAutomationTool`
+    (both `CONFIRM_REQUIRED`, milestone 54/a later hardening pass) had
+    none -- create/delete_automation() hit Home Assistant's undocumented
+    config-editor endpoint (see `app/home_assistant/client.py`'s module
+    docstring: not part of the officially documented REST API), so a 200
+    there is exactly the same "the call not raising doesn't prove it
+    actually happened" gap `DockerRestartContainerTool.verify()`
+    (milestone 38) exists for, just unaddressed for the two automation
+    tools until now.
+
+    What shipped: both tools' `verify()` re-list `domain='automation'`
+    entities and check the automation_id against each one's `id`
+    attribute -- present after create, absent after delete. Same
+    NotImplementedError convention as every other `verify()` in this
+    codebase when there's nothing to check (no `automation_id` in the
+    result/arguments).
+
+    Verified: full suite (590 passed, up from 584) covering both
+    success and failure cases for create (`automation.id` found —> found)
+    and delete (`automation.id` gone —> gone), plus the
+    NotImplementedError case for a result/arguments missing
+    automation_id, all mocked at the `HomeAssistantClient` boundary,
+    same approach `test_home_assistant.py` already used for
+    `HomeAssistantCallServiceTool.verify()`. Live-verified against a
+    real `uvicorn` process and a fake Home Assistant server that
+    actually persists automation config server-side (not just echoing
+    200): `POST /siris/tools/home_assistant_create_automation/run`
+    followed by `GET /siris/activity` showed `verified: true` with
+    detail "Automation \<id\> confirmed present"; deleting it the same
+    way showed `verified: true` with "Automation \<id\> confirmed
+    removed" -- both through the same automatic `SirisAI.run_tool()` ->
+    `Tool.verify()` -> audit-log pipeline every other verified tool call
+    in this codebase already goes through.
+
 ## Running locally
 
 ```bash
