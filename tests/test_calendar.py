@@ -226,3 +226,47 @@ def test_create_event_tool_dry_run_reports_no_conflicts_for_a_free_slot() -> Non
     )
 
     assert result["conflicts"] == []
+
+
+# -- verify(): result validation (milestone 68) -- caldav's add_event() not
+# raising doesn't prove the server actually persisted the event, the same
+# "success doesn't mean it happened" gap DockerRestartContainerTool.verify()
+# and HomeAssistantCallServiceTool.verify() close elsewhere.
+
+
+def test_verify_reports_success_when_the_event_now_appears() -> None:
+    fake_client = MagicMock()
+    fake_client.events_between.return_value = [
+        {"summary": "Dentist", "start": "...", "end": "..."}
+    ]
+
+    verification = CalendarCreateEventTool(fake_client).verify(
+        {
+            "summary": "Dentist",
+            "start": "2026-09-10T14:00:00Z",
+            "end": "2026-09-10T15:00:00Z",
+        },
+        {"summary": "Dentist"},
+    )
+
+    assert verification.verified is True
+    assert "Dentist" in verification.detail
+
+
+def test_verify_reports_failure_when_the_event_never_appears() -> None:
+    """The exact gap this exists for: add_event() can return without
+    raising while the server silently never actually stored anything."""
+    fake_client = MagicMock()
+    fake_client.events_between.return_value = [{"summary": "Someone else's meeting"}]
+
+    verification = CalendarCreateEventTool(fake_client).verify(
+        {
+            "summary": "Dentist",
+            "start": "2026-09-10T14:00:00Z",
+            "end": "2026-09-10T15:00:00Z",
+        },
+        {"summary": "Dentist"},
+    )
+
+    assert verification.verified is False
+    assert "Dentist" in verification.detail

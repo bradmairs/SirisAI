@@ -8,9 +8,13 @@ memory it should find ("run quietly after 22:00"), so it never matched.
 When an `OllamaEmbeddingClient` is configured, `recall()` instead ranks
 every memory by embedding cosine similarity to the query and returns the
 closest ones above a similarity floor -- a real "what's relevant to this"
-search, not string containment. Falls back to the substring match when no
-embedding client is configured (or for a query-less "most recent" call,
-which never needed ranking).
+search, not string containment. Falls back to word-based OR matching
+(`_search_terms`, below) when no embedding client is configured or the
+embed call itself fails -- an earlier fix for the same underlying "a
+literal-substring query almost never matches a natural-language question"
+gap, kept as the fallback rather than replaced outright since it needs no
+embedding backend to work at all. A query-less "most recent" call never
+needed either path.
 
 The same embeddings back a write-time dedup safety net in `remember()`:
 a near-duplicate of something already stored (>= _DEDUP_SIMILARITY) isn't
@@ -47,10 +51,11 @@ routes and from tool invocations that don't have a request in scope.
 """
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.user_context import get_current_user_id
@@ -71,9 +76,126 @@ _DEDUP_SIMILARITY = 0.85
 # live corrections behind this specific number.
 _RECALL_MIN_SIMILARITY = 0.45
 
+# Bug fix: recall(query=...) used to require the ENTIRE query to appear as
+# one literal substring of a memory's content -- fine for a caller who
+# passes a short keyword, but ContextEngine.build() (app/context/engine.py)
+# passes the user's whole raw prompt as `query` on every turn, and the
+# `recall` tool's own description just says "search text" with no warning
+# against a full sentence either. "What's my name?" is never a substring of
+# "User's name is Brad", so a real, previously-saved memory silently never
+# matched -- surfacing as SirisAI insisting it couldn't recall something it
+# had, in fact, been told. Splitting the query into individual significant
+# words and matching on ANY of them (not all-or-nothing on the whole
+# string) turns a natural-language question into a real search instead of
+# a near-guaranteed miss, without changing recall()'s signature or callers.
+# Still just substring matching underneath -- no embeddings/semantic
+# search, and no relevance ranking beyond the existing recency order -- so
+# a short, exact query (a name, a single keyword) still works exactly as
+# before, and this only changes behavior for a multi-word query that
+# previously matched nothing. "user"/"users" are stopworded alongside the
+# usual pronouns/function words for a domain-specific reason: nearly every
+# memory here is phrased as a fact *about* "the user" ("User's name is...",
+# "The user prefers..."), so the word carries no discriminating signal in
+# this app's content -- same non-informative role "my"/"i"/"you" already play.
+_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "about",
+        "am",
+        "be",
+        "been",
+        "being",
+        "but",
+        "can",
+        "could",
+        "did",
+        "do",
+        "does",
+        "for",
+        "has",
+        "have",
+        "had",
+        "he",
+        "her",
+        "hers",
+        "him",
+        "his",
+        "how",
+        "i",
+        "if",
+        "in",
+        "is",
+        "it",
+        "its",
+        "know",
+        "may",
+        "me",
+        "might",
+        "mine",
+        "must",
+        "my",
+        "no",
+        "not",
+        "of",
+        "on",
+        "or",
+        "our",
+        "please",
+        "recall",
+        "remember",
+        "shall",
+        "she",
+        "should",
+        "so",
+        "tell",
+        "that",
+        "the",
+        "their",
+        "them",
+        "these",
+        "this",
+        "those",
+        "to",
+        "us",
+        "user",
+        "users",
+        "was",
+        "we",
+        "were",
+        "what",
+        "whats",
+        "when",
+        "where",
+        "which",
+        "who",
+        "whom",
+        "whose",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
+        "yours",
+    }
+)
+_MIN_TERM_LENGTH = 3
+
+
+def _search_terms(query: str) -> list[str]:
+    words = re.findall(r"[a-z0-9]+", query.lower())
+    return [w for w in words if len(w) >= _MIN_TERM_LENGTH and w not in _STOPWORDS]
+
 
 class MemoryStore:
-    def __init__(self, session_factory: sessionmaker, embedding_client: OllamaEmbeddingClient | None = None) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker,
+        embedding_client: OllamaEmbeddingClient | None = None,
+    ) -> None:
         self._session_factory = session_factory
         self._embedding_client = embedding_client
 
@@ -82,24 +204,36 @@ class MemoryStore:
         embedding = self._try_embed(content)
 
         if embedding is not None:
-            duplicate = self._most_similar(user_id, embedding, min_similarity=_DEDUP_SIMILARITY)
+            duplicate = self._most_similar(
+                user_id, embedding, min_similarity=_DEDUP_SIMILARITY
+            )
             if duplicate is not None:
                 return duplicate
 
         with self._session_factory() as session:
-            entry = MemoryEntry(content=content, user_id=user_id, embedding=_encode(embedding))
+            entry = MemoryEntry(
+                content=content, user_id=user_id, embedding=_encode(embedding)
+            )
             session.add(entry)
             session.commit()
             session.refresh(entry)
             return self._serialize(entry)
 
-    def recall(self, query: str | None = None, limit: int = 20, *, user_id: str | None = None) -> list[dict[str, Any]]:
+    def recall(
+        self, query: str | None = None, limit: int = 20, *, user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         user_id = user_id or get_current_user_id()
         query_embedding = self._try_embed(query) if query else None
 
         with self._session_factory() as session:
             if query_embedding is not None:
-                entries = self._rank_by_similarity(session, user_id, query_embedding, limit)
+                # Semantic ranking (real cosine similarity) is strictly
+                # better than word matching when it's available -- takes
+                # priority whenever an embedding client is configured and
+                # the query actually embedded successfully.
+                entries: list[MemoryEntry] = self._rank_by_similarity(
+                    session, user_id, query_embedding, limit
+                )
             else:
                 stmt = (
                     select(MemoryEntry)
@@ -108,7 +242,27 @@ class MemoryStore:
                     .limit(limit)
                 )
                 if query:
-                    stmt = stmt.where(MemoryEntry.content.ilike(f"%{query}%"))
+                    # No embeddings configured (or the embed call failed) --
+                    # fall back to word-based OR matching rather than
+                    # requiring the entire query as one literal substring
+                    # (see module docstring for why that used to miss almost
+                    # every natural-language question).
+                    terms = _search_terms(query)
+                    if terms:
+                        stmt = stmt.where(
+                            or_(
+                                *[
+                                    MemoryEntry.content.ilike(f"%{term}%")
+                                    for term in terms
+                                ]
+                            )
+                        )
+                    else:
+                        # Every word was filtered out (a query that's entirely
+                        # stopwords/too short, e.g. "who am i") -- fall back to
+                        # the old literal-substring behavior rather than
+                        # matching everything or nothing.
+                        stmt = stmt.where(MemoryEntry.content.ilike(f"%{query}%"))
                 entries = list(session.scalars(stmt).all())
 
             # Usage tracking (milestone 30): every entry actually returned
@@ -130,7 +284,9 @@ class MemoryStore:
         user_id = user_id or get_current_user_id()
         with self._session_factory() as session:
             stmt = (
-                select(MemoryEntry).where(MemoryEntry.user_id == user_id).order_by(MemoryEntry.created_at.desc())
+                select(MemoryEntry)
+                .where(MemoryEntry.user_id == user_id)
+                .order_by(MemoryEntry.created_at.desc())
             )
             return [self._serialize(entry) for entry in session.scalars(stmt).all()]
 
@@ -156,7 +312,11 @@ class MemoryStore:
                 by_content: dict[str, list[int]] = {}
                 for row in rows:
                     by_content.setdefault(row.content, []).append(row.id)
-                return [{"content": c, "ids": ids} for c, ids in by_content.items() if len(ids) > 1]
+                return [
+                    {"content": c, "ids": ids}
+                    for c, ids in by_content.items()
+                    if len(ids) > 1
+                ]
 
             embeddings: dict[int, list[float]] = {}
             for row in rows:
@@ -179,7 +339,10 @@ class MemoryStore:
             ids = list(embeddings.keys())
             for i in range(len(ids)):
                 for j in range(i + 1, len(ids)):
-                    if cosine_similarity(embeddings[ids[i]], embeddings[ids[j]]) >= min_similarity:
+                    if (
+                        cosine_similarity(embeddings[ids[i]], embeddings[ids[j]])
+                        >= min_similarity
+                    ):
                         root_i, root_j = find(ids[i]), find(ids[j])
                         if root_i != root_j:
                             parent[root_j] = root_i
@@ -224,9 +387,13 @@ class MemoryStore:
             scored.append((cosine_similarity(query_embedding, embedding), entry))
 
         scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [entry for score, entry in scored if score >= _RECALL_MIN_SIMILARITY][:limit]
+        return [entry for score, entry in scored if score >= _RECALL_MIN_SIMILARITY][
+            :limit
+        ]
 
-    def _most_similar(self, user_id: str, embedding: list[float], *, min_similarity: float) -> dict[str, Any] | None:
+    def _most_similar(
+        self, user_id: str, embedding: list[float], *, min_similarity: float
+    ) -> dict[str, Any] | None:
         with self._session_factory() as session:
             stmt = select(MemoryEntry).where(MemoryEntry.user_id == user_id)
             best: tuple[float, MemoryEntry] | None = None
@@ -275,7 +442,9 @@ class MemoryStore:
             "content": entry.content,
             "created_at": entry.created_at.isoformat(),
             "recall_count": entry.recall_count,
-            "last_recalled_at": entry.last_recalled_at.isoformat() if entry.last_recalled_at else None,
+            "last_recalled_at": entry.last_recalled_at.isoformat()
+            if entry.last_recalled_at
+            else None,
         }
 
 

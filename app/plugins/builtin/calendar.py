@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from app.calendar.client import CalendarClient
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
 
 _TIME_PARAMETER = {
     "type": "string",
@@ -129,3 +129,27 @@ class CalendarCreateEventTool(Tool):
             },
             "conflicts": conflicts,
         }
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Independent check that the event actually exists on the
+        calendar afterwards, not just that caldav's `add_event()` call
+        didn't raise -- the same "success doesn't mean it actually
+        happened" gap `DockerRestartContainerTool.verify()` (milestone 38)
+        and `HomeAssistantCallServiceTool.verify()` (65) close elsewhere.
+        A CalDAV PUT can return success without the server actually
+        persisting something `events_between()` finds again (a UID
+        collision silently dropped, a calendar that rejects an unknown
+        property)."""
+        summary = arguments.get("summary", "")
+        start_dt = datetime.fromisoformat(arguments.get("start", ""))
+        end_dt = datetime.fromisoformat(arguments.get("end", ""))
+        events = self._client.events_between(start_dt, end_dt)
+        if any(e["summary"] == summary for e in events):
+            return ToolVerification(
+                verified=True,
+                detail=f"'{summary}' now appears on the calendar in that window.",
+            )
+        return ToolVerification(
+            verified=False,
+            detail=f"'{summary}' does not appear on the calendar after creation.",
+        )

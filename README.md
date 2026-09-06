@@ -2761,6 +2761,723 @@ provider for the same capability actually exists to design against.
     `path`/`excerpts` citation shape end-to-end through
     `POST /siris/tools/{name}/run`.
 
+65. **Done** -- Result validation for Home Assistant device control.
+    First pick from "trustworthiness infrastructure" -- the part of the
+    original brainstormed list flagged as "less exciting, but arguably
+    the most important." `Tool.verify()` (milestone 38) already existed
+    as a mechanism, but only `DockerRestartContainerTool` used it; every
+    other consequential tool, including the single most-used
+    physical-device tool in the whole system, had none.
+
+    `HomeAssistantCallServiceTool.verify()` closes the exact same gap
+    Docker's own restart verification closed, applied to physical
+    devices: the service call returning success from Home Assistant's
+    API doesn't mean the entity actually changed state -- an
+    unreachable or offline device is the common real failure mode, and
+    without this a `turn_on` against a dead bulb reports success both
+    to the model and in the audit log. Checked only for services with
+    one unambiguous expected end state (`turn_on`/`turn_off`,
+    `lock`/`unlock`, `open_cover`/`close_cover`, the `arm_*`/`disarm`
+    alarm services) and a concrete `entity_id` -- a scene activation, a
+    non-boolean `set_temperature`, or a `notify` call has no single
+    "correct" resulting state to check against, so those honestly raise
+    `NotImplementedError` (this project's established "don't overclaim
+    rigor that isn't there" convention) rather than guessing.
+
+    Deliberately scoped to one tool, not "add verify() everywhere" --
+    `calendar_create_event` and the Radarr/Sonarr add-movie/add-series
+    tools are similarly-shaped future candidates (query back after
+    acting to confirm it actually took), left for a later pass rather
+    than done as a sweep here.
+
+    Verified: full suite (521 passed, up from 516) covering a
+    successful turn_on reaching the expected state, a failed one that
+    doesn't (the exact "API said yes, device said no" case), the
+    lock/cover domains too, and both `NotImplementedError` cases
+    (no `entity_id`; a service with no single expected state).
+    Live-verified against a real `uvicorn` process and a fake Home
+    Assistant server that accepts a `light.turn_on` call (still returns
+    200) while the simulated bulb never actually turns on: `GET
+    /siris/activity` showed `verified: false` with `"'light.kitchen' is
+    'off', not the expected 'on'"` for that call, and `verified: true`
+    for a `lock.lock` call against a device that genuinely reached the
+    expected state -- both real HTTP round trips, not mocked at the
+    tool boundary.
+
+66. **Done** -- Entity/container name resolution (an ambiguity gate).
+    Second pick from "trustworthiness infrastructure." Asked what a
+    "confidence and ambiguity gate" should actually mean in this
+    architecture first: there's no model-confidence signal to gate on
+    here (no logprobs, no self-reported certainty), so a literal
+    "block low-confidence actions" gate would be theater. The real,
+    buildable gap: `home_assistant_call_service` and
+    `docker_restart_container`/`docker_get_container_logs` need an
+    *exact* `entity_id`/`container` name, but the model's only path to
+    one was dumping a full `home_assistant_list_entities`/
+    `docker_list_containers` result and guessing which row matched a
+    loose reference like "the office light" -- silently, with no signal
+    back when more than one row plausibly matched.
+
+    What shipped: `home_assistant_resolve_entity` and
+    `docker_resolve_container`, matching a `name_hint` against
+    entity_id/friendly_name or container names/image (case-insensitive,
+    every word in the hint must appear somewhere in the haystack) and
+    returning *every* match plus an explicit `ambiguous` flag --
+    `ambiguous: true` is the gate: their descriptions tell the model to
+    ask which one was meant rather than picking one itself when it
+    comes back true. Both READ, no new settings, registered alongside
+    each integration's existing tools.
+
+    Deliberately not a hard enforcement mechanism -- nothing stops the
+    model from skipping straight to `call_service`/`restart_container`
+    with a guessed ID anyway, since the underlying tools still accept
+    any string. This raises the ambiguity to a first-class, visible
+    result instead of leaving it buried in a raw list the model has to
+    reason about unprompted; actually blocking the underlying calls
+    would need the confirmation layer to know about a resolution step
+    that hasn't happened, a bigger, more invasive change not attempted
+    here.
+
+    Verified: full suite (529 passed, up from 521) covering matches by
+    entity_id vs. friendly_name, matches by container name vs. image,
+    the ambiguous-multiple-matches case for both, the domain filter,
+    and no-match returning an empty list rather than erroring.
+    Live-verified against a real `uvicorn` process and fake Home
+    Assistant/Docker servers: "office light" correctly came back
+    `ambiguous: true` with both office lights listed, "ceiling" and
+    "plex" each correctly resolved to exactly one match -- all through
+    real HTTP round trips via `POST /siris/tools/{name}/run`.
+
+67. **Done** -- Bug fix: `recall()` couldn't find memories from a
+    natural-language question. Direct bug report: SirisAI had recorded
+    the user's name, but asked "what's my name?" it said it couldn't
+    recall it. Root cause, in `MemoryStore.recall()`
+    (app/memory/service.py): `query` had to appear as one single,
+    literal substring of a memory's *entire* content -- fine for a
+    caller passing a short keyword, but `ContextEngine.build()` (the
+    mechanism that's supposed to make this automatic, no tool call
+    needed) passes the user's whole raw prompt as `query` on every
+    turn, and "What's my name?" is nowhere close to being a substring
+    of "User's name is Brad". The `recall` tool the model can call
+    directly had the same fragility if it passed a full question rather
+    than a keyword, which its own description didn't warn against.
+    SirisAI was then telling the truth about its query finding nothing
+    -- just not the truth the user needed, since the fact really was
+    there.
+
+    Fix: split `query` into individual significant words and match a
+    memory if it contains *any* of them (still plain SQL `ILIKE`, OR'd
+    across terms) instead of requiring the whole string as one
+    substring -- turns a natural-language question into an actual
+    search instead of a near-guaranteed miss, with no change to
+    `recall()`'s signature or any caller. A small stopword list (the
+    usual pronouns/function words, plus a domain-specific one: "user",
+    since nearly every memory here is phrased as a fact *about* "the
+    user" and so the word itself carries no signal) and a 3-character
+    minimum keep single common words from matching everything; a query
+    where every word gets filtered out (e.g. "who am I") falls back to
+    the old literal-substring behavior rather than matching
+    indiscriminately. Still no embeddings/semantic search and no
+    relevance ranking beyond the existing recency order -- both
+    explicitly out of scope, called out in the module's own docstring
+    as a future real search backend's job, not this fix's.
+
+    One pre-existing test (`test_recall_bumps_usage_on_matching_entries_only`)
+    had two memory entries sharing one literal marker string between
+    them, relying on the old exact-substring rule to tell them apart --
+    updated to use two distinct markers instead, since the point of that
+    test (usage bumps only for entries the query actually matches) is
+    still true, it just needed data that doesn't accidentally collide
+    under the new, intentionally broader matching.
+
+    Verified: full suite (534 passed, up from 529), including new tests
+    for matching a multi-word natural-language query, not requiring the
+    whole query to match, falling back to literal matching when every
+    word is filtered out, and short exact queries still working
+    unchanged -- run three times end-to-end against a fresh database
+    each time to rule out the shared-word false-positive risk this fix
+    trades in for (confirmed stable). Live-verified against a real
+    `uvicorn` process and a fake Ollama-compatible backend that echoes
+    back its own system message: recorded "User's name is Brad" via
+    `POST /siris/memory`, then asked "What is my name?" as a normal chat
+    turn -- the context actually sent to the model included
+    "Relevant memories: User's name is Brad", and a direct call to the
+    `recall` tool with `query: "what is my name"` returned the same
+    memory. Neither would have found anything before this fix.
+
+68. **Done** -- Result validation for calendar event creation. The
+    other explicitly-flagged follow-up from milestone 65's writeup:
+    `calendar_create_event`'s `caldav.add_event()` call not raising
+    doesn't prove the server actually persisted anything -- the same
+    "success doesn't mean it happened" gap `DockerRestartContainerTool.
+    verify()` (38) and `HomeAssistantCallServiceTool.verify()` (65)
+    close elsewhere, here for a CalDAV PUT that could silently drop a
+    UID collision or reject an unrecognized property without ever
+    surfacing an error.
+
+    `CalendarCreateEventTool.verify()` re-queries `events_between()`
+    for the same window right after creating and checks the new
+    event's `summary` actually comes back. Reuses the same
+    `events_between()` milestone 63 already built for conflict
+    checking -- no new client method needed.
+
+    Radarr/Sonarr's add-movie/add-series tools remain a similarly-shaped
+    candidate, still not done here -- staying with one tool per pass
+    rather than a sweep, same choice milestone 65 made explicitly.
+
+    Verified: full suite (536 passed, up from 534) covering both the
+    successful (event found) and failed (event never appears) cases,
+    mocked at the same `CalendarClient` boundary `test_calendar.py`
+    already uses for this tool's other tests. Not live-verified: same
+    acknowledged gap as milestones 39/63 -- CalDAV is a real WebDAV
+    protocol (PROPFIND/REPORT XML, not simple REST), and there's no
+    real CalDAV server in this environment to exercise the actual wire
+    behavior against, so a live test here would only prove the fake
+    server does what the fake server was told to do.
+
+69. **Done** -- Result validation for Radarr/Sonarr library additions.
+    Closes the two remaining candidates explicitly named as "not done
+    here" in milestones 65/68's writeups: `radarr_add_movie` and
+    `sonarr_add_series`'s own API calls not raising doesn't prove the
+    movie/series actually landed in the library -- same "success
+    doesn't mean it happened" gap `DockerRestartContainerTool.verify()`,
+    `HomeAssistantCallServiceTool.verify()`, and
+    `CalendarCreateEventTool.verify()` already close elsewhere. Both
+    tools' `verify()` re-query `list_movies()`/`list_series()` (already
+    existing methods -- no new client code needed) and check the
+    returned id actually appears; a missing `id` in the add response
+    (should never happen, but not assumed) is reported unverified
+    rather than raising.
+
+    This closes out the whole "does the API success actually reflect
+    reality" pass across every tool in this codebase whose own write
+    has a natural way to re-check itself: Docker restarts, Home
+    Assistant device control, calendar events, and now Radarr/Sonarr
+    library adds. Not every write tool gets this -- `hermes_run_task`'s
+    result is whatever the delegated instruction produced, with no
+    single "did it work" check to run, and `obsidian_create_or_update_note`
+    already returns exactly what it wrote with nothing further to
+    independently confirm -- verify() stays opt-in for tools with a real
+    gap to close, not a blanket requirement.
+
+    Verified: full suite (542 passed, up from 536) covering both
+    verify() outcomes for each tool, plus the missing-id case, mocked at
+    the same `RadarrClient`/`SonarrClient` transport boundary their
+    other tests already use. Live-verified against a real `uvicorn`
+    process and fake Radarr/Sonarr v3 API servers -- Radarr's server
+    simulated the exact silent-failure case (POST returns success, but
+    `GET /api/v3/movie` never lists the new movie): `GET /siris/activity`
+    showed `radarr_add_movie` correctly flagged `verified: false`, while
+    a genuinely successful `sonarr_add_series` call against a server
+    that actually listed the series back came through `verified: true`
+    -- both through real HTTP round trips, not mocked at the tool
+    boundary.
+
+70. **Done** -- Rollback tool. The last named item from "trustworthiness
+    infrastructure": a way to reverse a change, closing the loop the
+    verify() sweep (38/65/68/69) opened -- knowing a write didn't
+    actually happen is only half the story without a way to undo the
+    ones that did.
+
+    `rollback_last_action` (a `Skill`, not a plain `Tool` -- it needs
+    `siris.run_tool()` to actually invoke the inverse, the same
+    mechanism `PresenceSkill`'s scene activation already uses) looks up
+    the most recent recorded call to a named tool via the audit log's
+    existing `find_recent()` (28), and if that tool has a registered
+    inverse, calls it: `radarr_add_movie`/`sonarr_add_series` -> the
+    matching `radarr_delete_movie`/`sonarr_delete_series` using the id
+    from the original call's own result; `home_assistant_call_service`
+    -> the same domain/entity with the opposite service
+    (turn_on<->turn_off, lock<->unlock, open_cover<->close_cover).
+    Deliberately a fixed, explicit allowlist, not a generic "figure out
+    how to undo anything" mechanism -- guessing an inverse for an
+    arbitrary tool (what undoes a Docker restart? a Hermes-delegated
+    shell command?) would be worse than admitting it isn't supported, so
+    an unlisted tool gets exactly that answer. Also declines cleanly
+    when there's nothing to reverse: no recorded call, the original call
+    itself errored, or its result doesn't carry enough to act on (e.g.
+    no id).
+
+    `rollback_last_action` is itself `CONFIRM_REQUIRED` -- the same tier
+    as the delete/control calls it reverses -- but its own single
+    confirmation covers the one, already-identified inner action it
+    performs, and passes `confirmed=True` down to that specific call
+    rather than asking twice for what's really one decision. Same
+    reasoning `PresenceSkill`'s auto-confirmed scene call already
+    established: the narrow, specific thing being approved *is* the
+    approval, not a blank check to do anything -- confirmed here by a
+    dedicated test that `run_tool()`-level confirmation is still
+    enforced on `rollback_last_action` itself.
+
+    Verified: full suite (550 passed, up from 542; three separate runs
+    to rule out flakiness against the shared test audit log) covering
+    all three registered inverses actually invoking the right tool with
+    the right arguments, the confirmation gate on the skill itself, an
+    unsupported tool name, no recorded call, the original call having
+    errored, and a result with no id to act on. Live-verified against a
+    real `uvicorn` process and fake Radarr/Home Assistant servers:
+    added a movie then rolled it back -- the fake Radarr server's own
+    log showed a real `DELETE /api/v3/movie/42` -- and turned on a light
+    then rolled that back too, with the fake HA server logging a real
+    `POST /api/services/light/turn_off`. `GET /siris/activity` showed
+    each rollback's inverse call tagged with an honest
+    `"rollback_last_action: undoing <tool> (audit id N), itself
+    confirmed"` trigger, distinct from the original direct calls.
+
+71. **Done** -- Unified Plex search. Picked up the "Media and lifestyle"
+    thread from the original brainstormed list: "Unified media search --
+    search Plex, music, podcasts and other libraries conversationally."
+    This deployment's only media server is Plex, but Plex itself already
+    spans movies, TV, and music in one library -- so "unified" here
+    means using Plex's own cross-library search rather than building a
+    new aggregation layer across services that don't exist here.
+
+    `PlexClient.search()` calls `/hubs/search`, the same endpoint
+    Plex's official clients use for "search everything" -- it already
+    groups results into "Hub"s (one per media type) internally, so no
+    per-library-section querying is needed. Flattened into one plain
+    list with each item's source hub attached as `library`, rather than
+    the model having to walk Plex's nested Hub/Metadata structure
+    itself. `plex_search` registers alongside the existing Plex tools,
+    gated on the same `SIRISAI_PLEX_BASE_URL`/`SIRISAI_PLEX_TOKEN`.
+
+    Verified: full suite (552 passed, up from 550) covering flattening
+    multiple hubs into one list with the right `library` attached and a
+    hub with no `Metadata` key at all (an empty-results hub Plex's API
+    can return) being skipped rather than raising. Live-verified against
+    a real `uvicorn` process and a fake Plex server returning results
+    across two different hubs (Movies, TV Shows): `plex_search`
+    correctly flattened both into one three-item list through a real
+    HTTP round trip via `POST /siris/tools/plex_search/run`.
+
+72. **Done** -- Interruption controller for proactive notifications.
+    Picked from the "Communications and productivity" thread: "Interruption
+    controller — decide whether information is urgent enough to interrupt
+    you or should wait for a digest." `POST /siris/proactive/check` used
+    to push one combined message for every "notify"-*and*-"urgent" item
+    NotificationManager (26) classified, with only the ntfy priority
+    distinguishing them (milestone 44) -- routine, non-critical warnings
+    still interrupted the user immediately, exactly like a genuinely
+    urgent one.
+
+    What shipped: "urgent" items still push right away, unchanged.
+    "notify"-tier items no longer push at all -- they're queued
+    (`PendingNotification`, `app/notify/pending.py`, a small new table
+    alongside `MemoryEntry`/`Event`'s in `app/db/models.py`) and instead
+    surface the next time `daily_briefing` runs, folded into its summary
+    under "Also since last time: ...", then cleared -- read-once,
+    digest-delivered, not left to repeat on every future briefing. A new
+    `list_pending_notifications` tool (always registered, independent of
+    whether a push channel is configured) lets the model check what's
+    queued without waiting for the next briefing either.
+
+    `PendingNotificationStore` is deliberately not user-scoped like
+    `MemoryStore` -- one shared queue, not one per user, since these are
+    system-level warnings, not personal facts.
+
+    Verified: full suite (560 passed, up from 552) covering the store
+    itself (queuing, ordering, clearing, clearing an already-empty
+    queue), the tool reading it, `POST /siris/proactive/check` now
+    queuing "notify"-tier items instead of pushing them while still
+    pushing "urgent" ones immediately, and `daily_briefing` folding
+    queued items into its summary and clearing them -- including the
+    case where nothing's queued (no stray "Also since last time" line).
+    Several pre-existing tests for the old combined-push behavior were
+    updated to reflect the new split (e.g. the trigger/evidence test in
+    `test_explainable_autonomy.py` now uses an urgent-tier warning, since
+    its original notify-tier one no longer triggers a push at all).
+    Live-verified against a real `uvicorn` process: seeded a real
+    "notify"-tier row directly into the running server's own SQLite file
+    (there's no public write endpoint for this queue by design -- it's
+    populated only by the proactive check), confirmed
+    `list_pending_notifications` saw it, then called the real
+    `daily_briefing` tool and confirmed the summary included "Also since
+    last time: CPU usage is high: 95%" and the queue was empty
+    immediately afterward.
+
+73. **Done** -- House status check. Picked from the same brainstormed
+    list, originally framed as "doors, windows, alarms, appliances and
+    unusual conditions." "Appliances" and "unusual conditions" are cut
+    from this milestone -- there's no appliance-power-draw sensor wired
+    up anywhere in this codebase, and "unusual" for a home (as opposed to
+    a server, where `ServerHealthSkill` already has concrete thresholds
+    to check) isn't something any existing tool measures. Building either
+    would mean inventing a signal rather than checking one that exists,
+    which this codebase avoids.
+
+    What shipped: a new `house_status_check` skill/tool
+    (`app/skills/builtin/house_status.py`), composing existing
+    `home_assistant_list_entities` calls only -- no new client, no new
+    settings, same shape as `ServerHealthSkill`/`PresenceSkill`. It
+    checks three things Home Assistant already exposes honestly: any
+    `binary_sensor` whose entity_id matches "door"/"window"/"garage" and
+    is `on` (Home Assistant's own convention: a binary_sensor's "on"
+    state means the condition is detected, i.e. open, not closed); any
+    `lock` entity in the `unlocked` state; and the `alarm_control_panel`
+    domain's entities, passed through as-is (their arm state is
+    informational, not itself a warning). "Door"/"window"/"garage"
+    detection is entity_id substring matching, the same heuristic style
+    `docker_resolve_container`/`home_assistant_resolve_entity`
+    (milestone 66) already use, since a binary_sensor's device_class
+    isn't part of `home_assistant_list_entities`'s trimmed
+    entity_id+state shape. Unlike the `home_assistant_*` tools
+    themselves, `house_status_check` is always registered -- calling it
+    without Home Assistant configured returns
+    `{"checked": false, "reason": "Home Assistant is not configured."}`
+    rather than the tool simply not existing, so the model can discover
+    why rather than getting a missing-tool error.
+
+    Verified: full suite (567 passed, up from 560) in
+    `tests/test_house_status.py`, covering the not-configured case, an
+    all-secure house (nothing open or unlocked), an open door, an open
+    window/garage sensor (with a closed one correctly not flagged), an
+    unlocked lock, alarm panels passed through without generating a
+    warning of their own, and multiple warnings combining in the
+    `warnings` list. Live-verified against a real `uvicorn` process and a
+    fake Home Assistant server (`/api/states` returning an open front
+    door, an unlocked back door, a locked front door, and an armed alarm
+    panel): `POST /siris/tools/house_status_check/run` correctly reported
+    `open_openings: ["binary_sensor.front_door"]`,
+    `unlocked_locks: ["lock.back_door"]`, and `all_secure: false` through
+    a real HTTP round trip; a second run against a server with no Home
+    Assistant configured confirmed the tool is still registered and
+    returns the not-configured message instead of erroring.
+
+74. **Done** -- Meeting prep. Another narrower productivity pick from the
+    same brainstormed list: for calendar events coming up soon, surface
+    related Obsidian notes and remembered facts so a meeting doesn't
+    start cold.
+
+    What shipped: a new `meeting_prep` skill/tool
+    (`app/skills/builtin/meeting_prep.py`), composing existing tools
+    only, same shape as `ServerHealthSkill`/`DailyBriefingSkill` -- no
+    new client, no new settings. It reuses `calendar_check_conflicts`
+    (milestone 63) rather than `calendar_upcoming_events` for the read:
+    the latter's `days_ahead` is day-granularity, while meeting prep
+    needs an hours-out window, and `calendar_check_conflicts` already
+    takes an arbitrary `[start, end)` range -- the same "list events
+    overlapping this window" query, just used to prep for what's coming
+    rather than to check for a clash. For each event, it searches
+    Obsidian (best-effort, same "an unreachable source shouldn't take
+    the whole result down" precedent `daily_briefing` established for
+    weather/Plex -- skipped outright if not configured, a lookup error
+    for one event just leaves that event's notes empty) and recalls
+    memories, both keyed on the event's raw `summary` text -- the only
+    descriptive field `CalendarClient.events_between` extracts, since
+    there's no attendee list to search by instead. An event with no
+    summary skips both searches rather than searching on an empty
+    string, which would match everything and surface noise instead of
+    anything actually related.
+
+    Verified: full suite (576 passed, up from 567) in
+    `tests/test_meeting_prep.py`, covering the not-configured case, no
+    upcoming events, an event with nothing related found, related
+    memories and related notes each surfacing correctly, notes being
+    omitted when Obsidian isn't configured, surviving Obsidian being
+    unreachable, and an event with no summary skipping both searches
+    entirely (asserting neither `obsidian_search` nor `memory.recall`
+    was even called, not just that the result came back empty).
+    Live-verified against a real `uvicorn` process: with Obsidian pointed
+    at a real fake server, `POST /siris/tools/meeting_prep/run` correctly
+    registered `meeting_prep` alongside the calendar and Obsidian tools;
+    with no calendar configured at all it returned the honest
+    not-configured message through a real HTTP round trip. Same
+    acknowledged gap as milestones 39/63/68 -- no live CalDAV server was
+    available in this environment -- so with a calendar URL configured
+    (deliberately unreachable, per that gap) the endpoint correctly
+    returned a clean 502 rather than a leaking stack trace, the same
+    verification milestone 63 used for `calendar_create_event` itself.
+
+75. **Done** -- Conversation handoff between rooms. Scoped down from the
+    ambiguous "conversation handoff" brainstorm item via a direct
+    question: it means following you physically between satellites
+    (kitchen to bedroom, mid-conversation), not summarizing a
+    conversation for another person or exporting session state between
+    clients -- this codebase already has the room/satellite plumbing
+    (milestone 48) to make the first one real.
+
+    The gap: each satellite process keeps its own `conversation_id` only
+    in its own memory (`satellite/siris_satellite/client.py`). Walk from
+    the kitchen's satellite to the bedroom's and the bedroom process has
+    never seen a conversation_id -- its next `POST /siris/chat` omits
+    one, which silently started a brand-new conversation, losing
+    whatever was just discussed, even though the server already tracks
+    which room was most recently active (`SatelliteStore.current_room()`,
+    milestone 48).
+
+    What shipped: `SatelliteRegistration` gets a new
+    `last_conversation_id` column (migration patch in
+    `app/db/migrate.py`, same pattern as every prior added column) --
+    `record_activity()` now optionally records which conversation was
+    last in play from a room, alongside the timestamp it already bumped.
+    A new `SatelliteStore.handoff_candidate(exclude_room, within_seconds)`
+    finds the most recently active *other* room's conversation, but only
+    if that activity is recent enough (`SIRISAI_SATELLITE_HANDOFF_WINDOW_SECONDS`,
+    default 120s) to plausibly be the same person having just walked
+    over, not an old conversation resurfacing hours later. `POST
+    /siris/chat` calls it exactly when the ambiguity it's meant to
+    resolve actually exists: `room` is set and no usable
+    conversation_id came with the request. A client with no `room` (the
+    web UI, or any non-satellite caller) is completely unaffected --
+    the new logic only ever runs in the one case it exists to fix.
+    Deliberately no staleness cutoff on `current_room()` itself (per its
+    own docstring, an old answer for "where do I push a reply" is still
+    right) -- a handoff is a stronger claim ("you're still mid-thought"),
+    so it gets its own bound rather than inheriting that one.
+
+    Verified: full suite (584 passed, up from 576, stable across 3
+    repeated runs) in `tests/test_satellites.py`, covering
+    `record_activity()` recording (and, when omitted, preserving)
+    `last_conversation_id`, `handoff_candidate()` picking the right
+    other room, ignoring one with no recorded conversation, returning
+    `None` with no other rooms at all, and (against an isolated store)
+    ignoring activity older than the window. One caught-live test
+    isolation issue: an end-to-end "stale conversation isn't handed
+    off" test against the real `/siris/chat` route was flaky --
+    this file's `client` fixture is session-scoped, sharing one
+    satellite registry across every test in it, so an unrelated,
+    still-fresh room left behind by an *earlier* test could legitimately
+    outrank the deliberately-backdated one and mask the exact thing
+    being tested. Dropped in favor of the isolated-store unit test,
+    which proves the same cutoff deterministically. Live-verified
+    against a real `uvicorn` process with a fake Ollama backend: registered
+    a kitchen and a bedroom satellite, sent `POST /siris/chat` to the
+    kitchen with no conversation_id (got a fresh one back), then to the
+    bedroom with no conversation_id of its own -- got the *same*
+    conversation_id back, and `GET /siris/conversations/{id}` confirmed
+    both rooms' turns landed in one real, persisted conversation. A
+    third call with no `room` at all correctly started an unrelated,
+    separate conversation, confirming non-satellite clients are
+    unaffected.
+
+76. **Done** -- Extend the `Tool.verify()` sweep to Home Assistant
+    automations. With the brainstormed feature list now exhausted down
+    to items needing either hardware confirmation (room-presence,
+    speaker identification) or a new, unconfigured integration (email
+    triage) neither of which had been given, the next self-directed pick
+    was closing a gap this codebase's own hardening pattern had already
+    flagged as unfinished: `HomeAssistantCallServiceTool.verify()`
+    (milestone 65) covers one-off service calls, but
+    `HomeAssistantCreateAutomationTool`/`HomeAssistantDeleteAutomationTool`
+    (both `CONFIRM_REQUIRED`, milestone 54/a later hardening pass) had
+    none -- create/delete_automation() hit Home Assistant's undocumented
+    config-editor endpoint (see `app/home_assistant/client.py`'s module
+    docstring: not part of the officially documented REST API), so a 200
+    there is exactly the same "the call not raising doesn't prove it
+    actually happened" gap `DockerRestartContainerTool.verify()`
+    (milestone 38) exists for, just unaddressed for the two automation
+    tools until now.
+
+    What shipped: both tools' `verify()` re-list `domain='automation'`
+    entities and check the automation_id against each one's `id`
+    attribute -- present after create, absent after delete. Same
+    NotImplementedError convention as every other `verify()` in this
+    codebase when there's nothing to check (no `automation_id` in the
+    result/arguments).
+
+    Verified: full suite (590 passed, up from 584) covering both
+    success and failure cases for create (`automation.id` found —> found)
+    and delete (`automation.id` gone —> gone), plus the
+    NotImplementedError case for a result/arguments missing
+    automation_id, all mocked at the `HomeAssistantClient` boundary,
+    same approach `test_home_assistant.py` already used for
+    `HomeAssistantCallServiceTool.verify()`. Live-verified against a
+    real `uvicorn` process and a fake Home Assistant server that
+    actually persists automation config server-side (not just echoing
+    200): `POST /siris/tools/home_assistant_create_automation/run`
+    followed by `GET /siris/activity` showed `verified: true` with
+    detail "Automation \<id\> confirmed present"; deleting it the same
+    way showed `verified: true` with "Automation \<id\> confirmed
+    removed" -- both through the same automatic `SirisAI.run_tool()` ->
+    `Tool.verify()` -> audit-log pipeline every other verified tool call
+    in this codebase already goes through.
+
+77. **Done** -- Extend the `Tool.verify()` sweep to
+    `obsidian_create_or_update_note`. Continuing the same self-directed
+    hardening pass as milestone 76: this tool is `CONFIRM_REQUIRED`
+    precisely because a full-replace write is genuinely destructive with
+    no built-in undo (its own module docstring), yet it had no `verify()`
+    -- a 204 from Obsidian's Local REST API plugin doesn't prove the
+    note's real content actually changed (a sync conflict or a
+    read-only vault mount could silently no-op the write while the
+    plugin still reports success), the same "the API call not raising
+    doesn't prove it happened" gap this sweep already closed for Docker
+    restarts (38), Home Assistant service calls (65), and Home Assistant
+    automations (76).
+
+    What shipped: `verify()` re-fetches the note via `get_note()` and
+    compares it byte-for-byte against the `content` that was written.
+    Deliberately raises `NotImplementedError` for a `.pdf` path --
+    `get_note()` extracts PDFs to plain text via `pypdf` rather than
+    returning raw bytes (milestone 64), so comparing that against the
+    markdown content this tool wrote would never match even on a fully
+    successful write. That's not something to report as a false
+    failure; it's the same "nothing honest to check" case every other
+    `verify()` in this codebase already raises for.
+
+    Verified: full suite (593 passed, up from 590) covering the match,
+    mismatch, and `.pdf`-path-raises-`NotImplementedError` cases, mocked
+    at the `ObsidianClient` boundary, same approach `test_obsidian.py`
+    already used for the tool's own write test. Live-verified against a
+    real `uvicorn` process and a fake Obsidian server that actually
+    stores PUT content and serves it back on GET (not just echoing
+    204): `POST /siris/tools/obsidian_create_or_update_note/run`
+    followed by `GET /siris/activity` showed `verified: true` with
+    detail "'Projects/SirisAI.md' now matches the written content" --
+    through the same automatic `run_tool()` -> `verify()` -> audit-log
+    pipeline as every other verified tool call.
+
+78. **Done** -- Extend the `Tool.verify()` sweep to Radarr/Sonarr's
+    delete and remove-queue-item tools. Milestone 69 gave
+    `radarr_add_movie`/`sonarr_add_series` a `verify()` but left their
+    own mirror-image operations --
+    `radarr_delete_movie`/`sonarr_delete_series` and
+    `radarr_remove_queue_item`/`sonarr_remove_queue_item`, all four
+    `CONFIRM_REQUIRED` -- unverified. A 200 from a DELETE call doesn't
+    prove the movie/series is actually out of the library, or the queue
+    item actually gone (it could even be silently re-added by Radarr/
+    Sonarr's own re-grab behavior when not blocklisted) -- the same "the
+    call not raising doesn't mean it happened" gap this sweep has
+    already closed for adds, calendar events, Home Assistant service
+    calls/automations, and Obsidian note writes.
+
+    What shipped: each `verify()` re-lists the relevant collection
+    (`list_movies()`/`list_series()` for delete,`queue()` for
+    remove-queue-item) and confirms the id is now absent -- the inverse
+    check of what `radarr_add_movie`'s `verify()` already does for
+    presence. Same `NotImplementedError` convention when there's no id
+    to check against.
+
+    Verified: full suite (605 passed, up from 593) covering
+    success/failure for all four tools plus the
+    `NotImplementedError`-without-an-id case, mocked at the
+    `RadarrClient`/`SonarrClient` boundary. Live-verified against a real
+    `uvicorn` process and fake Radarr/Sonarr servers that actually
+    track library/queue state server-side (not just echoing 200):
+    `POST /siris/tools/radarr_delete_movie/run` and
+    `radarr_remove_queue_item/run`, then the same two calls against
+    Sonarr, each followed by `GET /siris/activity` showing `verified:
+    true` with the matching "confirmed removed" detail -- all four
+    through the same automatic `run_tool()` -> `verify()` -> audit-log
+    pipeline.
+
+79. **Done** -- Extend the `Tool.verify()` sweep to
+    `tautulli_terminate_session`. The last remaining `CONFIRM_REQUIRED`
+    tool in this codebase without one: Tautulli's `terminate_session`
+    call is relayed on to Plex, and the actual player client is what has
+    to honor it -- a network hiccup or an unresponsive client can leave
+    the stream still playing even though Tautulli itself accepted the
+    command, the same "the API call not raising doesn't prove it
+    happened" gap this sweep has now closed everywhere it applies in
+    this codebase.
+
+    What shipped: `verify()` re-checks `current_activity()` for the same
+    `session_id` -- gone means the stream actually stopped, still
+    present means it didn't. Same `NotImplementedError` convention when
+    there's no `session_id` to check against.
+
+    Verified: full suite (608 passed, up from 605) covering the
+    success/failure/no-`session_id` cases, mocked at the
+    `TautulliClient` boundary. Live-verified against a real `uvicorn`
+    process and a fake Tautulli server that actually tracks active
+    sessions server-side and removes one on `terminate_session` (not
+    just echoing success): `POST /siris/tools/tautulli_terminate_session/run`
+    followed by `GET /siris/activity` showed `verified: true` with
+    detail "Session abc123 confirmed no longer active" -- through the
+    same automatic `run_tool()` -> `verify()` -> audit-log pipeline as
+    every other verified tool call.
+
+80. **Done** -- UniFi client block/unblock. Direct request to keep
+    developing the UniFi integration specifically. UniFi has been
+    read-only since milestone 57, which explicitly declined to add a
+    write action "without the means to re-verify it against real
+    hardware from here" -- that constraint still holds in this
+    environment, so before building anything the user was asked
+    directly: expand read-only coverage instead, or add write actions
+    anyway despite being unable to verify the exact endpoint shape
+    against a real controller. The answer was to add them anyway.
+
+    What shipped, in `app/unifi/client.py`: `block_client()`/
+    `unblock_client()`, POSTing `{"action": "BLOCK"}`/`{"action":
+    "UNBLOCK"}` to the Integration API's per-client action endpoint --
+    modeled on the action-based shape developer.ui.com/network/
+    integration documents for device actions (e.g. restart), applied
+    here to clients, but genuinely not live-tested against a real
+    controller the way this integration's read paths were (milestone
+    56). `list_clients()` now also exposes `id` (needed to target a
+    block/unblock call at all -- it wasn't returned before) and
+    `blocked`. Two new `CONFIRM_REQUIRED` tools,
+    `unifi_block_client`/`unifi_unblock_client`, in
+    `app/plugins/builtin/unifi.py`.
+
+    Deliberately scoped to clients only, not devices: restarting a
+    UniFi device (AP, switch, gateway) risks taking down the LAN
+    segment this very SirisAI instance may be running on, a materially
+    larger blast radius than disconnecting one client device -- left
+    for a future milestone to weigh on its own rather than folded in
+    here.
+
+    `verify()` re-lists clients and checks the `blocked` flag -- but
+    honestly asymmetric about what "client not found in the list"
+    means, since that's genuinely ambiguous without a real controller
+    to confirm against: after blocking, the client vanishing from the
+    "connected clients" list is *consistent* with a successful block
+    (disconnected), but could just as easily mean it was already
+    offline before the call -- there's no way to tell which from here,
+    so that case honestly raises `NotImplementedError` rather than
+    guessing either way. After unblocking, the same absence is
+    unambiguous (nothing has reconnected yet, which doesn't contradict
+    success), so that direction reports `verified: True`. Also added
+    `unifi_block_client`/`unifi_unblock_client` as a new inverse pair to
+    `RollbackLastActionSkill`'s `_INVERSE_HANDLERS` (milestone 70) --
+    the same "opposite action" pattern already used for Home Assistant
+    services, applied here since blocking has as obvious a real inverse
+    as `turn_on`/`turn_off`.
+
+    Verified: full suite (621 passed, up from 608) covering
+    `list_clients()`'s new fields, block/unblock posting the right
+    action body, both tools' `verify()` success/failure/no-id cases,
+    the block-side `NotImplementedError`-on-absence case specifically,
+    and a new rollback test proving `unifi_block_client` reverses
+    through `unifi_unblock_client` end-to-end via
+    `RollbackLastActionSkill`. Live-verified against a real `uvicorn`
+    process and a fake UniFi controller that actually tracks a client's
+    blocked state server-side (not just echoing 200): `POST
+    /siris/tools/unifi_block_client/run` followed by `GET
+    /siris/activity` showed `verified: true` with "Client client-1
+    confirmed blocked"; unblocking showed the mirror result; and
+    calling `rollback_last_action` for `unifi_block_client` actually
+    called `unifi_unblock_client` against the real fake controller,
+    confirmed by re-querying its client list directly and seeing
+    `"blocked": false`.
+
+81. **Done** -- UniFi client ambiguity resolution. Direct follow-up to
+    keep developing the UniFi integration: `unifi_block_client`/
+    `unifi_unblock_client` (80) need an exact `client_id`, which nothing
+    before this tool could produce from a loose description like "the
+    kid's phone" without the model guessing at raw `unifi_list_clients`
+    output itself -- the same gap milestone 66 closed for Home Assistant
+    entities and Docker containers with
+    `home_assistant_resolve_entity`/`docker_resolve_container`.
+
+    What shipped: `unifi_resolve_client`, `READ`, matching loose words
+    against both a client's name and IP address (the two fields
+    `unifi_list_clients` already exposes that a person would plausibly
+    describe a device by -- "the kid's phone", or its IP if that's what
+    they know it by). Returns every match plus an `ambiguous` flag,
+    same shape as the two existing resolve tools, so the model asks
+    which one was meant rather than guessing when there's more than
+    one.
+
+    Verified: full suite (625 passed, up from 621) covering matching by
+    name, matching by IP address, flagging ambiguous for multiple
+    matches, and no matches at all. Live-verified against a real
+    `uvicorn` process and the same fake UniFi controller from milestone
+    80: `POST /siris/tools/unifi_resolve_client/run` with `name_hint:
+    "kid phone"` correctly resolved to the one real client through a
+    real HTTP round trip, and a nonsense hint correctly came back with
+    an empty match list rather than erroring.
+
 ## Running locally
 
 ```bash

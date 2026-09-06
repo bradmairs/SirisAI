@@ -20,12 +20,19 @@ def test_remember_starts_with_zero_recall_count() -> None:
 
 
 def test_recall_bumps_usage_on_matching_entries_only() -> None:
+    """Distinct markers on each entry, not a shared one -- recall() now
+    matches on any significant word in the query (see app/memory/service.py),
+    not just an exact whole-string match, so a marker shared between both
+    entries would make both "match" via that shared token and no longer
+    prove this test's real point: usage bumps only for entries the query
+    actually matches."""
     siris = _fresh_siris()
-    marker = str(uuid.uuid4())
-    matched = siris.memory.remember(f"apple {marker}")
-    unmatched = siris.memory.remember(f"banana {marker}")
+    matched_marker = str(uuid.uuid4())
+    unmatched_marker = str(uuid.uuid4())
+    matched = siris.memory.remember(f"apple {matched_marker}")
+    unmatched = siris.memory.remember(f"banana {unmatched_marker}")
 
-    siris.memory.recall(query=f"apple {marker}")
+    siris.memory.recall(query=f"apple {matched_marker}")
 
     matched_after = next(m for m in siris.memory.list_all() if m["id"] == matched["id"])
     unmatched_after = next(m for m in siris.memory.list_all() if m["id"] == unmatched["id"])

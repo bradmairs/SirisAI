@@ -14,7 +14,7 @@ approving it first.
 from typing import Any
 
 from app.obsidian.client import ObsidianClient
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
 
 
 class ObsidianListNotesTool(Tool):
@@ -124,3 +124,36 @@ class ObsidianCreateOrUpdateNoteTool(Tool):
     def run(self, path: str = "", content: str = "", **kwargs: Any) -> Any:
         self._client.create_or_update_note(path, content)
         return {"written": True, "path": path}
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Same "the API call not raising doesn't prove it actually
+        happened" gap DockerRestartContainerTool.verify() (milestone 38)
+        and the Home Assistant verify() sweep (65/76) close elsewhere --
+        applied here to a PUT that could silently drop a write (a sync
+        conflict, a read-only vault mount, ...) while the plugin still
+        returns 200. Re-fetches the note and compares it byte-for-byte
+        against what was sent. A `.pdf` path is deliberately excluded:
+        get_note() extracts PDFs to plain text via pypdf rather than
+        returning raw bytes (see ObsidianClient.get_note()'s docstring),
+        so comparing that against the markdown `content` this tool wrote
+        would never match even on a fully successful write -- there's no
+        honest check to make there, so this raises the same
+        NotImplementedError every other verify() in this codebase uses
+        for "nothing meaningful to check" rather than reporting a false
+        failure."""
+        path = arguments.get("path")
+        content = arguments.get("content")
+        if not path or content is None or path.lower().endswith(".pdf"):
+            raise NotImplementedError(
+                f"{self.name} does not support verify for this path"
+            )
+
+        actual = self._client.get_note(path)
+        if actual == content:
+            return ToolVerification(
+                verified=True, detail=f"'{path}' now matches the written content."
+            )
+        return ToolVerification(
+            verified=False,
+            detail=f"'{path}' does not match the written content after writing.",
+        )

@@ -34,3 +34,29 @@ class PlexLibrarySectionsTool(Tool):
 
     def run(self, **kwargs: Any) -> Any:
         return self._client.library_sections()
+
+
+class PlexSearchTool(Tool):
+    name = "plex_search"
+    description = (
+        "Search everything in the Plex library at once -- movies, TV shows, music, and "
+        "anything else -- for a 'find X' request without knowing which library section it's "
+        "in. Each result names which library it came from."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Text to search for, e.g. a title or artist name.",
+            },
+        },
+        "required": ["query"],
+    }
+
+    def __init__(self, client: PlexClient) -> None:
+        self._client = client
+
+    def run(self, query: str = "", **kwargs: Any) -> Any:
+        return self._client.search(query)

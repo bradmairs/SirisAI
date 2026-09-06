@@ -9,12 +9,15 @@ from app.plex.client import PlexClient
 from app.plugins.builtin.docker import (
     DockerGetContainerLogsTool,
     DockerListContainersTool,
+    DockerResolveContainerTool,
     DockerRestartContainerTool,
 )
 
 
 def _mock_client(handler) -> DockerClient:
-    return DockerClient(base_url="unix:///var/run/docker.sock", transport=httpx.MockTransport(handler))
+    return DockerClient(
+        base_url="unix:///var/run/docker.sock", transport=httpx.MockTransport(handler)
+    )
 
 
 def _entities() -> EntityMemoryStore:
@@ -67,10 +70,14 @@ def test_restart_container_posts_to_correct_path() -> None:
 
 def test_verify_reports_success_when_container_is_running_after_restart() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "running"}])
+        return httpx.Response(
+            200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "running"}]
+        )
 
     client = _mock_client(handler)
-    verification = DockerRestartContainerTool(client, _entities()).verify({"container": "plex"}, {"restarted": True})
+    verification = DockerRestartContainerTool(client, _entities()).verify(
+        {"container": "plex"}, {"restarted": True}
+    )
 
     assert verification.verified is True
     assert "running" in verification.detail
@@ -83,10 +90,14 @@ def test_verify_reports_failure_when_container_is_not_running_after_restart() ->
     out -- this is the independent check that catches it."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "exited"}])
+        return httpx.Response(
+            200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "exited"}]
+        )
 
     client = _mock_client(handler)
-    verification = DockerRestartContainerTool(client, _entities()).verify({"container": "plex"}, {"restarted": True})
+    verification = DockerRestartContainerTool(client, _entities()).verify(
+        {"container": "plex"}, {"restarted": True}
+    )
 
     assert verification.verified is False
     assert "exited" in verification.detail
@@ -98,7 +109,9 @@ def test_verify_reports_failure_when_container_is_missing_after_restart() -> Non
         return httpx.Response(200, json=[])
 
     client = _mock_client(handler)
-    verification = DockerRestartContainerTool(client, _entities()).verify({"container": "ghost"}, {"restarted": True})
+    verification = DockerRestartContainerTool(client, _entities()).verify(
+        {"container": "ghost"}, {"restarted": True}
+    )
 
     assert verification.verified is False
     assert "not found" in verification.detail
@@ -109,14 +122,21 @@ def test_dry_run_reports_current_state_and_world_model_dependents() -> None:
     container_name = f"media-server-{uuid.uuid4()}"
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"Id": "abc123", "Names": [f"/{container_name}"], "State": "running"}])
+        return httpx.Response(
+            200,
+            json=[
+                {"Id": "abc123", "Names": [f"/{container_name}"], "State": "running"}
+            ],
+        )
 
     client = _mock_client(handler)
     entities = _entities()
     dependent = f"Plex-{uuid.uuid4()}"
     entities.add_relationship(dependent, "RUNS_ON", container_name)
 
-    report = DockerRestartContainerTool(client, entities).dry_run(container=container_name)
+    report = DockerRestartContainerTool(client, entities).dry_run(
+        container=container_name
+    )
 
     assert report["current_state"] == "running"
     assert report["would_restart"] is True
@@ -125,7 +145,9 @@ def test_dry_run_reports_current_state_and_world_model_dependents() -> None:
     client.close()
 
 
-def test_dry_run_reports_unknown_state_for_a_container_docker_does_not_know_about() -> None:
+def test_dry_run_reports_unknown_state_for_a_container_docker_does_not_know_about() -> (
+    None
+):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[])
 
@@ -138,7 +160,9 @@ def test_dry_run_reports_unknown_state_for_a_container_docker_does_not_know_abou
 
 def test_dry_run_reports_active_plex_sessions_when_container_looks_like_plex() -> None:
     def docker_handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "running"}])
+        return httpx.Response(
+            200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "running"}]
+        )
 
     def plex_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -146,38 +170,167 @@ def test_dry_run_reports_active_plex_sessions_when_container_looks_like_plex() -
             json={
                 "MediaContainer": {
                     "Metadata": [
-                        {"title": "Movie A", "duration": 100, "viewOffset": 50, "User": {}, "Player": {}},
-                        {"title": "Movie B", "duration": 100, "viewOffset": 10, "User": {}, "Player": {}},
+                        {
+                            "title": "Movie A",
+                            "duration": 100,
+                            "viewOffset": 50,
+                            "User": {},
+                            "Player": {},
+                        },
+                        {
+                            "title": "Movie B",
+                            "duration": 100,
+                            "viewOffset": 10,
+                            "User": {},
+                            "Player": {},
+                        },
                     ]
                 }
             },
         )
 
     docker_client = _mock_client(docker_handler)
-    plex_client = PlexClient(base_url="http://plex.local", token="tok", transport=httpx.MockTransport(plex_handler))
+    plex_client = PlexClient(
+        base_url="http://plex.local",
+        token="tok",
+        transport=httpx.MockTransport(plex_handler),
+    )
 
-    report = DockerRestartContainerTool(docker_client, _entities(), plex_client).dry_run(container="plex")
+    report = DockerRestartContainerTool(
+        docker_client, _entities(), plex_client
+    ).dry_run(container="plex")
 
     assert report["active_plex_sessions_would_be_interrupted"] == 2
     docker_client.close()
     plex_client.close()
 
 
-def test_dry_run_omits_plex_sessions_for_a_non_plex_container_even_with_plex_configured() -> None:
+def test_dry_run_omits_plex_sessions_for_a_non_plex_container_even_with_plex_configured() -> (
+    None
+):
     def docker_handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"Id": "abc123", "Names": ["/sonarr"], "State": "running"}])
+        return httpx.Response(
+            200, json=[{"Id": "abc123", "Names": ["/sonarr"], "State": "running"}]
+        )
 
     def plex_handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError("Plex should not be queried for a non-Plex container")
 
     docker_client = _mock_client(docker_handler)
-    plex_client = PlexClient(base_url="http://plex.local", token="tok", transport=httpx.MockTransport(plex_handler))
+    plex_client = PlexClient(
+        base_url="http://plex.local",
+        token="tok",
+        transport=httpx.MockTransport(plex_handler),
+    )
 
-    report = DockerRestartContainerTool(docker_client, _entities(), plex_client).dry_run(container="sonarr")
+    report = DockerRestartContainerTool(
+        docker_client, _entities(), plex_client
+    ).dry_run(container="sonarr")
 
     assert "active_plex_sessions_would_be_interrupted" not in report
     docker_client.close()
     plex_client.close()
+
+
+def test_resolve_container_matches_by_name() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "Id": "abc123",
+                    "Names": ["/plex"],
+                    "Image": "plexinc/pms-docker",
+                    "State": "running",
+                    "Status": "Up",
+                },
+                {
+                    "Id": "def456",
+                    "Names": ["/sonarr"],
+                    "Image": "linuxserver/sonarr",
+                    "State": "running",
+                    "Status": "Up",
+                },
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = DockerResolveContainerTool(client).run(name_hint="plex")
+    assert result["ambiguous"] is False
+    assert [c["names"] for c in result["matches"]] == [["plex"]]
+    client.close()
+
+
+def test_resolve_container_matches_by_image_when_name_doesnt_match() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "Id": "abc123",
+                    "Names": ["/media1"],
+                    "Image": "plexinc/pms-docker",
+                    "State": "running",
+                    "Status": "Up",
+                },
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = DockerResolveContainerTool(client).run(name_hint="plexinc")
+    assert result["ambiguous"] is False
+    assert len(result["matches"]) == 1
+    client.close()
+
+
+def test_resolve_container_flags_ambiguous_when_multiple_match() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "Id": "abc123",
+                    "Names": ["/media-server"],
+                    "Image": "plexinc/pms-docker",
+                    "State": "running",
+                    "Status": "Up",
+                },
+                {
+                    "Id": "def456",
+                    "Names": ["/backup-server"],
+                    "Image": "restic/restic",
+                    "State": "running",
+                    "Status": "Up",
+                },
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = DockerResolveContainerTool(client).run(name_hint="server")
+    assert result["ambiguous"] is True
+    assert len(result["matches"]) == 2
+    client.close()
+
+
+def test_resolve_container_returns_no_matches_for_an_unknown_name() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "Id": "abc123",
+                    "Names": ["/plex"],
+                    "Image": "plexinc/pms-docker",
+                    "State": "running",
+                    "Status": "Up",
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = DockerResolveContainerTool(client).run(name_hint="nonexistent-thing")
+    assert result == {"matches": [], "ambiguous": False}
+    client.close()
 
 
 def _framed_log_line(text: str, stream_type: int = 1) -> bytes:
@@ -227,9 +380,13 @@ def test_docker_get_container_logs_tool_splits_into_lines() -> None:
     client.close()
 
 
-def test_docker_get_container_logs_tool_filters_by_contains_case_insensitively() -> None:
+def test_docker_get_container_logs_tool_filters_by_contains_case_insensitively() -> (
+    None
+):
     def handler(request: httpx.Request) -> httpx.Response:
-        body = _framed_log_line("INFO: all good\n") + _framed_log_line("ERROR: it broke\n")
+        body = _framed_log_line("INFO: all good\n") + _framed_log_line(
+            "ERROR: it broke\n"
+        )
         return httpx.Response(200, content=body)
 
     client = _mock_client(handler)
@@ -240,15 +397,23 @@ def test_docker_get_container_logs_tool_filters_by_contains_case_insensitively()
 
 def test_dry_run_survives_plex_being_unreachable() -> None:
     def docker_handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "running"}])
+        return httpx.Response(
+            200, json=[{"Id": "abc123", "Names": ["/plex"], "State": "running"}]
+        )
 
     def plex_handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
     docker_client = _mock_client(docker_handler)
-    plex_client = PlexClient(base_url="http://plex.local", token="tok", transport=httpx.MockTransport(plex_handler))
+    plex_client = PlexClient(
+        base_url="http://plex.local",
+        token="tok",
+        transport=httpx.MockTransport(plex_handler),
+    )
 
-    report = DockerRestartContainerTool(docker_client, _entities(), plex_client).dry_run(container="plex")
+    report = DockerRestartContainerTool(
+        docker_client, _entities(), plex_client
+    ).dry_run(container="plex")
 
     assert report["current_state"] == "running"
     assert "active_plex_sessions_would_be_interrupted" not in report

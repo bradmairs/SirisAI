@@ -42,6 +42,7 @@ from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
 from app.metrics.service import MetricsStore
 from app.notify.client import NotifyClient
+from app.notify.pending import PendingNotificationStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
 from app.plugins.builtin.audit import ExplainRecentActionTool
@@ -60,6 +61,7 @@ from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
 from app.plugins.builtin.docker import (
     DockerGetContainerLogsTool,
     DockerListContainersTool,
+    DockerResolveContainerTool,
     DockerRestartContainerTool,
 )
 from app.plugins.builtin.echo import EchoTool
@@ -80,6 +82,7 @@ from app.plugins.builtin.home_assistant import (
     HomeAssistantGetStateTool,
     HomeAssistantListEntitiesTool,
     HomeAssistantRenderTemplateTool,
+    HomeAssistantResolveEntityTool,
 )
 from app.plugins.builtin.listenarr import ListenarrQueueTool, ListenarrSystemStatusTool
 from app.plugins.builtin.memory import (
@@ -92,7 +95,7 @@ from app.plugins.builtin.memory import (
     RememberEntityRelationshipTool,
     RememberTool,
 )
-from app.plugins.builtin.notify import NotifyTool
+from app.plugins.builtin.notify import ListPendingNotificationsTool, NotifyTool
 from app.plugins.builtin.obsidian import (
     ObsidianCreateOrUpdateNoteTool,
     ObsidianGetNoteTool,
@@ -100,7 +103,11 @@ from app.plugins.builtin.obsidian import (
     ObsidianSearchTool,
 )
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
-from app.plugins.builtin.plex import PlexLibrarySectionsTool, PlexNowPlayingTool
+from app.plugins.builtin.plex import (
+    PlexLibrarySectionsTool,
+    PlexNowPlayingTool,
+    PlexSearchTool,
+)
 from app.plugins.builtin.radarr import (
     RadarrAddMovieTool,
     RadarrCalendarTool,
@@ -142,7 +149,13 @@ from app.plugins.builtin.tautulli import (
     TautulliRecentHistoryTool,
     TautulliTerminateSessionTool,
 )
-from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
+from app.plugins.builtin.unifi import (
+    UniFiBlockClientTool,
+    UniFiListClientsTool,
+    UniFiListDevicesTool,
+    UniFiResolveClientTool,
+    UniFiUnblockClientTool,
+)
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
@@ -155,8 +168,11 @@ from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_timing import EventTimingSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
+from app.skills.builtin.house_status import HouseStatusSkill
+from app.skills.builtin.meeting_prep import MeetingPrepSkill
 from app.skills.builtin.new_device_alert import NewDeviceAlertSkill
 from app.skills.builtin.presence import PresenceSkill
+from app.skills.builtin.rollback import RollbackLastActionSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.sonarr.client import SonarrClient
@@ -199,6 +215,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "log_event": "memory",
     "recall_events": "memory",
     "notify": "notify",
+    "list_pending_notifications": "notify",
     "system_info": "system",
     "run_speed_test": "system",
     "explain_recent_action": "audit",
@@ -291,6 +308,9 @@ class SirisAI:
         default_factory=lambda: KnownDeviceStore(SessionLocal)
     )
     metrics: MetricsStore = field(default_factory=lambda: MetricsStore(SessionLocal))
+    pending_notifications: PendingNotificationStore = field(
+        default_factory=lambda: PendingNotificationStore(SessionLocal)
+    )
     integrations: IntegrationStore = field(
         default_factory=lambda: IntegrationStore(SessionLocal)
     )
@@ -384,6 +404,7 @@ class SirisAI:
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
         self.tools.register(RunSpeedTestTool(SpeedTestClient()))
         self.tools.register(CheckServiceEndpointTool())
+        self.tools.register(ListPendingNotificationsTool(self.pending_notifications))
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
 
@@ -396,6 +417,9 @@ class SirisAI:
                 HomeAssistantListEntitiesTool(self._home_assistant_client)
             )
             self.tools.register(HomeAssistantGetStateTool(self._home_assistant_client))
+            self.tools.register(
+                HomeAssistantResolveEntityTool(self._home_assistant_client)
+            )
             self.tools.register(
                 HomeAssistantCallServiceTool(
                     self._home_assistant_client,
@@ -429,10 +453,12 @@ class SirisAI:
             )
             self.tools.register(PlexNowPlayingTool(self._plex_client))
             self.tools.register(PlexLibrarySectionsTool(self._plex_client))
+            self.tools.register(PlexSearchTool(self._plex_client))
 
         if self.settings.docker_base_url:
             self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
             self.tools.register(DockerListContainersTool(self._docker_client))
+            self.tools.register(DockerResolveContainerTool(self._docker_client))
             self.tools.register(DockerGetContainerLogsTool(self._docker_client))
             self.tools.register(
                 DockerRestartContainerTool(
@@ -449,6 +475,9 @@ class SirisAI:
             )
             self.tools.register(UniFiListDevicesTool(self._unifi_client))
             self.tools.register(UniFiListClientsTool(self._unifi_client))
+            self.tools.register(UniFiResolveClientTool(self._unifi_client))
+            self.tools.register(UniFiBlockClientTool(self._unifi_client))
+            self.tools.register(UniFiUnblockClientTool(self._unifi_client))
 
             if self.settings.presence_device_names:
                 self.tools.register(
@@ -598,6 +627,15 @@ class SirisAI:
         self.tools.register(SkillTool(DailyBriefingSkill(), self))
         self.tools.register(SkillTool(GoalCheckInSkill(), self))
         self.tools.register(SkillTool(NewDeviceAlertSkill(), self))
+        self.tools.register(SkillTool(HouseStatusSkill(), self))
+        self.tools.register(SkillTool(MeetingPrepSkill(), self))
+        self.tools.register(
+            SkillTool(
+                RollbackLastActionSkill(),
+                self,
+                permission=ToolPermission.CONFIRM_REQUIRED,
+            )
+        )
 
     def _register_discovered_integrations(self) -> None:
         """Re-registers every persisted integration's tools (milestone 32)

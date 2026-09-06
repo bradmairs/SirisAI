@@ -1,4 +1,5 @@
 import httpx
+import pytest
 
 from app.obsidian.client import ObsidianClient
 from app.plugins.builtin.obsidian import (
@@ -189,3 +190,62 @@ def test_create_or_update_note_tool_is_confirm_required() -> None:
     from app.plugins.base import ToolPermission
 
     assert ObsidianCreateOrUpdateNoteTool.permission is ToolPermission.CONFIRM_REQUIRED
+
+
+# -- verify(): same "the API call not raising doesn't prove it actually
+# happened" gap DockerRestartContainerTool.verify() (38) and the Home
+# Assistant sweep (65/76) close elsewhere -- here, a PUT that could
+# silently drop a write while the plugin still returns 200.
+
+
+def test_create_or_update_note_verify_reports_success_when_content_matches() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            return httpx.Response(204)
+        assert request.method == "GET"
+        assert request.url.path == "/vault/Projects/SirisAI.md"
+        return httpx.Response(200, content=b"# Updated")
+
+    client = _mock_client(handler)
+    tool = ObsidianCreateOrUpdateNoteTool(client)
+    tool.run(path="Projects/SirisAI.md", content="# Updated")
+
+    verification = tool.verify(
+        {"path": "Projects/SirisAI.md", "content": "# Updated"}, {}
+    )
+    assert verification.verified is True
+    assert "Projects/SirisAI.md" in verification.detail
+    client.close()
+
+
+def test_create_or_update_note_verify_reports_failure_when_content_does_not_match() -> (
+    None
+):
+    """The exact gap this exists for: a sync conflict or a read-only
+    mount can accept the PUT (still 204) without the note's real content
+    ever actually changing."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            return httpx.Response(204)
+        return httpx.Response(200, content=b"# Old content")
+
+    client = _mock_client(handler)
+    tool = ObsidianCreateOrUpdateNoteTool(client)
+
+    verification = tool.verify(
+        {"path": "Projects/SirisAI.md", "content": "# Updated"}, {}
+    )
+    assert verification.verified is False
+    assert "Projects/SirisAI.md" in verification.detail
+    client.close()
+
+
+def test_create_or_update_note_verify_raises_not_implemented_for_a_pdf_path() -> None:
+    """get_note() extracts PDFs to plain text rather than returning raw
+    bytes, so comparing that against the markdown `content` this tool
+    wrote would never match even on a fully successful write -- nothing
+    honest to check there."""
+    tool = ObsidianCreateOrUpdateNoteTool(_mock_client(lambda r: httpx.Response(200)))
+    with pytest.raises(NotImplementedError):
+        tool.verify({"path": "Manuals/router.pdf", "content": "some text"}, {})
