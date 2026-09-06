@@ -22,14 +22,27 @@ This was kept read-only through milestone 57 for exactly that reason --
 exact paths can shift across controller/UniFi OS versions, and there was
 no real controller available to re-verify a write action against. It
 stays the least-verified integration in this tool library; block/
-unblock_client (a later milestone, at explicit user request to extend
-this integration despite that unresolved gap) model the Integration
-API's action-endpoint shape from its published docs
+unblock/reconnect_client (later milestones, at explicit user request to
+extend this integration despite that unresolved gap) model the
+Integration API's action-endpoint shape from its published docs
 (developer.ui.com/network/integration) rather than a live-tested one --
 a path or payload mismatch still fails loudly (404/401/400) rather than
 doing anything destructive, same as every read call here already did,
 but "loudly" is the only real safety net until someone can point this
 at a real controller and confirm the actual wire behavior.
+
+restart_device() (a further milestone, again at explicit user request
+after the same blast-radius warning was raised twice) is the highest-
+consequence action in this file: unlike a client action, which affects
+one device's own connection, restarting network infrastructure (an AP,
+switch, or -- worst case -- the site's gateway/router) can disrupt
+everyone on that segment, potentially including SirisAI's own
+connectivity to the UniFi controller it's calling, for the length of a
+full hardware reboot (on the order of a minute or more, not the few
+seconds a Docker container restart takes). See
+`UniFiRestartDeviceTool`'s own docstring (app/plugins/builtin/unifi.py)
+for how that's reflected in its permission tier and its deliberate lack
+of `verify()`.
 """
 
 import httpx
@@ -83,6 +96,7 @@ class UniFiClient:
         items = self._unwrap(response.json())
         return [
             {
+                "id": item.get("id"),  # needed by restart_device()
                 "name": item.get("name"),
                 "model": item.get("model"),
                 "state": item.get("state"),
@@ -150,6 +164,20 @@ class UniFiClient:
         )
         response.raise_for_status()
         return {"reconnected": True, "client_id": client_id}
+
+    def restart_device(self, device_id: str) -> dict:
+        """Reboots a UniFi device -- {"action": "RESTART"} to the
+        device-scoped action endpoint (POST .../devices/{id}/actions),
+        the same action-endpoint shape as the client actions above. See
+        this module's docstring for why this is the highest-consequence
+        write here."""
+        site_id = self._resolve_site_id()
+        response = self._client.post(
+            f"/proxy/network/integration/v1/sites/{site_id}/devices/{device_id}/actions",
+            json={"action": "RESTART"},
+        )
+        response.raise_for_status()
+        return {"restarted": True, "device_id": device_id}
 
     @staticmethod
     def _unwrap(data: object) -> list[dict]:
