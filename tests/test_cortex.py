@@ -131,6 +131,49 @@ def test_process_runs_a_tool_then_feeds_result_back_for_final_text() -> None:
     assert [m["role"] for m in history] == ["user", "tool", "assistant"]
 
 
+def test_follow_up_synthesis_call_includes_the_honesty_nudge() -> None:
+    """Live-hit case (2026-09-06): asked "what routines AND goals do you
+    have", the model called list_routines (its one tool budget for the
+    turn) then confidently invented an answer about goals it never
+    checked, rather than saying it hadn't looked. The follow-up call
+    that produces the final answer needs to be told it's only seeing one
+    tool's result, explicitly, or nothing stops that guess."""
+    from app.cortex.orchestrator import _SYNTHESIS_HONESTY_NUDGE
+
+    responses = _RecordingLLMClient(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="echo", arguments={"message": "ping"})]),
+            LLMResponse(text="Echoed ping for you."),
+        ]
+    )
+    siris = _siris(responses)
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "please echo", use_context=False))
+
+    follow_up_call_messages = responses.calls[1]
+    assert follow_up_call_messages[-1] == {"role": "system", "content": _SYNTHESIS_HONESTY_NUDGE}
+
+
+def test_follow_up_synthesis_call_after_a_tool_failure_also_includes_the_nudge() -> None:
+    from app.cortex.orchestrator import _SYNTHESIS_HONESTY_NUDGE
+
+    responses = _RecordingLLMClient(
+        [
+            LLMResponse(tool_calls=[ToolCall(name="flaky_lookup", arguments={})]),
+            LLMResponse(text="I couldn't check that."),
+        ]
+    )
+    siris = _siris(responses)
+    siris.tools.register(_FailingTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "who's connected?", use_context=False))
+
+    follow_up_call_messages = responses.calls[1]
+    assert follow_up_call_messages[-1] == {"role": "system", "content": _SYNTHESIS_HONESTY_NUDGE}
+
+
 def test_process_tool_failure_is_explained_in_plain_language_not_raised() -> None:
     """Live-hit case (2026-09): unifi_list_clients always raises since the
     cloud API it talks to has no client-listing endpoint. That shouldn't
