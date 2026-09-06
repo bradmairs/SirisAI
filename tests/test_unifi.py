@@ -8,6 +8,7 @@ from app.plugins.builtin.unifi import (
     UniFiBlockClientTool,
     UniFiListClientsTool,
     UniFiListDevicesTool,
+    UniFiReconnectClientTool,
     UniFiResolveClientTool,
     UniFiUnblockClientTool,
 )
@@ -364,4 +365,41 @@ def test_unblock_client_verify_raises_not_implemented_without_a_client_id() -> N
     client = _mock_client(lambda r: httpx.Response(200, json=_SITES_RESPONSE))
     with pytest.raises(NotImplementedError):
         UniFiUnblockClientTool(client).verify({}, {})
+    client.close()
+
+
+# -- reconnect_client
+
+
+def test_reconnect_client_posts_reconnect_action() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/proxy/network/integration/v1/sites":
+            return httpx.Response(200, json=_SITES_RESPONSE)
+        assert request.method == "POST"
+        assert (
+            request.url.path
+            == f"/proxy/network/integration/v1/sites/{_SITE_ID}/clients/client-1/actions"
+        )
+        assert json.loads(request.content) == {"action": "RECONNECT"}
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    result = UniFiReconnectClientTool(client).run(client_id="client-1")
+    assert result == {"reconnected": True, "client_id": "client-1"}
+    client.close()
+
+
+def test_reconnect_client_requires_confirmation() -> None:
+    assert UniFiReconnectClientTool.permission is ToolPermission.CONFIRM_REQUIRED
+
+
+def test_reconnect_client_has_no_verify() -> None:
+    """No persistent flag to check afterward -- see the tool's own
+    docstring for why this deliberately relies on Tool.verify()'s base
+    NotImplementedError rather than adding one that couldn't mean
+    anything."""
+    client = _mock_client(lambda r: httpx.Response(200, json=_SITES_RESPONSE))
+    tool = UniFiReconnectClientTool(client)
+    with pytest.raises(NotImplementedError):
+        tool.verify({"client_id": "client-1"}, {})
     client.close()

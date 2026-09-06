@@ -135,6 +135,22 @@ class UniFiClient:
         response.raise_for_status()
         return {"blocked": False, "client_id": client_id}
 
+    def reconnect_client(self, client_id: str) -> dict:
+        """Forces a client to disconnect and immediately re-associate --
+        {"action": "RECONNECT"} to the same action endpoint as block/
+        unblock. Lower-consequence than block_client(): the client is
+        never left unable to connect, just cycled, the same kind of
+        thing unplugging and replugging a device's WiFi would do -- for
+        troubleshooting a flaky connection rather than restricting
+        access. Same not-live-tested caveat as block/unblock_client()."""
+        site_id = self._resolve_site_id()
+        response = self._client.post(
+            f"/proxy/network/integration/v1/sites/{site_id}/clients/{client_id}/actions",
+            json={"action": "RECONNECT"},
+        )
+        response.raise_for_status()
+        return {"reconnected": True, "client_id": client_id}
+
     @staticmethod
     def _unwrap(data: object) -> list[dict]:
         """The Integration API wraps list responses as {"data": [...]}."""
