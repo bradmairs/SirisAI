@@ -161,6 +161,7 @@ from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_timing import EventTimingSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
 from app.skills.builtin.house_status import HouseStatusSkill
+from app.skills.builtin.meeting_prep import MeetingPrepSkill
 from app.skills.builtin.new_device_alert import NewDeviceAlertSkill
 from app.skills.builtin.presence import PresenceSkill
 from app.skills.builtin.rollback import RollbackLastActionSkill
@@ -600,6 +601,7 @@ class SirisAI:
         self.tools.register(SkillTool(GoalCheckInSkill(), self))
         self.tools.register(SkillTool(NewDeviceAlertSkill(), self))
         self.tools.register(SkillTool(HouseStatusSkill(), self))
+        self.tools.register(SkillTool(MeetingPrepSkill(), self))
         self.tools.register(
             SkillTool(
                 RollbackLastActionSkill(),

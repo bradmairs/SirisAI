@@ -3143,6 +3143,51 @@ provider for the same capability actually exists to design against.
     Assistant configured confirmed the tool is still registered and
     returns the not-configured message instead of erroring.
 
+74. **Done** -- Meeting prep. Another narrower productivity pick from the
+    same brainstormed list: for calendar events coming up soon, surface
+    related Obsidian notes and remembered facts so a meeting doesn't
+    start cold.
+
+    What shipped: a new `meeting_prep` skill/tool
+    (`app/skills/builtin/meeting_prep.py`), composing existing tools
+    only, same shape as `ServerHealthSkill`/`DailyBriefingSkill` -- no
+    new client, no new settings. It reuses `calendar_check_conflicts`
+    (milestone 63) rather than `calendar_upcoming_events` for the read:
+    the latter's `days_ahead` is day-granularity, while meeting prep
+    needs an hours-out window, and `calendar_check_conflicts` already
+    takes an arbitrary `[start, end)` range -- the same "list events
+    overlapping this window" query, just used to prep for what's coming
+    rather than to check for a clash. For each event, it searches
+    Obsidian (best-effort, same "an unreachable source shouldn't take
+    the whole result down" precedent `daily_briefing` established for
+    weather/Plex -- skipped outright if not configured, a lookup error
+    for one event just leaves that event's notes empty) and recalls
+    memories, both keyed on the event's raw `summary` text -- the only
+    descriptive field `CalendarClient.events_between` extracts, since
+    there's no attendee list to search by instead. An event with no
+    summary skips both searches rather than searching on an empty
+    string, which would match everything and surface noise instead of
+    anything actually related.
+
+    Verified: full suite (576 passed, up from 567) in
+    `tests/test_meeting_prep.py`, covering the not-configured case, no
+    upcoming events, an event with nothing related found, related
+    memories and related notes each surfacing correctly, notes being
+    omitted when Obsidian isn't configured, surviving Obsidian being
+    unreachable, and an event with no summary skipping both searches
+    entirely (asserting neither `obsidian_search` nor `memory.recall`
+    was even called, not just that the result came back empty).
+    Live-verified against a real `uvicorn` process: with Obsidian pointed
+    at a real fake server, `POST /siris/tools/meeting_prep/run` correctly
+    registered `meeting_prep` alongside the calendar and Obsidian tools;
+    with no calendar configured at all it returned the honest
+    not-configured message through a real HTTP round trip. Same
+    acknowledged gap as milestones 39/63/68 -- no live CalDAV server was
+    available in this environment -- so with a calendar URL configured
+    (deliberately unreachable, per that gap) the endpoint correctly
+    returned a clean 502 rather than a leaking stack trace, the same
+    verification milestone 63 used for `calendar_create_event` itself.
+
 ## Running locally
 
 ```bash
