@@ -7,3 +7,4 @@ python-multipart==0.0.20
 psutil==7.2.2
 caldav==3.2.1
 pypdf==6.17.0
+speedtest-cli==2.1.3

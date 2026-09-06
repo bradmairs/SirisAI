@@ -132,6 +132,7 @@ from app.plugins.builtin.sonarr import (
     SonarrRemoveQueueItemTool,
     SonarrSearchSeriesTool,
 )
+from app.plugins.builtin.speedtest import RunSpeedTestTool
 from app.plugins.builtin.system_info import SystemInfoTool
 from app.plugins.builtin.tautulli import (
     TautulliCurrentActivityTool,
@@ -159,6 +160,7 @@ from app.skills.builtin.presence import PresenceSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.sonarr.client import SonarrClient
+from app.speedtest.client import SpeedTestClient
 from app.tautulli.client import TautulliClient
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
@@ -198,6 +200,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "recall_events": "memory",
     "notify": "notify",
     "system_info": "system",
+    "run_speed_test": "system",
     "explain_recent_action": "audit",
     "report_capability_gap": "capabilities",
     "create_goal": "goals",
@@ -379,6 +382,7 @@ class SirisAI:
         self.tools.register(ListRoutinesTool(self.routines))
         self.tools.register(SetRoutineEnabledTool(self.routines))
         self.tools.register(SystemInfoTool(self.settings.system_info_disk_path_list()))
+        self.tools.register(RunSpeedTestTool(SpeedTestClient()))
         self.tools.register(CheckServiceEndpointTool())
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
