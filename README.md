@@ -3292,6 +3292,41 @@ provider for the same capability actually exists to design against.
     `Tool.verify()` -> audit-log pipeline every other verified tool call
     in this codebase already goes through.
 
+77. **Done** -- Extend the `Tool.verify()` sweep to
+    `obsidian_create_or_update_note`. Continuing the same self-directed
+    hardening pass as milestone 76: this tool is `CONFIRM_REQUIRED`
+    precisely because a full-replace write is genuinely destructive with
+    no built-in undo (its own module docstring), yet it had no `verify()`
+    -- a 204 from Obsidian's Local REST API plugin doesn't prove the
+    note's real content actually changed (a sync conflict or a
+    read-only vault mount could silently no-op the write while the
+    plugin still reports success), the same "the API call not raising
+    doesn't prove it happened" gap this sweep already closed for Docker
+    restarts (38), Home Assistant service calls (65), and Home Assistant
+    automations (76).
+
+    What shipped: `verify()` re-fetches the note via `get_note()` and
+    compares it byte-for-byte against the `content` that was written.
+    Deliberately raises `NotImplementedError` for a `.pdf` path --
+    `get_note()` extracts PDFs to plain text via `pypdf` rather than
+    returning raw bytes (milestone 64), so comparing that against the
+    markdown content this tool wrote would never match even on a fully
+    successful write. That's not something to report as a false
+    failure; it's the same "nothing honest to check" case every other
+    `verify()` in this codebase already raises for.
+
+    Verified: full suite (593 passed, up from 590) covering the match,
+    mismatch, and `.pdf`-path-raises-`NotImplementedError` cases, mocked
+    at the `ObsidianClient` boundary, same approach `test_obsidian.py`
+    already used for the tool's own write test. Live-verified against a
+    real `uvicorn` process and a fake Obsidian server that actually
+    stores PUT content and serves it back on GET (not just echoing
+    204): `POST /siris/tools/obsidian_create_or_update_note/run`
+    followed by `GET /siris/activity` showed `verified: true` with
+    detail "'Projects/SirisAI.md' now matches the written content" --
+    through the same automatic `run_tool()` -> `verify()` -> audit-log
+    pipeline as every other verified tool call.
+
 ## Running locally
 
 ```bash
