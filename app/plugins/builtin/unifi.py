@@ -5,7 +5,14 @@ LAN IP -> Settings -> Control Plane -> Integrations) -- see
 app/unifi/client.py for why that's a different key/product than UniFi's
 cloud account API.
 
-List tools are READ. block_client/unblock_client (a later milestone,
+List tools are READ. resolve_client (a later milestone) is the same
+ambiguity-resolution gate milestone 66 built for
+home_assistant_resolve_entity/docker_resolve_container, applied here:
+block/unblock_client need an exact client_id, which nothing before this
+tool could turn a loose description ("the kid's phone") into without
+the model guessing at unifi_list_clients output itself.
+
+block_client/unblock_client (a later milestone,
 extending this integration past its milestone-57 read-only-by-design
 stance at explicit user request) are CONFIRM_REQUIRED -- blocking
 disconnects a device and keeps it off the network until unblocked, a
@@ -49,6 +56,44 @@ class UniFiListClientsTool(Tool):
 
     def run(self, **kwargs: Any) -> Any:
         return self._client.list_clients()
+
+
+class UniFiResolveClientTool(Tool):
+    name = "unifi_resolve_client"
+    description = (
+        "Find UniFi clients matching a loose name or description (e.g. 'kid's phone' or "
+        "'kitchen tv'), checking both name and IP address. Returns every match, not just the "
+        "best one -- use this before calling unifi_block_client/unifi_unblock_client on "
+        "something referred to by description rather than an exact client_id, and if "
+        "`ambiguous` comes back true, ask which one was meant rather than guessing."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "name_hint": {
+                "type": "string",
+                "description": "Loose name or description to match, e.g. 'kid's phone'.",
+            },
+        },
+        "required": ["name_hint"],
+    }
+
+    def __init__(self, client: UniFiClient) -> None:
+        self._client = client
+
+    def run(self, name_hint: str = "", **kwargs: Any) -> Any:
+        needle_words = name_hint.lower().split()
+        matches = [
+            client
+            for client in self._client.list_clients()
+            if all(
+                word
+                in f"{client.get('name') or ''} {client.get('ip_address') or ''}".lower()
+                for word in needle_words
+            )
+        ]
+        return {"matches": matches, "ambiguous": len(matches) > 1}
 
 
 class UniFiBlockClientTool(Tool):

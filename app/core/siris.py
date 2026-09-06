@@ -151,6 +151,7 @@ from app.plugins.builtin.unifi import (
     UniFiBlockClientTool,
     UniFiListClientsTool,
     UniFiListDevicesTool,
+    UniFiResolveClientTool,
     UniFiUnblockClientTool,
 )
 from app.plugins.builtin.weather import WeatherCurrentTool
@@ -456,6 +457,7 @@ class SirisAI:
             )
             self.tools.register(UniFiListDevicesTool(self._unifi_client))
             self.tools.register(UniFiListClientsTool(self._unifi_client))
+            self.tools.register(UniFiResolveClientTool(self._unifi_client))
             self.tools.register(UniFiBlockClientTool(self._unifi_client))
             self.tools.register(UniFiUnblockClientTool(self._unifi_client))
 

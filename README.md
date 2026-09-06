@@ -3451,6 +3451,33 @@ provider for the same capability actually exists to design against.
     confirmed by re-querying its client list directly and seeing
     `"blocked": false`.
 
+81. **Done** -- UniFi client ambiguity resolution. Direct follow-up to
+    keep developing the UniFi integration: `unifi_block_client`/
+    `unifi_unblock_client` (80) need an exact `client_id`, which nothing
+    before this tool could produce from a loose description like "the
+    kid's phone" without the model guessing at raw `unifi_list_clients`
+    output itself -- the same gap milestone 66 closed for Home Assistant
+    entities and Docker containers with
+    `home_assistant_resolve_entity`/`docker_resolve_container`.
+
+    What shipped: `unifi_resolve_client`, `READ`, matching loose words
+    against both a client's name and IP address (the two fields
+    `unifi_list_clients` already exposes that a person would plausibly
+    describe a device by -- "the kid's phone", or its IP if that's what
+    they know it by). Returns every match plus an `ambiguous` flag,
+    same shape as the two existing resolve tools, so the model asks
+    which one was meant rather than guessing when there's more than
+    one.
+
+    Verified: full suite (625 passed, up from 621) covering matching by
+    name, matching by IP address, flagging ambiguous for multiple
+    matches, and no matches at all. Live-verified against a real
+    `uvicorn` process and the same fake UniFi controller from milestone
+    80: `POST /siris/tools/unifi_resolve_client/run` with `name_hint:
+    "kid phone"` correctly resolved to the one real client through a
+    real HTTP round trip, and a nonsense hint correctly came back with
+    an empty match list rather than erroring.
+
 ## Running locally
 
 ```bash

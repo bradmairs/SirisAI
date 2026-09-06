@@ -8,6 +8,7 @@ from app.plugins.builtin.unifi import (
     UniFiBlockClientTool,
     UniFiListClientsTool,
     UniFiListDevicesTool,
+    UniFiResolveClientTool,
     UniFiUnblockClientTool,
 )
 from app.unifi.client import UniFiClient
@@ -147,6 +148,71 @@ def test_unknown_site_raises_a_clear_error() -> None:
     client = _mock_client(handler, site="not-a-real-site")
     with pytest.raises(ValueError, match="not-a-real-site"):
         UniFiListDevicesTool(client).run()
+    client.close()
+
+
+# -- resolve_client
+
+
+def _clients_handler(clients: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/proxy/network/integration/v1/sites":
+            return httpx.Response(200, json=_SITES_RESPONSE)
+        return httpx.Response(200, json={"data": clients})
+
+    return handler
+
+
+def test_resolve_client_matches_by_name() -> None:
+    client = _mock_client(
+        _clients_handler(
+            [
+                {"id": "c1", "name": "kids-iphone", "ipAddress": "192.168.1.20"},
+                {"id": "c2", "name": "kitchen-tv", "ipAddress": "192.168.1.30"},
+            ]
+        )
+    )
+    result = UniFiResolveClientTool(client).run(name_hint="kids phone")
+    assert result["ambiguous"] is False
+    assert [m["id"] for m in result["matches"]] == ["c1"]
+    client.close()
+
+
+def test_resolve_client_matches_by_ip_address() -> None:
+    client = _mock_client(
+        _clients_handler(
+            [{"id": "c1", "name": "kids-iphone", "ipAddress": "192.168.1.20"}]
+        )
+    )
+    result = UniFiResolveClientTool(client).run(name_hint="192.168.1.20")
+    assert result["ambiguous"] is False
+    assert result["matches"][0]["id"] == "c1"
+    client.close()
+
+
+def test_resolve_client_flags_ambiguous_for_multiple_matches() -> None:
+    client = _mock_client(
+        _clients_handler(
+            [
+                {"id": "c1", "name": "kitchen-tv", "ipAddress": "192.168.1.20"},
+                {"id": "c2", "name": "kitchen-echo", "ipAddress": "192.168.1.21"},
+            ]
+        )
+    )
+    result = UniFiResolveClientTool(client).run(name_hint="kitchen")
+    assert result["ambiguous"] is True
+    assert len(result["matches"]) == 2
+    client.close()
+
+
+def test_resolve_client_returns_no_matches_when_nothing_fits() -> None:
+    client = _mock_client(
+        _clients_handler(
+            [{"id": "c1", "name": "kids-iphone", "ipAddress": "192.168.1.20"}]
+        )
+    )
+    result = UniFiResolveClientTool(client).run(name_hint="nonexistent")
+    assert result == {"matches": [], "ambiguous": False}
     client.close()
 
 
