@@ -236,6 +236,26 @@ class SonarrDeleteSeriesTool(Tool):
     def run(self, series_id: int = 0, delete_files: bool = False, **kwargs: Any) -> Any:
         return self._client.delete_series(series_id, delete_files=delete_files)
 
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Mirror of SonarrAddSeriesTool.verify(): a 200 from Sonarr's
+        DELETE doesn't prove the series is actually gone. Re-lists the
+        library and confirms the series_id no longer appears."""
+        series_id = arguments.get("series_id")
+        if not series_id:
+            raise NotImplementedError(
+                f"{self.name} does not support verify without a series_id"
+            )
+
+        if any(s["id"] == series_id for s in self._client.list_series()):
+            return ToolVerification(
+                verified=False,
+                detail=f"Series id {series_id} still appears in the Sonarr library.",
+            )
+        return ToolVerification(
+            verified=True,
+            detail=f"Series id {series_id} confirmed removed from the Sonarr library.",
+        )
+
 
 class SonarrCalendarTool(Tool):
     name = "sonarr_calendar"
@@ -287,3 +307,25 @@ class SonarrRemoveQueueItemTool(Tool):
 
     def run(self, queue_id: int = 0, blocklist: bool = False, **kwargs: Any) -> Any:
         return self._client.remove_queue_item(queue_id, blocklist=blocklist)
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Same gap as SonarrDeleteSeriesTool.verify(): a 200 from
+        Sonarr's DELETE doesn't prove the queue item is actually gone --
+        it could be re-added by Sonarr itself (an immediate re-grab when
+        not blocklisted) or the removal could silently fail. Re-lists
+        the queue and confirms the queue_id no longer appears."""
+        queue_id = arguments.get("queue_id")
+        if not queue_id:
+            raise NotImplementedError(
+                f"{self.name} does not support verify without a queue_id"
+            )
+
+        if any(item["id"] == queue_id for item in self._client.queue()):
+            return ToolVerification(
+                verified=False,
+                detail=f"Queue item {queue_id} is still present in the queue.",
+            )
+        return ToolVerification(
+            verified=True,
+            detail=f"Queue item {queue_id} confirmed removed from the queue.",
+        )

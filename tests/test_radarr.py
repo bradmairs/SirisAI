@@ -288,6 +288,43 @@ def test_delete_movie_requires_confirmation() -> None:
     assert RadarrDeleteMovieTool.permission is ToolPermission.CONFIRM_REQUIRED
 
 
+def test_delete_movie_verify_reports_success_when_movie_is_gone() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    verification = RadarrDeleteMovieTool(client).verify({"movie_id": 7}, {})
+    assert verification.verified is True
+    assert "7" in verification.detail
+    client.close()
+
+
+def test_delete_movie_verify_reports_failure_when_movie_still_present() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 7,
+                    "title": "Dune",
+                    "year": 2021,
+                    "monitored": True,
+                    "hasFile": False,
+                    "status": "announced",
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    verification = RadarrDeleteMovieTool(client).verify({"movie_id": 7}, {})
+    assert verification.verified is False
+    client.close()
+
+
+def test_delete_movie_verify_raises_not_implemented_without_a_movie_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    with pytest.raises(NotImplementedError):
+        RadarrDeleteMovieTool(client).verify({}, {})
+    client.close()
+
+
 # -- calendar / radarr_calendar
 
 
@@ -397,3 +434,40 @@ def test_remove_queue_item_defaults_blocklist_to_false() -> None:
 
 def test_remove_queue_item_requires_confirmation() -> None:
     assert RadarrRemoveQueueItemTool.permission is ToolPermission.CONFIRM_REQUIRED
+
+
+def test_remove_queue_item_verify_reports_success_when_item_is_gone() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json={"records": []}))
+    verification = RadarrRemoveQueueItemTool(client).verify({"queue_id": 9}, {})
+    assert verification.verified is True
+    assert "9" in verification.detail
+    client.close()
+
+
+def test_remove_queue_item_verify_reports_failure_when_item_still_present() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "records": [
+                    {
+                        "id": 9,
+                        "title": "Dune",
+                        "status": "downloading",
+                        "timeleft": "00:10:00",
+                    }
+                ]
+            },
+        )
+
+    client = _mock_client(handler)
+    verification = RadarrRemoveQueueItemTool(client).verify({"queue_id": 9}, {})
+    assert verification.verified is False
+    client.close()
+
+
+def test_remove_queue_item_verify_raises_not_implemented_without_a_queue_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    with pytest.raises(NotImplementedError):
+        RadarrRemoveQueueItemTool(client).verify({}, {})
+    client.close()

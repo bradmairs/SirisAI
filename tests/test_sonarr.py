@@ -288,6 +288,34 @@ def test_delete_series_requires_confirmation() -> None:
     assert SonarrDeleteSeriesTool.permission is ToolPermission.CONFIRM_REQUIRED
 
 
+def test_delete_series_verify_reports_success_when_series_is_gone() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    verification = SonarrDeleteSeriesTool(client).verify({"series_id": 7}, {})
+    assert verification.verified is True
+    assert "7" in verification.detail
+    client.close()
+
+
+def test_delete_series_verify_reports_failure_when_series_still_present() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[{"id": 7, "title": "Severance", "year": 2022, "monitored": True}],
+        )
+
+    client = _mock_client(handler)
+    verification = SonarrDeleteSeriesTool(client).verify({"series_id": 7}, {})
+    assert verification.verified is False
+    client.close()
+
+
+def test_delete_series_verify_raises_not_implemented_without_a_series_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    with pytest.raises(NotImplementedError):
+        SonarrDeleteSeriesTool(client).verify({}, {})
+    client.close()
+
+
 # -- calendar / sonarr_calendar
 
 
@@ -405,3 +433,40 @@ def test_remove_queue_item_defaults_blocklist_to_false() -> None:
 
 def test_remove_queue_item_requires_confirmation() -> None:
     assert SonarrRemoveQueueItemTool.permission is ToolPermission.CONFIRM_REQUIRED
+
+
+def test_remove_queue_item_verify_reports_success_when_item_is_gone() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json={"records": []}))
+    verification = SonarrRemoveQueueItemTool(client).verify({"queue_id": 3}, {})
+    assert verification.verified is True
+    assert "3" in verification.detail
+    client.close()
+
+
+def test_remove_queue_item_verify_reports_failure_when_item_still_present() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "records": [
+                    {
+                        "id": 3,
+                        "title": "Severance",
+                        "status": "downloading",
+                        "timeleft": "00:05:00",
+                    }
+                ]
+            },
+        )
+
+    client = _mock_client(handler)
+    verification = SonarrRemoveQueueItemTool(client).verify({"queue_id": 3}, {})
+    assert verification.verified is False
+    client.close()
+
+
+def test_remove_queue_item_verify_raises_not_implemented_without_a_queue_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    with pytest.raises(NotImplementedError):
+        SonarrRemoveQueueItemTool(client).verify({}, {})
+    client.close()

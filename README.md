@@ -3327,6 +3327,40 @@ provider for the same capability actually exists to design against.
     through the same automatic `run_tool()` -> `verify()` -> audit-log
     pipeline as every other verified tool call.
 
+78. **Done** -- Extend the `Tool.verify()` sweep to Radarr/Sonarr's
+    delete and remove-queue-item tools. Milestone 69 gave
+    `radarr_add_movie`/`sonarr_add_series` a `verify()` but left their
+    own mirror-image operations --
+    `radarr_delete_movie`/`sonarr_delete_series` and
+    `radarr_remove_queue_item`/`sonarr_remove_queue_item`, all four
+    `CONFIRM_REQUIRED` -- unverified. A 200 from a DELETE call doesn't
+    prove the movie/series is actually out of the library, or the queue
+    item actually gone (it could even be silently re-added by Radarr/
+    Sonarr's own re-grab behavior when not blocklisted) -- the same "the
+    call not raising doesn't mean it happened" gap this sweep has
+    already closed for adds, calendar events, Home Assistant service
+    calls/automations, and Obsidian note writes.
+
+    What shipped: each `verify()` re-lists the relevant collection
+    (`list_movies()`/`list_series()` for delete,`queue()` for
+    remove-queue-item) and confirms the id is now absent -- the inverse
+    check of what `radarr_add_movie`'s `verify()` already does for
+    presence. Same `NotImplementedError` convention when there's no id
+    to check against.
+
+    Verified: full suite (605 passed, up from 593) covering
+    success/failure for all four tools plus the
+    `NotImplementedError`-without-an-id case, mocked at the
+    `RadarrClient`/`SonarrClient` boundary. Live-verified against a real
+    `uvicorn` process and fake Radarr/Sonarr servers that actually
+    track library/queue state server-side (not just echoing 200):
+    `POST /siris/tools/radarr_delete_movie/run` and
+    `radarr_remove_queue_item/run`, then the same two calls against
+    Sonarr, each followed by `GET /siris/activity` showing `verified:
+    true` with the matching "confirmed removed" detail -- all four
+    through the same automatic `run_tool()` -> `verify()` -> audit-log
+    pipeline.
+
 ## Running locally
 
 ```bash

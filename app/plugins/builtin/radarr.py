@@ -247,6 +247,27 @@ class RadarrDeleteMovieTool(Tool):
     def run(self, movie_id: int = 0, delete_files: bool = False, **kwargs: Any) -> Any:
         return self._client.delete_movie(movie_id, delete_files=delete_files)
 
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Mirror of RadarrAddMovieTool.verify(): a 200 from Radarr's
+        DELETE doesn't prove the movie is actually gone -- the same gap,
+        just in the other direction. Re-lists the library and confirms
+        the movie_id no longer appears."""
+        movie_id = arguments.get("movie_id")
+        if not movie_id:
+            raise NotImplementedError(
+                f"{self.name} does not support verify without a movie_id"
+            )
+
+        if any(m["id"] == movie_id for m in self._client.list_movies()):
+            return ToolVerification(
+                verified=False,
+                detail=f"Movie id {movie_id} still appears in the Radarr library.",
+            )
+        return ToolVerification(
+            verified=True,
+            detail=f"Movie id {movie_id} confirmed removed from the Radarr library.",
+        )
+
 
 class RadarrCalendarTool(Tool):
     name = "radarr_calendar"
@@ -298,3 +319,26 @@ class RadarrRemoveQueueItemTool(Tool):
 
     def run(self, queue_id: int = 0, blocklist: bool = False, **kwargs: Any) -> Any:
         return self._client.remove_queue_item(queue_id, blocklist=blocklist)
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Same gap as RadarrDeleteMovieTool.verify(): a 200 from
+        Radarr's DELETE doesn't prove the queue item is actually gone --
+        it could be re-added by Radarr itself (e.g. an immediate
+        re-grab when not blocklisted) or the removal could silently
+        fail. Re-lists the queue and confirms the queue_id no longer
+        appears."""
+        queue_id = arguments.get("queue_id")
+        if not queue_id:
+            raise NotImplementedError(
+                f"{self.name} does not support verify without a queue_id"
+            )
+
+        if any(item["id"] == queue_id for item in self._client.queue()):
+            return ToolVerification(
+                verified=False,
+                detail=f"Queue item {queue_id} is still present in the queue.",
+            )
+        return ToolVerification(
+            verified=True,
+            detail=f"Queue item {queue_id} confirmed removed from the queue.",
+        )
