@@ -3095,6 +3095,54 @@ provider for the same capability actually exists to design against.
     last time: CPU usage is high: 95%" and the queue was empty
     immediately afterward.
 
+73. **Done** -- House status check. Picked from the same brainstormed
+    list, originally framed as "doors, windows, alarms, appliances and
+    unusual conditions." "Appliances" and "unusual conditions" are cut
+    from this milestone -- there's no appliance-power-draw sensor wired
+    up anywhere in this codebase, and "unusual" for a home (as opposed to
+    a server, where `ServerHealthSkill` already has concrete thresholds
+    to check) isn't something any existing tool measures. Building either
+    would mean inventing a signal rather than checking one that exists,
+    which this codebase avoids.
+
+    What shipped: a new `house_status_check` skill/tool
+    (`app/skills/builtin/house_status.py`), composing existing
+    `home_assistant_list_entities` calls only -- no new client, no new
+    settings, same shape as `ServerHealthSkill`/`PresenceSkill`. It
+    checks three things Home Assistant already exposes honestly: any
+    `binary_sensor` whose entity_id matches "door"/"window"/"garage" and
+    is `on` (Home Assistant's own convention: a binary_sensor's "on"
+    state means the condition is detected, i.e. open, not closed); any
+    `lock` entity in the `unlocked` state; and the `alarm_control_panel`
+    domain's entities, passed through as-is (their arm state is
+    informational, not itself a warning). "Door"/"window"/"garage"
+    detection is entity_id substring matching, the same heuristic style
+    `docker_resolve_container`/`home_assistant_resolve_entity`
+    (milestone 66) already use, since a binary_sensor's device_class
+    isn't part of `home_assistant_list_entities`'s trimmed
+    entity_id+state shape. Unlike the `home_assistant_*` tools
+    themselves, `house_status_check` is always registered -- calling it
+    without Home Assistant configured returns
+    `{"checked": false, "reason": "Home Assistant is not configured."}`
+    rather than the tool simply not existing, so the model can discover
+    why rather than getting a missing-tool error.
+
+    Verified: full suite (567 passed, up from 560) in
+    `tests/test_house_status.py`, covering the not-configured case, an
+    all-secure house (nothing open or unlocked), an open door, an open
+    window/garage sensor (with a closed one correctly not flagged), an
+    unlocked lock, alarm panels passed through without generating a
+    warning of their own, and multiple warnings combining in the
+    `warnings` list. Live-verified against a real `uvicorn` process and a
+    fake Home Assistant server (`/api/states` returning an open front
+    door, an unlocked back door, a locked front door, and an armed alarm
+    panel): `POST /siris/tools/house_status_check/run` correctly reported
+    `open_openings: ["binary_sensor.front_door"]`,
+    `unlocked_locks: ["lock.back_door"]`, and `all_secure: false` through
+    a real HTTP round trip; a second run against a server with no Home
+    Assistant configured confirmed the tool is still registered and
+    returns the not-configured message instead of erroring.
+
 ## Running locally
 
 ```bash
