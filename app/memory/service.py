@@ -191,7 +191,11 @@ def _search_terms(query: str) -> list[str]:
 
 
 class MemoryStore:
-    def __init__(self, session_factory: sessionmaker, embedding_client: OllamaEmbeddingClient | None = None) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker,
+        embedding_client: OllamaEmbeddingClient | None = None,
+    ) -> None:
         self._session_factory = session_factory
         self._embedding_client = embedding_client
 
@@ -200,12 +204,16 @@ class MemoryStore:
         embedding = self._try_embed(content)
 
         if embedding is not None:
-            duplicate = self._most_similar(user_id, embedding, min_similarity=_DEDUP_SIMILARITY)
+            duplicate = self._most_similar(
+                user_id, embedding, min_similarity=_DEDUP_SIMILARITY
+            )
             if duplicate is not None:
                 return duplicate
 
         with self._session_factory() as session:
-            entry = MemoryEntry(content=content, user_id=user_id, embedding=_encode(embedding))
+            entry = MemoryEntry(
+                content=content, user_id=user_id, embedding=_encode(embedding)
+            )
             session.add(entry)
             session.commit()
             session.refresh(entry)
@@ -242,7 +250,12 @@ class MemoryStore:
                     terms = _search_terms(query)
                     if terms:
                         stmt = stmt.where(
-                            or_(*[MemoryEntry.content.ilike(f"%{term}%") for term in terms])
+                            or_(
+                                *[
+                                    MemoryEntry.content.ilike(f"%{term}%")
+                                    for term in terms
+                                ]
+                            )
                         )
                     else:
                         # Every word was filtered out (a query that's entirely
@@ -299,7 +312,11 @@ class MemoryStore:
                 by_content: dict[str, list[int]] = {}
                 for row in rows:
                     by_content.setdefault(row.content, []).append(row.id)
-                return [{"content": c, "ids": ids} for c, ids in by_content.items() if len(ids) > 1]
+                return [
+                    {"content": c, "ids": ids}
+                    for c, ids in by_content.items()
+                    if len(ids) > 1
+                ]
 
             embeddings: dict[int, list[float]] = {}
             for row in rows:
@@ -322,7 +339,10 @@ class MemoryStore:
             ids = list(embeddings.keys())
             for i in range(len(ids)):
                 for j in range(i + 1, len(ids)):
-                    if cosine_similarity(embeddings[ids[i]], embeddings[ids[j]]) >= min_similarity:
+                    if (
+                        cosine_similarity(embeddings[ids[i]], embeddings[ids[j]])
+                        >= min_similarity
+                    ):
                         root_i, root_j = find(ids[i]), find(ids[j])
                         if root_i != root_j:
                             parent[root_j] = root_i
@@ -367,9 +387,13 @@ class MemoryStore:
             scored.append((cosine_similarity(query_embedding, embedding), entry))
 
         scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [entry for score, entry in scored if score >= _RECALL_MIN_SIMILARITY][:limit]
+        return [entry for score, entry in scored if score >= _RECALL_MIN_SIMILARITY][
+            :limit
+        ]
 
-    def _most_similar(self, user_id: str, embedding: list[float], *, min_similarity: float) -> dict[str, Any] | None:
+    def _most_similar(
+        self, user_id: str, embedding: list[float], *, min_similarity: float
+    ) -> dict[str, Any] | None:
         with self._session_factory() as session:
             stmt = select(MemoryEntry).where(MemoryEntry.user_id == user_id)
             best: tuple[float, MemoryEntry] | None = None

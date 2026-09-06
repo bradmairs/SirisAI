@@ -121,8 +121,13 @@ def test_delete_memory_removes_it(client: TestClient) -> None:
     delete_response = client.delete(f"/siris/memory/{created['id']}")
     assert delete_response.status_code == 204
 
+    # Word-based OR matching (recall()'s no-embeddings fallback) means a
+    # multi-word query like this one can also match unrelated memories in
+    # the shared test-session DB that happen to share a common word (e.g.
+    # "memory") -- check the deleted entry specifically isn't among the
+    # results, rather than asserting the whole result list is empty.
     list_response = client.get("/siris/memory", params={"query": content})
-    assert list_response.json() == []
+    assert not any(e["id"] == created["id"] for e in list_response.json())
 
 
 def test_delete_memory_404s_for_an_unknown_id(client: TestClient) -> None:
