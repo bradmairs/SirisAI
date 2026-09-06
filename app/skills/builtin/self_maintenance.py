@@ -7,7 +7,9 @@ server_health_check (15).
 
 Deliberately data-backed rather than fuzzy: every finding here comes from
 a concrete count over stored history (memory recall_count, audit log
-errors/sequences), not an LLM's impression of what seems off.
+errors/sequences) or, for duplicate detection, embedding cosine similarity
+(see MemoryStore.find_duplicate_groups()) -- not an LLM's impression of
+what seems off.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -55,10 +57,7 @@ class SelfMaintenanceSkill(Skill):
             if m["recall_count"] == 0 and _older_than(m["created_at"], timedelta(days=_UNUSED_MEMORY_MIN_AGE_DAYS))
         ]
 
-        by_content: dict[str, list[int]] = {}
-        for m in memories:
-            by_content.setdefault(m["content"], []).append(m["id"])
-        duplicate_memories = [{"content": content, "ids": ids} for content, ids in by_content.items() if len(ids) > 1]
+        duplicate_memories = siris.memory.find_duplicate_groups()
 
         failing_tools = siris.audit.failure_counts_by_tool()
         repeated_sequences = siris.audit.repeated_planner_sequences(

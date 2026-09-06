@@ -35,6 +35,12 @@ class MemoryEntry(Base):
     # ("unused"), not just old ones.
     recall_count: Mapped[int] = mapped_column(Integer, default=0)
     last_recalled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Semantic recall (app/llm/embeddings.py) -- JSON-encoded list[float],
+    # null for any row saved before SIRISAI_EMBEDDING_PROVIDER was
+    # configured (or if that call failed). MemoryStore.recall() computes
+    # and backfills this lazily the first time such a row is a candidate,
+    # rather than requiring a separate migration script to run.
+    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Conversation(Base):

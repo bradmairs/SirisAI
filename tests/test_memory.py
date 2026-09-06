@@ -52,6 +52,22 @@ def test_chat_can_write_memory_via_remember_tool(client: TestClient) -> None:
     assert [e["content"] for e in list_response.json()] == [content]
 
 
+def test_delete_memory_removes_it(client: TestClient) -> None:
+    content = f"temporary memory to delete {uuid.uuid4()}"
+    created = client.post("/siris/memory", json={"content": content}).json()
+
+    delete_response = client.delete(f"/siris/memory/{created['id']}")
+    assert delete_response.status_code == 204
+
+    list_response = client.get("/siris/memory", params={"query": content})
+    assert list_response.json() == []
+
+
+def test_delete_memory_404s_for_an_unknown_id(client: TestClient) -> None:
+    response = client.delete("/siris/memory/999999999")
+    assert response.status_code == 404
+
+
 def test_siris_status_lists_memory_tools(client: TestClient) -> None:
     response = client.get("/siris/status")
     tools = response.json()["tools"]

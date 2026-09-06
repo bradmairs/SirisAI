@@ -39,6 +39,8 @@ _ADDED_COLUMNS = [
     # Deterministic per-tool verification.
     ("tool_executions", "verified", "BOOLEAN"),
     ("tool_executions", "verification_detail", "TEXT"),
+    # Semantic memory recall.
+    ("memories", "embedding", "TEXT"),
 ]
 
 

@@ -33,6 +33,7 @@ from app.home_assistant.client import HomeAssistantClient
 from app.integrations.openapi import DiscoveredOperation, discover_get_operations
 from app.integrations.service import IntegrationStore
 from app.llm.base import LLMClient
+from app.llm.embeddings import OllamaEmbeddingClient
 from app.llm.factory import build_llm_client
 from app.llm.metering import MeteredLLMClient
 from app.llm.router import ModelRouter
@@ -325,6 +326,19 @@ class SirisAI:
                 policy=self.settings.model_router_policy,
                 fast_max_prompt_chars=self.settings.model_router_fast_max_prompt_chars,
             )
+        # Semantic memory recall (app/llm/embeddings.py, app/memory/service.py).
+        # Rebuilding `self.memory` here (rather than a dataclass field
+        # default_factory, like every other *Store field above) is the one
+        # exception -- it needs `self.settings`, not available yet when
+        # field defaults are evaluated. "none" (default) leaves `memory`
+        # exactly as its field default already constructed it, and
+        # `self._embedding_client` stays None (see `aclose()`).
+        self._embedding_client: OllamaEmbeddingClient | None = None
+        if self.settings.embedding_provider == "ollama":
+            self._embedding_client = OllamaEmbeddingClient(
+                base_url=self.settings.ollama_base_url, model=self.settings.embedding_model
+            )
+            self.memory = MemoryStore(SessionLocal, embedding_client=self._embedding_client)
         if self.stt is None:
             self.stt = build_stt_client(self.settings)
         if self.tts is None:
@@ -887,6 +901,7 @@ class SirisAI:
             self._listenarr_client,
             self._cleanuparr_client,
             self._obsidian_client,
+            self._embedding_client,
         )
         for client in sync_clients:
             if client is not None:
