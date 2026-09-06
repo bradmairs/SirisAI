@@ -3361,6 +3361,32 @@ provider for the same capability actually exists to design against.
     through the same automatic `run_tool()` -> `verify()` -> audit-log
     pipeline.
 
+79. **Done** -- Extend the `Tool.verify()` sweep to
+    `tautulli_terminate_session`. The last remaining `CONFIRM_REQUIRED`
+    tool in this codebase without one: Tautulli's `terminate_session`
+    call is relayed on to Plex, and the actual player client is what has
+    to honor it -- a network hiccup or an unresponsive client can leave
+    the stream still playing even though Tautulli itself accepted the
+    command, the same "the API call not raising doesn't prove it
+    happened" gap this sweep has now closed everywhere it applies in
+    this codebase.
+
+    What shipped: `verify()` re-checks `current_activity()` for the same
+    `session_id` -- gone means the stream actually stopped, still
+    present means it didn't. Same `NotImplementedError` convention when
+    there's no `session_id` to check against.
+
+    Verified: full suite (608 passed, up from 605) covering the
+    success/failure/no-`session_id` cases, mocked at the
+    `TautulliClient` boundary. Live-verified against a real `uvicorn`
+    process and a fake Tautulli server that actually tracks active
+    sessions server-side and removes one on `terminate_session` (not
+    just echoing success): `POST /siris/tools/tautulli_terminate_session/run`
+    followed by `GET /siris/activity` showed `verified: true` with
+    detail "Session abc123 confirmed no longer active" -- through the
+    same automatic `run_tool()` -> `verify()` -> audit-log pipeline as
+    every other verified tool call.
+
 ## Running locally
 
 ```bash

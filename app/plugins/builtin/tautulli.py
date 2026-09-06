@@ -11,7 +11,7 @@ not just a query.
 
 from typing import Any
 
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
 from app.tautulli.client import TautulliClient
 
 
@@ -30,12 +30,17 @@ class TautulliCurrentActivityTool(Tool):
 
 class TautulliRecentHistoryTool(Tool):
     name = "tautulli_recent_history"
-    description = "List recent Plex playback history (who watched what, and when) from Tautulli."
+    description = (
+        "List recent Plex playback history (who watched what, and when) from Tautulli."
+    )
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
         "properties": {
-            "length": {"type": "integer", "description": "How many recent history entries to return. Defaults to 10."},
+            "length": {
+                "type": "integer",
+                "description": "How many recent history entries to return. Defaults to 10.",
+            },
         },
         "required": [],
     }
@@ -57,8 +62,14 @@ class TautulliHomeStatsTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "days": {"type": "integer", "description": "How many days back to summarize. Defaults to 30."},
-            "count": {"type": "integer", "description": "How many rows per category. Defaults to 5."},
+            "days": {
+                "type": "integer",
+                "description": "How many days back to summarize. Defaults to 30.",
+            },
+            "count": {
+                "type": "integer",
+                "description": "How many rows per category. Defaults to 5.",
+            },
         },
         "required": [],
     }
@@ -80,8 +91,14 @@ class TautulliTerminateSessionTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "session_id": {"type": "string", "description": "The session to stop, from tautulli_current_activity."},
-            "message": {"type": "string", "description": "Optional message shown to the user in their Plex client."},
+            "session_id": {
+                "type": "string",
+                "description": "The session to stop, from tautulli_current_activity.",
+            },
+            "message": {
+                "type": "string",
+                "description": "Optional message shown to the user in their Plex client.",
+            },
         },
         "required": ["session_id"],
     }
@@ -91,6 +108,30 @@ class TautulliTerminateSessionTool(Tool):
 
     def run(self, session_id: str = "", message: str = "", **kwargs: Any) -> Any:
         return self._client.terminate_session(session_id, message=message)
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Same "the API call not raising doesn't prove it happened" gap
+        this codebase's other verify()s close: Tautulli's own
+        terminate_session call is a fire-and-forget request relayed to
+        Plex, and the actual player client is what has to honor it --
+        a network hiccup or an unresponsive client can leave the stream
+        still playing even though Tautulli accepted the command.
+        Re-checks current_activity() for the same session_id."""
+        session_id = arguments.get("session_id")
+        if not session_id:
+            raise NotImplementedError(
+                f"{self.name} does not support verify without a session_id"
+            )
+
+        if any(
+            s.get("session_id") == session_id for s in self._client.current_activity()
+        ):
+            return ToolVerification(
+                verified=False, detail=f"Session {session_id} is still active."
+            )
+        return ToolVerification(
+            verified=True, detail=f"Session {session_id} confirmed no longer active."
+        )
 
 
 class TautulliGetUsersTool(Tool):
