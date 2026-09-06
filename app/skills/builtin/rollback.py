@@ -75,10 +75,30 @@ def _inverse_home_assistant_call_service(
     }
 
 
+def _inverse_unifi_block_client(
+    arguments: dict[str, Any], result: Any
+) -> tuple[str, dict[str, Any]] | None:
+    client_id = arguments.get("client_id")
+    if not client_id:
+        return None
+    return "unifi_unblock_client", {"client_id": client_id}
+
+
+def _inverse_unifi_unblock_client(
+    arguments: dict[str, Any], result: Any
+) -> tuple[str, dict[str, Any]] | None:
+    client_id = arguments.get("client_id")
+    if not client_id:
+        return None
+    return "unifi_block_client", {"client_id": client_id}
+
+
 _INVERSE_HANDLERS = {
     "radarr_add_movie": _inverse_radarr_add_movie,
     "sonarr_add_series": _inverse_sonarr_add_series,
     "home_assistant_call_service": _inverse_home_assistant_call_service,
+    "unifi_block_client": _inverse_unifi_block_client,
+    "unifi_unblock_client": _inverse_unifi_unblock_client,
 }
 
 

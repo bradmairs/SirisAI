@@ -7,9 +7,11 @@ from app.plugins.base import ConfirmationRequired, ToolPermission
 from app.plugins.builtin.home_assistant import HomeAssistantCallServiceTool
 from app.plugins.builtin.radarr import RadarrAddMovieTool, RadarrDeleteMovieTool
 from app.plugins.builtin.sonarr import SonarrAddSeriesTool, SonarrDeleteSeriesTool
+from app.plugins.builtin.unifi import UniFiBlockClientTool, UniFiUnblockClientTool
 from app.radarr.client import RadarrClient
 from app.skills.builtin.rollback import RollbackLastActionSkill
 from app.sonarr.client import SonarrClient
+from app.unifi.client import UniFiClient
 
 
 def _siris() -> SirisAI:
@@ -138,6 +140,51 @@ def test_rollback_calls_the_opposite_home_assistant_service() -> None:
         "entity_id": "light.kitchen",
     }
     assert "/api/services/light/turn_off" in calls
+    client.close()
+
+
+def test_rollback_reverses_a_unifi_block_client() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/proxy/network/integration/v1/sites":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "site-1",
+                            "internalReference": "default",
+                            "name": "Default",
+                        }
+                    ]
+                },
+            )
+        calls.append((request.method, request.url.path))
+        if request.url.path.endswith("/actions"):
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={"data": []})
+
+    client = UniFiClient(
+        base_url="http://unifi.local",
+        api_key="key",
+        transport=httpx.MockTransport(handler),
+    )
+    siris = _siris()
+    siris.tools.register(UniFiBlockClientTool(client))
+    siris.tools.register(UniFiUnblockClientTool(client))
+
+    siris.run_tool("unifi_block_client", {"client_id": "client-1"}, confirmed=True)
+
+    result = RollbackLastActionSkill().run(siris, tool_name="unifi_block_client")
+
+    assert result["rolled_back"] is True
+    assert result["undo_tool"] == "unifi_unblock_client"
+    assert result["undo_arguments"] == {"client_id": "client-1"}
+    assert (
+        "POST",
+        "/proxy/network/integration/v1/sites/site-1/clients/client-1/actions",
+    ) in calls
     client.close()
 
 

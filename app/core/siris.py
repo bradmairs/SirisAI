@@ -147,7 +147,12 @@ from app.plugins.builtin.tautulli import (
     TautulliRecentHistoryTool,
     TautulliTerminateSessionTool,
 )
-from app.plugins.builtin.unifi import UniFiListClientsTool, UniFiListDevicesTool
+from app.plugins.builtin.unifi import (
+    UniFiBlockClientTool,
+    UniFiListClientsTool,
+    UniFiListDevicesTool,
+    UniFiUnblockClientTool,
+)
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
@@ -451,6 +456,8 @@ class SirisAI:
             )
             self.tools.register(UniFiListDevicesTool(self._unifi_client))
             self.tools.register(UniFiListClientsTool(self._unifi_client))
+            self.tools.register(UniFiBlockClientTool(self._unifi_client))
+            self.tools.register(UniFiUnblockClientTool(self._unifi_client))
 
             if self.settings.presence_device_names:
                 self.tools.register(

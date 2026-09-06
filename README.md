@@ -3387,6 +3387,70 @@ provider for the same capability actually exists to design against.
     same automatic `run_tool()` -> `verify()` -> audit-log pipeline as
     every other verified tool call.
 
+80. **Done** -- UniFi client block/unblock. Direct request to keep
+    developing the UniFi integration specifically. UniFi has been
+    read-only since milestone 57, which explicitly declined to add a
+    write action "without the means to re-verify it against real
+    hardware from here" -- that constraint still holds in this
+    environment, so before building anything the user was asked
+    directly: expand read-only coverage instead, or add write actions
+    anyway despite being unable to verify the exact endpoint shape
+    against a real controller. The answer was to add them anyway.
+
+    What shipped, in `app/unifi/client.py`: `block_client()`/
+    `unblock_client()`, POSTing `{"action": "BLOCK"}`/`{"action":
+    "UNBLOCK"}` to the Integration API's per-client action endpoint --
+    modeled on the action-based shape developer.ui.com/network/
+    integration documents for device actions (e.g. restart), applied
+    here to clients, but genuinely not live-tested against a real
+    controller the way this integration's read paths were (milestone
+    56). `list_clients()` now also exposes `id` (needed to target a
+    block/unblock call at all -- it wasn't returned before) and
+    `blocked`. Two new `CONFIRM_REQUIRED` tools,
+    `unifi_block_client`/`unifi_unblock_client`, in
+    `app/plugins/builtin/unifi.py`.
+
+    Deliberately scoped to clients only, not devices: restarting a
+    UniFi device (AP, switch, gateway) risks taking down the LAN
+    segment this very SirisAI instance may be running on, a materially
+    larger blast radius than disconnecting one client device -- left
+    for a future milestone to weigh on its own rather than folded in
+    here.
+
+    `verify()` re-lists clients and checks the `blocked` flag -- but
+    honestly asymmetric about what "client not found in the list"
+    means, since that's genuinely ambiguous without a real controller
+    to confirm against: after blocking, the client vanishing from the
+    "connected clients" list is *consistent* with a successful block
+    (disconnected), but could just as easily mean it was already
+    offline before the call -- there's no way to tell which from here,
+    so that case honestly raises `NotImplementedError` rather than
+    guessing either way. After unblocking, the same absence is
+    unambiguous (nothing has reconnected yet, which doesn't contradict
+    success), so that direction reports `verified: True`. Also added
+    `unifi_block_client`/`unifi_unblock_client` as a new inverse pair to
+    `RollbackLastActionSkill`'s `_INVERSE_HANDLERS` (milestone 70) --
+    the same "opposite action" pattern already used for Home Assistant
+    services, applied here since blocking has as obvious a real inverse
+    as `turn_on`/`turn_off`.
+
+    Verified: full suite (621 passed, up from 608) covering
+    `list_clients()`'s new fields, block/unblock posting the right
+    action body, both tools' `verify()` success/failure/no-id cases,
+    the block-side `NotImplementedError`-on-absence case specifically,
+    and a new rollback test proving `unifi_block_client` reverses
+    through `unifi_unblock_client` end-to-end via
+    `RollbackLastActionSkill`. Live-verified against a real `uvicorn`
+    process and a fake UniFi controller that actually tracks a client's
+    blocked state server-side (not just echoing 200): `POST
+    /siris/tools/unifi_block_client/run` followed by `GET
+    /siris/activity` showed `verified: true` with "Client client-1
+    confirmed blocked"; unblocking showed the mirror result; and
+    calling `rollback_last_action` for `unifi_block_client` actually
+    called `unifi_unblock_client` against the real fake controller,
+    confirmed by re-querying its client list directly and seeing
+    `"blocked": false`.
+
 ## Running locally
 
 ```bash
