@@ -3513,6 +3513,59 @@ provider for the same capability actually exists to design against.
     fake controller directly confirmed the client's `blocked` state was
     untouched by the reconnect.
 
+83. **Done** -- UniFi device restart. The one remaining UniFi gap,
+    flagged as materially riskier twice (milestones 82 and, before that,
+    milestone 57's original read-only decision) since it could take
+    down the LAN segment SirisAI itself runs on. Asked directly a third
+    time whether to build it, whether to move to a different part of
+    SirisAI instead, or stop for now -- the answer was to go ahead.
+
+    What shipped: `UniFiClient.restart_device()` posts
+    `{"action": "RESTART"}` to a device-scoped action endpoint (the
+    same action-endpoint shape as the client actions), and a new
+    `unifi_restart_device` tool, `CONFIRM_REQUIRED` like every other
+    write in this file. `list_devices()` now also exposes `id` (needed
+    to target a restart at all -- it wasn't returned before).
+
+    Two things make this tool different from the client-scoped ones:
+
+    - A `dry_run()` (the same preview mechanism
+      `DockerRestartContainerTool` established, milestone 25) reports
+      the target device's current name/model/state, and -- best-effort,
+      not authoritative -- flags when the model name matches known
+      UniFi gateway/router prefixes (`UDM`/`UDR`/`UXG`/`USG`). A
+      gateway is the single point of internet/LAN routing for the
+      whole site, a categorically bigger deal than restarting one AP
+      or switch, and the human confirming should see that before
+      approving, not discover it after. An unrecognized model name
+      just means no warning fires, rather than a false claim either
+      way.
+    - Deliberately **no** `verify()`: a real device reboot is a full
+      hardware/firmware boot cycle, on the order of a minute or more --
+      nothing like a Docker container's few-second process restart.
+      Checking the device's state immediately after this call returns
+      would see it still rebooting essentially every time, reporting
+      "not verified" on every successful restart. That's worse than
+      not checking at all, so this honestly has nothing to check
+      within the call rather than a check that would systematically
+      lie.
+
+    Verified: full suite (660 passed, up from 653) covering the
+    request shape, the `CONFIRM_REQUIRED` tier, `verify()` correctly
+    raising `NotImplementedError`, `dry_run()` reporting current state
+    for a found and an unknown device, and the gateway warning firing
+    for a `UDM-Pro` model but not a `USW-24-PoE` switch. Live-verified
+    against a real `uvicorn` process and a fake UniFi controller
+    tracking two real devices (an AP and a `UDM-Pro` gateway):
+    `dry_run: true` correctly returned no warning for the AP and the
+    full gateway warning (naming the model) for the gateway, both
+    through real HTTP round trips; actually restarting the AP returned
+    `verified: null` in `GET /siris/activity` (no check attempted, not
+    a silently-skipped one) and re-querying the fake controller
+    directly showed its state had genuinely transitioned to
+    `REBOOTING` -- concretely demonstrating why an immediate `verify()`
+    would have been wrong.
+
 ## Running locally
 
 ```bash

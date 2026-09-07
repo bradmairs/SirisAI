@@ -25,11 +25,19 @@ tier despite a smaller blast radius than block -- it never leaves a
 client unable to reconnect, just cycles it, for troubleshooting rather
 than restricting access.
 
-Deliberately scoped to clients only, not devices: restarting a UniFi
-device (AP, switch, gateway) risks taking down the LAN segment this
-very SirisAI instance may be running on, a materially larger blast
-radius than anything client-scoped -- left for a future milestone that
-can weigh that risk on its own, not folded in here.
+restart_device (a further milestone) is the highest-consequence tool in
+this file: restarting a UniFi device (AP, switch, gateway) risks taking
+down the LAN segment this very SirisAI instance may be running on --
+raised explicitly, twice, before being built, and built only at
+explicit user request both times. CONFIRM_REQUIRED like every other
+write here, plus a `dry_run()` that flags when the target device's
+model name looks like a gateway (the single-point-of-failure case,
+worse than an AP/switch) so whoever confirms sees that warning before
+approving, not after. Deliberately no `verify()`: a full device reboot
+takes on the order of a minute or more, far longer than any single
+post-call check could usefully wait for, so checking immediately would
+report "not verified" on essentially every successful restart -- worse
+than not checking at all.
 """
 
 from typing import Any
@@ -248,3 +256,85 @@ class UniFiReconnectClientTool(Tool):
     # set_temperature). Honestly nothing to check here either, so this
     # relies on Tool.verify()'s own base "doesn't support verify"
     # default rather than adding one that can't mean anything.
+
+
+# Model name prefixes that indicate a UniFi gateway/router (the site's
+# single point of internet/LAN routing) rather than an AP or switch --
+# UDM (Dream Machine family), UDR (Dream Router), UXG (the standalone
+# "Next-Gen Gateway" line), USG (the older UniFi Security Gateway).
+# Best-effort, not authoritative: an unrecognized model name just means
+# no warning fires, same "don't overclaim rigor that isn't there"
+# honesty as DockerRestartContainerTool.dry_run()'s own best-effort
+# Plex-session detail.
+_LIKELY_GATEWAY_MODEL_PREFIXES = ("UDM", "UDR", "UXG", "USG")
+
+
+class UniFiRestartDeviceTool(Tool):
+    name = "unifi_restart_device"
+    description = (
+        "Restart a UniFi network device (access point, switch, or gateway), using its id "
+        "from unifi_list_devices. Disrupts every client connected through that device for "
+        "the length of a full reboot (a minute or more) -- restarting the site's gateway "
+        "disrupts ALL internet/LAN routing for the whole site, not just one device's "
+        "clients, possibly including SirisAI's own connectivity. Call unifi_restart_device "
+        "with dry_run to see the target device's current state and whether it looks like a "
+        "gateway before confirming."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "device_id": {
+                "type": "string",
+                "description": "The UniFi device id to restart, from unifi_list_devices.",
+            },
+        },
+        "required": ["device_id"],
+    }
+
+    def __init__(self, client: UniFiClient) -> None:
+        self._client = client
+
+    def run(self, device_id: str = "", **kwargs: Any) -> Any:
+        return self._client.restart_device(device_id)
+
+    def dry_run(self, device_id: str = "", **kwargs: Any) -> Any:
+        """What restarting `device_id` would do, without doing it: its
+        current name/model/state, and a prominent warning when the
+        model name matches the gateway prefixes above -- the
+        single-point-of-failure case a human approving this should see
+        before confirming, not discover after. Same shape/intent as
+        DockerRestartContainerTool.dry_run() (milestone 25's preview
+        mechanism)."""
+        devices = self._client.list_devices()
+        match = next((d for d in devices if d.get("id") == device_id), None)
+
+        report: dict[str, Any] = {
+            "device_id": device_id,
+            "name": match["name"] if match else None,
+            "model": match["model"] if match else None,
+            "current_state": match["state"] if match else "unknown (not found)",
+            "would_restart": True,
+        }
+
+        model = (match or {}).get("model") or ""
+        if any(
+            model.upper().startswith(prefix)
+            for prefix in _LIKELY_GATEWAY_MODEL_PREFIXES
+        ):
+            report["warning"] = (
+                f"Model '{model}' matches known UniFi gateway/router naming -- restarting "
+                "this device will likely disrupt ALL internet/LAN routing for the site "
+                "(possibly including SirisAI's own connectivity) for the length of the "
+                "reboot, not just this one device's own clients."
+            )
+
+        return report
+
+    # No verify(): a full device reboot takes on the order of a minute
+    # or more (a real hardware/firmware boot cycle, not a Docker
+    # container's few-second process restart) -- checking the device's
+    # state immediately after this call returns would see it still
+    # rebooting essentially every time, reporting "not verified" on
+    # every successful restart. That's worse than not checking at all;
+    # see this file's module docstring.

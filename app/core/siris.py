@@ -155,6 +155,7 @@ from app.plugins.builtin.unifi import (
     UniFiListDevicesTool,
     UniFiReconnectClientTool,
     UniFiResolveClientTool,
+    UniFiRestartDeviceTool,
     UniFiUnblockClientTool,
 )
 from app.plugins.builtin.weather import WeatherCurrentTool
@@ -483,6 +484,7 @@ class SirisAI:
             self.tools.register(UniFiBlockClientTool(self._unifi_client))
             self.tools.register(UniFiUnblockClientTool(self._unifi_client))
             self.tools.register(UniFiReconnectClientTool(self._unifi_client))
+            self.tools.register(UniFiRestartDeviceTool(self._unifi_client))
 
             if self.settings.presence_device_names:
                 self.tools.register(

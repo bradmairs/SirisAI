@@ -10,6 +10,7 @@ from app.plugins.builtin.unifi import (
     UniFiListDevicesTool,
     UniFiReconnectClientTool,
     UniFiResolveClientTool,
+    UniFiRestartDeviceTool,
     UniFiUnblockClientTool,
 )
 from app.unifi.client import UniFiClient
@@ -55,14 +56,26 @@ def test_list_devices_resolves_site_id_then_hits_correct_path() -> None:
             200,
             json={
                 "data": [
-                    {"name": "Living Room AP", "model": "U6-Lite", "state": "ONLINE"}
+                    {
+                        "id": "device-1",
+                        "name": "Living Room AP",
+                        "model": "U6-Lite",
+                        "state": "ONLINE",
+                    }
                 ]
             },
         )
 
     client = _mock_client(handler)
     result = UniFiListDevicesTool(client).run()
-    assert result == [{"name": "Living Room AP", "model": "U6-Lite", "state": "ONLINE"}]
+    assert result == [
+        {
+            "id": "device-1",
+            "name": "Living Room AP",
+            "model": "U6-Lite",
+            "state": "ONLINE",
+        }
+    ]
     assert calls == [
         "/proxy/network/integration/v1/sites",
         f"/proxy/network/integration/v1/sites/{_SITE_ID}/devices",
@@ -402,4 +415,119 @@ def test_reconnect_client_has_no_verify() -> None:
     tool = UniFiReconnectClientTool(client)
     with pytest.raises(NotImplementedError):
         tool.verify({"client_id": "client-1"}, {})
+    client.close()
+
+
+# -- restart_device
+
+
+def _devices_handler(devices: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/proxy/network/integration/v1/sites":
+            return httpx.Response(200, json=_SITES_RESPONSE)
+        return httpx.Response(200, json={"data": devices})
+
+    return handler
+
+
+def test_restart_device_posts_restart_action() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/proxy/network/integration/v1/sites":
+            return httpx.Response(200, json=_SITES_RESPONSE)
+        assert request.method == "POST"
+        assert (
+            request.url.path
+            == f"/proxy/network/integration/v1/sites/{_SITE_ID}/devices/device-1/actions"
+        )
+        assert json.loads(request.content) == {"action": "RESTART"}
+        return httpx.Response(200, json={})
+
+    client = _mock_client(handler)
+    result = UniFiRestartDeviceTool(client).run(device_id="device-1")
+    assert result == {"restarted": True, "device_id": "device-1"}
+    client.close()
+
+
+def test_restart_device_requires_confirmation() -> None:
+    assert UniFiRestartDeviceTool.permission is ToolPermission.CONFIRM_REQUIRED
+
+
+def test_restart_device_has_no_verify() -> None:
+    """A full reboot takes far longer than any single post-call check
+    could usefully wait for -- see the tool's own docstring for why
+    this deliberately relies on Tool.verify()'s base NotImplementedError."""
+    client = _mock_client(lambda r: httpx.Response(200, json=_SITES_RESPONSE))
+    tool = UniFiRestartDeviceTool(client)
+    with pytest.raises(NotImplementedError):
+        tool.verify({"device_id": "device-1"}, {})
+    client.close()
+
+
+def test_restart_device_dry_run_reports_current_state() -> None:
+    client = _mock_client(
+        _devices_handler(
+            [
+                {
+                    "id": "device-1",
+                    "name": "Living Room AP",
+                    "model": "U6-Lite",
+                    "state": "ONLINE",
+                }
+            ]
+        )
+    )
+    report = UniFiRestartDeviceTool(client).dry_run(device_id="device-1")
+    assert report == {
+        "device_id": "device-1",
+        "name": "Living Room AP",
+        "model": "U6-Lite",
+        "current_state": "ONLINE",
+        "would_restart": True,
+    }
+    assert "warning" not in report
+    client.close()
+
+
+def test_restart_device_dry_run_reports_unknown_state_when_not_found() -> None:
+    client = _mock_client(_devices_handler([]))
+    report = UniFiRestartDeviceTool(client).dry_run(device_id="device-1")
+    assert report["current_state"] == "unknown (not found)"
+    assert report["name"] is None
+    client.close()
+
+
+def test_restart_device_dry_run_warns_for_a_gateway_model() -> None:
+    client = _mock_client(
+        _devices_handler(
+            [
+                {
+                    "id": "device-1",
+                    "name": "Main Gateway",
+                    "model": "UDM-Pro",
+                    "state": "ONLINE",
+                }
+            ]
+        )
+    )
+    report = UniFiRestartDeviceTool(client).dry_run(device_id="device-1")
+    assert "warning" in report
+    assert "UDM-Pro" in report["warning"]
+    client.close()
+
+
+def test_restart_device_dry_run_does_not_warn_for_a_switch_model() -> None:
+    client = _mock_client(
+        _devices_handler(
+            [
+                {
+                    "id": "device-1",
+                    "name": "Office Switch",
+                    "model": "USW-24-PoE",
+                    "state": "ONLINE",
+                }
+            ]
+        )
+    )
+    report = UniFiRestartDeviceTool(client).dry_run(device_id="device-1")
+    assert "warning" not in report
     client.close()
