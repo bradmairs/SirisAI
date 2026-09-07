@@ -4,7 +4,11 @@ import pytest
 from app.core.siris import SirisAI, get_siris
 from app.home_assistant.client import HomeAssistantClient
 from app.plugins.base import ConfirmationRequired, ToolPermission
-from app.plugins.builtin.home_assistant import HomeAssistantCallServiceTool
+from app.plugins.builtin.home_assistant import (
+    HomeAssistantCallServiceTool,
+    HomeAssistantCreateAutomationTool,
+    HomeAssistantDeleteAutomationTool,
+)
 from app.plugins.builtin.radarr import RadarrAddMovieTool, RadarrDeleteMovieTool
 from app.plugins.builtin.sonarr import SonarrAddSeriesTool, SonarrDeleteSeriesTool
 from app.plugins.builtin.unifi import UniFiBlockClientTool, UniFiUnblockClientTool
@@ -185,6 +189,82 @@ def test_rollback_reverses_a_unifi_block_client() -> None:
         "POST",
         "/proxy/network/integration/v1/sites/site-1/clients/client-1/actions",
     ) in calls
+    client.close()
+
+
+def test_rollback_reverses_a_home_assistant_create_automation() -> None:
+    calls: list[tuple[str, str]] = []
+    automations: dict[str, dict] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.url.path == "/api/states":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "entity_id": f"automation.{aid}",
+                        "state": "on",
+                        "attributes": {"id": aid},
+                    }
+                    for aid in automations
+                ],
+            )
+        if request.method == "POST" and request.url.path.startswith(
+            "/api/config/automation/config/"
+        ):
+            automation_id = request.url.path.rsplit("/", 1)[-1]
+            automations[automation_id] = {}
+            return httpx.Response(200, json={"result": "ok"})
+        if request.method == "DELETE" and request.url.path.startswith(
+            "/api/config/automation/config/"
+        ):
+            automation_id = request.url.path.rsplit("/", 1)[-1]
+            automations.pop(automation_id, None)
+            return httpx.Response(200, json={"result": "ok"})
+        return httpx.Response(200, json={})
+
+    client = HomeAssistantClient(
+        base_url="http://ha.local",
+        token="token",
+        transport=httpx.MockTransport(handler),
+    )
+    siris = _siris()
+    siris.tools.register(HomeAssistantCreateAutomationTool(client))
+    siris.tools.register(HomeAssistantDeleteAutomationTool(client))
+
+    siris.run_tool(
+        "home_assistant_create_automation",
+        {
+            "alias": "Hallway motion light",
+            "trigger": [
+                {
+                    "platform": "state",
+                    "entity_id": "binary_sensor.hallway_motion",
+                    "to": "on",
+                }
+            ],
+            "action": [
+                {"service": "light.turn_on", "target": {"entity_id": "light.hallway"}}
+            ],
+        },
+        confirmed=True,
+    )
+    assert len(automations) == 1
+    automation_id = next(iter(automations))
+
+    result = RollbackLastActionSkill().run(
+        siris, tool_name="home_assistant_create_automation"
+    )
+
+    assert result["rolled_back"] is True
+    assert result["undo_tool"] == "home_assistant_delete_automation"
+    assert result["undo_arguments"] == {"automation_id": automation_id}
+    assert (
+        "DELETE",
+        f"/api/config/automation/config/{automation_id}",
+    ) in calls
+    assert automations == {}
     client.close()
 
 

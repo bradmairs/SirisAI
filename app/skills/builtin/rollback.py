@@ -4,6 +4,15 @@ verify() sweep (milestones 38/65/68/69) already knows have a real, safe
 inverse -- adding a movie/series has a delete tool right next to it, and
 a Home Assistant device-control call has an obvious opposite service.
 
+home_assistant_create_automation (a later milestone) is the same
+add-has-a-delete-right-next-to-it shape as radarr_add_movie/
+sonarr_add_series: its result carries the fresh automation_id needed to
+call home_assistant_delete_automation. Deliberately one-directional,
+also like those two -- home_assistant_delete_automation's own recorded
+arguments are just an automation_id, with no alias/trigger/action/
+condition/mode to recreate it from, so there's genuinely nothing safe to
+build a reverse-of-the-reverse from rather than a guess dressed up as one.
+
 Deliberately narrow: `_INVERSE_HANDLERS` is a fixed, explicit allowlist,
 not a generic "figure out how to undo any tool" mechanism -- guessing an
 inverse for an arbitrary tool (what's the opposite of a Docker restart? a
@@ -93,12 +102,22 @@ def _inverse_unifi_unblock_client(
     return "unifi_block_client", {"client_id": client_id}
 
 
+def _inverse_home_assistant_create_automation(
+    arguments: dict[str, Any], result: Any
+) -> tuple[str, dict[str, Any]] | None:
+    automation_id = result.get("automation_id") if isinstance(result, dict) else None
+    if not automation_id:
+        return None
+    return "home_assistant_delete_automation", {"automation_id": automation_id}
+
+
 _INVERSE_HANDLERS = {
     "radarr_add_movie": _inverse_radarr_add_movie,
     "sonarr_add_series": _inverse_sonarr_add_series,
     "home_assistant_call_service": _inverse_home_assistant_call_service,
     "unifi_block_client": _inverse_unifi_block_client,
     "unifi_unblock_client": _inverse_unifi_unblock_client,
+    "home_assistant_create_automation": _inverse_home_assistant_create_automation,
 }
 
 
