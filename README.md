@@ -4084,6 +4084,64 @@ provider for the same capability actually exists to design against.
     `add_goal_objective` on it and confirmed a follow-up check dropped
     it from `goals_needing_decomposition`.
 
+96. **Done** -- `list_capability_gaps`: chat-time parity with
+    `GET /siris/capability_gaps`. `report_capability_gap` (milestone 31)
+    has always persisted "I have no tool for that" reports, and a human
+    could always read them back via the REST endpoint -- but the model
+    itself had no way to query its own backlog mid-conversation (e.g.
+    "what have you already flagged as missing?"). Same "give the model
+    the same read access a human already has via REST" shape every other
+    `list_*` tool already follows.
+
+    What shipped:
+    - `ListCapabilityGapsTool` (`app/plugins/builtin/capability_gap.py`,
+      READ, always registered) -- thin wrapper over the pre-existing
+      `CapabilityGapStore.list_gaps()`, same store `GET
+      /siris/capability_gaps` already calls.
+    - `list_capability_gaps` added to `_CATEGORY_NAMES`
+      (`app/core/siris.py`) alongside `report_capability_gap`, so both
+      group under the same `"capabilities"` category in
+      `GET /siris/capabilities`.
+
+    Verified: full suite (768 passed, up from 763) covering registration,
+    a report-then-list round trip through the tool, `limit` handling, and
+    an explicit parity check that the tool and the REST endpoint return
+    the same set of ids for the same data. Live-verified against a real
+    `uvicorn` process: reported a gap via `report_capability_gap`,
+    confirmed `list_capability_gaps` and `GET /siris/capability_gaps`
+    returned identical results, and confirmed `limit` and the
+    `"capabilities"` grouping both behaved correctly.
+
+97. **Done** -- A "Gaps" tab in the built-in web UI
+    (`app/web/static/index.html`), user-requested: a visible register of
+    what SirisAI has reported it can't do yet, updating the same way the
+    Memory tab does -- read straight from `GET /siris/capability_gaps`,
+    the same endpoint milestone 96 gave the model chat-time access to.
+    No backend changes needed -- both the auto-population
+    (`report_capability_gap`, milestone 31) and the read endpoint
+    already existed; this was purely wiring the existing UI's tab
+    pattern (nav button + `section.view` + a `load*()`/`render*()` pair
+    hitting `api()`) to data that had no UI view yet.
+
+    What shipped:
+    - A `Gaps` nav button and `#gaps-view` section, between Memory and
+      Activity.
+    - `loadGaps()`/inline rendering (mirrors `loadActivity()`'s
+      read-only + Refresh-button shape, not Memory's add-form -- entries
+      here are auto-reported by the model via `report_capability_gap`,
+      never hand-added by a user): each `.gap-entry` shows the requested
+      capability, the suggested integration when one was given, and an
+      `#id · timestamp` meta line, most recent first.
+
+    Verified: full suite still green (768 passed -- this is a pure
+    frontend change, no new backend surface to test). Live-verified with
+    a real `uvicorn` process and a real headless Chromium (Playwright):
+    reported two gaps (one with a suggested integration, one without)
+    via `report_capability_gap`, opened the Gaps tab, and confirmed both
+    entries rendered with the right text (screenshot-checked); confirmed
+    Chat/Memory/Activity/Status all still worked after the nav change
+    (no regression from adding a fifth tab).
+
 ## Running locally
 
 ```bash

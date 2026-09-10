@@ -83,3 +83,58 @@ def test_report_capability_gap_via_tool_without_optional_fields(client: TestClie
 def test_capability_gap_appears_in_capabilities_category(client: TestClient) -> None:
     body = client.get("/siris/capabilities").json()
     assert "report_capability_gap" in body["capabilities"]
+
+
+# -- list_capability_gaps: chat-time parity with GET /siris/capability_gaps
+
+
+def test_list_capability_gaps_tool_always_registered(client: TestClient) -> None:
+    response = client.get("/siris/status")
+    assert "list_capability_gaps" in response.json()["tools"]
+
+
+def test_list_capability_gaps_tool_returns_reported_gap(client: TestClient) -> None:
+    capability = f"detect running out of coffee {uuid.uuid4()}"
+    client.post(
+        "/siris/tools/report_capability_gap/run",
+        json={"arguments": {"requested_capability": capability}},
+    )
+
+    response = client.post("/siris/tools/list_capability_gaps/run", json={"arguments": {}})
+
+    assert response.status_code == 200
+    listed = response.json()["tool_call"]["result"]
+    assert any(g["requested_capability"] == capability for g in listed)
+
+
+def test_list_capability_gaps_tool_respects_limit() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    marker = str(uuid.uuid4())
+    siris.capability_gaps.report_gap(f"first {marker}")
+    siris.capability_gaps.report_gap(f"second {marker}")
+
+    result = siris.run_tool("list_capability_gaps", {"limit": 1})
+
+    assert len(result) == 1
+
+
+def test_list_capability_gaps_agrees_with_the_rest_endpoint(client: TestClient) -> None:
+    capability = f"parity check {uuid.uuid4()}"
+    client.post(
+        "/siris/tools/report_capability_gap/run",
+        json={"arguments": {"requested_capability": capability}},
+    )
+
+    via_tool = client.post(
+        "/siris/tools/list_capability_gaps/run", json={"arguments": {"limit": 200}}
+    ).json()["tool_call"]["result"]
+    via_endpoint = client.get("/siris/capability_gaps?limit=200").json()
+
+    tool_ids = {g["id"] for g in via_tool}
+    endpoint_ids = {g["id"] for g in via_endpoint}
+    assert tool_ids == endpoint_ids
+
+
+def test_list_capability_gaps_tool_appears_in_capabilities_category(client: TestClient) -> None:
+    body = client.get("/siris/capabilities").json()
+    assert "list_capability_gaps" in body["capabilities"]
