@@ -4084,6 +4084,34 @@ provider for the same capability actually exists to design against.
     `add_goal_objective` on it and confirmed a follow-up check dropped
     it from `goals_needing_decomposition`.
 
+96. **Done** -- `list_capability_gaps`: chat-time parity with
+    `GET /siris/capability_gaps`. `report_capability_gap` (milestone 31)
+    has always persisted "I have no tool for that" reports, and a human
+    could always read them back via the REST endpoint -- but the model
+    itself had no way to query its own backlog mid-conversation (e.g.
+    "what have you already flagged as missing?"). Same "give the model
+    the same read access a human already has via REST" shape every other
+    `list_*` tool already follows.
+
+    What shipped:
+    - `ListCapabilityGapsTool` (`app/plugins/builtin/capability_gap.py`,
+      READ, always registered) -- thin wrapper over the pre-existing
+      `CapabilityGapStore.list_gaps()`, same store `GET
+      /siris/capability_gaps` already calls.
+    - `list_capability_gaps` added to `_CATEGORY_NAMES`
+      (`app/core/siris.py`) alongside `report_capability_gap`, so both
+      group under the same `"capabilities"` category in
+      `GET /siris/capabilities`.
+
+    Verified: full suite (768 passed, up from 763) covering registration,
+    a report-then-list round trip through the tool, `limit` handling, and
+    an explicit parity check that the tool and the REST endpoint return
+    the same set of ids for the same data. Live-verified against a real
+    `uvicorn` process: reported a gap via `report_capability_gap`,
+    confirmed `list_capability_gaps` and `GET /siris/capability_gaps`
+    returned identical results, and confirmed `limit` and the
+    `"capabilities"` grouping both behaved correctly.
+
 ## Running locally
 
 ```bash

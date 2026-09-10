@@ -47,7 +47,7 @@ from app.notify.pending import PendingNotificationStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
 from app.plugins.builtin.audit import ExplainRecentActionTool, TrustLedgerTool
-from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
+from app.plugins.builtin.capability_gap import ListCapabilityGapsTool, ReportCapabilityGapTool
 from app.plugins.builtin.calendar import (
     CalendarCheckConflictsTool,
     CalendarCreateEventTool,
@@ -236,6 +236,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "run_speed_test": "system",
     "explain_recent_action": "audit",
     "report_capability_gap": "capabilities",
+    "list_capability_gaps": "capabilities",
     "create_goal": "goals",
     "list_goals": "goals",
     "update_goal_status": "goals",
@@ -435,6 +436,7 @@ class SirisAI:
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(TrustLedgerTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
+        self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
             self._home_assistant_client = HomeAssistantClient(

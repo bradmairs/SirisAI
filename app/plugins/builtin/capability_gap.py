@@ -1,7 +1,14 @@
-"""Capability gap tool (milestone 31): how the model reports "I can't do
-that yet" as a persisted, queryable development spec instead of a chat
-reply that evaporates. Always registered -- this is core reasoning
-infrastructure, not an optional integration.
+"""Capability gap tools (milestone 31, extended): how the model reports
+"I can't do that yet" as a persisted, queryable development spec instead
+of a chat reply that evaporates. Always registered -- this is core
+reasoning infrastructure, not an optional integration.
+
+`CapabilityGapStore.list_gaps()` has been readable by a human all along,
+via `GET /siris/capability_gaps` -- but nothing let the model itself
+query it mid-conversation, e.g. "what have you already flagged as
+missing?" `list_capability_gaps` closes that parity gap the same way
+every other list_* tool already gives the model chat-time access to
+something a REST endpoint could already show a human.
 """
 
 from typing import Any
@@ -54,3 +61,28 @@ class ReportCapabilityGapTool(Tool):
         **kwargs: Any,
     ) -> Any:
         return self._gaps.report_gap(requested_capability, suggested_integration, suggested_tool_spec)
+
+
+class ListCapabilityGapsTool(Tool):
+    name = "list_capability_gaps"
+    description = (
+        "List capabilities that have been reported as missing (via report_capability_gap), "
+        "most recent first -- what SirisAI has wanted to do but had no tool for yet."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of gaps to return (most recent first). Default 50.",
+            },
+        },
+        "required": [],
+    }
+
+    def __init__(self, gaps: CapabilityGapStore) -> None:
+        self._gaps = gaps
+
+    def run(self, limit: int = 50, **kwargs: Any) -> Any:
+        return self._gaps.list_gaps(limit)
