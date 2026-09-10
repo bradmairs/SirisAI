@@ -24,6 +24,7 @@ class MemoryCreateRequest(BaseModel):
 
 class MemoryEntryResponse(BaseModel):
     id: int
+    position: int
     content: str
     created_at: str
     recall_count: int

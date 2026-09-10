@@ -3738,6 +3738,46 @@ provider for the same capability actually exists to design against.
     server processed (confirmed via a direct `GET` showing an empty
     library) with `verify()` reporting `verified: true`.
 
+88. **Done** -- `position`: a stable, gapless memory number distinct
+    from `id`. Asked to renumber memories from 1, staying gapless as
+    entries are added/deleted. The literal ask -- physically renumbering
+    the `memories` table's real primary key -- was flagged as risky
+    before building it: `id` is the only handle
+    `DELETE /siris/memory/{id}` accepts (the documented "find
+    duplicates via self_maintenance_check, then delete by id" workflow),
+    so renumbering it on every add/delete means an id fetched from one
+    call could point at a different memory (or nothing) by the time it's
+    used to delete, and could race with a concurrent request doing the
+    same. Asked which was actually wanted -- the real id renumbered, or
+    just a clean display number -- and the answer was the display
+    number.
+
+    What shipped: every memory dict (`remember`/`recall`/`list_all`, and
+    the write-time-dedup path in `remember()` that can return an
+    existing entry instead of a new one) now also carries `position` --
+    a 1-based, gapless rank among that user's memories, oldest first.
+    `MemoryStore._position_map()` computes it fresh on every call (one
+    extra query, ranking by `created_at` then `id` as a tiebreak) rather
+    than storing or persisting it anywhere -- always correct after any
+    add/delete without ever touching another row's actual `id`, which
+    stays a normal, permanent, stable primary key exactly like every
+    other id in this codebase (movies, series, automations, ...).
+
+    Verified: full suite (692 passed, up from 687) covering positions
+    assigned oldest-first starting at 1, `recall()` attaching the
+    correct position independent of its own most-recent-first result
+    order, a delete closing the gap for the remaining entries, a
+    subsequent add continuing the sequence (not reusing the freed
+    number) while getting a fresh, never-reused `id`, and the API
+    response/`list_all()` both exposing the new field. Live-verified
+    against a real `uvicorn` process: created three memories via
+    `POST /siris/memory` (positions 1/2/3), deleted the middle one via
+    `DELETE /siris/memory/{id}` (`204`), confirmed `GET /siris/memory`
+    now showed the remaining two renumbered to 1/2 with their original
+    ids (1 and 3) untouched, then created a fourth memory and confirmed
+    it correctly got position 3 (continuing the sequence) with a brand
+    new id (4) rather than reusing the freed one.
+
 ## Running locally
 
 ```bash
