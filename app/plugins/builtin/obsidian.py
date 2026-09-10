@@ -9,9 +9,16 @@ the path wrong or misjudges what should replace what, with no built-in
 undo on Obsidian's side. Same reasoning as home_assistant_call_service's
 CONFIRM_REQUIRED tier: an unbounded write shouldn't run without a human
 approving it first.
+
+`obsidian_create_or_update_note` also has a `dry_run()` (a later
+milestone): whether the target path already exists and, if so, its
+current content -- what a full replacement would actually discard,
+surfaced to whoever is about to confirm rather than found out after.
 """
 
 from typing import Any
+
+import httpx
 
 from app.obsidian.client import ObsidianClient
 from app.plugins.base import Tool, ToolPermission, ToolVerification
@@ -124,6 +131,37 @@ class ObsidianCreateOrUpdateNoteTool(Tool):
     def run(self, path: str = "", content: str = "", **kwargs: Any) -> Any:
         self._client.create_or_update_note(path, content)
         return {"written": True, "path": path}
+
+    def dry_run(self, path: str = "", content: str = "", **kwargs: Any) -> Any:
+        """What writing `path` would do, without doing it: whether a note
+        is already there (a plain create has nothing to lose; a
+        replacement does), and if so, its current content -- exactly what
+        this call would discard, the same "show what's at risk before
+        confirming, not after" reasoning `UniFiRestartDeviceTool.dry_run()`
+        uses for a gateway warning. Distinguishing "creates" from
+        "overwrites" also matters here in a way it doesn't for a restart:
+        this tool's own description covers both, and only one of them is
+        the genuinely destructive, no-undo case its CONFIRM_REQUIRED tier
+        is really about."""
+        try:
+            existing = self._client.get_note(path)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return {
+                    "path": path,
+                    "exists": False,
+                    "would_create": True,
+                    "would_overwrite": False,
+                }
+            raise
+        return {
+            "path": path,
+            "exists": True,
+            "would_create": False,
+            "would_overwrite": True,
+            "current_content": existing,
+            "unchanged": existing == content,
+        }
 
     def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
         """Same "the API call not raising doesn't prove it actually

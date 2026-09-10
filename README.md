@@ -3607,6 +3607,42 @@ provider for the same capability actually exists to design against.
     the fake server, which subsequently reported an empty automation
     list, and the delete's own `verify()` also reported `verified: true`.
 
+85. **Done** -- `dry_run()` for `obsidian_create_or_update_note`. With
+    the rollback allowlist now covering every safely-invertible
+    CONFIRM_REQUIRED tool (milestone 84), looked at `dry_run()` coverage
+    instead: `Tool.dry_run()`'s own docstring calls it deliberately
+    optional ("most tools have nothing meaningful to simulate"), so this
+    isn't a sweep to fill in everywhere -- only
+    `obsidian_create_or_update_note` had a preview genuinely worth
+    adding. Unlike a restart, which always affects *some* existing
+    thing, this tool's own description covers two different cases: a
+    plain create (nothing to lose) and a full-content replacement
+    (Obsidian has no built-in undo, per this file's module docstring) --
+    and there was no way to tell which one a given call would be before
+    it happened.
+
+    What shipped: `dry_run()` fetches the target path and reports
+    whether it already exists; when it does, the response includes the
+    note's current content (what a replacement would actually discard)
+    and an `unchanged` flag. A 404 is treated as "doesn't exist yet" --
+    `would_create: true`, nothing to preview -- any other error still
+    raises, the same "don't paper over a real failure as a clean
+    not-found" distinction `UniFiClient` makes elsewhere. Same
+    "surface the risk before confirming, not after" reasoning as
+    `UniFiRestartDeviceTool.dry_run()`'s gateway warning.
+
+    Verified: full suite (665 passed, up from 661) covering both
+    branches (new path, existing path with matching/differing content)
+    and that a non-404 error still propagates. Live-verified against a
+    real `uvicorn` process and a fake Obsidian Local REST API server
+    seeded with one existing note: `dry_run: true` against the existing
+    path correctly reported `would_overwrite: true` with its real
+    current content, and against a new path correctly reported
+    `would_create: true` with no content to show; actually writing the
+    existing path afterward produced a real `PUT` the fake server
+    processed (confirmed via a direct `GET` against it), with
+    `verify()` reporting `verified: true` in `GET /siris/activity`.
+
 ## Running locally
 
 ```bash
