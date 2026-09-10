@@ -135,6 +135,93 @@ def test_delete_memory_404s_for_an_unknown_id(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+# -- position: a display-only, 1-based gapless rank distinct from `id`
+# (a real, permanent database primary key that must never be renumbered
+# -- see MemoryStore's module docstring). Each test uses its own unique
+# user_id for full isolation from the shared test-session DB's "default"
+# user, since position is computed across everything that user has ever
+# remembered.
+
+
+def test_positions_are_assigned_oldest_first_starting_at_one() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    user_id = str(uuid.uuid4())
+
+    first = siris.memory.remember("first memory", user_id=user_id)
+    second = siris.memory.remember("second memory", user_id=user_id)
+    third = siris.memory.remember("third memory", user_id=user_id)
+
+    assert first["position"] == 1
+    assert second["position"] == 2
+    assert third["position"] == 3
+
+
+def test_recall_attaches_the_correct_position_regardless_of_result_order() -> None:
+    """recall() with no query returns most-recent-first -- position still
+    reflects each entry's oldest-first rank, not its place in that list."""
+    siris = SirisAI(settings=get_siris().settings)
+    user_id = str(uuid.uuid4())
+
+    siris.memory.remember("oldest", user_id=user_id)
+    siris.memory.remember("middle", user_id=user_id)
+    siris.memory.remember("newest", user_id=user_id)
+
+    results = siris.memory.recall(user_id=user_id)
+    positions_by_content = {r["content"]: r["position"] for r in results}
+    assert positions_by_content == {"oldest": 1, "middle": 2, "newest": 3}
+
+
+def test_positions_close_the_gap_after_a_delete() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    user_id = str(uuid.uuid4())
+
+    first = siris.memory.remember("first", user_id=user_id)
+    second = siris.memory.remember("second", user_id=user_id)
+    third = siris.memory.remember("third", user_id=user_id)
+
+    assert siris.memory.delete(second["id"], user_id=user_id) is True
+
+    results = siris.memory.recall(user_id=user_id)
+    positions_by_content = {r["content"]: r["position"] for r in results}
+    assert positions_by_content == {"first": 1, "third": 2}
+
+    # A new memory continues the now-shorter sequence rather than
+    # reusing the freed number -- still gapless (1..N for the current
+    # count), still ascending by age.
+    fourth = siris.memory.remember("fourth", user_id=user_id)
+    assert fourth["position"] == 3
+    # The real database ids are untouched by the delete -- id stays a
+    # stable identifier, unlike position.
+    assert first["id"] != third["id"]
+
+
+def test_list_all_includes_positions() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    user_id = str(uuid.uuid4())
+    siris.memory.remember("only memory", user_id=user_id)
+
+    results = siris.memory.list_all(user_id=user_id)
+    assert results == [
+        {
+            "id": results[0]["id"],
+            "position": 1,
+            "content": "only memory",
+            "created_at": results[0]["created_at"],
+            "recall_count": 0,
+            "last_recalled_at": None,
+        }
+    ]
+
+
+def test_memory_endpoint_exposes_position(client: TestClient) -> None:
+    content = f"position via endpoint {uuid.uuid4()}"
+    created = client.post("/siris/memory", json={"content": content}).json()
+    assert isinstance(created["position"], int)
+
+    list_response = client.get("/siris/memory", params={"query": content})
+    assert all("position" in e for e in list_response.json())
+
+
 def test_siris_status_lists_memory_tools(client: TestClient) -> None:
     response = client.get("/siris/status")
     tools = response.json()["tools"]

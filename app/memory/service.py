@@ -48,6 +48,21 @@ whatever the last real test actually showed.
 `MemoryStore` opens its own short-lived DB session per call rather than
 using FastAPI's `get_db` dependency, since it's called both from HTTP
 routes and from tool invocations that don't have a request in scope.
+
+Display numbering (a hardening pass): every serialized entry also
+carries `position`, a 1-based, gapless rank among that user's memories
+ordered oldest-first -- a human-friendly "memory #7", distinct from
+`id`. Deliberately computed fresh on every call (`_position_map()`)
+rather than stored or used to renumber `id` itself: `id` is a real
+SQLite primary key, the only handle `DELETE /siris/memory/{id}` accepts
+(see app/api/routes/memory.py's own documented "find duplicates, then
+delete by id" workflow) -- physically renumbering it on every add/delete
+would mean an id fetched from one call could point at a different row,
+or nothing at all, by the time a caller uses it to delete, and could
+race with a concurrent request doing the same. `position` gets the
+"numbered from 1, no gaps, shifts down after a delete" behavior actually
+asked for without any of that risk, at the cost of one extra query per
+call -- cheap at the scale a personal memory store actually reaches.
 """
 
 import json
@@ -217,7 +232,8 @@ class MemoryStore:
             session.add(entry)
             session.commit()
             session.refresh(entry)
-            return self._serialize(entry)
+            position = self._position_map(session, user_id)[entry.id]
+            return self._serialize(entry, position)
 
     def recall(
         self, query: str | None = None, limit: int = 20, *, user_id: str | None = None
@@ -274,7 +290,10 @@ class MemoryStore:
                 entry.last_recalled_at = now
             session.commit()
 
-            return [self._serialize(entry) for entry in entries]
+            position_by_id = self._position_map(session, user_id)
+            return [
+                self._serialize(entry, position_by_id[entry.id]) for entry in entries
+            ]
 
     def list_all(self, *, user_id: str | None = None) -> list[dict[str, Any]]:
         """Every memory belonging to one user, for the self_maintenance_check
@@ -288,7 +307,11 @@ class MemoryStore:
                 .where(MemoryEntry.user_id == user_id)
                 .order_by(MemoryEntry.created_at.desc())
             )
-            return [self._serialize(entry) for entry in session.scalars(stmt).all()]
+            position_by_id = self._position_map(session, user_id)
+            return [
+                self._serialize(entry, position_by_id[entry.id])
+                for entry in session.scalars(stmt).all()
+            ]
 
     def find_duplicate_groups(
         self, *, user_id: str | None = None, min_similarity: float = _DEDUP_SIMILARITY
@@ -405,7 +428,8 @@ class MemoryStore:
                 if best is None or score > best[0]:
                     best = (score, entry)
             if best is not None and best[0] >= min_similarity:
-                return self._serialize(best[1])
+                position = self._position_map(session, user_id)[best[1].id]
+                return self._serialize(best[1], position)
             return None
 
     def _embedding_for(self, entry: MemoryEntry) -> list[float] | None:
@@ -436,9 +460,25 @@ class MemoryStore:
             return None
 
     @staticmethod
-    def _serialize(entry: MemoryEntry) -> dict[str, Any]:
+    def _position_map(session: Any, user_id: str) -> dict[int, int]:
+        """1-based, gapless rank of every memory belonging to `user_id`,
+        oldest first -- see the module docstring for why this is
+        recomputed fresh here rather than stored or used to renumber
+        `id`. Tie-broken by id ascending so two entries sharing the same
+        `created_at` (same-millisecond writes) still get a deterministic,
+        stable order relative to each other."""
+        ids = session.scalars(
+            select(MemoryEntry.id)
+            .where(MemoryEntry.user_id == user_id)
+            .order_by(MemoryEntry.created_at.asc(), MemoryEntry.id.asc())
+        ).all()
+        return {entry_id: position for position, entry_id in enumerate(ids, start=1)}
+
+    @staticmethod
+    def _serialize(entry: MemoryEntry, position: int) -> dict[str, Any]:
         return {
             "id": entry.id,
+            "position": position,
             "content": entry.content,
             "created_at": entry.created_at.isoformat(),
             "recall_count": entry.recall_count,

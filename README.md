@@ -3701,6 +3701,83 @@ provider for the same capability actually exists to design against.
     checking again picked up only that new one -- confirming the cursor
     genuinely advances rather than re-scanning from the start each time.
 
+87. **Done** -- `dry_run()` for `radarr_delete_movie`/`sonarr_delete_series`.
+    With `event_reaction_check` closing the last "later milestone"
+    breadcrumb left in the codebase, swept the same "does this
+    CONFIRM_REQUIRED tool have a `dry_run()` genuinely worth adding"
+    question (milestone 85's reasoning, not milestone 65/76's `verify()`
+    sweep) across every remaining tool -- most already have one where it
+    matters, or (`Tool.dry_run()`'s own docstring) genuinely don't need
+    one. `radarr_delete_movie`/`sonarr_delete_series` were the exceptions:
+    both delete-with-optional-`delete_files` a library entry, the same
+    no-undo shape `obsidian_create_or_update_note`'s full-replacement
+    case already got a preview for, and their own `list_movies()`/
+    `list_series()` already carry exactly the fields (title/year,
+    `has_file` for movies) a preview needs.
+
+    What shipped: both `dry_run()`s report the target's title/year and
+    whether `delete_files` would actually do something --
+    `radarr_delete_movie`'s can say so precisely (`has_file` tells it
+    whether there's a file to delete at all); `sonarr_delete_series`'s
+    honestly can't (`list_series()` carries no per-series file-presence
+    flag) so it only reports the flag as given, not a confirmed
+    prediction -- the same "don't overclaim rigor that isn't there"
+    restraint `UniFiRestartDeviceTool.dry_run()`'s best-effort gateway
+    warning already uses.
+
+    Verified: full suite (687 passed, up from 680) covering both tools'
+    `dry_run()` for a found movie/series (with and without `delete_files`)
+    and an unknown id. Live-verified against a real `uvicorn` process and
+    a fake Radarr/Sonarr server seeded with one movie (`has_file: true`)
+    and one series: `dry_run: true` correctly reported
+    `would_delete_downloaded_file: true` for the movie and
+    `would_delete_downloaded_files: true` for the series, both through
+    real HTTP round trips; an unknown movie id correctly reported
+    `has_file: null`/`would_delete_downloaded_file: false`; actually
+    deleting the movie afterward produced a real `DELETE` the fake
+    server processed (confirmed via a direct `GET` showing an empty
+    library) with `verify()` reporting `verified: true`.
+
+88. **Done** -- `position`: a stable, gapless memory number distinct
+    from `id`. Asked to renumber memories from 1, staying gapless as
+    entries are added/deleted. The literal ask -- physically renumbering
+    the `memories` table's real primary key -- was flagged as risky
+    before building it: `id` is the only handle
+    `DELETE /siris/memory/{id}` accepts (the documented "find
+    duplicates via self_maintenance_check, then delete by id" workflow),
+    so renumbering it on every add/delete means an id fetched from one
+    call could point at a different memory (or nothing) by the time it's
+    used to delete, and could race with a concurrent request doing the
+    same. Asked which was actually wanted -- the real id renumbered, or
+    just a clean display number -- and the answer was the display
+    number.
+
+    What shipped: every memory dict (`remember`/`recall`/`list_all`, and
+    the write-time-dedup path in `remember()` that can return an
+    existing entry instead of a new one) now also carries `position` --
+    a 1-based, gapless rank among that user's memories, oldest first.
+    `MemoryStore._position_map()` computes it fresh on every call (one
+    extra query, ranking by `created_at` then `id` as a tiebreak) rather
+    than storing or persisting it anywhere -- always correct after any
+    add/delete without ever touching another row's actual `id`, which
+    stays a normal, permanent, stable primary key exactly like every
+    other id in this codebase (movies, series, automations, ...).
+
+    Verified: full suite (692 passed, up from 687) covering positions
+    assigned oldest-first starting at 1, `recall()` attaching the
+    correct position independent of its own most-recent-first result
+    order, a delete closing the gap for the remaining entries, a
+    subsequent add continuing the sequence (not reusing the freed
+    number) while getting a fresh, never-reused `id`, and the API
+    response/`list_all()` both exposing the new field. Live-verified
+    against a real `uvicorn` process: created three memories via
+    `POST /siris/memory` (positions 1/2/3), deleted the middle one via
+    `DELETE /siris/memory/{id}` (`204`), confirmed `GET /siris/memory`
+    now showed the remaining two renumbered to 1/2 with their original
+    ids (1 and 3) untouched, then created a fourth memory and confirmed
+    it correctly got position 3 (continuing the sequence) with a brand
+    new id (4) rather than reusing the freed one.
+
 ## Running locally
 
 ```bash

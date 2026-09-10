@@ -325,6 +325,101 @@ def test_delete_movie_verify_raises_not_implemented_without_a_movie_id() -> None
     client.close()
 
 
+# -- delete_movie's dry_run(): what's at risk before confirming a no-undo delete
+
+
+def test_delete_movie_dry_run_reports_the_movie_and_that_a_file_would_be_deleted() -> (
+    None
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 7,
+                    "title": "Dune",
+                    "year": 2021,
+                    "monitored": True,
+                    "hasFile": True,
+                    "status": "downloaded",
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    report = RadarrDeleteMovieTool(client).dry_run(movie_id=7, delete_files=True)
+    assert report == {
+        "movie_id": 7,
+        "title": "Dune",
+        "year": 2021,
+        "has_file": True,
+        "would_remove_from_library": True,
+        "would_delete_downloaded_file": True,
+    }
+    client.close()
+
+
+def test_delete_movie_dry_run_reports_no_file_to_delete_when_there_is_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 7,
+                    "title": "Dune",
+                    "year": 2021,
+                    "monitored": True,
+                    "hasFile": False,
+                    "status": "announced",
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    report = RadarrDeleteMovieTool(client).dry_run(movie_id=7, delete_files=True)
+    assert report["has_file"] is False
+    assert report["would_delete_downloaded_file"] is False
+    client.close()
+
+
+def test_delete_movie_dry_run_does_not_flag_a_file_deletion_when_not_requested() -> (
+    None
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 7,
+                    "title": "Dune",
+                    "year": 2021,
+                    "monitored": True,
+                    "hasFile": True,
+                    "status": "downloaded",
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    report = RadarrDeleteMovieTool(client).dry_run(movie_id=7, delete_files=False)
+    assert report["would_delete_downloaded_file"] is False
+    client.close()
+
+
+def test_delete_movie_dry_run_handles_an_unknown_movie_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    report = RadarrDeleteMovieTool(client).dry_run(movie_id=999, delete_files=True)
+    assert report == {
+        "movie_id": 999,
+        "title": None,
+        "year": None,
+        "has_file": None,
+        "would_remove_from_library": True,
+        "would_delete_downloaded_file": False,
+    }
+    client.close()
+
+
 # -- calendar / radarr_calendar
 
 
