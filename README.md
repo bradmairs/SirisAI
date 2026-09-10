@@ -4112,6 +4112,36 @@ provider for the same capability actually exists to design against.
     returned identical results, and confirmed `limit` and the
     `"capabilities"` grouping both behaved correctly.
 
+97. **Done** -- A "Gaps" tab in the built-in web UI
+    (`app/web/static/index.html`), user-requested: a visible register of
+    what SirisAI has reported it can't do yet, updating the same way the
+    Memory tab does -- read straight from `GET /siris/capability_gaps`,
+    the same endpoint milestone 96 gave the model chat-time access to.
+    No backend changes needed -- both the auto-population
+    (`report_capability_gap`, milestone 31) and the read endpoint
+    already existed; this was purely wiring the existing UI's tab
+    pattern (nav button + `section.view` + a `load*()`/`render*()` pair
+    hitting `api()`) to data that had no UI view yet.
+
+    What shipped:
+    - A `Gaps` nav button and `#gaps-view` section, between Memory and
+      Activity.
+    - `loadGaps()`/inline rendering (mirrors `loadActivity()`'s
+      read-only + Refresh-button shape, not Memory's add-form -- entries
+      here are auto-reported by the model via `report_capability_gap`,
+      never hand-added by a user): each `.gap-entry` shows the requested
+      capability, the suggested integration when one was given, and an
+      `#id · timestamp` meta line, most recent first.
+
+    Verified: full suite still green (768 passed -- this is a pure
+    frontend change, no new backend surface to test). Live-verified with
+    a real `uvicorn` process and a real headless Chromium (Playwright):
+    reported two gaps (one with a suggested integration, one without)
+    via `report_capability_gap`, opened the Gaps tab, and confirmed both
+    entries rendered with the right text (screenshot-checked); confirmed
+    Chat/Memory/Activity/Status all still worked after the nav change
+    (no regression from adding a fifth tab).
+
 ## Running locally
 
 ```bash

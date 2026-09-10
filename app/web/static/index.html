@@ -178,6 +178,13 @@
   .memory-entry { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; }
   .memory-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
 
+  /* Gaps */
+  #gaps-view { padding: 1rem; overflow-y: auto; }
+  #gaps-view button { margin-bottom: 1rem; }
+  .gap-entry { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; }
+  .gap-entry .suggestion { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+  .gap-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+
   /* Activity */
   #activity-view { padding: 1rem; overflow-y: auto; }
   #activity-view button { margin-bottom: 1rem; }
@@ -213,6 +220,7 @@
   <nav>
     <button data-view="chat" class="active">Chat</button>
     <button data-view="memory">Memory</button>
+    <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
   </nav>
@@ -246,6 +254,11 @@
       <button class="action-btn" type="submit">Add</button>
     </form>
     <div id="memory-list"></div>
+  </section>
+
+  <section id="gaps-view" class="view">
+    <button class="action-btn" id="gaps-refresh">Refresh</button>
+    <div id="gaps-list"></div>
   </section>
 
   <section id="activity-view" class="view">
@@ -304,6 +317,7 @@
       btn.classList.add("active");
       document.getElementById(`${btn.dataset.view}-view`).classList.add("active");
       if (btn.dataset.view === "memory") loadMemory();
+      if (btn.dataset.view === "gaps") loadGaps();
       if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
     });
@@ -546,6 +560,47 @@
       memoryList.innerHTML = `<p class="empty">${err.message}</p>`;
     }
   });
+
+  // --- Gaps (things SirisAI has reported it can't do yet) ---
+  const gapsList = document.getElementById("gaps-list");
+
+  async function loadGaps() {
+    gapsList.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const entries = await api("/siris/capability_gaps?limit=100");
+      gapsList.innerHTML = "";
+      if (!entries.length) {
+        gapsList.innerHTML = '<p class="empty">No gaps reported yet.</p>';
+        return;
+      }
+      for (const entry of entries) {
+        const div = document.createElement("div");
+        div.className = "gap-entry";
+
+        const capability = document.createElement("div");
+        capability.textContent = entry.requested_capability;
+        div.appendChild(capability);
+
+        if (entry.suggested_integration) {
+          const suggestion = document.createElement("div");
+          suggestion.className = "suggestion";
+          suggestion.textContent = `Suggested: ${entry.suggested_integration}`;
+          div.appendChild(suggestion);
+        }
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = `#${entry.id} · ${new Date(entry.created_at).toLocaleString()}`;
+        div.appendChild(meta);
+
+        gapsList.appendChild(div);
+      }
+    } catch (err) {
+      gapsList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("gaps-refresh").addEventListener("click", loadGaps);
 
   // --- Activity ---
   const activityList = document.getElementById("activity-list");
