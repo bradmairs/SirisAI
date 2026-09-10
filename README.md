@@ -3918,6 +3918,43 @@ provider for the same capability actually exists to design against.
     reminder then showed `enabled: false` in `list_geofence_reminders`,
     and a third check stayed quiet.
 
+92. **Done** -- Time-of-day metric anomaly detection. Fourth item from
+    the same Jarvis-concept brainstorm: `server_health_check`'s existing
+    personalized threshold (milestone 27) already learns a per-server
+    "normal" from recent history, but as one flat mean/stdev across a
+    server's full day/night cycle -- a value that's unremarkable
+    against that full-cycle average can still be genuinely unusual for
+    *this specific hour* (e.g. a server that idles near 0% overnight
+    spiking to 40% at 3am), and the flat baseline's own day/night swings
+    push its threshold too high to ever catch that.
+
+    What shipped: `MetricsStore.hourly_baseline(metric_name, hour, ...)`
+    -- the same mean/stdev `baseline()` already computes, narrowed to
+    samples recorded during one specific UTC hour. `ServerHealthSkill.
+    _check_metric()` now computes both and prefers the hourly one
+    whenever it has enough samples (a lower `min_samples` than the flat
+    baseline's, since an hourly bucket only ever gets ~1/24th as many
+    samples over the same wall-clock time as the flat baseline does),
+    falling back to the flat baseline, then the fixed 90% ceiling, in
+    the same order the flat baseline already fell back to the fixed
+    ceiling. The warning message keeps its exact
+    `"{label} is high: {value}%"` prefix regardless of which threshold
+    triggered it -- `NotificationManager`'s correlation regex still
+    matches -- with a `(hourly baseline ...)` or `(overall baseline
+    ...)` suffix saying which one actually fired.
+
+    Verified: full suite (733 passed, up from 729) covering
+    `hourly_baseline()` directly (below-min-samples, correctly ignoring
+    other hours' samples, mean/stdev computation) and
+    `ServerHealthSkill` preferring and correctly labeling the hourly
+    baseline when available. Live-verified against a real `uvicorn`
+    process: seeded a tight, low (~1%) disk-usage baseline for the
+    current hour directly in the database before the very first real
+    health check, then called `server_health_check` -- the real disk
+    usage (20.5%, unremarkable on its own) was correctly flagged as
+    anomalous for this specific hour, with the warning explicitly
+    labeled `hourly baseline 4.3% ± 8.0%, 6 samples`.
+
 ## Running locally
 
 ```bash

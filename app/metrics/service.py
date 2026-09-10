@@ -15,6 +15,19 @@ None until min_samples samples exist -- callers should fall back to a
 fixed threshold until then, same honest scope-cut as milestone 19: this
 needs real accumulated data to be meaningfully different from a fixed
 number, and doesn't pretend day-one readings mean anything.
+
+Time-of-day anomaly detection (a Jarvis-concept brainstorm item):
+`hourly_baseline()` is `baseline()`'s same mean/stdev, narrowed to
+samples recorded in one specific hour-of-day (UTC) -- "unusual for 3am"
+rather than "unusual ever," since a flat baseline across a server's full
+day/night cycle can hide a real anomaly (e.g. CPU idling near 0% every
+night, then spiking to 40% one night) inside noise that would only ever
+flag something above its *overall* mean + N*stdev, which day/night swings
+already push high. A finer-grained baseline is a smaller slice of the
+same history, so it takes proportionally longer to accumulate
+`min_samples` for a given hour than the flat one does -- an honest,
+accepted tradeoff for the more specific answer, not hidden by loosening
+what counts as "enough."
 """
 
 import statistics
@@ -69,6 +82,32 @@ class MetricsStore:
         fewer than `min_samples` exist -- not enough history yet for a
         personalized threshold to mean anything over a fixed fallback."""
         values = self.recent_values(metric_name, limit=limit)
+        if len(values) < min_samples:
+            return None
+        stdev = statistics.stdev(values) if len(values) > 1 else 0.0
+        return Baseline(mean=statistics.mean(values), stdev=stdev, sample_count=len(values))
+
+    def hourly_baseline(
+        self, metric_name: str, hour: int, min_samples: int = 5, limit: int = 2000
+    ) -> Baseline | None:
+        """`baseline()`'s same mean/stdev, narrowed to samples recorded
+        during `hour` (0-23, UTC) among the most recent `limit` samples
+        overall -- `limit` is deliberately larger than `baseline()`'s
+        default since only roughly 1/24th of a same-sized recent window
+        falls in any one hour. None until `min_samples` same-hour
+        samples exist, same honest scope-cut as `baseline()` -- a
+        fresh install (or a metric that's only just started being
+        recorded) has no meaningful per-hour history yet either."""
+        with self._session_factory() as session:
+            stmt = (
+                select(MetricSample.value, MetricSample.created_at)
+                .where(MetricSample.metric_name == metric_name)
+                .order_by(MetricSample.id.desc())
+                .limit(limit)
+            )
+            rows = session.execute(stmt).all()
+
+        values = [value for value, created_at in rows if created_at.hour == hour]
         if len(values) < min_samples:
             return None
         stdev = statistics.stdev(values) if len(values) > 1 else 0.0

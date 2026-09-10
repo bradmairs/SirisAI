@@ -31,6 +31,9 @@ class _FakeMetrics:
     def baseline(self, metric_name: str, min_samples: int = 10, limit: int = 100) -> Any:
         return None
 
+    def hourly_baseline(self, metric_name: str, hour: int, min_samples: int = 5, limit: int = 2000) -> Any:
+        return None
+
 
 class _FakeSiris:
     def __init__(self, system_info: dict[str, Any], containers: list | None = None, has_docker: bool = False) -> None:
