@@ -425,3 +425,42 @@ class EventReactionCursor(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     last_event_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class GeofenceReminder(Base):
+    """A one-shot or recurring reminder triggered by a Home Assistant
+    `person`/`device_tracker` entity's `state` becoming a specific zone
+    (e.g. entity_id='person.brad', zone='home', message='pick up the
+    mail') -- generalizes PresenceSkill's own household-wide UniFi
+    home/away trigger (milestone 42) to an arbitrary entity and zone,
+    same "trigger condition -> action" concept, just not hardcoded to
+    exactly that one pair.
+
+    `last_known_zone` is GeofenceReminderCheckSkill's own baseline for
+    detecting a transition -- same "only act on a change, not every
+    tick" reasoning PresenceSkill's own event-based baseline uses, just
+    stored on the row itself since there's one reminder per row rather
+    than one shared household state. `repeat=False` (the default) is a
+    genuine reminder: it disables itself (`enabled=False`) the first
+    time it fires, mirroring how a real one-off reminder shouldn't keep
+    firing every time you come home forever; `repeat=True` is a standing
+    rule instead ("let me know whenever Brad leaves work"), left enabled
+    to keep firing on every future transition into the zone.
+
+    Scoped per user (see GoalStore's own docstring for the same
+    reasoning) -- this is personal ("remind me"), not shared
+    infrastructure like a Routine."""
+
+    __tablename__ = "geofence_reminders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity_id: Mapped[str] = mapped_column(Text)
+    zone: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text)
+    repeat: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_known_zone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )

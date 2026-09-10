@@ -26,6 +26,12 @@ POST /briefing (milestone 53) also speaks its summary aloud via
 speak_in_current_room, alongside the push notification -- a second,
 independent delivery channel, not a replacement; either, both, or
 neither fire depending on what's configured/currently reachable.
+
+POST /geofence (a Jarvis-concept brainstorm item) is a separate route
+rather than composed into /check, same reasoning as /presence: it only
+exists when Home Assistant is configured, and fires a user-authored
+reminder message directly rather than something NotificationManager
+needs to classify.
 """
 
 from typing import Any
@@ -233,3 +239,32 @@ def run_presence_check(siris: SirisAI = Depends(get_siris)) -> PresenceCheckResp
     trigger = "proactive check: automated schedule (see POST /siris/proactive/presence)"
     result = siris.run_tool("presence_check", {}, trigger=trigger)
     return PresenceCheckResponse(result=result)
+
+
+class GeofenceCheckResponse(BaseModel):
+    result: dict[str, Any]
+
+
+@router.post("/geofence", response_model=GeofenceCheckResponse)
+def run_geofence_reminder_check(siris: SirisAI = Depends(get_siris)) -> GeofenceCheckResponse:
+    """Run geofence_reminder_check (a Jarvis-concept brainstorm item):
+    check every enabled GeofenceReminder's entity for a transition into
+    its watched zone, sending a notification directly for any that just
+    fired -- not routed through NotificationManager, since a reminder's
+    message is arbitrary text the user already wrote and approved by
+    creating it, not an auto-generated warning needing severity
+    classification. 404 if Home Assistant isn't configured, same
+    "only exists when its underlying capability does" reasoning
+    POST /siris/proactive/presence already uses -- a separate endpoint
+    rather than folding into /check, since a personal reminder isn't a
+    system-health warning /check's NotificationManager pass is scoring.
+    Meant to be triggered periodically from outside this process, same
+    as every other proactive route."""
+    if siris.tools.get("geofence_reminder_check") is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Geofence reminders aren't available (Home Assistant isn't configured).",
+        )
+    trigger = "proactive check: automated schedule (see POST /siris/proactive/geofence)"
+    result = siris.run_tool("geofence_reminder_check", {}, trigger=trigger)
+    return GeofenceCheckResponse(result=result)

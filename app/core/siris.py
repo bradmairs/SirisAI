@@ -26,6 +26,7 @@ from app.conversation.service import ConversationStore
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.docker.client import DockerClient
+from app.geofence.service import GeofenceReminderStore
 from app.goals.service import GoalStore
 from app.network_devices.service import KnownDeviceStore
 from app.hermes.client import HermesClient
@@ -66,6 +67,11 @@ from app.plugins.builtin.docker import (
 )
 from app.plugins.builtin.echo import EchoTool
 from app.plugins.builtin.frigate import FrigateListCamerasTool, FrigateRecentEventsTool
+from app.plugins.builtin.geofence import (
+    CreateGeofenceReminderTool,
+    ListGeofenceRemindersTool,
+    SetGeofenceReminderEnabledTool,
+)
 from app.plugins.builtin.goals import (
     AddGoalObjectiveTool,
     CompleteGoalObjectiveTool,
@@ -172,6 +178,7 @@ from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_reaction import EventReactionSkill
 from app.skills.builtin.event_timing import EventTimingSkill
+from app.skills.builtin.geofence_reminder import GeofenceReminderCheckSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
 from app.skills.builtin.house_status import HouseStatusSkill
 from app.skills.builtin.meeting_prep import MeetingPrepSkill
@@ -302,6 +309,9 @@ class SirisAI:
         default_factory=lambda: EventMemoryStore(SessionLocal)
     )
     goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
+    geofence: GeofenceReminderStore = field(
+        default_factory=lambda: GeofenceReminderStore(SessionLocal)
+    )
     capability_gaps: CapabilityGapStore = field(
         default_factory=lambda: CapabilityGapStore(SessionLocal)
     )
@@ -407,6 +417,9 @@ class SirisAI:
         self.tools.register(UpdateGoalStatusTool(self.goals))
         self.tools.register(AddGoalObjectiveTool(self.goals))
         self.tools.register(CompleteGoalObjectiveTool(self.goals))
+        self.tools.register(CreateGeofenceReminderTool(self.geofence))
+        self.tools.register(ListGeofenceRemindersTool(self.geofence))
+        self.tools.register(SetGeofenceReminderEnabledTool(self.geofence))
         self.tools.register(CreateRoutineTool(self.routines, self.tools))
         self.tools.register(ListRoutinesTool(self.routines))
         self.tools.register(SetRoutineEnabledTool(self.routines))
@@ -451,6 +464,11 @@ class SirisAI:
             )
             self.tools.register(
                 HomeAssistantDeleteAutomationTool(self._home_assistant_client)
+            )
+            self.tools.register(
+                SkillTool(
+                    GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
+                )
             )
 
         # Plex before Docker on purpose: DockerRestartContainerTool's

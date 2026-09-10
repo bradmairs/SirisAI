@@ -3860,6 +3860,64 @@ provider for the same capability actually exists to design against.
     `radarr_delete_movie` at 2 attempts, 1 true, 1 false, a 0.5 success
     rate.
 
+91. **Done** -- Geofence-triggered reminders. Third item from the same
+    Jarvis-concept brainstorm: "remind me when I get home" / "let me
+    know whenever Brad leaves work," built entirely on data Home
+    Assistant already exposes (a `person`/`device_tracker` entity's
+    `state` is its current zone) -- no new external dependency, unlike
+    the commute/traffic-nudge idea from the same brainstorm, which is
+    on hold pending a real traffic API + key.
+
+    What shipped:
+    - A new `GeofenceReminder` model + `GeofenceReminderStore`
+      (app/geofence/): `entity_id` + `zone` + `message` + `repeat`,
+      scoped per user like `GoalStore`. `create_geofence_reminder`,
+      `list_geofence_reminders`, `set_geofence_reminder_enabled` --
+      always registered, same "store exists regardless of whether HA
+      is configured yet" split `GoalStore`/the planner already draws.
+    - `GeofenceReminderCheckSkill` (`geofence_reminder_check`),
+      registered only alongside Home Assistant (needs
+      `home_assistant_get_state`): generalizes `PresenceSkill`'s own
+      hardcoded household UniFi home/away trigger (milestone 42) to an
+      arbitrary entity/zone/message, same transition-only discipline
+      (only fires on the tick a zone actually changes into the watched
+      one, not every check while already there) and same "first check
+      establishes a baseline, doesn't assume a transition" reasoning.
+      Delivers via `notify` directly rather than through
+      `NotificationManager` -- a reminder's message is text the user
+      already wrote and approved, not an auto-generated warning needing
+      severity classification.
+    - By default a reminder is one-shot: it disables itself
+      (`enabled=False`) the moment it fires, like a real reminder
+      shouldn't refire forever; `repeat=true` makes it a standing rule
+      instead.
+    - A new `POST /siris/proactive/geofence` route, 404 when Home
+      Assistant isn't configured -- its own endpoint rather than folded
+      into `/check`, same reasoning `/presence` already uses: this
+      isn't a system-health warning for `NotificationManager` to score.
+    - One entity failing to look up (a stale/deleted `entity_id`) is
+      skipped rather than aborting the whole check -- one broken
+      reminder shouldn't block every other one's.
+
+    Verified: full suite (729 passed, up from 709) covering the store
+    (create/list/enable-disable/record_zone), tool registration and
+    permission tiers, and the check skill's full behavior matrix
+    (baseline establishment, no-change, genuine transition firing +
+    notifying, non-repeat self-disabling vs. repeat staying enabled,
+    transitioning to an unwatched zone, already-in-zone not refiring,
+    firing even without `notify` configured, one broken entity not
+    blocking others, disabled reminders skipped) plus the endpoint's
+    404/200 behavior. Live-verified against a real `uvicorn` process, a
+    fake Home Assistant server (with a `/control/set_state` endpoint to
+    simulate a real zone transition), and a fake ntfy server: created a
+    reminder for `person.brad` entering `home`, a first
+    `POST /siris/proactive/geofence` established the baseline (`work`,
+    no fire) through real HTTP round trips, moving the fake entity to
+    `home` and checking again correctly fired -- a real push landed on
+    the fake ntfy server with the reminder's exact message -- the
+    reminder then showed `enabled: false` in `list_geofence_reminders`,
+    and a third check stayed quiet.
+
 ## Running locally
 
 ```bash
