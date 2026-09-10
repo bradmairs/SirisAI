@@ -19,7 +19,7 @@ as any other tool.
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from app.plugins.base import Tool, ToolPermission
+from app.plugins.base import Tool, ToolPermission, ToolVerification
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -38,6 +38,19 @@ class Skill(ABC):
         and return a JSON-serializable result."""
         raise NotImplementedError
 
+    def dry_run(self, siris: "SirisAI", **kwargs: Any) -> Any:
+        """Optional preview of what `run()` would do, without doing it --
+        same opt-in convention as `Tool.dry_run()` (raises by default;
+        `SkillTool.dry_run()` forwards here so a skill gets this for free
+        just by overriding it, same as any other tool)."""
+        raise NotImplementedError(f"{self.name} does not support dry_run")
+
+    def verify(self, siris: "SirisAI", arguments: dict[str, Any], result: Any) -> ToolVerification:
+        """Optional independent check that `result` actually reflects
+        success -- same opt-in convention as `Tool.verify()` (raises by
+        default; `SkillTool.verify()` forwards here)."""
+        raise NotImplementedError(f"{self.name} does not support verify")
+
 
 class SkillTool(Tool):
     """Adapts a `Skill` to the `Tool` interface."""
@@ -52,3 +65,9 @@ class SkillTool(Tool):
 
     def run(self, **kwargs: Any) -> Any:
         return self._skill.run(self._siris, **kwargs)
+
+    def dry_run(self, **kwargs: Any) -> Any:
+        return self._skill.dry_run(self._siris, **kwargs)
+
+    def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
+        return self._skill.verify(self._siris, arguments, result)

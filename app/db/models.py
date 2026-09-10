@@ -464,3 +464,35 @@ class GeofenceReminder(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC)
     )
+
+
+class Scene(Base):
+    """A named, ordered bundle of Home Assistant service calls the user
+    or model can trigger as one unit -- e.g. name="movie_night",
+    steps=[{"domain": "light", "service": "turn_off", "entity_id":
+    "light.living_room"}, {"domain": "media_player", "service":
+    "turn_on", "entity_id": "media_player.tv"}] -- a Jarvis-concept
+    brainstorm item: "first-class scenes, not raw HA automation YAML."
+
+    Deliberately just an ordered list of
+    home_assistant_call_service-shaped steps (same `domain`/`service`/
+    `entity_id`/`service_data` shape that tool already takes), not a
+    trigger condition -- that's what an HA automation is for (see
+    HomeAssistantCreateAutomationTool). A scene runs once, on demand,
+    when asked, the same "no in-process scheduler" boundary this
+    codebase draws everywhere else (milestone 19); running one is
+    RunSceneSkill's job (app/skills/builtin/run_scene.py), not this
+    model's.
+
+    Not user-scoped, same reasoning as Routine: this is shared home
+    infrastructure ("movie night" isn't personal to one user of a
+    household), not personal state like a Goal or GeofenceReminder."""
+
+    __tablename__ = "scenes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    steps: Mapped[str] = mapped_column(Text)  # JSON-encoded list[dict]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC)
+    )

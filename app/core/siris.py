@@ -133,6 +133,7 @@ from app.plugins.builtin.routines import (
     SetRoutineEnabledTool,
 )
 from app.plugins.builtin.satellites import SpeakInCurrentRoomTool
+from app.plugins.builtin.scenes import CreateSceneTool, DeleteSceneTool, ListScenesTool
 from app.plugins.builtin.service_health import CheckServiceEndpointTool
 from app.plugins.builtin.sonarr import (
     SonarrAddSeriesTool,
@@ -174,6 +175,7 @@ from app.obsidian.client import ObsidianClient
 from app.radarr.client import RadarrClient
 from app.routines.service import RoutineStore
 from app.satellites.service import SatelliteStore
+from app.scenes.service import SceneStore
 from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_reaction import EventReactionSkill
@@ -185,6 +187,7 @@ from app.skills.builtin.meeting_prep import MeetingPrepSkill
 from app.skills.builtin.new_device_alert import NewDeviceAlertSkill
 from app.skills.builtin.presence import PresenceSkill
 from app.skills.builtin.rollback import RollbackLastActionSkill
+from app.skills.builtin.run_scene import RunSceneSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.sonarr.client import SonarrClient
@@ -312,6 +315,7 @@ class SirisAI:
     geofence: GeofenceReminderStore = field(
         default_factory=lambda: GeofenceReminderStore(SessionLocal)
     )
+    scenes: SceneStore = field(default_factory=lambda: SceneStore(SessionLocal))
     capability_gaps: CapabilityGapStore = field(
         default_factory=lambda: CapabilityGapStore(SessionLocal)
     )
@@ -469,6 +473,12 @@ class SirisAI:
                 SkillTool(
                     GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
                 )
+            )
+            self.tools.register(CreateSceneTool(self.scenes))
+            self.tools.register(ListScenesTool(self.scenes))
+            self.tools.register(DeleteSceneTool(self.scenes))
+            self.tools.register(
+                SkillTool(RunSceneSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED)
             )
 
         # Plex before Docker on purpose: DockerRestartContainerTool's

@@ -3993,6 +3993,62 @@ provider for the same capability actually exists to design against.
     the relationship, instead of surfacing as two seemingly unrelated
     warnings.
 
+94. **Done** -- First-class scenes: a named, ordered bundle of Home
+    Assistant service calls the model can save once and trigger as one
+    unit. Sixth item from the same Jarvis-concept brainstorm ("scenes,
+    not raw HA automation YAML") -- `home_assistant_create_automation`
+    already covers "run this when X happens"; a scene is the other
+    half, "run this now, by name," without re-describing every step
+    each time.
+
+    What shipped:
+    - `Scene` (`app/db/models.py`) -- id, name, and a JSON-encoded
+      ordered list of steps, each shaped exactly like
+      `home_assistant_call_service`'s own `domain`/`service`/
+      `entity_id`/`service_data` arguments. Not user-scoped, same
+      reasoning as `Routine`: a scene is shared home infrastructure.
+    - `SceneStore` (`app/scenes/service.py`) -- `create_scene`,
+      `list_scenes`, `get_scene`, `delete_scene`. Deliberately just a
+      store; it doesn't call Home Assistant or decide when to run
+      anything.
+    - `create_scene`/`list_scenes`/`delete_scene` tools
+      (`app/plugins/builtin/scenes.py`), registered only alongside Home
+      Assistant itself (a scene with nowhere to run isn't worth being
+      able to create).
+    - `run_scene` (`app/skills/builtin/run_scene.py`) -- a `Skill`
+      rather than a raw `Tool`, since it composes multiple
+      `siris.run_tool()` calls (one `home_assistant_call_service` per
+      step): a `Tool` subclass takes specific, typed collaborators, not
+      a generic `siris` reference, so "chain several tool calls into
+      one" is exactly what the `Skill` abstraction is for. Along the
+      way, `Skill`/`SkillTool` gained optional `dry_run()`/`verify()`
+      forwarding (mirroring `Tool.dry_run()`/`Tool.verify()`'s own
+      "raises `NotImplementedError` unless overridden" convention) so a
+      skill can support them too -- fully backward-compatible, every
+      existing `Skill` subclass that doesn't override them behaves
+      identically to before. `run_scene` is `CONFIRM_REQUIRED` (it can
+      call anything `home_assistant_call_service` could, across every
+      step); its `dry_run()` previews the scene's name and every step
+      before confirming; its `verify()` honestly raises
+      `NotImplementedError` -- a scene's steps can span any mix of
+      domains/services, each with its own idea of "did this work" (or
+      none at all), the same "genuinely ambiguous outcome" gap
+      `HomeAssistantCallServiceTool.verify()` already leaves open on
+      its own less-than-fully-deterministic calls.
+
+    Verified: full suite (754 passed, up from 739) covering the store,
+    the CRUD tools' registration/permissions/round-trip, and
+    `run_scene`'s `run()`/`dry_run()`/`verify()` behavior. Live-verified
+    against a real `uvicorn` process with a fake Home Assistant server:
+    created a two-step `movie_night` scene (`light.turn_off` then
+    `media_player.turn_on`), dry-ran it and saw both steps previewed
+    without any HTTP call reaching the fake server, ran it unconfirmed
+    and got `confirmation_required` back, then ran it confirmed and
+    confirmed the fake server received both service calls in order
+    (`GET /__calls__` on the fake server showed exactly the two POSTs,
+    in step order), and finally deleted the scene and confirmed
+    `list_scenes` no longer returned it.
+
 ## Running locally
 
 ```bash
