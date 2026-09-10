@@ -24,6 +24,11 @@ Deterministic per-tool verification (a hardening pass): also carries
 the call's result actually reflects success, not just that `run()` didn't
 raise. Null for the majority of tools that don't define one, same as
 trigger/evidence/policy being null for calls with nothing to say there.
+
+Trust ledger (a later hardening pass): `verification_stats_by_tool()`
+rolls those per-call `verified` outcomes up into a per-tool success
+rate -- see `trust_ledger` (app/plugins/builtin/audit.py) for what
+surfaces it.
 """
 
 import json
@@ -132,6 +137,46 @@ class AuditLogStore:
             key=lambda e: e["failures"],
             reverse=True,
         )
+
+    def verification_stats_by_tool(self, limit: int = 500) -> list[dict[str, Any]]:
+        """Aggregate Tool.verify() outcomes per tool among the most
+        recent `limit` executions -- a trust ledger (a hardening pass):
+        this codebase already records verified/verification_detail per
+        call, but nothing before this rolled that up into "which tools'
+        real-world verification is actually succeeding," the same
+        extend-what's-already-recorded reasoning failure_counts_by_tool()
+        uses for failures. Only tools that have attempted verify() at
+        least once appear -- a tool with no verify() at all (most of
+        them; verified stays null every call) or one that's simply never
+        run has nothing meaningful to report. Sorted worst success rate
+        first, so a tool whose verify() is failing more than it's
+        passing surfaces without needing to already know its name."""
+        with self._session_factory() as session:
+            stmt = (
+                select(ToolExecution.tool_name, ToolExecution.verified)
+                .order_by(ToolExecution.id.desc())
+                .limit(limit)
+            )
+            rows = session.execute(stmt).all()
+
+        counts: dict[str, dict[str, int]] = {}
+        for tool_name, verified in rows:
+            if verified is None:
+                continue
+            entry = counts.setdefault(tool_name, {"verified_true": 0, "verified_false": 0})
+            entry["verified_true" if verified else "verified_false"] += 1
+
+        stats = [
+            {
+                "tool_name": tool_name,
+                "attempts": c["verified_true"] + c["verified_false"],
+                "verified_true": c["verified_true"],
+                "verified_false": c["verified_false"],
+                "success_rate": c["verified_true"] / (c["verified_true"] + c["verified_false"]),
+            }
+            for tool_name, c in counts.items()
+        ]
+        return sorted(stats, key=lambda entry: entry["success_rate"])
 
     def repeated_planner_sequences(self, min_occurrences: int = 3, limit: int = 2000) -> list[dict[str, Any]]:
         """Tool-call sequences the planner (24) has repeated at least

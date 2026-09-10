@@ -3823,6 +3823,43 @@ provider for the same capability actually exists to design against.
     hadn't saved media for it) and camera-filtering narrowing results
     correctly.
 
+90. **Done** -- `trust_ledger`: a queryable rollup of `verify()`
+    success rates. Second item from the same Jarvis-concept brainstorm --
+    this codebase already records `verified`/`verification_detail` on
+    every audit log entry for tools that define `Tool.verify()` (the
+    verify() sweep, milestones 65/76), but nothing before this rolled
+    that up into "which tools' real-world verification is actually
+    succeeding" -- each tool's trustworthiness was scattered across
+    individual `GET /siris/activity` rows, not a single place to look.
+
+    What shipped: `AuditLogStore.verification_stats_by_tool()`
+    aggregates `verified` outcomes per tool among the most recent 500
+    executions -- attempts, verified-true/false counts, and a success
+    rate -- sorted worst-success-rate first, same
+    extend-what's-already-recorded reasoning `failure_counts_by_tool()`
+    (milestone 30) already uses for failures. Surfaced via a new
+    `trust_ledger` tool (`app/plugins/builtin/audit.py`, always
+    registered alongside `explain_recent_action`), READ, no parameters.
+    Only tools that have actually attempted `verify()` at least once
+    appear -- a tool with no `verify()` at all (most of them) has
+    nothing meaningful to report.
+
+    Verified: full suite (709 passed, up from 704) covering: only
+    verify()-attempting tools appear, correct success-rate computation,
+    worst-first sorting, and the tool's registration/read-permission and
+    that it actually reads through to the audit store (unique tool
+    names per test, same shared-audit-log-noise-avoidance pattern
+    `test_self_maintenance.py`'s `failure_counts_by_tool` tests already
+    use). Live-verified against a real `uvicorn` process and a fake
+    Radarr server rigged to demonstrate the exact gap `verify()` exists
+    to catch: deleting one movie that genuinely disappears (`verified:
+    true`) and a second whose `DELETE` returns `200` without actually
+    removing it (`verified: false`, the "API call not raising doesn't
+    prove it happened" case `radarr_delete_movie.verify()`'s own
+    docstring describes) -- `trust_ledger` correctly reported
+    `radarr_delete_movie` at 2 attempts, 1 true, 1 false, a 0.5 success
+    rate.
+
 ## Running locally
 
 ```bash

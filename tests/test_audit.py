@@ -96,3 +96,75 @@ def test_activity_endpoint_orders_most_recent_first(client: TestClient) -> None:
     entries = response.json()
     assert entries[0]["arguments"] == {"message": "second"}
     assert entries[1]["arguments"] == {"message": "first"}
+
+
+# -- AuditLogStore.verification_stats_by_tool / trust_ledger (a trust
+# ledger, a later hardening pass): unique tool names per test, same
+# shared-DB-noise-avoidance pattern test_self_maintenance.py's
+# failure_counts_by_tool tests already use, since this scans the same
+# global tool_executions table.
+
+
+def test_verification_stats_only_includes_tools_that_attempted_verify() -> None:
+    import uuid
+
+    siris = SirisAI(settings=get_siris().settings)
+    verified_tool, unverified_tool = f"verified-{uuid.uuid4()}", f"unverified-{uuid.uuid4()}"
+    siris.audit.record(verified_tool, {}, result={}, verified=True, verification_detail="ok")
+    siris.audit.record(unverified_tool, {}, result={})  # no verify() attempted
+
+    stats = siris.audit.verification_stats_by_tool()
+    by_name = {s["tool_name"]: s for s in stats}
+    assert verified_tool in by_name
+    assert unverified_tool not in by_name
+
+
+def test_verification_stats_computes_success_rate() -> None:
+    import uuid
+
+    siris = SirisAI(settings=get_siris().settings)
+    flaky = f"flaky-verify-{uuid.uuid4()}"
+    siris.audit.record(flaky, {}, result={}, verified=True, verification_detail="ok")
+    siris.audit.record(flaky, {}, result={}, verified=True, verification_detail="ok")
+    siris.audit.record(flaky, {}, result={}, verified=False, verification_detail="nope")
+
+    stats = siris.audit.verification_stats_by_tool()
+    entry = next(s for s in stats if s["tool_name"] == flaky)
+    assert entry == {
+        "tool_name": flaky,
+        "attempts": 3,
+        "verified_true": 2,
+        "verified_false": 1,
+        "success_rate": 2 / 3,
+    }
+
+
+def test_verification_stats_sorted_worst_success_rate_first() -> None:
+    import uuid
+
+    siris = SirisAI(settings=get_siris().settings)
+    always_fails, always_passes = f"always-fails-{uuid.uuid4()}", f"always-passes-{uuid.uuid4()}"
+    siris.audit.record(always_fails, {}, result={}, verified=False, verification_detail="no")
+    siris.audit.record(always_passes, {}, result={}, verified=True, verification_detail="yes")
+
+    stats = siris.audit.verification_stats_by_tool()
+    names_in_order = [s["tool_name"] for s in stats if s["tool_name"] in (always_fails, always_passes)]
+    assert names_in_order.index(always_fails) < names_in_order.index(always_passes)
+
+
+def test_trust_ledger_tool_is_read_and_registered_by_default() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    tool = siris.tools.get("trust_ledger")
+    assert tool is not None
+    assert tool.permission is ToolPermission.READ
+
+
+def test_trust_ledger_tool_reads_from_audit_store() -> None:
+    import uuid
+
+    siris = SirisAI(settings=get_siris().settings)
+    tool_name = f"trust-ledger-tool-test-{uuid.uuid4()}"
+    siris.audit.record(tool_name, {}, result={}, verified=True, verification_detail="ok")
+
+    result = siris.tools.get("trust_ledger").run()
+    assert any(s["tool_name"] == tool_name for s in result)

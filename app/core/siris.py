@@ -45,7 +45,7 @@ from app.notify.client import NotifyClient
 from app.notify.pending import PendingNotificationStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
-from app.plugins.builtin.audit import ExplainRecentActionTool
+from app.plugins.builtin.audit import ExplainRecentActionTool, TrustLedgerTool
 from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
 from app.plugins.builtin.calendar import (
     CalendarCheckConflictsTool,
@@ -415,6 +415,7 @@ class SirisAI:
         self.tools.register(CheckServiceEndpointTool())
         self.tools.register(ListPendingNotificationsTool(self.pending_notifications))
         self.tools.register(ExplainRecentActionTool(self.audit))
+        self.tools.register(TrustLedgerTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
