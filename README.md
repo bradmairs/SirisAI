@@ -4049,6 +4049,41 @@ provider for the same capability actually exists to design against.
     in step order), and finally deleted the scene and confirmed
     `list_scenes` no longer returned it.
 
+95. **Done** -- Goal decomposition check: flag active goals that are
+    still just a title. Seventh item from the same Jarvis-concept
+    brainstorm (chief-of-staff category) -- `create_goal`/`add_objective`
+    already let the model decompose a goal into concrete steps whenever
+    it likes, so this doesn't add any new decomposition capability;
+    it's the deterministic missing half, noticing a goal that never got
+    that treatment, the same "flag it, don't fix it" boundary
+    `GoalCheckInSkill`'s staleness check already draws.
+
+    What shipped:
+    - `GoalStore.goals_needing_decomposition()`
+      (`app/goals/service.py`) -- active goals with zero objectives.
+      Distinct from `stale_goals()`: a goal created five minutes ago
+      with no objectives shows up here immediately, long before it
+      would ever go stale.
+    - `GoalDecompositionCheckSkill`
+      (`app/skills/builtin/goal_decomposition.py`, name
+      `goal_decomposition_check`) -- same thin-wrapper shape as
+      `GoalCheckInSkill`, always registered, composed into
+      `POST /siris/proactive/check` alongside it. Its warning messages
+      start with `Goal '...'`, so `NotificationManager` classifies them
+      under the existing `"goals"` category/`"notify"` action for free
+      -- no new classification rule needed.
+
+    Verified: full suite (763 passed, up from 754) covering the store
+    method (flags a bare goal, excludes one with an objective, excludes
+    a completed goal, un-flags once an objective is added), the skill,
+    its `NotificationManager` classification, and the `/check` endpoint
+    composition. Live-verified against a real `uvicorn` process: created
+    one bare goal and one with an objective via `create_goal`, confirmed
+    `POST /siris/proactive/check` flagged only the bare one (queued as a
+    `"goals"`/`"notify"` item, not pushed urgent), then called
+    `add_goal_objective` on it and confirmed a follow-up check dropped
+    it from `goals_needing_decomposition`.
+
 ## Running locally
 
 ```bash

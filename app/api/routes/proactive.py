@@ -13,7 +13,7 @@ milestone's roadmap entry draws still holds. Only "urgent" items actually
 push immediately; "notify"-tier items are queued instead (an
 interruption controller, milestone 72, app/notify/pending.py) and
 surface in the next daily_briefing rather than interrupting the user for
-something that can wait. `event_timing_check`, `goal_check_in`,
+something that can wait. `event_timing_check`, `goal_check_in`, `goal_decomposition_check`,
 `new_device_alert`, and `event_reaction_check` (app/skills/builtin/,
 later hardening passes) compose in the same way -- their warnings go
 through the same NotificationManager pass as server_health_check's.
@@ -68,6 +68,7 @@ class HealthCheckResponse(BaseModel):
     # the same NotificationManager pass below.
     event_timing: dict[str, Any]
     goal_check_in: dict[str, Any]
+    goal_decomposition: dict[str, Any]
     new_device_alert: dict[str, Any]
     event_reaction: dict[str, Any]
     notified: bool
@@ -95,7 +96,8 @@ def run_health_check_and_notify(
     siris: SirisAI = Depends(get_siris),
 ) -> HealthCheckResponse:
     """Run server_health_check, event_timing_check, goal_check_in,
-    new_device_alert, and event_reaction_check, score and correlate
+    goal_decomposition_check, new_device_alert, and event_reaction_check,
+    score and correlate
     whatever warnings any of them finds (NotificationManager), push
     "urgent" items immediately -- if a
     notify channel is configured (SIRISAI_NTFY_TOPIC) -- and queue
@@ -117,6 +119,7 @@ def run_health_check_and_notify(
     result = siris.run_tool("server_health_check", {}, trigger=trigger)
     event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
     goal_check_in = siris.run_tool("goal_check_in", {}, trigger=trigger)
+    goal_decomposition = siris.run_tool("goal_decomposition_check", {}, trigger=trigger)
     new_device_alert = siris.run_tool("new_device_alert", {}, trigger=trigger)
     event_reaction = siris.run_tool("event_reaction_check", {}, trigger=trigger)
 
@@ -124,6 +127,7 @@ def run_health_check_and_notify(
         result["warnings"]
         + event_timing["warnings"]
         + goal_check_in["warnings"]
+        + goal_decomposition["warnings"]
         + new_device_alert["warnings"]
         + event_reaction["warnings"]
     )
@@ -158,6 +162,7 @@ def run_health_check_and_notify(
         result=result,
         event_timing=event_timing,
         goal_check_in=goal_check_in,
+        goal_decomposition=goal_decomposition,
         new_device_alert=new_device_alert,
         event_reaction=event_reaction,
         notified=notified,

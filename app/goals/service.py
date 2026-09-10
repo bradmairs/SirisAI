@@ -127,6 +127,22 @@ class GoalStore:
             goals = session.scalars(stmt).all()
             return self._serialize_goals(session, goals)
 
+    def goals_needing_decomposition(self, *, user_id: str | None = None) -> list[dict[str, Any]]:
+        """Active goals with zero objectives -- a title and nothing else,
+        no concrete next step recorded yet (a Jarvis-concept brainstorm
+        item: "goal decomposition"). Distinct from `stale_goals()`: a
+        goal created five minutes ago with no objectives shows up here
+        immediately, long before it would ever go stale."""
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            stmt = (
+                select(Goal)
+                .where(Goal.status == "active", Goal.user_id == user_id)
+                .order_by(Goal.created_at.desc(), Goal.id.desc())
+            )
+            goals = session.scalars(stmt).all()
+            return [g for g in self._serialize_goals(session, goals) if not g["objectives"]]
+
     def _serialize_goal(self, session: Any, goal_id: int) -> dict[str, Any]:
         goal = session.get(Goal, goal_id)
         objectives_stmt = select(GoalObjective).where(GoalObjective.goal_id == goal_id).order_by(GoalObjective.id)
