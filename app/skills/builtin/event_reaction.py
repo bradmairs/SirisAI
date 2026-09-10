@@ -30,6 +30,17 @@ advance_reaction_cursor) tracks the highest event id already classified,
 the same "seen set persists across restarts" reasoning KnownNetworkDevice
 uses for new_device_alert -- otherwise every POST /siris/proactive/check
 run on a schedule would re-flag the same old event forever.
+
+Cross-domain correlation (a Jarvis-concept brainstorm item): a flagged
+event's message now ends with " (entity: X)" when the event was logged
+against a named entity (Event.entity_name) -- the same
+"({label}) is high"/"Container 'X' is..." named-entity shape
+NotificationManager's own correlation already keys off of, so a flagged
+event about "NAS" can now correlate with an unrelated but genuinely
+related warning about the same entity (a disk warning for NAS's storage,
+a container that serves it) via the existing world-model relationships,
+the same way a Container warning already correlates with a Disk one --
+see NotificationManager's own module docstring for how.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -79,6 +90,7 @@ class EventReactionSkill(Skill):
             "warnings": [
                 f"Event flagged: {event['description']}"
                 + (f" (source: {event['source']})" if event["source"] else "")
+                + (f" (entity: {event['entity_name']})" if event["entity_name"] else "")
                 for event in flagged
             ],
         }

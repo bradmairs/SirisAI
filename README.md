@@ -3955,6 +3955,44 @@ provider for the same capability actually exists to design against.
     anomalous for this specific hour, with the warning explicitly
     labeled `hourly baseline 4.3% ± 8.0%, 6 samples`.
 
+93. **Done** -- Deeper cross-domain correlation: events join the world
+    model. Fifth item from the same Jarvis-concept brainstorm --
+    scoped down from the original idea (correlating "internet's slow"
+    with "3 devices downloading," which needs per-device bandwidth data
+    this codebase doesn't collect anywhere) to something real:
+    `event_reaction_check`'s flagged events had a named entity
+    (`Event.entity_name`) sitting right there, unused by
+    `NotificationManager`'s existing container+disk correlation.
+
+    What shipped:
+    - `event_reaction_check`'s warning messages now end with
+      `(entity: X)` when the event was logged against a named entity --
+      the same kind of anchor a container name or disk path already is.
+    - `NotificationManager._correlate()` generalized from
+      "container is the only cause, disk is the only partner" to two
+      small helper functions (`_cause_entity_name`/`_partner_entity_name`)
+      -- a flagged event's entity is now eligible on *both* sides: as
+      the cause whose world-model relationships get looked up (same
+      role a container name plays), and as a partner other items get
+      matched against (same role a disk path plays). A container name
+      is still only ever a cause, never a partner, exactly as before
+      this change -- narrowly extending what correlates with what, not
+      turning this into a generic graph match over every pairing.
+
+    Verified: full suite (739 passed, up from 733) covering the new
+    message suffix (present/absent) and four correlation shapes: event
+    as cause with a related disk partner, event as partner of a docker
+    cause, no correlation without a recorded relationship, and a direct
+    check that a container name is still never extracted as a partner
+    entity. Live-verified against a real `uvicorn` process: recorded a
+    `nas DEPENDS_ON nas-storage` relationship via
+    `remember_entity_relationship`, logged two independently-flagged
+    events (`entity_name="nas"` and `entity_name="nas-storage"`) via
+    `POST /siris/events`, then `POST /siris/proactive/check` correctly
+    merged both into one `category: "correlated"` notification citing
+    the relationship, instead of surfacing as two seemingly unrelated
+    warnings.
+
 ## Running locally
 
 ```bash

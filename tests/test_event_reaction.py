@@ -49,8 +49,10 @@ class _FakeSirisForEventReaction:
         self.events = _FakeEventsStore(cursor, events)
 
 
-def _event(id: int, description: str, source: str | None = None) -> dict[str, Any]:
-    return {"id": id, "description": description, "source": source}
+def _event(
+    id: int, description: str, source: str | None = None, entity_name: str | None = None
+) -> dict[str, Any]:
+    return {"id": id, "description": description, "source": source, "entity_name": entity_name}
 
 
 # -- EventReactionSkill
@@ -93,6 +95,28 @@ def test_a_keyword_match_is_flagged_with_source() -> None:
 
 
 def test_a_keyword_match_without_a_source_omits_the_source_suffix() -> None:
+    siris = _FakeSirisForEventReaction(cursor=0, events=[_event(1, "sync failed")])
+
+    result = EventReactionSkill().run(siris)
+
+    assert result["warnings"] == ["Event flagged: sync failed"]
+
+
+def test_a_keyword_match_with_an_entity_name_appends_it_last() -> None:
+    """Cross-domain correlation (a Jarvis-concept brainstorm item):
+    NotificationManager's _EVENT_ENTITY_PATTERN anchors on "(entity: X)"
+    at the end of the message, so entity comes after source."""
+    siris = _FakeSirisForEventReaction(
+        cursor=0,
+        events=[_event(1, "NAS went offline", source="nas", entity_name="NAS")],
+    )
+
+    result = EventReactionSkill().run(siris)
+
+    assert result["warnings"] == ["Event flagged: NAS went offline (source: nas) (entity: NAS)"]
+
+
+def test_a_keyword_match_without_an_entity_name_omits_the_entity_suffix() -> None:
     siris = _FakeSirisForEventReaction(cursor=0, events=[_event(1, "sync failed")])
 
     result = EventReactionSkill().run(siris)
