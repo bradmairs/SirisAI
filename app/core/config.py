@@ -341,6 +341,15 @@ class Settings(BaseSettings):
     obsidian_api_key: str = ""
     obsidian_verify_ssl: bool = False
 
+    # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
+    # NVR with local object detection; SirisAI's first vision integration.
+    # api_key is optional and unused unless set -- a typical self-hosted
+    # Frigate instance has no built-in API auth (see app/frigate/client.py's
+    # docstring for why), so this integration is gated on base_url alone,
+    # unlike every api-key-required one above.
+    frigate_base_url: str = ""
+    frigate_api_key: str = ""
+
     # Conversation handoff between rooms (app/satellites/service.py,
     # milestone 75). Each satellite process keeps its own local
     # conversation_id in memory (satellite/siris_satellite/client.py) --

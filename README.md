@@ -3778,6 +3778,51 @@ provider for the same capability actually exists to design against.
     it correctly got position 3 (continuing the sequence) with a brand
     new id (4) rather than reusing the freed one.
 
+89. **Done** -- Frigate integration: SirisAI's first vision tools.
+    Asked to brainstorm ideas grounded in the wider "Jarvis" concept and
+    then build several of them; this is the one flagged as the single
+    biggest gap relative to that concept -- every existing integration
+    reasons over text/state from other services, never over what a
+    camera actually saw.
+
+    What shipped: `app/frigate/client.py` + `app/plugins/builtin/frigate.py`,
+    registered when `SIRISAI_FRIGATE_BASE_URL` is set -- two READ tools,
+    `frigate_list_cameras` (from Frigate's own config) and
+    `frigate_recent_events` (recent detections, optionally filtered by
+    camera/label, each with a `snapshot_url`/`clip_url` built only when
+    Frigate actually saved one). Built from Frigate's own published REST
+    API docs (https://docs.frigate.video/integrations/api/) -- a real,
+    documented spec, closer to UniFi's tier than Cleanuparr/Listenarr's
+    guessed one, just with no live camera hardware here to confirm the
+    exact response shape against. Deliberately narrow on this first
+    pass: camera list + recent events, not Frigate's full surface
+    (recordings, live streams, review items) -- the same restraint this
+    codebase's other least-verified integrations already use, rather
+    than guessing at endpoints not yet confirmed necessary.
+
+    One deliberate deviation from every other integration here:
+    `SIRISAI_FRIGATE_API_KEY` is optional, and registration is gated on
+    `base_url` alone. A typical self-hosted Frigate instance has no
+    built-in API authentication at all (its own docs recommend a
+    reverse-proxy for that) -- requiring a key here would make the
+    common case impossible to configure. When a key is given it's sent
+    as a bearer token, for setups that do front it with one.
+
+    Verified: full suite (704 passed, up from 692) covering both tools,
+    camera enabled-state defaulting, event field mapping (including
+    Frigate's Unix-timestamp times converted to this codebase's usual
+    ISO 8601), snapshot/clip URLs present only when Frigate reports
+    having saved one, camera/label/limit filtering, and the optional-
+    auth behavior (no header sent when no key configured, a bearer
+    token when one is). Live-verified against a real `uvicorn` process
+    and a fake Frigate server seeded with two cameras and two events:
+    `frigate_list_cameras` and `frigate_recent_events` both returned
+    correct data through real HTTP round trips, including a
+    person-detection event with real snapshot/clip URLs and a
+    dog-detection event correctly showing `null` for both (Frigate
+    hadn't saved media for it) and camera-filtering narrowing results
+    correctly.
+
 ## Running locally
 
 ```bash

@@ -65,6 +65,7 @@ from app.plugins.builtin.docker import (
     DockerRestartContainerTool,
 )
 from app.plugins.builtin.echo import EchoTool
+from app.plugins.builtin.frigate import FrigateListCamerasTool, FrigateRecentEventsTool
 from app.plugins.builtin.goals import (
     AddGoalObjectiveTool,
     CompleteGoalObjectiveTool,
@@ -161,6 +162,7 @@ from app.plugins.builtin.unifi import (
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
+from app.frigate.client import FrigateClient
 from app.listenarr.client import ListenarrClient
 from app.obsidian.client import ObsidianClient
 from app.radarr.client import RadarrClient
@@ -386,6 +388,7 @@ class SirisAI:
         self._listenarr_client: ListenarrClient | None = None
         self._cleanuparr_client: CleanuparrClient | None = None
         self._obsidian_client: ObsidianClient | None = None
+        self._frigate_client: FrigateClient | None = None
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -609,6 +612,14 @@ class SirisAI:
             self.tools.register(ObsidianGetNoteTool(self._obsidian_client))
             self.tools.register(ObsidianSearchTool(self._obsidian_client))
             self.tools.register(ObsidianCreateOrUpdateNoteTool(self._obsidian_client))
+
+        if self.settings.frigate_base_url:
+            self._frigate_client = FrigateClient(
+                base_url=self.settings.frigate_base_url,
+                api_key=self.settings.frigate_api_key,
+            )
+            self.tools.register(FrigateListCamerasTool(self._frigate_client))
+            self.tools.register(FrigateRecentEventsTool(self._frigate_client))
 
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite
@@ -952,6 +963,7 @@ class SirisAI:
             self._listenarr_client,
             self._cleanuparr_client,
             self._obsidian_client,
+            self._frigate_client,
             self._embedding_client,
         )
         for client in sync_clients:
