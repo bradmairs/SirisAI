@@ -9,6 +9,12 @@ detection, a hardening pass) extend this the same way MetricsStore.baseline()
 before "this is overdue" means anything over a guess, so both return None/
 empty until enough of it exists. See app/skills/builtin/event_timing.py
 for what actually decides whether something's overdue.
+
+`events_since`/`get_reaction_cursor`/`advance_reaction_cursor` (a later
+hardening pass) back EventReactionSkill's own "classify each new
+incoming event exactly once" pass -- see app/skills/builtin/
+event_reaction.py for what actually decides whether one's worth
+flagging.
 """
 
 import json
@@ -20,7 +26,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import Event
+from app.db.models import Event, EventReactionCursor
+
+_REACTION_CURSOR_ID = 1
 
 
 @dataclass
@@ -69,6 +77,46 @@ class EventMemoryStore:
                 stmt = stmt.where(Event.entity_name == entity_name)
             rows = session.scalars(stmt).all()
             return [self._serialize(row) for row in rows]
+
+    def events_since(self, last_id: int, limit: int = 100) -> list[dict[str, Any]]:
+        """Events with `id > last_id`, oldest first -- the shape
+        EventReactionSkill (a hardening pass) needs to classify each new
+        event exactly once, unlike `recent_events()`'s newest-first
+        display order. `limit` bounds a single check the same way
+        `distinct_recurring_signatures()`'s `scan_limit` does: a huge
+        backlog (the cursor was never advanced for a long time) still
+        gets processed in bounded batches rather than one unbounded
+        query."""
+        with self._session_factory() as session:
+            stmt = (
+                select(Event)
+                .where(Event.id > last_id)
+                .order_by(Event.id.asc())
+                .limit(limit)
+            )
+            rows = session.scalars(stmt).all()
+            return [self._serialize(row) for row in rows]
+
+    def get_reaction_cursor(self) -> int:
+        """The highest event id EventReactionSkill has already
+        classified -- 0 (before any real event) if the cursor row
+        doesn't exist yet."""
+        with self._session_factory() as session:
+            row = session.get(EventReactionCursor, _REACTION_CURSOR_ID)
+            return row.last_event_id if row is not None else 0
+
+    def advance_reaction_cursor(self, event_id: int) -> None:
+        """Moves the cursor forward to `event_id` -- callers only ever
+        pass the highest id among what they just classified, so this
+        never needs to guard against moving it backward."""
+        with self._session_factory() as session:
+            row = session.get(EventReactionCursor, _REACTION_CURSOR_ID)
+            if row is None:
+                row = EventReactionCursor(id=_REACTION_CURSOR_ID, last_event_id=event_id)
+                session.add(row)
+            else:
+                row.last_event_id = event_id
+            session.commit()
 
     def distinct_recurring_signatures(self, min_samples: int = 5, scan_limit: int = 500) -> list[tuple[str, str | None]]:
         """(description, entity_name) pairs that have occurred at least

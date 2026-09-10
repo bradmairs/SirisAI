@@ -50,6 +50,7 @@ class _FakeSirisForProactive:
         event_timing_result: dict[str, Any] | None = None,
         goal_check_in_result: dict[str, Any] | None = None,
         new_device_alert_result: dict[str, Any] | None = None,
+        event_reaction_result: dict[str, Any] | None = None,
     ) -> None:
         self.tools = _FakeTools(notify_present)
         self.entities = entities or _FakeEntities()
@@ -70,6 +71,11 @@ class _FakeSirisForProactive:
             "new_devices": [],
             "warnings": [],
         }
+        self._event_reaction_result = event_reaction_result or {
+            "checked": True,
+            "flagged": [],
+            "warnings": [],
+        }
         self.notify_calls: list[dict[str, Any]] = []
 
     def run_tool(self, name: str, arguments: dict[str, Any], **kwargs: Any) -> Any:
@@ -81,6 +87,8 @@ class _FakeSirisForProactive:
             return self._goal_check_in_result
         if name == "new_device_alert":
             return self._new_device_alert_result
+        if name == "event_reaction_check":
+            return self._event_reaction_result
         if name == "notify":
             self.notify_calls.append(arguments)
             return {"sent": True}
@@ -218,6 +226,34 @@ def test_proactive_check_correlates_related_warnings_into_one_notification(
         # Escalation tiers (milestone 44): an urgent item raises the
         # notification's ntfy priority, not just its title.
         assert fake_siris.notify_calls[0]["priority"] == "urgent"
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
+def test_proactive_check_includes_event_reaction_results_and_never_escalates(
+    client: TestClient,
+) -> None:
+    fake_siris = _FakeSirisForProactive(
+        {"healthy": True, "warnings": []},
+        notify_present=True,
+        event_reaction_result={
+            "checked": True,
+            "flagged": [7],
+            "warnings": ["Event flagged: disk offline (source: nas)"],
+        },
+    )
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/proactive/check")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["event_reaction"]["flagged"] == [7]
+        assert any(n["category"] == "event" for n in body["notifications"])
+        # "event" items never escalate to urgent -- a keyword hit against a
+        # completely freeform description carries less confidence than
+        # server_health_check's own fixed message shapes.
+        assert body["notified"] is False
+        assert body["queued"] == 1
     finally:
         app.dependency_overrides.pop(get_siris, None)
 

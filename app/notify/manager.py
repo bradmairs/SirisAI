@@ -12,10 +12,11 @@ link instead of surfacing as two separate, seemingly unrelated warnings.
 Classification here is deliberately simple keyword/pattern matching
 against known message shapes ("CPU usage is high: ...", "Container 'X'
 is exited", "Expected recurring event is overdue: ...", "Goal 'X' hasn't
-been updated ...", "Unrecognized device connected: ...", ...) --
-server_health_check's (15) and, since later hardening passes,
-event_timing_check's, goal_check_in's, and new_device_alert's -- not a
-general NLP/anomaly detection system; confidence is always 1.0 because
+been updated ...", "Unrecognized device connected: ...", "Event flagged:
+...", ...) -- server_health_check's (15) and, since later hardening
+passes, event_timing_check's, goal_check_in's, new_device_alert's, and
+event_reaction_check's -- not a general NLP/anomaly detection system;
+confidence is always 1.0 because
 every warning reaching here already cleared its own deterministic
 threshold check, so nothing here ever lands on "ignore" either. A future
 source with genuine uncertainty (an LLM's own assessment) would populate
@@ -62,6 +63,7 @@ class NotificationManager:
         is_timing = warning.startswith("Expected recurring event is overdue")
         is_goal = warning.startswith("Goal '")
         is_network = warning.startswith("Unrecognized device connected")
+        is_event = warning.startswith("Event flagged:")
         category = (
             "docker"
             if is_docker
@@ -73,6 +75,8 @@ class NotificationManager:
             if is_goal
             else "network"
             if is_network
+            else "event"
+            if is_event
             else "other"
         )
 
@@ -81,7 +85,11 @@ class NotificationManager:
         # plausible, non-alarming reason for this, not just a compromised
         # network; "notify" (surfaced, not buried) without treating it as
         # confirmed trouble is the honest default given that false-positive
-        # rate.
+        # rate. "event" items never escalate either, for the same reason
+        # but stronger: EventReactionSkill's keyword scan runs against a
+        # completely freeform description from any external source, so
+        # even a keyword hit carries less confidence than server_health_check's
+        # own fixed, known message shapes do.
         critical = is_docker and any(state in warning for state in ("exited", "dead"))
         severity = "critical" if critical else "warning"
 

@@ -3643,6 +3643,64 @@ provider for the same capability actually exists to design against.
     processed (confirmed via a direct `GET` against it), with
     `verify()` reporting `verified: true` in `GET /siris/activity`.
 
+86. **Done** -- `event_reaction_check`: proactive reaction to incoming
+    webhook events. `POST /siris/events`' own module docstring left
+    "deciding whether to ignore, investigate, or proactively notify
+    based on an incoming event" as a later milestone deliberately: an
+    incoming event can come from *any* external system with a
+    completely freeform description, unlike every other proactive skill
+    here (server_health_check, event_timing_check, goal_check_in,
+    new_device_alert), each of which checks one specific, known domain
+    against a fixed, deterministic rule. Asked directly how to close
+    that gap -- a deterministic keyword scan, consistent with
+    `NotificationManager`'s own "simple keyword/pattern matching, not
+    fuzzy judgment" design, versus an LLM judgment call on each incoming
+    event -- the answer was the deterministic keyword scan.
+
+    What shipped:
+    - `EventReactionSkill` (`event_reaction_check`), composed into
+      `POST /siris/proactive/check` alongside the other proactive
+      skills: scans events logged since the last check for a small,
+      fixed "something broke" keyword list ("error", "failed",
+      "failure", "critical", "offline", "unreachable", "down"),
+      case-insensitive against the event's own description.
+    - A monotonic cursor (`EventMemoryStore.get_reaction_cursor`/
+      `advance_reaction_cursor`, backed by a new single-row
+      `EventReactionCursor` table) tracks the highest event id already
+      classified -- the same "persists across restarts" reasoning
+      `KnownNetworkDevice` uses for `new_device_alert`, so a scheduled
+      `/check` run doesn't re-flag the same old event forever.
+      `EventMemoryStore.events_since()` is the new query backing it,
+      oldest-first and bounded by a `limit` the same way
+      `distinct_recurring_signatures()`'s `scan_limit` bounds an
+      unprocessed backlog.
+    - `NotificationManager` gained a new `"event"` category for
+      `"Event flagged: ..."` messages -- deliberately never escalates
+      to critical/urgent, the same conservative stance `new_device_alert`'s
+      `"network"` category already takes, only stronger: a keyword hit
+      against a completely freeform description carries less confidence
+      than `server_health_check`'s own fixed, known message shapes.
+
+    Deliberately a small, fixed keyword list, not a generic classifier:
+    an event phrased without any of these words goes unflagged, a real,
+    accepted false-negative rate rather than an ever-growing list that
+    still couldn't cover every external system's own vocabulary.
+
+    Verified: full suite (680 passed, up from 665) covering the skill's
+    keyword matching (case-insensitivity, with/without a source,
+    cursor-bounded "only new events"), the cursor/`events_since()`
+    methods against an isolated in-memory DB (the same isolation
+    `PendingNotificationStore`'s own tests use, since this cursor is a
+    single global row), the new `NotificationManager` category, and the
+    `/check` endpoint composing it in. Live-verified against a real
+    `uvicorn` process: logged a benign event and a "NAS went offline"
+    event via `POST /siris/events`, then `POST /siris/proactive/check`
+    correctly flagged only the second one, classified it `category:
+    "event"`/`action: "notify"` (queued, not pushed as urgent); a second
+    `/check` call re-flagged nothing; logging a third event afterward and
+    checking again picked up only that new one -- confirming the cursor
+    genuinely advances rather than re-scanning from the start each time.
+
 ## Running locally
 
 ```bash

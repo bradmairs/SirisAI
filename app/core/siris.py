@@ -168,6 +168,7 @@ from app.routines.service import RoutineStore
 from app.satellites.service import SatelliteStore
 from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
+from app.skills.builtin.event_reaction import EventReactionSkill
 from app.skills.builtin.event_timing import EventTimingSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
 from app.skills.builtin.house_status import HouseStatusSkill
@@ -631,6 +632,7 @@ class SirisAI:
         self.tools.register(SkillTool(ServerHealthSkill(), self))
         self.tools.register(SkillTool(SelfMaintenanceSkill(), self))
         self.tools.register(SkillTool(EventTimingSkill(), self))
+        self.tools.register(SkillTool(EventReactionSkill(), self))
         self.tools.register(SkillTool(DailyBriefingSkill(), self))
         self.tools.register(SkillTool(GoalCheckInSkill(), self))
         self.tools.register(SkillTool(NewDeviceAlertSkill(), self))

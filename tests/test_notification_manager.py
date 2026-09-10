@@ -38,6 +38,18 @@ def test_classifies_an_unrecognized_warning_as_other() -> None:
     manager, _ = _manager()
     items = manager.summarize(["something weird happened"])
     assert items[0].category == "other"
+
+
+def test_classifies_a_flagged_event_as_notify_never_urgent() -> None:
+    """event_reaction_check's keyword scan runs against a completely
+    freeform description, so even a keyword hit stays "notify", the same
+    conservative stance new_device_alert's "network" category takes."""
+    manager, _ = _manager()
+    items = manager.summarize(["Event flagged: NAS offline (source: nas)"])
+    assert items[0].category == "event"
+    assert items[0].severity == "warning"
+    assert items[0].action == "notify"
+    assert items[0].confidence == 1.0
     assert items[0].action == "notify"
 
 

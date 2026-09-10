@@ -13,10 +13,14 @@ milestone's roadmap entry draws still holds. Only "urgent" items actually
 push immediately; "notify"-tier items are queued instead (an
 interruption controller, milestone 72, app/notify/pending.py) and
 surface in the next daily_briefing rather than interrupting the user for
-something that can wait. `event_timing_check`, `goal_check_in`, and
-`new_device_alert` (app/skills/builtin/, later hardening passes) compose
-in the same way -- their warnings go through the same NotificationManager
-pass as server_health_check's.
+something that can wait. `event_timing_check`, `goal_check_in`,
+`new_device_alert`, and `event_reaction_check` (app/skills/builtin/,
+later hardening passes) compose in the same way -- their warnings go
+through the same NotificationManager pass as server_health_check's.
+`event_reaction_check` is what closes the "proactively notify based on
+an incoming event" gap app/api/routes/events.py's own module docstring
+originally left open, via a deterministic keyword scan rather than
+per-event LLM judgment -- see its own module docstring for why.
 
 POST /briefing (milestone 53) also speaks its summary aloud via
 speak_in_current_room, alongside the push notification -- a second,
@@ -52,13 +56,14 @@ class NotificationItemResponse(BaseModel):
 
 class HealthCheckResponse(BaseModel):
     result: dict[str, Any]
-    # event_timing_check's, goal_check_in's, and new_device_alert's own
-    # output (hardening passes) -- composed alongside server_health_check
-    # the same way, their warnings feeding the same NotificationManager
-    # pass below.
+    # event_timing_check's, goal_check_in's, new_device_alert's, and
+    # event_reaction_check's own output (hardening passes) -- composed
+    # alongside server_health_check the same way, their warnings feeding
+    # the same NotificationManager pass below.
     event_timing: dict[str, Any]
     goal_check_in: dict[str, Any]
     new_device_alert: dict[str, Any]
+    event_reaction: dict[str, Any]
     notified: bool
     # Interruption controller (milestone 72): "notify"-tier items no
     # longer push immediately alongside "urgent" ones -- they're queued
@@ -83,9 +88,10 @@ def _to_response(item: NotificationItem) -> NotificationItemResponse:
 def run_health_check_and_notify(
     siris: SirisAI = Depends(get_siris),
 ) -> HealthCheckResponse:
-    """Run server_health_check, event_timing_check, goal_check_in, and
-    new_device_alert, score and correlate whatever warnings any of them
-    finds (NotificationManager), push "urgent" items immediately -- if a
+    """Run server_health_check, event_timing_check, goal_check_in,
+    new_device_alert, and event_reaction_check, score and correlate
+    whatever warnings any of them finds (NotificationManager), push
+    "urgent" items immediately -- if a
     notify channel is configured (SIRISAI_NTFY_TOPIC) -- and queue
     "notify"-tier items instead of pushing them. Meant to be triggered on
     a schedule from outside this process -- see the README for a crontab
@@ -106,12 +112,14 @@ def run_health_check_and_notify(
     event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
     goal_check_in = siris.run_tool("goal_check_in", {}, trigger=trigger)
     new_device_alert = siris.run_tool("new_device_alert", {}, trigger=trigger)
+    event_reaction = siris.run_tool("event_reaction_check", {}, trigger=trigger)
 
     warnings = (
         result["warnings"]
         + event_timing["warnings"]
         + goal_check_in["warnings"]
         + new_device_alert["warnings"]
+        + event_reaction["warnings"]
     )
     items = NotificationManager(siris.entities).summarize(warnings) if warnings else []
     urgent_items = [item for item in items if item.action == "urgent"]
@@ -145,6 +153,7 @@ def run_health_check_and_notify(
         event_timing=event_timing,
         goal_check_in=goal_check_in,
         new_device_alert=new_device_alert,
+        event_reaction=event_reaction,
         notified=notified,
         queued=len(deferred_items),
         notifications=[_to_response(i) for i in items],
