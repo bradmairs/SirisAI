@@ -249,3 +249,67 @@ def test_create_or_update_note_verify_raises_not_implemented_for_a_pdf_path() ->
     tool = ObsidianCreateOrUpdateNoteTool(_mock_client(lambda r: httpx.Response(200)))
     with pytest.raises(NotImplementedError):
         tool.verify({"path": "Manuals/router.pdf", "content": "some text"}, {})
+
+
+# -- dry_run(): what a full replacement would discard, surfaced before
+# confirming rather than after (the same "show what's at risk" reasoning
+# UniFiRestartDeviceTool.dry_run() uses for its gateway warning).
+
+
+def test_create_or_update_note_dry_run_reports_would_create_for_a_new_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/vault/Projects/New.md"
+        return httpx.Response(404)
+
+    client = _mock_client(handler)
+    tool = ObsidianCreateOrUpdateNoteTool(client)
+
+    report = tool.dry_run(path="Projects/New.md", content="# Brand new")
+    assert report == {
+        "path": "Projects/New.md",
+        "exists": False,
+        "would_create": True,
+        "would_overwrite": False,
+    }
+    client.close()
+
+
+def test_create_or_update_note_dry_run_reports_would_overwrite_for_an_existing_path() -> (
+    None
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(200, content=b"# Old content")
+
+    client = _mock_client(handler)
+    tool = ObsidianCreateOrUpdateNoteTool(client)
+
+    report = tool.dry_run(path="Projects/SirisAI.md", content="# New content")
+    assert report == {
+        "path": "Projects/SirisAI.md",
+        "exists": True,
+        "would_create": False,
+        "would_overwrite": True,
+        "current_content": "# Old content",
+        "unchanged": False,
+    }
+    client.close()
+
+
+def test_create_or_update_note_dry_run_flags_unchanged_content() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, content=b"# Same"))
+    tool = ObsidianCreateOrUpdateNoteTool(client)
+
+    report = tool.dry_run(path="Projects/SirisAI.md", content="# Same")
+    assert report["unchanged"] is True
+    client.close()
+
+
+def test_create_or_update_note_dry_run_reraises_non_404_errors() -> None:
+    client = _mock_client(lambda r: httpx.Response(500))
+    tool = ObsidianCreateOrUpdateNoteTool(client)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        tool.dry_run(path="Projects/SirisAI.md", content="# New content")
+    client.close()

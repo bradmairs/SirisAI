@@ -3566,6 +3566,83 @@ provider for the same capability actually exists to design against.
     `REBOOTING` -- concretely demonstrating why an immediate `verify()`
     would have been wrong.
 
+84. **Done** -- rollback support for `home_assistant_create_automation`.
+    With UniFi's own tool surface now complete (milestones 57/80-83), the
+    next gap examined was whether Cleanuparr or Listenarr had a similar
+    well-scoped expansion available -- both turned out not to: unlike
+    UniFi, which had real published API docs to build against (just no
+    live hardware to test), their own docstrings say there's no reference
+    documentation at all to build further tools from, so expanding either
+    now would mean fabricating endpoints rather than extending a
+    known-but-unverified surface, which those same docstrings already
+    name as the wrong way to close that gap. Looked instead at
+    `RollbackLastActionSkill`'s `_INVERSE_HANDLERS` allowlist (milestone
+    70) for a tool with an obvious, safe inverse that wasn't registered
+    yet -- `home_assistant_create_automation`/`home_assistant_delete_automation`
+    fit exactly.
+
+    What shipped: a new `_inverse_home_assistant_create_automation`
+    handler, the same "the result carries the id needed to build a
+    delete call" shape `_inverse_radarr_add_movie`/
+    `_inverse_sonarr_add_series` already use --
+    `create_automation()`'s result has `automation_id` merged in, which
+    becomes `home_assistant_delete_automation`'s argument. Deliberately
+    one-directional, like those two: `home_assistant_delete_automation`'s
+    own recorded arguments are just an `automation_id`, with no alias/
+    trigger/action/condition/mode to recreate the automation from, so
+    there's nothing safe to build a reverse-of-the-reverse from -- the
+    same "admit it isn't supported rather than guess" principle this
+    skill's own module docstring already states.
+
+    Verified: full suite (661 passed, up from 660) covering the new
+    handler end-to-end -- creating an automation against a fake Home
+    Assistant instance, then rolling it back and confirming the delete
+    call actually reached it. Live-verified against a real `uvicorn`
+    process and a fake Home Assistant server: `POST
+    /siris/tools/home_assistant_create_automation/run` created a real
+    automation (confirmed via the fake server's own `/api/states`), `GET
+    /siris/activity` showed `verified: true` for the create; `POST
+    /siris/tools/rollback_last_action/run` with `tool_name:
+    "home_assistant_create_automation"` then issued a real `DELETE` to
+    the fake server, which subsequently reported an empty automation
+    list, and the delete's own `verify()` also reported `verified: true`.
+
+85. **Done** -- `dry_run()` for `obsidian_create_or_update_note`. With
+    the rollback allowlist now covering every safely-invertible
+    CONFIRM_REQUIRED tool (milestone 84), looked at `dry_run()` coverage
+    instead: `Tool.dry_run()`'s own docstring calls it deliberately
+    optional ("most tools have nothing meaningful to simulate"), so this
+    isn't a sweep to fill in everywhere -- only
+    `obsidian_create_or_update_note` had a preview genuinely worth
+    adding. Unlike a restart, which always affects *some* existing
+    thing, this tool's own description covers two different cases: a
+    plain create (nothing to lose) and a full-content replacement
+    (Obsidian has no built-in undo, per this file's module docstring) --
+    and there was no way to tell which one a given call would be before
+    it happened.
+
+    What shipped: `dry_run()` fetches the target path and reports
+    whether it already exists; when it does, the response includes the
+    note's current content (what a replacement would actually discard)
+    and an `unchanged` flag. A 404 is treated as "doesn't exist yet" --
+    `would_create: true`, nothing to preview -- any other error still
+    raises, the same "don't paper over a real failure as a clean
+    not-found" distinction `UniFiClient` makes elsewhere. Same
+    "surface the risk before confirming, not after" reasoning as
+    `UniFiRestartDeviceTool.dry_run()`'s gateway warning.
+
+    Verified: full suite (665 passed, up from 661) covering both
+    branches (new path, existing path with matching/differing content)
+    and that a non-404 error still propagates. Live-verified against a
+    real `uvicorn` process and a fake Obsidian Local REST API server
+    seeded with one existing note: `dry_run: true` against the existing
+    path correctly reported `would_overwrite: true` with its real
+    current content, and against a new path correctly reported
+    `would_create: true` with no content to show; actually writing the
+    existing path afterward produced a real `PUT` the fake server
+    processed (confirmed via a direct `GET` against it), with
+    `verify()` reporting `verified: true` in `GET /siris/activity`.
+
 ## Running locally
 
 ```bash
