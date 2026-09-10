@@ -71,7 +71,12 @@ class _FakeSirisForNewDeviceAlert:
             # through the actual skill logic (already covered by its own
             # direct tests above) rather than re-faking its composition here.
             return NewDeviceAlertSkill().run(self)
-        if name in ("server_health_check", "event_timing_check", "goal_check_in"):
+        if name in (
+            "server_health_check",
+            "event_timing_check",
+            "goal_check_in",
+            "event_reaction_check",
+        ):
             # Not this skill's concern -- POST /siris/proactive/check
             # composes them all, so the endpoint-level test needs them
             # stubbed out, not re-tested here (each has its own test file).

@@ -4,11 +4,14 @@ instead of it only discovering things by being asked or polling through
 tools.
 
 Deliberately does nothing beyond logging to event memory
-(app/memory/events.py) for now -- deciding whether to ignore, investigate,
-or proactively notify based on an incoming event is a later milestone.
-Logged events are picked up automatically by the context engine
-(app/context/engine.py) and the recall_events tool, so they're already
-useful without any of that.
+(app/memory/events.py) here -- deciding whether to ignore, investigate,
+or proactively notify based on an incoming event is EventReactionSkill's
+job (app/skills/builtin/event_reaction.py, composed into
+POST /siris/proactive/check), not this route's; a webhook handler stays a
+thin, fast write path, not a place to run classification inline on every
+inbound POST. Logged events are picked up automatically by the context
+engine (app/context/engine.py) and the recall_events tool regardless, so
+they're already useful even before that check next runs.
 """
 
 from typing import Any

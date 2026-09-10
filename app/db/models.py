@@ -410,3 +410,18 @@ class KnownNetworkDevice(Base):
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC)
     )
+
+
+class EventReactionCursor(Base):
+    """Single-row cursor: the highest `Event.id` EventReactionSkill (a
+    hardening pass) has already classified, so composing it into
+    `POST /siris/proactive/check` on a schedule doesn't re-flag the same
+    old event on every run -- same "persist across restarts" reasoning
+    `KnownNetworkDevice` uses for new_device_alert, just a watermark
+    instead of a set since events only ever accumulate by increasing id.
+    Exactly one row ever exists, at id=1."""
+
+    __tablename__ = "event_reaction_cursor"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    last_event_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
