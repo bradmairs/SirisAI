@@ -75,6 +75,7 @@ class _FakeSirisForNewDeviceAlert:
             "server_health_check",
             "event_timing_check",
             "goal_check_in",
+            "goal_decomposition_check",
             "event_reaction_check",
         ):
             # Not this skill's concern -- POST /siris/proactive/check

@@ -13,7 +13,7 @@ milestone's roadmap entry draws still holds. Only "urgent" items actually
 push immediately; "notify"-tier items are queued instead (an
 interruption controller, milestone 72, app/notify/pending.py) and
 surface in the next daily_briefing rather than interrupting the user for
-something that can wait. `event_timing_check`, `goal_check_in`,
+something that can wait. `event_timing_check`, `goal_check_in`, `goal_decomposition_check`,
 `new_device_alert`, and `event_reaction_check` (app/skills/builtin/,
 later hardening passes) compose in the same way -- their warnings go
 through the same NotificationManager pass as server_health_check's.
@@ -26,6 +26,12 @@ POST /briefing (milestone 53) also speaks its summary aloud via
 speak_in_current_room, alongside the push notification -- a second,
 independent delivery channel, not a replacement; either, both, or
 neither fire depending on what's configured/currently reachable.
+
+POST /geofence (a Jarvis-concept brainstorm item) is a separate route
+rather than composed into /check, same reasoning as /presence: it only
+exists when Home Assistant is configured, and fires a user-authored
+reminder message directly rather than something NotificationManager
+needs to classify.
 """
 
 from typing import Any
@@ -62,6 +68,7 @@ class HealthCheckResponse(BaseModel):
     # the same NotificationManager pass below.
     event_timing: dict[str, Any]
     goal_check_in: dict[str, Any]
+    goal_decomposition: dict[str, Any]
     new_device_alert: dict[str, Any]
     event_reaction: dict[str, Any]
     notified: bool
@@ -89,7 +96,8 @@ def run_health_check_and_notify(
     siris: SirisAI = Depends(get_siris),
 ) -> HealthCheckResponse:
     """Run server_health_check, event_timing_check, goal_check_in,
-    new_device_alert, and event_reaction_check, score and correlate
+    goal_decomposition_check, new_device_alert, and event_reaction_check,
+    score and correlate
     whatever warnings any of them finds (NotificationManager), push
     "urgent" items immediately -- if a
     notify channel is configured (SIRISAI_NTFY_TOPIC) -- and queue
@@ -111,6 +119,7 @@ def run_health_check_and_notify(
     result = siris.run_tool("server_health_check", {}, trigger=trigger)
     event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
     goal_check_in = siris.run_tool("goal_check_in", {}, trigger=trigger)
+    goal_decomposition = siris.run_tool("goal_decomposition_check", {}, trigger=trigger)
     new_device_alert = siris.run_tool("new_device_alert", {}, trigger=trigger)
     event_reaction = siris.run_tool("event_reaction_check", {}, trigger=trigger)
 
@@ -118,6 +127,7 @@ def run_health_check_and_notify(
         result["warnings"]
         + event_timing["warnings"]
         + goal_check_in["warnings"]
+        + goal_decomposition["warnings"]
         + new_device_alert["warnings"]
         + event_reaction["warnings"]
     )
@@ -152,6 +162,7 @@ def run_health_check_and_notify(
         result=result,
         event_timing=event_timing,
         goal_check_in=goal_check_in,
+        goal_decomposition=goal_decomposition,
         new_device_alert=new_device_alert,
         event_reaction=event_reaction,
         notified=notified,
@@ -233,3 +244,32 @@ def run_presence_check(siris: SirisAI = Depends(get_siris)) -> PresenceCheckResp
     trigger = "proactive check: automated schedule (see POST /siris/proactive/presence)"
     result = siris.run_tool("presence_check", {}, trigger=trigger)
     return PresenceCheckResponse(result=result)
+
+
+class GeofenceCheckResponse(BaseModel):
+    result: dict[str, Any]
+
+
+@router.post("/geofence", response_model=GeofenceCheckResponse)
+def run_geofence_reminder_check(siris: SirisAI = Depends(get_siris)) -> GeofenceCheckResponse:
+    """Run geofence_reminder_check (a Jarvis-concept brainstorm item):
+    check every enabled GeofenceReminder's entity for a transition into
+    its watched zone, sending a notification directly for any that just
+    fired -- not routed through NotificationManager, since a reminder's
+    message is arbitrary text the user already wrote and approved by
+    creating it, not an auto-generated warning needing severity
+    classification. 404 if Home Assistant isn't configured, same
+    "only exists when its underlying capability does" reasoning
+    POST /siris/proactive/presence already uses -- a separate endpoint
+    rather than folding into /check, since a personal reminder isn't a
+    system-health warning /check's NotificationManager pass is scoring.
+    Meant to be triggered periodically from outside this process, same
+    as every other proactive route."""
+    if siris.tools.get("geofence_reminder_check") is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Geofence reminders aren't available (Home Assistant isn't configured).",
+        )
+    trigger = "proactive check: automated schedule (see POST /siris/proactive/geofence)"
+    result = siris.run_tool("geofence_reminder_check", {}, trigger=trigger)
+    return GeofenceCheckResponse(result=result)

@@ -1,7 +1,18 @@
 """Reference skill: a server health check composed from existing tools.
 Copy this file's shape for the next skill.
+
+Time-of-day anomaly detection (a Jarvis-concept brainstorm item):
+_check_metric() prefers MetricsStore.hourly_baseline() for the current
+hour over the flat baseline() when the hourly one has enough history --
+a value that's unremarkable against a server's all-day average can still
+be genuinely unusual for 3am specifically (see app/metrics/service.py's
+module docstring). Falls back to the flat baseline, then the fixed
+threshold, in the same order baseline() itself already falls back to the
+fixed threshold -- one more rung on the same ladder, not a replacement
+for it.
 """
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.skills.base import Skill
@@ -17,6 +28,11 @@ _HIGH_USAGE_THRESHOLD_PERCENT = 90
 # for this particular server.
 _BASELINE_STDEV_MULTIPLIER = 2
 _MIN_SAMPLES_FOR_BASELINE = 10
+# Lower than _MIN_SAMPLES_FOR_BASELINE on purpose: an hourly bucket
+# accumulates roughly 1/24th as fast as the flat baseline does over the
+# same wall-clock time, so requiring the same count would mean it
+# essentially never activates on a real install.
+_MIN_SAMPLES_FOR_HOURLY_BASELINE = 5
 
 
 class ServerHealthSkill(Skill):
@@ -74,13 +90,24 @@ class ServerHealthSkill(Skill):
         """Records `value` as a new sample (building history for future
         calls) and flags it if it's above whichever is lower: the fixed
         threshold, or (once enough history exists) this server's own
-        mean + N*stdev. Message always starts "{label} is high: {value}%"
-        regardless of which threshold triggered it -- NotificationManager
-        (26) pattern-matches on that exact prefix/shape, so a personalized
-        flag still correlates the same way a fixed-threshold one does;
-        the baseline detail is appended after, not instead."""
+        mean + N*stdev -- preferring the current hour's own baseline
+        over the flat one when it has enough samples, since a value can
+        be unremarkable across a full day/night cycle but genuinely
+        unusual for this specific hour (see app/metrics/service.py's
+        module docstring). Message always starts "{label} is high:
+        {value}%" regardless of which threshold triggered it --
+        NotificationManager (26) pattern-matches on that exact
+        prefix/shape, so a personalized flag still correlates the same
+        way a fixed-threshold one does; the baseline detail is appended
+        after, not instead."""
         siris.metrics.record_sample(metric_name, value)
-        baseline = siris.metrics.baseline(metric_name, min_samples=_MIN_SAMPLES_FOR_BASELINE)
+        current_hour = datetime.now(UTC).hour
+        hourly_baseline = siris.metrics.hourly_baseline(
+            metric_name, current_hour, min_samples=_MIN_SAMPLES_FOR_HOURLY_BASELINE
+        )
+        baseline = hourly_baseline or siris.metrics.baseline(
+            metric_name, min_samples=_MIN_SAMPLES_FOR_BASELINE
+        )
 
         if baseline is not None:
             threshold = min(_HIGH_USAGE_THRESHOLD_PERCENT, baseline.mean + _BASELINE_STDEV_MULTIPLIER * baseline.stdev)
@@ -92,5 +119,6 @@ class ServerHealthSkill(Skill):
 
         message = f"{label} is high: {value}%"
         if baseline is not None:
-            message += f" (baseline {baseline.mean:.1f}% ± {baseline.stdev:.1f}%, {baseline.sample_count} samples)"
+            kind = "hourly" if baseline is hourly_baseline else "overall"
+            message += f" ({kind} baseline {baseline.mean:.1f}% ± {baseline.stdev:.1f}%, {baseline.sample_count} samples)"
         warnings.append(message)

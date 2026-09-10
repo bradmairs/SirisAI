@@ -29,6 +29,17 @@ path server_health_check's own messages already contain -- it doesn't
 try to fuzzy-match "Plex" against a relationship recorded as "plex". A
 recorded relationship only helps if it uses the same names these
 messages do.
+
+Cross-domain correlation (a Jarvis-concept brainstorm item): a flagged
+event's " (entity: X)" suffix (event_reaction_check, once it logs one)
+is the same kind of named-entity anchor a container name or disk path
+already is, so it's now eligible on both sides of `_correlate()` --
+as the "cause" whose relationships get looked up (same role a container
+name plays) and as a "partner" other items get matched against (same
+role a disk path plays). A container name is still only ever a cause,
+never a partner, exactly as before this -- narrowly extending what
+correlates with what, not turning this into a generic graph match over
+every possible pairing.
 """
 
 import re
@@ -38,6 +49,38 @@ from app.memory.entities import EntityMemoryStore
 
 _CONTAINER_PATTERN = re.compile(r"Container '(.+?)' is")
 _DISK_PATH_PATTERN = re.compile(r"Disk usage on (.+?) is high")
+_EVENT_ENTITY_PATTERN = re.compile(r"\(entity: (.+?)\)$")
+
+
+def _cause_entity_name(message: str) -> str | None:
+    """The entity whose world-model relationships get looked up for a
+    correlation partner -- a container name, or (a Jarvis-concept
+    brainstorm item) a flagged event's own named entity. Disk is
+    deliberately not eligible here, same as before this extension: it's
+    always the effect side of a correlation (the storage a container
+    depends on), never the cause looked up first."""
+    container = _CONTAINER_PATTERN.search(message)
+    if container is not None:
+        return container.group(1)
+    event_entity = _EVENT_ENTITY_PATTERN.search(message)
+    if event_entity is not None:
+        return event_entity.group(1)
+    return None
+
+
+def _partner_entity_name(message: str) -> str | None:
+    """The entity a candidate correlation partner names, checked against
+    a cause's related entities -- a disk path, or (a Jarvis-concept
+    brainstorm item) a flagged event's own named entity. A container is
+    deliberately not eligible here, same as before this extension: it's
+    always the cause side, never matched as someone else's partner."""
+    disk = _DISK_PATH_PATTERN.search(message)
+    if disk is not None:
+        return disk.group(1)
+    event_entity = _EVENT_ENTITY_PATTERN.search(message)
+    if event_entity is not None:
+        return event_entity.group(1)
+    return None
 
 
 @dataclass
@@ -109,13 +152,13 @@ class NotificationManager:
             if i in merged_indices:
                 continue
 
-            container = _CONTAINER_PATTERN.search(item.message)
-            if container is None:
+            cause_entity = _cause_entity_name(item.message)
+            if cause_entity is None:
                 result.append(item)
                 continue
 
-            related_entities = self._related_entity_names(container.group(1))
-            partner = self._find_disk_partner(items, related_entities, skip={i, *merged_indices})
+            related_entities = self._related_entity_names(cause_entity)
+            partner = self._find_partner(items, related_entities, skip={i, *merged_indices})
 
             if partner is None:
                 result.append(item)
@@ -143,13 +186,13 @@ class NotificationManager:
         }
 
     @staticmethod
-    def _find_disk_partner(
+    def _find_partner(
         items: list[NotificationItem], related_entities: set[str], skip: set[int]
     ) -> tuple[int, NotificationItem] | None:
         for j, other in enumerate(items):
             if j in skip:
                 continue
-            disk_path = _DISK_PATH_PATTERN.search(other.message)
-            if disk_path is not None and disk_path.group(1) in related_entities:
+            partner_entity = _partner_entity_name(other.message)
+            if partner_entity is not None and partner_entity in related_entities:
                 return j, other
         return None

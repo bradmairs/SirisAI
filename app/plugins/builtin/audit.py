@@ -2,6 +2,12 @@
 answer "why did you do X" from the audit log itself
 (app/audit/service.py), instead of guessing after the fact from whatever
 happens to be in the conversation.
+
+TrustLedgerTool (a later hardening pass) answers a different question --
+not "why did this one call happen" but "which tools' verify() checks
+actually hold up in practice" -- by rolling up the same per-call
+verified/verification_detail data this file's other tool already reads
+one entry at a time.
 """
 
 from typing import Any
@@ -43,3 +49,23 @@ class ExplainRecentActionTool(Tool):
 
     def run(self, tool_name: str = "", argument_contains: str | None = None, **kwargs: Any) -> Any:
         return self._audit.find_recent(tool_name, argument_contains=argument_contains)
+
+
+class TrustLedgerTool(Tool):
+    name = "trust_ledger"
+    description = (
+        "Show how well each tool's verify() check actually holds up in practice -- attempts, "
+        "how many came back verified vs. not, and a success rate, worst first. Only covers "
+        "tools that define verify() and have been called at least once with it attempted; a "
+        "tool with no verify() at all has nothing to report here. Use this to spot a tool "
+        "whose real-world verification is failing more than it's passing, not just whether "
+        "one specific recent call succeeded (explain_recent_action is for that)."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, audit: AuditLogStore) -> None:
+        self._audit = audit
+
+    def run(self, **kwargs: Any) -> Any:
+        return self._audit.verification_stats_by_tool()

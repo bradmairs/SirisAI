@@ -39,6 +39,8 @@ def test_optional_tool_libraries_not_registered_by_default() -> None:
         "obsidian_get_note",
         "obsidian_search",
         "obsidian_create_or_update_note",
+        "frigate_list_cameras",
+        "frigate_recent_events",
     }
 
 
@@ -173,3 +175,15 @@ def test_obsidian_tools_registered_when_both_settings_present() -> None:
     finally:
         assert siris._obsidian_client is not None
         siris._obsidian_client.close()
+
+
+def test_frigate_tools_registered_with_base_url_alone() -> None:
+    """Unlike every other integration above, no api_key is required --
+    a typical self-hosted Frigate instance has no built-in API auth."""
+    siris = SirisAI(settings=Settings(frigate_base_url="http://frigate.local:5000"))
+    try:
+        names = {tool.name for tool in siris.tools.list()}
+        assert {"frigate_list_cameras", "frigate_recent_events"} <= names
+    finally:
+        assert siris._frigate_client is not None
+        siris._frigate_client.close()

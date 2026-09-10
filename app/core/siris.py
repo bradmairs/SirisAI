@@ -26,6 +26,7 @@ from app.conversation.service import ConversationStore
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.docker.client import DockerClient
+from app.geofence.service import GeofenceReminderStore
 from app.goals.service import GoalStore
 from app.network_devices.service import KnownDeviceStore
 from app.hermes.client import HermesClient
@@ -45,7 +46,7 @@ from app.notify.client import NotifyClient
 from app.notify.pending import PendingNotificationStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
-from app.plugins.builtin.audit import ExplainRecentActionTool
+from app.plugins.builtin.audit import ExplainRecentActionTool, TrustLedgerTool
 from app.plugins.builtin.capability_gap import ReportCapabilityGapTool
 from app.plugins.builtin.calendar import (
     CalendarCheckConflictsTool,
@@ -65,6 +66,12 @@ from app.plugins.builtin.docker import (
     DockerRestartContainerTool,
 )
 from app.plugins.builtin.echo import EchoTool
+from app.plugins.builtin.frigate import FrigateListCamerasTool, FrigateRecentEventsTool
+from app.plugins.builtin.geofence import (
+    CreateGeofenceReminderTool,
+    ListGeofenceRemindersTool,
+    SetGeofenceReminderEnabledTool,
+)
 from app.plugins.builtin.goals import (
     AddGoalObjectiveTool,
     CompleteGoalObjectiveTool,
@@ -126,6 +133,7 @@ from app.plugins.builtin.routines import (
     SetRoutineEnabledTool,
 )
 from app.plugins.builtin.satellites import SpeakInCurrentRoomTool
+from app.plugins.builtin.scenes import CreateSceneTool, DeleteSceneTool, ListScenesTool
 from app.plugins.builtin.service_health import CheckServiceEndpointTool
 from app.plugins.builtin.sonarr import (
     SonarrAddSeriesTool,
@@ -161,21 +169,26 @@ from app.plugins.builtin.unifi import (
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
+from app.frigate.client import FrigateClient
 from app.listenarr.client import ListenarrClient
 from app.obsidian.client import ObsidianClient
 from app.radarr.client import RadarrClient
 from app.routines.service import RoutineStore
 from app.satellites.service import SatelliteStore
+from app.scenes.service import SceneStore
 from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
 from app.skills.builtin.event_reaction import EventReactionSkill
 from app.skills.builtin.event_timing import EventTimingSkill
+from app.skills.builtin.geofence_reminder import GeofenceReminderCheckSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
+from app.skills.builtin.goal_decomposition import GoalDecompositionCheckSkill
 from app.skills.builtin.house_status import HouseStatusSkill
 from app.skills.builtin.meeting_prep import MeetingPrepSkill
 from app.skills.builtin.new_device_alert import NewDeviceAlertSkill
 from app.skills.builtin.presence import PresenceSkill
 from app.skills.builtin.rollback import RollbackLastActionSkill
+from app.skills.builtin.run_scene import RunSceneSkill
 from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.sonarr.client import SonarrClient
@@ -300,6 +313,10 @@ class SirisAI:
         default_factory=lambda: EventMemoryStore(SessionLocal)
     )
     goals: GoalStore = field(default_factory=lambda: GoalStore(SessionLocal))
+    geofence: GeofenceReminderStore = field(
+        default_factory=lambda: GeofenceReminderStore(SessionLocal)
+    )
+    scenes: SceneStore = field(default_factory=lambda: SceneStore(SessionLocal))
     capability_gaps: CapabilityGapStore = field(
         default_factory=lambda: CapabilityGapStore(SessionLocal)
     )
@@ -386,6 +403,7 @@ class SirisAI:
         self._listenarr_client: ListenarrClient | None = None
         self._cleanuparr_client: CleanuparrClient | None = None
         self._obsidian_client: ObsidianClient | None = None
+        self._frigate_client: FrigateClient | None = None
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -404,6 +422,9 @@ class SirisAI:
         self.tools.register(UpdateGoalStatusTool(self.goals))
         self.tools.register(AddGoalObjectiveTool(self.goals))
         self.tools.register(CompleteGoalObjectiveTool(self.goals))
+        self.tools.register(CreateGeofenceReminderTool(self.geofence))
+        self.tools.register(ListGeofenceRemindersTool(self.geofence))
+        self.tools.register(SetGeofenceReminderEnabledTool(self.geofence))
         self.tools.register(CreateRoutineTool(self.routines, self.tools))
         self.tools.register(ListRoutinesTool(self.routines))
         self.tools.register(SetRoutineEnabledTool(self.routines))
@@ -412,6 +433,7 @@ class SirisAI:
         self.tools.register(CheckServiceEndpointTool())
         self.tools.register(ListPendingNotificationsTool(self.pending_notifications))
         self.tools.register(ExplainRecentActionTool(self.audit))
+        self.tools.register(TrustLedgerTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
@@ -447,6 +469,17 @@ class SirisAI:
             )
             self.tools.register(
                 HomeAssistantDeleteAutomationTool(self._home_assistant_client)
+            )
+            self.tools.register(
+                SkillTool(
+                    GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
+                )
+            )
+            self.tools.register(CreateSceneTool(self.scenes))
+            self.tools.register(ListScenesTool(self.scenes))
+            self.tools.register(DeleteSceneTool(self.scenes))
+            self.tools.register(
+                SkillTool(RunSceneSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED)
             )
 
         # Plex before Docker on purpose: DockerRestartContainerTool's
@@ -610,6 +643,14 @@ class SirisAI:
             self.tools.register(ObsidianSearchTool(self._obsidian_client))
             self.tools.register(ObsidianCreateOrUpdateNoteTool(self._obsidian_client))
 
+        if self.settings.frigate_base_url:
+            self._frigate_client = FrigateClient(
+                base_url=self.settings.frigate_base_url,
+                api_key=self.settings.frigate_api_key,
+            )
+            self.tools.register(FrigateListCamerasTool(self._frigate_client))
+            self.tools.register(FrigateRecentEventsTool(self._frigate_client))
+
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite
         # happens to be registered right now (that's runtime state, not
@@ -635,6 +676,7 @@ class SirisAI:
         self.tools.register(SkillTool(EventReactionSkill(), self))
         self.tools.register(SkillTool(DailyBriefingSkill(), self))
         self.tools.register(SkillTool(GoalCheckInSkill(), self))
+        self.tools.register(SkillTool(GoalDecompositionCheckSkill(), self))
         self.tools.register(SkillTool(NewDeviceAlertSkill(), self))
         self.tools.register(SkillTool(HouseStatusSkill(), self))
         self.tools.register(SkillTool(MeetingPrepSkill(), self))
@@ -952,6 +994,7 @@ class SirisAI:
             self._listenarr_client,
             self._cleanuparr_client,
             self._obsidian_client,
+            self._frigate_client,
             self._embedding_client,
         )
         for client in sync_clients:

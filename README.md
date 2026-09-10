@@ -3778,6 +3778,312 @@ provider for the same capability actually exists to design against.
     it correctly got position 3 (continuing the sequence) with a brand
     new id (4) rather than reusing the freed one.
 
+89. **Done** -- Frigate integration: SirisAI's first vision tools.
+    Asked to brainstorm ideas grounded in the wider "Jarvis" concept and
+    then build several of them; this is the one flagged as the single
+    biggest gap relative to that concept -- every existing integration
+    reasons over text/state from other services, never over what a
+    camera actually saw.
+
+    What shipped: `app/frigate/client.py` + `app/plugins/builtin/frigate.py`,
+    registered when `SIRISAI_FRIGATE_BASE_URL` is set -- two READ tools,
+    `frigate_list_cameras` (from Frigate's own config) and
+    `frigate_recent_events` (recent detections, optionally filtered by
+    camera/label, each with a `snapshot_url`/`clip_url` built only when
+    Frigate actually saved one). Built from Frigate's own published REST
+    API docs (https://docs.frigate.video/integrations/api/) -- a real,
+    documented spec, closer to UniFi's tier than Cleanuparr/Listenarr's
+    guessed one, just with no live camera hardware here to confirm the
+    exact response shape against. Deliberately narrow on this first
+    pass: camera list + recent events, not Frigate's full surface
+    (recordings, live streams, review items) -- the same restraint this
+    codebase's other least-verified integrations already use, rather
+    than guessing at endpoints not yet confirmed necessary.
+
+    One deliberate deviation from every other integration here:
+    `SIRISAI_FRIGATE_API_KEY` is optional, and registration is gated on
+    `base_url` alone. A typical self-hosted Frigate instance has no
+    built-in API authentication at all (its own docs recommend a
+    reverse-proxy for that) -- requiring a key here would make the
+    common case impossible to configure. When a key is given it's sent
+    as a bearer token, for setups that do front it with one.
+
+    Verified: full suite (704 passed, up from 692) covering both tools,
+    camera enabled-state defaulting, event field mapping (including
+    Frigate's Unix-timestamp times converted to this codebase's usual
+    ISO 8601), snapshot/clip URLs present only when Frigate reports
+    having saved one, camera/label/limit filtering, and the optional-
+    auth behavior (no header sent when no key configured, a bearer
+    token when one is). Live-verified against a real `uvicorn` process
+    and a fake Frigate server seeded with two cameras and two events:
+    `frigate_list_cameras` and `frigate_recent_events` both returned
+    correct data through real HTTP round trips, including a
+    person-detection event with real snapshot/clip URLs and a
+    dog-detection event correctly showing `null` for both (Frigate
+    hadn't saved media for it) and camera-filtering narrowing results
+    correctly.
+
+90. **Done** -- `trust_ledger`: a queryable rollup of `verify()`
+    success rates. Second item from the same Jarvis-concept brainstorm --
+    this codebase already records `verified`/`verification_detail` on
+    every audit log entry for tools that define `Tool.verify()` (the
+    verify() sweep, milestones 65/76), but nothing before this rolled
+    that up into "which tools' real-world verification is actually
+    succeeding" -- each tool's trustworthiness was scattered across
+    individual `GET /siris/activity` rows, not a single place to look.
+
+    What shipped: `AuditLogStore.verification_stats_by_tool()`
+    aggregates `verified` outcomes per tool among the most recent 500
+    executions -- attempts, verified-true/false counts, and a success
+    rate -- sorted worst-success-rate first, same
+    extend-what's-already-recorded reasoning `failure_counts_by_tool()`
+    (milestone 30) already uses for failures. Surfaced via a new
+    `trust_ledger` tool (`app/plugins/builtin/audit.py`, always
+    registered alongside `explain_recent_action`), READ, no parameters.
+    Only tools that have actually attempted `verify()` at least once
+    appear -- a tool with no `verify()` at all (most of them) has
+    nothing meaningful to report.
+
+    Verified: full suite (709 passed, up from 704) covering: only
+    verify()-attempting tools appear, correct success-rate computation,
+    worst-first sorting, and the tool's registration/read-permission and
+    that it actually reads through to the audit store (unique tool
+    names per test, same shared-audit-log-noise-avoidance pattern
+    `test_self_maintenance.py`'s `failure_counts_by_tool` tests already
+    use). Live-verified against a real `uvicorn` process and a fake
+    Radarr server rigged to demonstrate the exact gap `verify()` exists
+    to catch: deleting one movie that genuinely disappears (`verified:
+    true`) and a second whose `DELETE` returns `200` without actually
+    removing it (`verified: false`, the "API call not raising doesn't
+    prove it happened" case `radarr_delete_movie.verify()`'s own
+    docstring describes) -- `trust_ledger` correctly reported
+    `radarr_delete_movie` at 2 attempts, 1 true, 1 false, a 0.5 success
+    rate.
+
+91. **Done** -- Geofence-triggered reminders. Third item from the same
+    Jarvis-concept brainstorm: "remind me when I get home" / "let me
+    know whenever Brad leaves work," built entirely on data Home
+    Assistant already exposes (a `person`/`device_tracker` entity's
+    `state` is its current zone) -- no new external dependency, unlike
+    the commute/traffic-nudge idea from the same brainstorm, which is
+    on hold pending a real traffic API + key.
+
+    What shipped:
+    - A new `GeofenceReminder` model + `GeofenceReminderStore`
+      (app/geofence/): `entity_id` + `zone` + `message` + `repeat`,
+      scoped per user like `GoalStore`. `create_geofence_reminder`,
+      `list_geofence_reminders`, `set_geofence_reminder_enabled` --
+      always registered, same "store exists regardless of whether HA
+      is configured yet" split `GoalStore`/the planner already draws.
+    - `GeofenceReminderCheckSkill` (`geofence_reminder_check`),
+      registered only alongside Home Assistant (needs
+      `home_assistant_get_state`): generalizes `PresenceSkill`'s own
+      hardcoded household UniFi home/away trigger (milestone 42) to an
+      arbitrary entity/zone/message, same transition-only discipline
+      (only fires on the tick a zone actually changes into the watched
+      one, not every check while already there) and same "first check
+      establishes a baseline, doesn't assume a transition" reasoning.
+      Delivers via `notify` directly rather than through
+      `NotificationManager` -- a reminder's message is text the user
+      already wrote and approved, not an auto-generated warning needing
+      severity classification.
+    - By default a reminder is one-shot: it disables itself
+      (`enabled=False`) the moment it fires, like a real reminder
+      shouldn't refire forever; `repeat=true` makes it a standing rule
+      instead.
+    - A new `POST /siris/proactive/geofence` route, 404 when Home
+      Assistant isn't configured -- its own endpoint rather than folded
+      into `/check`, same reasoning `/presence` already uses: this
+      isn't a system-health warning for `NotificationManager` to score.
+    - One entity failing to look up (a stale/deleted `entity_id`) is
+      skipped rather than aborting the whole check -- one broken
+      reminder shouldn't block every other one's.
+
+    Verified: full suite (729 passed, up from 709) covering the store
+    (create/list/enable-disable/record_zone), tool registration and
+    permission tiers, and the check skill's full behavior matrix
+    (baseline establishment, no-change, genuine transition firing +
+    notifying, non-repeat self-disabling vs. repeat staying enabled,
+    transitioning to an unwatched zone, already-in-zone not refiring,
+    firing even without `notify` configured, one broken entity not
+    blocking others, disabled reminders skipped) plus the endpoint's
+    404/200 behavior. Live-verified against a real `uvicorn` process, a
+    fake Home Assistant server (with a `/control/set_state` endpoint to
+    simulate a real zone transition), and a fake ntfy server: created a
+    reminder for `person.brad` entering `home`, a first
+    `POST /siris/proactive/geofence` established the baseline (`work`,
+    no fire) through real HTTP round trips, moving the fake entity to
+    `home` and checking again correctly fired -- a real push landed on
+    the fake ntfy server with the reminder's exact message -- the
+    reminder then showed `enabled: false` in `list_geofence_reminders`,
+    and a third check stayed quiet.
+
+92. **Done** -- Time-of-day metric anomaly detection. Fourth item from
+    the same Jarvis-concept brainstorm: `server_health_check`'s existing
+    personalized threshold (milestone 27) already learns a per-server
+    "normal" from recent history, but as one flat mean/stdev across a
+    server's full day/night cycle -- a value that's unremarkable
+    against that full-cycle average can still be genuinely unusual for
+    *this specific hour* (e.g. a server that idles near 0% overnight
+    spiking to 40% at 3am), and the flat baseline's own day/night swings
+    push its threshold too high to ever catch that.
+
+    What shipped: `MetricsStore.hourly_baseline(metric_name, hour, ...)`
+    -- the same mean/stdev `baseline()` already computes, narrowed to
+    samples recorded during one specific UTC hour. `ServerHealthSkill.
+    _check_metric()` now computes both and prefers the hourly one
+    whenever it has enough samples (a lower `min_samples` than the flat
+    baseline's, since an hourly bucket only ever gets ~1/24th as many
+    samples over the same wall-clock time as the flat baseline does),
+    falling back to the flat baseline, then the fixed 90% ceiling, in
+    the same order the flat baseline already fell back to the fixed
+    ceiling. The warning message keeps its exact
+    `"{label} is high: {value}%"` prefix regardless of which threshold
+    triggered it -- `NotificationManager`'s correlation regex still
+    matches -- with a `(hourly baseline ...)` or `(overall baseline
+    ...)` suffix saying which one actually fired.
+
+    Verified: full suite (733 passed, up from 729) covering
+    `hourly_baseline()` directly (below-min-samples, correctly ignoring
+    other hours' samples, mean/stdev computation) and
+    `ServerHealthSkill` preferring and correctly labeling the hourly
+    baseline when available. Live-verified against a real `uvicorn`
+    process: seeded a tight, low (~1%) disk-usage baseline for the
+    current hour directly in the database before the very first real
+    health check, then called `server_health_check` -- the real disk
+    usage (20.5%, unremarkable on its own) was correctly flagged as
+    anomalous for this specific hour, with the warning explicitly
+    labeled `hourly baseline 4.3% ± 8.0%, 6 samples`.
+
+93. **Done** -- Deeper cross-domain correlation: events join the world
+    model. Fifth item from the same Jarvis-concept brainstorm --
+    scoped down from the original idea (correlating "internet's slow"
+    with "3 devices downloading," which needs per-device bandwidth data
+    this codebase doesn't collect anywhere) to something real:
+    `event_reaction_check`'s flagged events had a named entity
+    (`Event.entity_name`) sitting right there, unused by
+    `NotificationManager`'s existing container+disk correlation.
+
+    What shipped:
+    - `event_reaction_check`'s warning messages now end with
+      `(entity: X)` when the event was logged against a named entity --
+      the same kind of anchor a container name or disk path already is.
+    - `NotificationManager._correlate()` generalized from
+      "container is the only cause, disk is the only partner" to two
+      small helper functions (`_cause_entity_name`/`_partner_entity_name`)
+      -- a flagged event's entity is now eligible on *both* sides: as
+      the cause whose world-model relationships get looked up (same
+      role a container name plays), and as a partner other items get
+      matched against (same role a disk path plays). A container name
+      is still only ever a cause, never a partner, exactly as before
+      this change -- narrowly extending what correlates with what, not
+      turning this into a generic graph match over every pairing.
+
+    Verified: full suite (739 passed, up from 733) covering the new
+    message suffix (present/absent) and four correlation shapes: event
+    as cause with a related disk partner, event as partner of a docker
+    cause, no correlation without a recorded relationship, and a direct
+    check that a container name is still never extracted as a partner
+    entity. Live-verified against a real `uvicorn` process: recorded a
+    `nas DEPENDS_ON nas-storage` relationship via
+    `remember_entity_relationship`, logged two independently-flagged
+    events (`entity_name="nas"` and `entity_name="nas-storage"`) via
+    `POST /siris/events`, then `POST /siris/proactive/check` correctly
+    merged both into one `category: "correlated"` notification citing
+    the relationship, instead of surfacing as two seemingly unrelated
+    warnings.
+
+94. **Done** -- First-class scenes: a named, ordered bundle of Home
+    Assistant service calls the model can save once and trigger as one
+    unit. Sixth item from the same Jarvis-concept brainstorm ("scenes,
+    not raw HA automation YAML") -- `home_assistant_create_automation`
+    already covers "run this when X happens"; a scene is the other
+    half, "run this now, by name," without re-describing every step
+    each time.
+
+    What shipped:
+    - `Scene` (`app/db/models.py`) -- id, name, and a JSON-encoded
+      ordered list of steps, each shaped exactly like
+      `home_assistant_call_service`'s own `domain`/`service`/
+      `entity_id`/`service_data` arguments. Not user-scoped, same
+      reasoning as `Routine`: a scene is shared home infrastructure.
+    - `SceneStore` (`app/scenes/service.py`) -- `create_scene`,
+      `list_scenes`, `get_scene`, `delete_scene`. Deliberately just a
+      store; it doesn't call Home Assistant or decide when to run
+      anything.
+    - `create_scene`/`list_scenes`/`delete_scene` tools
+      (`app/plugins/builtin/scenes.py`), registered only alongside Home
+      Assistant itself (a scene with nowhere to run isn't worth being
+      able to create).
+    - `run_scene` (`app/skills/builtin/run_scene.py`) -- a `Skill`
+      rather than a raw `Tool`, since it composes multiple
+      `siris.run_tool()` calls (one `home_assistant_call_service` per
+      step): a `Tool` subclass takes specific, typed collaborators, not
+      a generic `siris` reference, so "chain several tool calls into
+      one" is exactly what the `Skill` abstraction is for. Along the
+      way, `Skill`/`SkillTool` gained optional `dry_run()`/`verify()`
+      forwarding (mirroring `Tool.dry_run()`/`Tool.verify()`'s own
+      "raises `NotImplementedError` unless overridden" convention) so a
+      skill can support them too -- fully backward-compatible, every
+      existing `Skill` subclass that doesn't override them behaves
+      identically to before. `run_scene` is `CONFIRM_REQUIRED` (it can
+      call anything `home_assistant_call_service` could, across every
+      step); its `dry_run()` previews the scene's name and every step
+      before confirming; its `verify()` honestly raises
+      `NotImplementedError` -- a scene's steps can span any mix of
+      domains/services, each with its own idea of "did this work" (or
+      none at all), the same "genuinely ambiguous outcome" gap
+      `HomeAssistantCallServiceTool.verify()` already leaves open on
+      its own less-than-fully-deterministic calls.
+
+    Verified: full suite (754 passed, up from 739) covering the store,
+    the CRUD tools' registration/permissions/round-trip, and
+    `run_scene`'s `run()`/`dry_run()`/`verify()` behavior. Live-verified
+    against a real `uvicorn` process with a fake Home Assistant server:
+    created a two-step `movie_night` scene (`light.turn_off` then
+    `media_player.turn_on`), dry-ran it and saw both steps previewed
+    without any HTTP call reaching the fake server, ran it unconfirmed
+    and got `confirmation_required` back, then ran it confirmed and
+    confirmed the fake server received both service calls in order
+    (`GET /__calls__` on the fake server showed exactly the two POSTs,
+    in step order), and finally deleted the scene and confirmed
+    `list_scenes` no longer returned it.
+
+95. **Done** -- Goal decomposition check: flag active goals that are
+    still just a title. Seventh item from the same Jarvis-concept
+    brainstorm (chief-of-staff category) -- `create_goal`/`add_objective`
+    already let the model decompose a goal into concrete steps whenever
+    it likes, so this doesn't add any new decomposition capability;
+    it's the deterministic missing half, noticing a goal that never got
+    that treatment, the same "flag it, don't fix it" boundary
+    `GoalCheckInSkill`'s staleness check already draws.
+
+    What shipped:
+    - `GoalStore.goals_needing_decomposition()`
+      (`app/goals/service.py`) -- active goals with zero objectives.
+      Distinct from `stale_goals()`: a goal created five minutes ago
+      with no objectives shows up here immediately, long before it
+      would ever go stale.
+    - `GoalDecompositionCheckSkill`
+      (`app/skills/builtin/goal_decomposition.py`, name
+      `goal_decomposition_check`) -- same thin-wrapper shape as
+      `GoalCheckInSkill`, always registered, composed into
+      `POST /siris/proactive/check` alongside it. Its warning messages
+      start with `Goal '...'`, so `NotificationManager` classifies them
+      under the existing `"goals"` category/`"notify"` action for free
+      -- no new classification rule needed.
+
+    Verified: full suite (763 passed, up from 754) covering the store
+    method (flags a bare goal, excludes one with an objective, excludes
+    a completed goal, un-flags once an objective is added), the skill,
+    its `NotificationManager` classification, and the `/check` endpoint
+    composition. Live-verified against a real `uvicorn` process: created
+    one bare goal and one with an objective via `create_goal`, confirmed
+    `POST /siris/proactive/check` flagged only the bare one (queued as a
+    `"goals"`/`"notify"` item, not pushed urgent), then called
+    `add_goal_objective` on it and confirmed a follow-up check dropped
+    it from `goals_needing_decomposition`.
+
 ## Running locally
 
 ```bash

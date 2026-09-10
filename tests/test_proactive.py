@@ -49,6 +49,7 @@ class _FakeSirisForProactive:
         entities: _FakeEntities | None = None,
         event_timing_result: dict[str, Any] | None = None,
         goal_check_in_result: dict[str, Any] | None = None,
+        goal_decomposition_result: dict[str, Any] | None = None,
         new_device_alert_result: dict[str, Any] | None = None,
         event_reaction_result: dict[str, Any] | None = None,
     ) -> None:
@@ -65,6 +66,11 @@ class _FakeSirisForProactive:
             "healthy": True,
             "warnings": [],
             "stale_goals": [],
+        }
+        self._goal_decomposition_result = goal_decomposition_result or {
+            "healthy": True,
+            "warnings": [],
+            "goals_needing_decomposition": [],
         }
         self._new_device_alert_result = new_device_alert_result or {
             "checked": True,
@@ -85,6 +91,8 @@ class _FakeSirisForProactive:
             return self._event_timing_result
         if name == "goal_check_in":
             return self._goal_check_in_result
+        if name == "goal_decomposition_check":
+            return self._goal_decomposition_result
         if name == "new_device_alert":
             return self._new_device_alert_result
         if name == "event_reaction_check":
