@@ -7,6 +7,15 @@ search, CONFIRM_REQUIRED for adding/removing a series or a stuck queue
 item -- these change what's actually in the library (and delete_series/
 remove_queue_item's blocklist option can affect future behavior), unlike
 a routine search.
+
+sonarr_delete_series's `dry_run()` (a later hardening pass) reports the
+target series' title/year and that `delete_files` would remove its
+downloaded episode files -- same "show what's at risk before
+confirming a no-undo action" reasoning as Radarr's own
+radarr_delete_movie.dry_run(). Unlike a movie, list_series() doesn't
+carry a per-series file-presence flag, so this can't say whether there's
+actually anything to delete the way radarr_delete_movie's dry_run can --
+only that `delete_files=true` would attempt to.
 """
 
 from typing import Any
@@ -235,6 +244,24 @@ class SonarrDeleteSeriesTool(Tool):
 
     def run(self, series_id: int = 0, delete_files: bool = False, **kwargs: Any) -> Any:
         return self._client.delete_series(series_id, delete_files=delete_files)
+
+    def dry_run(self, series_id: int = 0, delete_files: bool = False, **kwargs: Any) -> Any:
+        """What deleting `series_id` would do, without doing it: the
+        series' title/year, and whether `delete_files` would remove its
+        downloaded episode files. Deleting a series is no-undo, more so
+        with `delete_files=true`, so whoever is about to confirm should
+        see exactly what's at risk, not discover it after -- same
+        reasoning as RadarrDeleteMovieTool.dry_run()."""
+        match = next(
+            (s for s in self._client.list_series() if s["id"] == series_id), None
+        )
+        return {
+            "series_id": series_id,
+            "title": match["title"] if match else None,
+            "year": match["year"] if match else None,
+            "would_remove_from_library": True,
+            "would_delete_downloaded_files": delete_files,
+        }
 
     def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
         """Mirror of SonarrAddSeriesTool.verify(): a 200 from Sonarr's

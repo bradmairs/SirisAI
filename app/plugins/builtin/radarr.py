@@ -15,6 +15,13 @@ default, not SAFE_ACTION's "runs immediately" treatment. Removing a
 stuck/errored queue item (a later hardening pass) is CONFIRM_REQUIRED for
 the same reason -- it's a real removal, optionally with a blocklist that
 changes future behavior, not just a status query.
+
+radarr_delete_movie's `dry_run()` (a later hardening pass) reports the
+target movie's title/year/has_file and whether `delete_files` would
+actually remove a downloaded file -- the same "show what's genuinely at
+risk before confirming a no-undo action, not after" reasoning
+`ObsidianCreateOrUpdateNoteTool.dry_run()` and
+`UniFiRestartDeviceTool.dry_run()` already use.
 """
 
 from typing import Any
@@ -246,6 +253,29 @@ class RadarrDeleteMovieTool(Tool):
 
     def run(self, movie_id: int = 0, delete_files: bool = False, **kwargs: Any) -> Any:
         return self._client.delete_movie(movie_id, delete_files=delete_files)
+
+    def dry_run(self, movie_id: int = 0, delete_files: bool = False, **kwargs: Any) -> Any:
+        """What deleting `movie_id` would do, without doing it: the
+        movie's title/year/has_file, and whether `delete_files` would
+        actually remove a downloaded file (not just true/false on the
+        argument -- `has_file` being false means there's nothing to
+        delete regardless of what was asked for). Deleting a movie is
+        no-undo, more so with `delete_files=true`, so whoever is about
+        to confirm should see exactly what's at risk, not discover it
+        after."""
+        match = next(
+            (m for m in self._client.list_movies() if m["id"] == movie_id), None
+        )
+        return {
+            "movie_id": movie_id,
+            "title": match["title"] if match else None,
+            "year": match["year"] if match else None,
+            "has_file": match["has_file"] if match else None,
+            "would_remove_from_library": True,
+            "would_delete_downloaded_file": bool(
+                delete_files and match and match.get("has_file")
+            ),
+        }
 
     def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
         """Mirror of RadarrAddMovieTool.verify(): a 200 from Radarr's

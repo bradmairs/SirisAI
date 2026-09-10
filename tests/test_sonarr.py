@@ -316,6 +316,54 @@ def test_delete_series_verify_raises_not_implemented_without_a_series_id() -> No
     client.close()
 
 
+# -- delete_series's dry_run(): what's at risk before confirming a no-undo delete
+
+
+def test_delete_series_dry_run_reports_the_series_and_the_delete_files_flag() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[{"id": 7, "title": "Severance", "year": 2022, "monitored": True}],
+        )
+
+    client = _mock_client(handler)
+    report = SonarrDeleteSeriesTool(client).dry_run(series_id=7, delete_files=True)
+    assert report == {
+        "series_id": 7,
+        "title": "Severance",
+        "year": 2022,
+        "would_remove_from_library": True,
+        "would_delete_downloaded_files": True,
+    }
+    client.close()
+
+
+def test_delete_series_dry_run_reflects_delete_files_false() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[{"id": 7, "title": "Severance", "year": 2022, "monitored": True}],
+        )
+
+    client = _mock_client(handler)
+    report = SonarrDeleteSeriesTool(client).dry_run(series_id=7, delete_files=False)
+    assert report["would_delete_downloaded_files"] is False
+    client.close()
+
+
+def test_delete_series_dry_run_handles_an_unknown_series_id() -> None:
+    client = _mock_client(lambda r: httpx.Response(200, json=[]))
+    report = SonarrDeleteSeriesTool(client).dry_run(series_id=999, delete_files=True)
+    assert report == {
+        "series_id": 999,
+        "title": None,
+        "year": None,
+        "would_remove_from_library": True,
+        "would_delete_downloaded_files": True,
+    }
+    client.close()
+
+
 # -- calendar / sonarr_calendar
 
 
