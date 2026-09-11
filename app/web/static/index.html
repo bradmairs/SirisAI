@@ -544,7 +544,7 @@
       content.textContent = entry.content;
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = `#${entry.id} · ${new Date(entry.created_at).toLocaleString()}`;
+      meta.textContent = `#${entry.position} · ${new Date(entry.created_at).toLocaleString()}`;
       div.appendChild(content);
       div.appendChild(meta);
       memoryList.appendChild(div);
