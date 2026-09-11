@@ -47,7 +47,12 @@ from app.notify.pending import PendingNotificationStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
 from app.plugins.builtin.audit import ExplainRecentActionTool, TrustLedgerTool
-from app.plugins.builtin.capability_gap import ListCapabilityGapsTool, ReportCapabilityGapTool
+from app.plugins.builtin.capability_gap import (
+    DismissCapabilityGapTool,
+    ListCapabilityGapsTool,
+    ReportCapabilityGapTool,
+    ResolveCapabilityGapTool,
+)
 from app.plugins.builtin.calendar import (
     CalendarCheckConflictsTool,
     CalendarCreateEventTool,
@@ -79,7 +84,7 @@ from app.plugins.builtin.goals import (
     ListGoalsTool,
     UpdateGoalStatusTool,
 )
-from app.plugins.builtin.hermes import HermesRunTaskTool, HermesStatusTool
+from app.plugins.builtin.hermes import HermesRunTaskTool, HermesStatusTool, RebuildAndRestartTool
 from app.plugins.builtin.home_assistant import (
     HomeAssistantCallServiceTool,
     HomeAssistantCreateAutomationTool,
@@ -237,6 +242,9 @@ _CATEGORY_NAMES: dict[str, str] = {
     "explain_recent_action": "audit",
     "report_capability_gap": "capabilities",
     "list_capability_gaps": "capabilities",
+    "dismiss_capability_gap": "capabilities",
+    "resolve_capability_gap": "capabilities",
+    "rebuild_and_restart": "hermes",
     "create_goal": "goals",
     "list_goals": "goals",
     "update_goal_status": "goals",
@@ -437,6 +445,7 @@ class SirisAI:
         self.tools.register(TrustLedgerTool(self.audit))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
+        self.tools.register(DismissCapabilityGapTool(self.capability_gaps))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
             self._home_assistant_client = HomeAssistantClient(
@@ -565,6 +574,10 @@ class SirisAI:
             )
             self.tools.register(HermesRunTaskTool(self._hermes_client))
             self.tools.register(HermesStatusTool(self._hermes_client))
+            self.tools.register(
+                ResolveCapabilityGapTool(self.capability_gaps, self._hermes_client)
+            )
+            self.tools.register(RebuildAndRestartTool(self._hermes_client))
 
         if self.settings.tautulli_base_url and self.settings.tautulli_api_key:
             self._tautulli_client = TautulliClient(

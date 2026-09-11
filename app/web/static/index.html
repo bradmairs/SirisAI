@@ -180,10 +180,26 @@
 
   /* Gaps */
   #gaps-view { padding: 1rem; overflow-y: auto; }
-  #gaps-view button { margin-bottom: 1rem; }
+  #gaps-toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
   .gap-entry { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; }
-  .gap-entry .suggestion { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; }
+  .gap-entry .suggestion { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; white-space: pre-wrap; }
   .gap-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+  .gap-status { display: inline-block; border-radius: 999px; padding: 0.05rem 0.55rem; font-size: 0.72rem; margin-left: 0.5rem; vertical-align: middle; }
+  .gap-status.open { background: #3a2f14; color: #e0a83a; }
+  .gap-status.resolved { background: #1c3a24; color: #6fbf73; }
+  .gap-status.failed { background: #3a2222; color: var(--error); }
+  .gap-status.dismissed { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  .gap-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .gap-actions button {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.78rem;
+  }
+  .gap-actions button:disabled { opacity: 0.5; cursor: default; }
 
   /* Activity */
   #activity-view { padding: 1rem; overflow-y: auto; }
@@ -257,7 +273,10 @@
   </section>
 
   <section id="gaps-view" class="view">
-    <button class="action-btn" id="gaps-refresh">Refresh</button>
+    <div id="gaps-toolbar">
+      <button class="action-btn" id="gaps-refresh">Refresh</button>
+      <button class="action-btn" id="gaps-rebuild" style="display:none;">Rebuild &amp; restart SirisAI</button>
+    </div>
     <div id="gaps-list"></div>
   </section>
 
@@ -563,11 +582,63 @@
 
   // --- Gaps (things SirisAI has reported it can't do yet) ---
   const gapsList = document.getElementById("gaps-list");
+  const gapsRebuildBtn = document.getElementById("gaps-rebuild");
+  let gapsRebuildWired = false;
+
+  function gapStatusBadge(status) {
+    const span = document.createElement("span");
+    span.className = `gap-status ${status}`;
+    span.textContent = status;
+    return span;
+  }
+
+  function gapActionButton(label, onClick) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await onClick();
+        loadGaps();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    });
+    return btn;
+  }
 
   async function loadGaps() {
     gapsList.innerHTML = '<p class="empty">Loading...</p>';
     try {
-      const entries = await api("/siris/capability_gaps?limit=100");
+      const [entries, status] = await Promise.all([
+        api("/siris/capability_gaps?limit=100"),
+        api("/siris/status"),
+      ]);
+      const canResolve = status.tools.includes("resolve_capability_gap");
+      const canDismiss = status.tools.includes("dismiss_capability_gap");
+      const canRebuild = status.tools.includes("rebuild_and_restart");
+
+      gapsRebuildBtn.style.display = canRebuild ? "" : "none";
+      if (canRebuild && !gapsRebuildWired) {
+        gapsRebuildWired = true;
+        gapsRebuildBtn.addEventListener("click", async () => {
+          if (!confirm("Rebuild and restart SirisAI now? It will be briefly unavailable.")) return;
+          gapsRebuildBtn.disabled = true;
+          try {
+            await api("/siris/tools/rebuild_and_restart/run", {
+              method: "POST",
+              body: JSON.stringify({ arguments: {}, confirmed: true }),
+            });
+          } catch (err) {
+            alert(err.message);
+          } finally {
+            gapsRebuildBtn.disabled = false;
+          }
+        });
+      }
+
       gapsList.innerHTML = "";
       if (!entries.length) {
         gapsList.innerHTML = '<p class="empty">No gaps reported yet.</p>';
@@ -577,15 +648,49 @@
         const div = document.createElement("div");
         div.className = "gap-entry";
 
-        const capability = document.createElement("div");
-        capability.textContent = entry.requested_capability;
-        div.appendChild(capability);
+        const heading = document.createElement("div");
+        heading.textContent = entry.requested_capability;
+        heading.appendChild(gapStatusBadge(entry.status));
+        div.appendChild(heading);
 
         if (entry.suggested_integration) {
           const suggestion = document.createElement("div");
           suggestion.className = "suggestion";
           suggestion.textContent = `Suggested: ${entry.suggested_integration}`;
           div.appendChild(suggestion);
+        }
+
+        if (entry.resolution_detail) {
+          const detail = document.createElement("div");
+          detail.className = "suggestion";
+          detail.textContent = entry.resolution_detail;
+          div.appendChild(detail);
+        }
+
+        if (entry.status === "open" && (canResolve || canDismiss)) {
+          const actions = document.createElement("div");
+          actions.className = "gap-actions";
+          if (canResolve) {
+            actions.appendChild(
+              gapActionButton("Attempt fix", () =>
+                api("/siris/tools/resolve_capability_gap/run", {
+                  method: "POST",
+                  body: JSON.stringify({ arguments: { gap_id: entry.id } }),
+                })
+              )
+            );
+          }
+          if (canDismiss) {
+            actions.appendChild(
+              gapActionButton("Dismiss", () =>
+                api("/siris/tools/dismiss_capability_gap/run", {
+                  method: "POST",
+                  body: JSON.stringify({ arguments: { gap_id: entry.id } }),
+                })
+              )
+            );
+          }
+          div.appendChild(actions);
         }
 
         const meta = document.createElement("div");

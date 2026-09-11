@@ -336,6 +336,21 @@ class CapabilityGap(Base):
     suggested_tool_spec: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )  # JSON-encoded
+    # "open" (default) | "resolved" | "failed" | "dismissed" -- a gap's
+    # lifecycle (a Jarvis-concept follow-up): "open" is the only state
+    # report_capability_gap ever creates; the other three are set by
+    # dismiss_capability_gap or resolve_capability_gap
+    # (app/plugins/builtin/capability_gap.py) once someone -- a human or
+    # Hermes Agent -- has actually acted on it. Plain str, not an Enum
+    # column: every status check elsewhere in this codebase (Goal.status,
+    # Routine.enabled) already compares against plain values, not a DB
+    # enum type.
+    status: Mapped[str] = mapped_column(Text, default="open")
+    # Free text explaining a "resolved"/"failed" status -- Hermes Agent's
+    # own report of what it did (or why it couldn't), verbatim. None
+    # while a gap is still "open" or after a plain dismiss with no
+    # explanation attached.
+    resolution_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC)
     )

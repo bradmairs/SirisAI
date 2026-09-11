@@ -4,7 +4,7 @@ import httpx
 
 from app.hermes.client import HermesClient
 from app.plugins.base import ToolPermission
-from app.plugins.builtin.hermes import HermesRunTaskTool, HermesStatusTool
+from app.plugins.builtin.hermes import HermesRunTaskTool, HermesStatusTool, RebuildAndRestartTool
 
 
 def _mock_client(handler) -> HermesClient:
@@ -148,3 +148,44 @@ def test_hermes_tools_registered_with_configured_timeout() -> None:
     finally:
         assert siris._hermes_client is not None
         siris._hermes_client.close()
+
+
+# -- rebuild_and_restart (a Jarvis-concept follow-up: the human-approval
+# gate on redeploying whatever resolve_capability_gap just merged)
+
+
+def test_rebuild_and_restart_delegates_a_pull_and_rebuild_instruction() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        parsed = json.loads(request.content)
+        instruction = parsed["messages"][0]["content"]
+        assert "pull" in instruction.lower()
+        assert "main" in instruction.lower()
+        assert "rebuild" in instruction.lower()
+        assert "restart" in instruction.lower()
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Rebuilt and restarted."}}]})
+
+    client = _mock_client(handler)
+    tool = RebuildAndRestartTool(client)
+    assert tool.run() == {"result": "Rebuilt and restarted."}
+    client.close()
+
+
+def test_rebuild_and_restart_is_confirm_required_permission() -> None:
+    assert RebuildAndRestartTool(_mock_client(lambda r: httpx.Response(200, json={"choices": []}))).permission is (
+        ToolPermission.CONFIRM_REQUIRED
+    )
+
+
+def test_rebuild_and_restart_registered_only_when_hermes_configured() -> None:
+    from app.core.config import Settings
+    from app.core.siris import SirisAI
+
+    without_hermes = SirisAI(settings=Settings())
+    assert without_hermes.tools.get("rebuild_and_restart") is None
+
+    with_hermes = SirisAI(settings=Settings(hermes_base_url="http://localhost:8420"))
+    try:
+        assert with_hermes.tools.get("rebuild_and_restart") is not None
+    finally:
+        assert with_hermes._hermes_client is not None
+        with_hermes._hermes_client.close()
