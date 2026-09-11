@@ -4295,6 +4295,64 @@ provider for the same capability actually exists to design against.
     browser dialog fired, confirmed it was actually gone, and confirmed
     the two survivors renumbered gaplessly to #1/#2 with no #3.
 
+101. **Done** -- Fuzzy Home Assistant entity matching, plus honest
+    scoping on a second, user-reported issue that turned out not to be
+    fixable in code. User report: (1) "turn off the lounge lamps" works
+    but "turn the lounge lamps off" doesn't, and (2) entity matching
+    should tolerate "something similar" to an entity's real name, not
+    require it verbatim.
+
+    Investigated (1) first, since a real bug would need fixing before
+    anything else: grepped the entire request pipeline
+    (`app/cortex/orchestrator.py`, `app/context/engine.py`,
+    `app/planning/planner.py`) for any deterministic parsing of the
+    user's raw text -- keyword lists, regex, an intent classifier --
+    and found none. Every "turn on"/"turn off" in this codebase is
+    Home Assistant's own service-name string (API plumbing), never a
+    match against what the user actually typed; the model itself
+    chooses `service='turn_on'` vs `'turn_off'` from the whole sentence
+    via ordinary tool-calling, the same as any other tool argument.
+    That means phrase-order sensitivity isn't a SirisAI bug to fix --
+    it's the configured LLM's own language understanding, and no code
+    change here can correct it. Two honest, limited things still
+    shipped for it: `home_assistant_call_service`'s own description now
+    explicitly states both phrasings mean the same thing (a cheap
+    nudge that may help a smaller/weaker model, not a guaranteed fix),
+    and this writeup exists so the real lever -- the LLM backend, not
+    this codebase -- is on record rather than silently unaddressed.
+
+    (2) was genuinely fixable: `HomeAssistantResolveEntityTool` required
+    every word of a name hint to be a literal substring of the entity's
+    id/friendly name -- "lounge lamps" (plural) would never match an
+    entity literally named "Lounge Lamp", and a one-letter typo would
+    never match at all. `_entity_name_matches()`
+    (`app/plugins/builtin/home_assistant.py`) now also accepts a close
+    spelling match (`difflib.get_close_matches`, cutoff 0.8) against any
+    word actually in the entity's id/friendly name when the literal
+    substring check fails -- catching typos and simple plurals (ratio
+    ~0.89-0.91) while still rejecting a genuinely different word like
+    "lamp" vs "light" (ratio ~0.22). Deliberately spelling-tolerance,
+    not synonym understanding: a real "lamp means light to me" mapping
+    would need semantic/embedding search, a much larger change than
+    what "a slight variation" asked for. The existing `ambiguous: true`
+    safety net is unchanged and still catches any case fuzzy matching
+    makes genuinely unclear (verified live below) -- widening the match
+    turns a would-be miss into "ask the user," never a wrong guess.
+
+    Verified: full suite (803 passed, up from 799) covering the
+    existing exact-match tests unchanged, plus new cases for a plural
+    variant, a one-letter typo, a genuinely different word correctly
+    NOT matching, and multiple fuzzy matches still flagging `ambiguous`.
+    Live-verified against a real `uvicorn` process and a fake Home
+    Assistant server with two real-shaped entities ("Lounge Lamp" and
+    "Lounge Light"): `"lounge lamps"` and `"loung lamp"` both resolved
+    cleanly to the lamp alone; `"lounge light"` correctly came back
+    `ambiguous: true` over both entities rather than silently guessing
+    (the domain-name-as-keyword behavior that makes "light" match any
+    light-domain entity is pre-existing, not something this change
+    introduced -- the ambiguity flag was already the correct safety net
+    for it).
+
 ## Running locally
 
 ```bash

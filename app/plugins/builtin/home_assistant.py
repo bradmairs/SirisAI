@@ -8,12 +8,44 @@ SIRISAI_HOME_ASSISTANT_TOKEN are both set (see app/core/siris.py); until
 then SirisAI simply doesn't offer these tools to the model.
 """
 
+import difflib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.home_assistant.client import HomeAssistantClient
 from app.memory.events import EventMemoryStore
 from app.plugins.base import Tool, ToolPermission, ToolVerification
+
+# How close a name_hint word has to be to some word actually in an entity's
+# id/friendly name to count as a match when it isn't a literal substring
+# (a user-requested hardening pass: matching used to require every word to
+# appear verbatim -- "lounge lamp" would never match a "Lounge Light" entity,
+# and a one-letter typo like "loung" would never match "lounge" at all).
+# 0.8 is deliberately conservative: it catches a typo or a simple plural
+# ("lamp" vs "lamps", ratio ~0.89) without also catching genuinely different
+# words that happen to share a few letters. This is still literal/fuzzy
+# *spelling* tolerance, not semantic understanding -- "lamp" won't match
+# "light" (they don't look alike), only sound-alike/spelled-alike variants
+# of the words already present. Real synonym matching would need embedding
+# search, a much larger change; this is scoped to what "a slight variation"
+# actually asked for.
+_FUZZY_MATCH_CUTOFF = 0.8
+
+
+def _entity_name_matches(name_hint_words: list[str], haystack: str) -> bool:
+    """Whether every word in `name_hint_words` is present in `haystack`
+    (entity_id + friendly name, already lowercased) -- literally, as
+    before, or as a close spelling match against one of haystack's own
+    words. Order-independent either way, same as the original
+    substring-only check."""
+    haystack_words = haystack.replace(".", " ").replace("_", " ").replace("-", " ").split()
+    for word in name_hint_words:
+        if word in haystack:
+            continue
+        if difflib.get_close_matches(word, haystack_words, n=1, cutoff=_FUZZY_MATCH_CUTOFF):
+            continue
+        return False
+    return True
 
 # Result validation (a hardening pass, milestone 65): services with an
 # unambiguous expected end state, so HomeAssistantCallServiceTool.verify()
@@ -95,10 +127,12 @@ class HomeAssistantResolveEntityTool(Tool):
     name = "home_assistant_resolve_entity"
     description = (
         "Find Home Assistant entities matching a loose name (e.g. 'office light' or 'front "
-        "door'), checking both entity_id and friendly name. Returns every match, not just the "
-        "best one -- use this before calling home_assistant_call_service on something the user "
-        "referred to by description rather than an exact entity_id, and if `ambiguous` comes "
-        "back true, ask which one was meant rather than guessing."
+        "door'), checking both entity_id and friendly name. Tolerant of small spelling "
+        "variations and plurals (e.g. 'lounge lamps' still matches an entity named 'Lounge "
+        "Lamp') -- but not synonyms for a different word entirely. Returns every match, not "
+        "just the best one -- use this before calling home_assistant_call_service on something "
+        "the user referred to by description rather than an exact entity_id, and if "
+        "`ambiguous` comes back true, ask which one was meant rather than guessing."
     )
     permission = ToolPermission.READ
     parameters = {
@@ -125,7 +159,7 @@ class HomeAssistantResolveEntityTool(Tool):
         for state in self._client.list_states(domain=domain):
             friendly_name = state.get("attributes", {}).get("friendly_name", "")
             haystack = f"{state['entity_id']} {friendly_name}".lower()
-            if all(word in haystack for word in needle_words):
+            if _entity_name_matches(needle_words, haystack):
                 matches.append(
                     {
                         "entity_id": state["entity_id"],
@@ -140,9 +174,11 @@ class HomeAssistantCallServiceTool(Tool):
     name = "home_assistant_call_service"
     description = (
         "Call any Home Assistant service to control a device -- e.g. domain='light', "
-        "service='turn_on', entity_id='light.living_room'. Use home_assistant_list_entities "
-        "first if you don't know the entity_id. Extra service-specific fields (like "
-        "'brightness_pct' or 'temperature') go in service_data."
+        "service='turn_on', entity_id='light.living_room'. The same request however it's "
+        "phrased -- 'turn off the lounge lamps' and 'turn the lounge lamps off' both mean "
+        "service='turn_off' -- what matters is the verb and the device, not their order. Use "
+        "home_assistant_resolve_entity first if you don't know the exact entity_id. Extra "
+        "service-specific fields (like 'brightness_pct' or 'temperature') go in service_data."
     )
     # Arbitrary/unbounded: this can call *any* Home Assistant service --
     # including ones with real physical consequences (unlocking a door,

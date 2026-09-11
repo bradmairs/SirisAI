@@ -201,6 +201,97 @@ def test_resolve_entity_forwards_domain_filter() -> None:
     client.close()
 
 
+# -- Fuzzy matching (a user-requested hardening pass): "a slight variation"
+# of an entity's real name should still resolve, without requiring an exact
+# literal match.
+
+
+def test_resolve_entity_matches_a_plural_of_the_entitys_singular_name() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "light.lounge_lamp",
+                    "state": "on",
+                    "attributes": {"friendly_name": "Lounge Lamp"},
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantResolveEntityTool(client).run(name_hint="lounge lamps")
+    assert [m["entity_id"] for m in result["matches"]] == ["light.lounge_lamp"]
+    client.close()
+
+
+def test_resolve_entity_matches_a_minor_spelling_variation() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "light.lounge_lamp",
+                    "state": "on",
+                    "attributes": {"friendly_name": "Lounge Lamp"},
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    # "loung" -- one letter short of "lounge".
+    result = HomeAssistantResolveEntityTool(client).run(name_hint="loung lamp")
+    assert [m["entity_id"] for m in result["matches"]] == ["light.lounge_lamp"]
+    client.close()
+
+
+def test_resolve_entity_does_not_match_a_genuinely_different_word() -> None:
+    """Fuzzy tolerance is spelling-closeness, not synonym understanding --
+    'lamp' should not match an entity whose name is just 'Lounge Light'."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "switch.lounge_light",
+                    "state": "on",
+                    "attributes": {"friendly_name": "Lounge Light"},
+                }
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantResolveEntityTool(client).run(name_hint="lounge lamp")
+    assert result["matches"] == []
+    client.close()
+
+
+def test_resolve_entity_fuzzy_matching_still_supports_multiple_ambiguous_matches() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "entity_id": "light.lounge_lamp_1",
+                    "state": "on",
+                    "attributes": {"friendly_name": "Lounge Lamp 1"},
+                },
+                {
+                    "entity_id": "light.lounge_lamp_2",
+                    "state": "off",
+                    "attributes": {"friendly_name": "Lounge Lamp 2"},
+                },
+            ],
+        )
+
+    client = _mock_client(handler)
+    result = HomeAssistantResolveEntityTool(client).run(name_hint="lounge lamps")
+    assert result["ambiguous"] is True
+    assert len(result["matches"]) == 2
+    client.close()
+
+
 def test_call_service_posts_domain_service_and_entity() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
