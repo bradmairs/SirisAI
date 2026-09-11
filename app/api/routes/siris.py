@@ -119,18 +119,24 @@ class CapabilityGapInfo(BaseModel):
     requested_capability: str
     suggested_integration: str | None
     suggested_tool_spec: dict[str, Any] | None
+    status: str
+    resolution_detail: str | None
     created_at: str
 
 
 @router.get("/capability_gaps", response_model=list[CapabilityGapInfo])
 def list_capability_gaps(
-    limit: int = 50, siris: SirisAI = Depends(get_siris)
+    limit: int = 50, status: str | None = None, siris: SirisAI = Depends(get_siris)
 ) -> list[CapabilityGapInfo]:
     """Every "SirisAI can't do this yet" the model has reported (milestone
     31, report_capability_gap tool), most recent first -- a development
-    backlog someone (or Claude Code, working this same repo) can act on."""
+    backlog someone (a human, Claude Code working this same repo, or now
+    Hermes Agent via resolve_capability_gap) can act on. Optional `status`
+    filters to one lifecycle state ('open', 'resolved', 'failed', or
+    'dismissed')."""
     return [
-        CapabilityGapInfo(**g) for g in siris.capability_gaps.list_gaps(limit=limit)
+        CapabilityGapInfo(**g)
+        for g in siris.capability_gaps.list_gaps(limit=limit, status=status)
     ]
 
 

@@ -4142,6 +4142,99 @@ provider for the same capability actually exists to design against.
     Chat/Memory/Activity/Status all still worked after the nav change
     (no regression from adding a fifth tab).
 
+98. **Done** -- `resolve_capability_gap`/`rebuild_and_restart`: closing
+    the loop from a reported gap to a deployed fix, via Hermes Agent.
+    User-requested, and scoped down deliberately during the ask: rather
+    than a fully autonomous report-to-deploy pipeline, the human chose
+    "Hermes drafts and merges without a review prompt, but the
+    rebuild/restart still needs an explicit go-ahead every time" -- so
+    that's the exact shape this shipped as. Also adds
+    `dismiss_capability_gap`, the plain "not doing this" close that
+    doesn't involve Hermes at all -- the other half of "a way to clear a
+    capability gap" this milestone was scoped from.
+
+    Why SirisAI can't just do this to itself: it's the thing running
+    *inside* the container a fix might need to rebuild, so both the code
+    change and the redeploy are necessarily delegated to Hermes Agent
+    (app/hermes/client.py), a separate agent on the same host with its
+    own terminal/git access -- the same structural reason Docker/system
+    control was already delegated to Hermes rather than reimplemented.
+
+    What shipped:
+    - `CapabilityGap` gained `status` ('open' default, then 'resolved'
+      / 'failed' / 'dismissed') and `resolution_detail` columns
+      (`app/db/models.py`, patched into existing DBs via
+      `app/db/migrate.py`).
+    - `CapabilityGapStore` (`app/capabilities/service.py`): `get_gap()`,
+      `dismiss()`, `mark_resolved()`, `mark_failed()`, and an optional
+      `status` filter on `list_gaps()`.
+    - `dismiss_capability_gap` (SAFE_ACTION, always registered) --
+      closes a gap with no Hermes involvement.
+    - `resolve_capability_gap` (SAFE_ACTION, registered only alongside
+      Hermes) -- looks up the gap, and if it's still 'open' (a
+      non-open gap is left alone and reported back as-is, never
+      re-attempted), sends Hermes a built instruction: implement on a
+      new branch, add tests, run the full suite, merge to main only if
+      everything passes, and end the reply with an exact
+      `RESULT: MERGED` / `RESULT: NOT_MERGED: <reason>` marker line.
+      SirisAI has no independent way to check whether a merge actually
+      happened -- that access lives on Hermes's side -- so the marker
+      is parsed with a plain substring check, and a reply with neither
+      marker is treated as *not* merged, never assumed successful.
+    - `rebuild_and_restart` (`app/plugins/builtin/hermes.py`,
+      CONFIRM_REQUIRED, registered only alongside Hermes) -- delegates
+      pulling `main` and rebuilding/restarting the container to Hermes.
+      The one place in this whole feature with a mandatory human
+      confirmation, by design: whatever is currently on `main` is what
+      goes live, and the assistant is briefly unavailable during the
+      rebuild.
+    - Gaps tab: a status badge and `resolution_detail` per entry,
+      "Attempt fix"/"Dismiss" buttons on open gaps (shown only when the
+      corresponding tool is actually registered, checked via
+      `GET /siris/status`), and a "Rebuild & restart SirisAI" button
+      (shown only when `rebuild_and_restart` is registered) that
+      confirms via a native browser dialog before calling the tool with
+      `confirmed: true`.
+    - A follow-up while scoping this out: without a push, nothing would
+      ever tell a human a fix is ready -- they'd have to remember to
+      check the Gaps tab themselves. A successful merge now fires a
+      notification (when a notify channel is configured); when
+      `SIRISAI_PUBLIC_BASE_URL` is also set, it carries a one-tap
+      "Rebuild now" ntfy action button posting straight to
+      `POST /siris/tools/rebuild_and_restart/run` with
+      `confirmed: true` -- the exact same `http` action-button
+      mechanism `RoutineRunner._notify_pending_confirmation()`
+      (app/routines/runner.py) already uses for a routine's own pending
+      confirmations, reused rather than inventing a second way to build
+      one. A failed/not-merged resolution never notifies -- there's
+      nothing to deploy.
+
+    Verified: full suite (793 passed, up from 768) covering the store's
+    lifecycle methods, the status filter, both new tools' registration
+    gating (dismiss always on, resolve/rebuild only with Hermes
+    configured), permission tiers, a fake-Hermes-backed resolve that
+    parses MERGED/NOT_MERGED/no-marker-at-all into the right status each
+    time, the already-resolved short-circuit never calling Hermes again,
+    rebuild_and_restart's CONFIRM_REQUIRED gate and instruction content,
+    and the notification behavior (plain notify with no
+    `SIRISAI_PUBLIC_BASE_URL`, the action-button shape with one set,
+    never sent on a failed/not-merged resolution, and never raising
+    when no notify channel is configured at all). Live-verified against
+    a real `uvicorn` process wired to a fake Hermes server (an
+    `httpx`-shaped OpenAI chat-completions endpoint returning canned
+    MERGED/NOT_MERGED replies by instruction content) and a fake ntfy
+    server: reported four gaps, resolved one to "resolved" and one to
+    "failed" via the API, dismissed a third, confirmed a fourth's
+    "Attempt fix" button in a real headless Chromium drove it from
+    "open" to "resolved", confirmed `rebuild_and_restart` refused to run
+    unconfirmed and then actually delegated to Hermes once confirmed,
+    confirmed re-resolving an already-resolved gap never issued a second
+    Hermes call, and -- with `SIRISAI_PUBLIC_BASE_URL` set -- confirmed
+    the merge notification carried a working "Rebuild now" action
+    button: posting exactly the URL/body it specified actually triggered
+    the rebuild, while the failed resolution sent no notification at
+    all.
+
 ## Running locally
 
 ```bash
