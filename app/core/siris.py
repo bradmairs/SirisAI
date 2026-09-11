@@ -98,6 +98,7 @@ from app.plugins.builtin.home_assistant import (
 )
 from app.plugins.builtin.listenarr import ListenarrQueueTool, ListenarrSystemStatusTool
 from app.plugins.builtin.memory import (
+    DeleteMemoryTool,
     LogEventTool,
     RecallEntityFactsTool,
     RecallEntityRelationshipsTool,
@@ -228,6 +229,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
+    "delete_memory": "memory",
     "recall": "memory",
     "remember_entity_fact": "memory",
     "recall_entity_facts": "memory",
@@ -420,6 +422,7 @@ class SirisAI:
         self.tools.register(EchoTool())
         self.tools.register(RememberTool(self.memory))
         self.tools.register(RecallTool(self.memory))
+        self.tools.register(DeleteMemoryTool(self.memory))
         self.tools.register(RememberEntityFactTool(self.entities))
         self.tools.register(RecallEntityFactsTool(self.entities))
         self.tools.register(RememberEntityRelationshipTool(self.entities))

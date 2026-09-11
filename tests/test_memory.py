@@ -227,3 +227,82 @@ def test_siris_status_lists_memory_tools(client: TestClient) -> None:
     tools = response.json()["tools"]
     assert "remember" in tools
     assert "recall" in tools
+
+
+# -- delete_memory tool: user-requested, a deliberate reversal of
+# MemoryStore.delete()'s original "not exposed as a model tool yet"
+# decision
+
+
+def test_delete_memory_tool_always_registered(client: TestClient) -> None:
+    response = client.get("/siris/status")
+    assert "delete_memory" in response.json()["tools"]
+
+
+def test_delete_memory_tool_is_safe_action_permission() -> None:
+    from app.plugins.builtin.memory import DeleteMemoryTool
+
+    siris = SirisAI(settings=get_siris().settings)
+    tool = DeleteMemoryTool(siris.memory)
+    from app.plugins.base import ToolPermission
+
+    assert tool.permission is ToolPermission.SAFE_ACTION
+
+
+def test_delete_memory_tool_appears_in_memory_capabilities_category(client: TestClient) -> None:
+    body = client.get("/siris/capabilities").json()
+    assert "delete_memory" in body["memory"]
+
+
+def test_delete_memory_via_tool_removes_it(client: TestClient) -> None:
+    content = f"delete via tool {uuid.uuid4()}"
+    created = client.post("/siris/memory", json={"content": content}).json()
+
+    response = client.post(
+        "/siris/tools/delete_memory/run", json={"arguments": {"memory_id": created["id"]}}
+    )
+    assert response.status_code == 200
+    assert response.json()["tool_call"]["result"] == {"deleted": True, "id": created["id"]}
+
+    list_response = client.get("/siris/memory", params={"query": content})
+    assert not any(e["id"] == created["id"] for e in list_response.json())
+
+
+def test_delete_memory_via_tool_fails_for_an_unknown_id(client: TestClient) -> None:
+    response = client.post(
+        "/siris/tools/delete_memory/run", json={"arguments": {"memory_id": 999999999}}
+    )
+    assert response.status_code == 502
+
+
+def test_chat_can_delete_memory_via_delete_memory_tool(client: TestClient) -> None:
+    content = f"forget this via chat {uuid.uuid4()}"
+    created = client.post("/siris/memory", json={"content": content}).json()
+
+    class _FakeForgettingLLMClient:
+        async def generate(
+            self,
+            messages: list[dict[str, Any]],
+            *,
+            tools: list[dict[str, Any]] | None = None,
+            **kwargs: object,
+        ) -> LLMResponse:
+            return LLMResponse(
+                tool_calls=[ToolCall(name="delete_memory", arguments={"memory_id": created["id"]})]
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    fake_siris = get_siris()
+    fake_siris.llm = _FakeForgettingLLMClient()  # type: ignore[assignment]
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        chat_response = client.post("/siris/chat", json={"prompt": "please forget that"})
+        assert chat_response.status_code == 200
+        assert chat_response.json()["tool_call"]["name"] == "delete_memory"
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+    list_response = client.get("/siris/memory", params={"query": content})
+    assert not any(e["id"] == created["id"] for e in list_response.json())

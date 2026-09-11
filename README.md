@@ -4257,6 +4257,44 @@ provider for the same capability actually exists to design against.
     memory through the UI's own Add form and confirmed it automatically
     became #4, with every other entry's number unchanged.
 
+100. **Done** -- `delete_memory`: user-requested, a deliberate reversal
+    of `MemoryStore.delete()`'s original "not exposed as a model tool
+    yet" decision from when deletion was first added purely for manual
+    duplicate cleanup. Also adds a Delete button to the Memory tab,
+    which had a REST delete endpoint underneath it (used by that
+    original cleanup workflow) but no UI to reach it from.
+
+    What shipped:
+    - `DeleteMemoryTool` (`app/plugins/builtin/memory.py`, SAFE_ACTION,
+      always registered -- same permission tier as `delete_scene`: a
+      memory is low-stakes to lose, even though unlike a scene there's
+      no undo) -- wraps the pre-existing `MemoryStore.delete()`, the
+      same method `DELETE /siris/memory/{id}` already used. Its
+      description is explicit that it takes a memory's `id`, not its
+      `position` -- position is a display-only rank that shifts as
+      memories are added or deleted, so passing it as if it were the id
+      would delete the wrong memory or fail unpredictably.
+    - `delete_memory` added to `_CATEGORY_NAMES` under `"memory"`,
+      alongside `remember`/`recall`.
+    - Memory tab: a "Delete" button per entry, confirmed via a native
+      browser dialog before calling `DELETE /siris/memory/{id}` --
+      always the entry's real `id`, never its displayed `position`, and
+      the list reloads (renumbering gaplessly) afterward.
+    - Updated `MemoryStore.delete()`'s and the REST route's own
+      docstrings, which still described the pre-reversal "not exposed
+      as a model tool, deliberately" reasoning -- now stale.
+
+    Verified: full suite (799 passed, up from 793) covering tool
+    registration, permission tier, the capabilities category, a
+    round trip through the tool (create, delete via
+    `POST /siris/tools/delete_memory/run`, confirm it's gone), an
+    unknown-id failure, and a full chat-turn test with a fake LLM client
+    proposing `delete_memory` end to end. Live-verified against a real
+    `uvicorn` process and a real headless Chromium: created three
+    memories, clicked "Delete" on the middle one, confirmed the native
+    browser dialog fired, confirmed it was actually gone, and confirmed
+    the two survivors renumbered gaplessly to #1/#2 with no #3.
+
 ## Running locally
 
 ```bash

@@ -18,6 +18,16 @@ its own pair of tools below:
   `recall_entity_relationships`) -- the world model (milestone 21): typed
   edges between entities (e.g. Plex RUNS_ON main-server), so SirisAI can
   answer "what depends on X" instead of only "what do you know about X".
+
+`delete_memory` (user-requested) is a deliberate reversal of
+`MemoryStore.delete()`'s original "not exposed as a model tool"
+decision -- deciding what to forget was intentionally withheld from the
+LLM at first, but a user can ask SirisAI to forget something directly
+("forget that I mentioned X"), and the Memory tab (app/web/static/index.html)
+needed a delete action of its own regardless. SAFE_ACTION, same tier as
+`delete_scene`: a memory (like a scene) is low-stakes to lose --
+deleting it doesn't touch any device -- even though, unlike a scene,
+there's no undo once it's gone.
 """
 
 from typing import Any
@@ -72,6 +82,32 @@ class RecallTool(Tool):
 
     def run(self, query: str | None = None, **kwargs: Any) -> Any:
         return self._memory.recall(query=query)
+
+
+class DeleteMemoryTool(Tool):
+    name = "delete_memory"
+    description = (
+        "Permanently delete a saved memory, e.g. when asked to forget something. Use the "
+        "memory's id field from recall (not its position -- position shifts as memories are "
+        "added or deleted, id doesn't). There is no undo."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "memory_id": {"type": "integer", "description": "The memory's id, from recall."},
+        },
+        "required": ["memory_id"],
+    }
+
+    def __init__(self, memory: MemoryStore) -> None:
+        self._memory = memory
+
+    def run(self, memory_id: int = 0, **kwargs: Any) -> Any:
+        deleted = self._memory.delete(memory_id)
+        if not deleted:
+            raise ValueError(f"Unknown memory id: {memory_id}")
+        return {"deleted": True, "id": memory_id}
 
 
 class RememberEntityFactTool(Tool):
