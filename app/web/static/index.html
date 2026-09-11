@@ -175,8 +175,31 @@
     border-radius: 8px;
     padding: 0.5rem 0.7rem;
   }
-  .memory-entry { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; }
+  .memory-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+  .memory-entry .memory-body { flex: 1; min-width: 0; }
   .memory-entry .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
+  .memory-entry .delete-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 0.15rem 0.55rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+  }
+  .memory-entry .delete-btn:hover { color: var(--error); border-color: var(--error); }
+  .memory-entry .delete-btn:disabled { opacity: 0.5; cursor: default; }
 
   /* Gaps */
   #gaps-view { padding: 1rem; overflow-y: auto; }
@@ -540,13 +563,37 @@
     for (const entry of entries) {
       const div = document.createElement("div");
       div.className = "memory-entry";
+
+      const body = document.createElement("div");
+      body.className = "memory-body";
       const content = document.createElement("div");
       content.textContent = entry.content;
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.textContent = `#${entry.position} · ${new Date(entry.created_at).toLocaleString()}`;
-      div.appendChild(content);
-      div.appendChild(meta);
+      body.appendChild(content);
+      body.appendChild(meta);
+      div.appendChild(body);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "delete-btn";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.addEventListener("click", async () => {
+        if (!confirm("Delete this memory? There is no undo.")) return;
+        deleteBtn.disabled = true;
+        try {
+          // entry.id, never entry.position -- position is a display-only
+          // rank that shifts as memories are added/deleted, id doesn't.
+          await api(`/siris/memory/${entry.id}`, { method: "DELETE" });
+          loadMemory();
+        } catch (err) {
+          alert(err.message);
+          deleteBtn.disabled = false;
+        }
+      });
+      div.appendChild(deleteBtn);
+
       memoryList.appendChild(div);
     }
   }

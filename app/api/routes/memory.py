@@ -45,9 +45,8 @@ def list_memory(
 
 @router.delete("/{memory_id}", status_code=204)
 def delete_memory(memory_id: int, siris: SirisAI = Depends(get_siris)) -> None:
-    """Not exposed as a model tool (see MemoryStore.delete()) -- for
-    manual cleanup, e.g. duplicate memories found by GET
-    /siris/tools/self_maintenance_check/run before semantic write-time
-    dedup existed to prevent them."""
+    """Direct REST delete, for the Memory tab's own delete button and
+    manual cleanup -- the model has its own equivalent via the
+    delete_memory tool (see MemoryStore.delete())."""
     if not siris.memory.delete(memory_id):
         raise HTTPException(status_code=404, detail="Memory not found.")

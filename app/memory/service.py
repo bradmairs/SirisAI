@@ -384,9 +384,12 @@ class MemoryStore:
     def delete(self, memory_id: int, *, user_id: str | None = None) -> bool:
         """Remove one memory (scoped to `user_id`, so one user can't delete
         another's by guessing an id). Returns whether a row was actually
-        deleted -- used for one-off duplicate cleanup; not exposed as a
-        model tool, deliberately (deciding what to forget is not something
-        this hands the LLM yet)."""
+        deleted. Originally only for manual cleanup (e.g. duplicate
+        memories found by self_maintenance_check before semantic
+        write-time dedup existed) -- now also reachable by the model
+        itself via `delete_memory` (app/plugins/builtin/memory.py,
+        user-requested), a deliberate reversal of that original
+        "not exposed as a model tool yet" decision."""
         user_id = user_id or get_current_user_id()
         with self._session_factory() as session:
             entry = session.get(MemoryEntry, memory_id)
