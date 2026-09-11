@@ -4235,6 +4235,28 @@ provider for the same capability actually exists to design against.
     the rebuild, while the failed resolution sent no notification at
     all.
 
+99. **Done** -- Memory tab: display `position`, not the raw database
+    `id`. User-reported bug: the Memory tab's numbering looked "out of
+    order." The actual cause -- `MemoryEntryResponse.position` (a
+    stable, gapless, 1-based rank recomputed fresh on every
+    `GET /siris/memory` call, an earlier milestone) had been sitting
+    unused in the response the whole time; `renderMemory()`
+    (`app/web/static/index.html`) was still displaying `entry.id`, the
+    real primary key, which is never reused and has a gap wherever a
+    memory was ever deleted -- exactly what "out of order" looks like
+    to someone watching the list. One-line fix: display
+    `entry.position` instead. No backend change needed; the field was
+    already there.
+
+    Verified: full suite still green (793 passed -- a pure frontend
+    change, no new backend surface). Live-verified against a real
+    `uvicorn` process and a real headless Chromium: created four
+    memories (positions 1-4), deleted the second one via
+    `DELETE /siris/memory/{id}`, and confirmed the Memory tab showed a
+    gapless #1-#3 (no #4) for the three survivors -- then added a fifth
+    memory through the UI's own Add form and confirmed it automatically
+    became #4, with every other entry's number unchanged.
+
 ## Running locally
 
 ```bash
