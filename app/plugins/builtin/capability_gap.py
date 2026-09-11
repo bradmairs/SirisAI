@@ -42,6 +42,21 @@ plain substring check; a reply with neither marker is treated as *not*
 merged, never assumed successful -- the same "don't fabricate a verdict
 you can't actually verify" discipline `Tool.verify()`'s own convention
 already uses elsewhere in this codebase.
+
+A successful merge fires a push notification (when a notify channel is
+configured) -- otherwise nothing would ever tell a human a fix is ready
+to deploy; they'd have to remember to go check the Gaps tab. When
+SIRISAI_PUBLIC_BASE_URL is also set, the notification carries a one-tap
+"Rebuild now" ntfy action button posting straight to
+`POST /siris/tools/rebuild_and_restart/run` with `confirmed: true` --
+the exact same `http` action-button mechanism
+`RoutineRunner._notify_pending_confirmation()`
+(app/routines/runner.py) already uses for a routine's own pending
+confirmations, reused here rather than inventing a second way to build
+one. Calling `NotifyClient.send()` directly rather than going through
+`siris.run_tool("notify", ...)` mirrors how this tool already calls
+`HermesClient` directly -- a Tool's own single unit of work doesn't need
+a second, nested audit-log entry for a side effect of the same call.
 """
 
 import json
@@ -49,6 +64,7 @@ from typing import Any
 
 from app.capabilities.service import CapabilityGapStore
 from app.hermes.client import HermesClient
+from app.notify.client import NotifyClient
 from app.plugins.base import Tool, ToolPermission
 
 _MERGED_MARKER = "RESULT: MERGED"
@@ -207,10 +223,11 @@ class ResolveCapabilityGapTool(Tool):
     description = (
         "Delegate a reported capability gap to Hermes Agent to actually implement: Hermes "
         "drafts the code on a new branch, adds tests, runs the full suite, and merges to main "
-        "only if everything passes. This does NOT rebuild or restart SirisAI itself -- use "
-        "rebuild_and_restart for that, as a separate, explicitly confirmed step. Use gap_id "
-        "from list_capability_gaps. A gap that isn't 'open' (already resolved, failed, or "
-        "dismissed) is left alone and reported back as-is rather than re-attempted."
+        "only if everything passes. A successful merge sends a push notification (if "
+        "configured) that a fix is ready to deploy. This does NOT rebuild or restart SirisAI "
+        "itself -- use rebuild_and_restart for that, as a separate, explicitly confirmed step. "
+        "Use gap_id from list_capability_gaps. A gap that isn't 'open' (already resolved, "
+        "failed, or dismissed) is left alone and reported back as-is rather than re-attempted."
     )
     permission = ToolPermission.SAFE_ACTION
     parameters = {
@@ -221,9 +238,19 @@ class ResolveCapabilityGapTool(Tool):
         "required": ["gap_id"],
     }
 
-    def __init__(self, gaps: CapabilityGapStore, hermes: HermesClient) -> None:
+    def __init__(
+        self,
+        gaps: CapabilityGapStore,
+        hermes: HermesClient,
+        notify: NotifyClient | None = None,
+        public_base_url: str = "",
+        api_key: str = "",
+    ) -> None:
         self._gaps = gaps
         self._hermes = hermes
+        self._notify = notify
+        self._public_base_url = public_base_url
+        self._api_key = api_key
 
     def run(self, gap_id: int = 0, **kwargs: Any) -> Any:
         gap = self._gaps.get_gap(gap_id)
@@ -244,9 +271,37 @@ class ResolveCapabilityGapTool(Tool):
             if merged
             else self._gaps.mark_failed(gap_id, detail)
         )
+        if merged:
+            self._notify_ready_to_deploy(gap["requested_capability"])
         return {
             "gap_id": gap_id,
             "status": updated["status"],
             "attempted": True,
             "detail": updated["resolution_detail"],
         }
+
+    def _notify_ready_to_deploy(self, requested_capability: str) -> None:
+        if self._notify is None:
+            return
+
+        actions = None
+        if self._public_base_url:
+            headers = {"Content-Type": "application/json"}
+            if self._api_key:
+                headers["Authorization"] = f"Bearer {self._api_key}"
+            actions = [
+                {
+                    "action": "http",
+                    "label": "Rebuild now",
+                    "url": f"{self._public_base_url.rstrip('/')}/siris/tools/rebuild_and_restart/run",
+                    "method": "POST",
+                    "headers": headers,
+                    "body": json.dumps({"arguments": {}, "confirmed": True}),
+                }
+            ]
+
+        self._notify.send(
+            message=f"Fix merged for '{requested_capability}'. Rebuild & restart to deploy it.",
+            title="SirisAI: fix ready to deploy",
+            actions=actions,
+        )

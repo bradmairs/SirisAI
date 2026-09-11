@@ -575,7 +575,13 @@ class SirisAI:
             self.tools.register(HermesRunTaskTool(self._hermes_client))
             self.tools.register(HermesStatusTool(self._hermes_client))
             self.tools.register(
-                ResolveCapabilityGapTool(self.capability_gaps, self._hermes_client)
+                ResolveCapabilityGapTool(
+                    self.capability_gaps,
+                    self._hermes_client,
+                    notify=self._notify_client,
+                    public_base_url=self.settings.public_base_url,
+                    api_key=self.settings.api_key or "",
+                )
             )
             self.tools.register(RebuildAndRestartTool(self._hermes_client))
 

@@ -4195,25 +4195,45 @@ provider for the same capability actually exists to design against.
       (shown only when `rebuild_and_restart` is registered) that
       confirms via a native browser dialog before calling the tool with
       `confirmed: true`.
+    - A follow-up while scoping this out: without a push, nothing would
+      ever tell a human a fix is ready -- they'd have to remember to
+      check the Gaps tab themselves. A successful merge now fires a
+      notification (when a notify channel is configured); when
+      `SIRISAI_PUBLIC_BASE_URL` is also set, it carries a one-tap
+      "Rebuild now" ntfy action button posting straight to
+      `POST /siris/tools/rebuild_and_restart/run` with
+      `confirmed: true` -- the exact same `http` action-button
+      mechanism `RoutineRunner._notify_pending_confirmation()`
+      (app/routines/runner.py) already uses for a routine's own pending
+      confirmations, reused rather than inventing a second way to build
+      one. A failed/not-merged resolution never notifies -- there's
+      nothing to deploy.
 
-    Verified: full suite (789 passed, up from 768) covering the store's
+    Verified: full suite (793 passed, up from 768) covering the store's
     lifecycle methods, the status filter, both new tools' registration
     gating (dismiss always on, resolve/rebuild only with Hermes
     configured), permission tiers, a fake-Hermes-backed resolve that
     parses MERGED/NOT_MERGED/no-marker-at-all into the right status each
     time, the already-resolved short-circuit never calling Hermes again,
-    and rebuild_and_restart's CONFIRM_REQUIRED gate and instruction
-    content. Live-verified against a real `uvicorn` process wired to a
-    fake Hermes server (an `httpx`-shaped OpenAI chat-completions
-    endpoint returning canned MERGED/NOT_MERGED replies by instruction
-    content) and a real headless Chromium: reported four gaps, resolved
-    one to "resolved" and one to "failed" via the API, dismissed a
-    third, confirmed a fourth's "Attempt fix" button in the actual
-    browser drove it from "open" to "resolved", confirmed
-    `rebuild_and_restart` refused to run unconfirmed and then actually
-    delegated to Hermes once confirmed, and confirmed re-resolving an
-    already-resolved gap never issued a second Hermes call (checked via
-    the fake server's own call log).
+    rebuild_and_restart's CONFIRM_REQUIRED gate and instruction content,
+    and the notification behavior (plain notify with no
+    `SIRISAI_PUBLIC_BASE_URL`, the action-button shape with one set,
+    never sent on a failed/not-merged resolution, and never raising
+    when no notify channel is configured at all). Live-verified against
+    a real `uvicorn` process wired to a fake Hermes server (an
+    `httpx`-shaped OpenAI chat-completions endpoint returning canned
+    MERGED/NOT_MERGED replies by instruction content) and a fake ntfy
+    server: reported four gaps, resolved one to "resolved" and one to
+    "failed" via the API, dismissed a third, confirmed a fourth's
+    "Attempt fix" button in a real headless Chromium drove it from
+    "open" to "resolved", confirmed `rebuild_and_restart` refused to run
+    unconfirmed and then actually delegated to Hermes once confirmed,
+    confirmed re-resolving an already-resolved gap never issued a second
+    Hermes call, and -- with `SIRISAI_PUBLIC_BASE_URL` set -- confirmed
+    the merge notification carried a working "Rebuild now" action
+    button: posting exactly the URL/body it specified actually triggered
+    the rebuild, while the failed resolution sent no notification at
+    all.
 
 ## Running locally
 

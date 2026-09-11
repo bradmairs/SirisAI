@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.core.siris import SirisAI, get_siris
 from app.hermes.client import HermesClient
+from app.notify.client import NotifyClient
 from app.plugins.base import ToolPermission
 from app.plugins.builtin.capability_gap import ResolveCapabilityGapTool
 
@@ -369,3 +370,104 @@ def test_resolve_capability_gap_registered_only_when_hermes_configured() -> None
     finally:
         assert with_hermes._hermes_client is not None
         with_hermes._hermes_client.close()
+
+
+# -- resolve_capability_gap: notifies on a successful merge (a Jarvis-concept
+# follow-up: nothing else would ever tell a human a fix is ready to deploy)
+
+
+def _mock_notify_client(handler) -> NotifyClient:
+    return NotifyClient(base_url="https://ntfy.sh", topic="test-topic", transport=httpx.MockTransport(handler))
+
+
+def test_resolve_merged_sends_a_plain_notification_without_public_base_url() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    gap = siris.capability_gaps.report_gap(f"notify me {uuid.uuid4()}")
+
+    notify_calls = []
+
+    def notify_handler(request: httpx.Request) -> httpx.Response:
+        notify_calls.append(json.loads(request.content))
+        return httpx.Response(200)
+
+    hermes = _hermes_client(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: MERGED"}}]}))
+    notify = _mock_notify_client(notify_handler)
+    tool = ResolveCapabilityGapTool(siris.capability_gaps, hermes, notify=notify)
+
+    tool.run(gap_id=gap["id"])
+
+    assert len(notify_calls) == 1
+    assert notify_calls[0]["title"] == "SirisAI: fix ready to deploy"
+    assert gap["requested_capability"] in notify_calls[0]["message"]
+    assert "actions" not in notify_calls[0]
+    hermes.close()
+    notify.close()
+
+
+def test_resolve_merged_includes_a_rebuild_action_button_with_public_base_url() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    gap = siris.capability_gaps.report_gap(f"notify with button {uuid.uuid4()}")
+
+    notify_calls = []
+
+    def notify_handler(request: httpx.Request) -> httpx.Response:
+        notify_calls.append(json.loads(request.content))
+        return httpx.Response(200)
+
+    hermes = _hermes_client(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: MERGED"}}]}))
+    notify = _mock_notify_client(notify_handler)
+    tool = ResolveCapabilityGapTool(
+        siris.capability_gaps,
+        hermes,
+        notify=notify,
+        public_base_url="https://siris.example.com",
+        api_key="secret",
+    )
+
+    tool.run(gap_id=gap["id"])
+
+    action = notify_calls[0]["actions"][0]
+    assert action["action"] == "http"
+    assert action["label"] == "Rebuild now"
+    assert action["url"] == "https://siris.example.com/siris/tools/rebuild_and_restart/run"
+    assert action["method"] == "POST"
+    assert action["headers"]["Authorization"] == "Bearer secret"
+    assert json.loads(action["body"]) == {"arguments": {}, "confirmed": True}
+    hermes.close()
+    notify.close()
+
+
+def test_resolve_not_merged_does_not_send_a_notification() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    gap = siris.capability_gaps.report_gap(f"no notify on failure {uuid.uuid4()}")
+
+    notify_calls = []
+
+    def notify_handler(request: httpx.Request) -> httpx.Response:
+        notify_calls.append(json.loads(request.content))
+        return httpx.Response(200)
+
+    hermes = _hermes_client(
+        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: NOT_MERGED: nope"}}]})
+    )
+    notify = _mock_notify_client(notify_handler)
+    tool = ResolveCapabilityGapTool(siris.capability_gaps, hermes, notify=notify)
+
+    tool.run(gap_id=gap["id"])
+
+    assert notify_calls == []
+    hermes.close()
+    notify.close()
+
+
+def test_resolve_merged_without_notify_configured_does_not_raise() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    gap = siris.capability_gaps.report_gap(f"no notify configured {uuid.uuid4()}")
+
+    hermes = _hermes_client(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: MERGED"}}]}))
+    tool = ResolveCapabilityGapTool(siris.capability_gaps, hermes)
+
+    result = tool.run(gap_id=gap["id"])
+
+    assert result["status"] == "resolved"
+    hermes.close()
