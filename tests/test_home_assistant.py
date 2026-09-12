@@ -492,6 +492,42 @@ def test_needs_confirmation_is_still_true_for_a_non_allowlisted_domain() -> None
     )
 
 
+def test_needs_confirmation_is_false_for_any_domain_with_wildcard() -> None:
+    tool = HomeAssistantCallServiceTool(
+        _mock_client(lambda r: httpx.Response(200, json=[])),
+        _events(),
+        no_confirm_domains=["*"],
+    )
+    assert tool.needs_confirmation({"domain": "media_player", "service": "turn_on"}) is False
+    assert tool.needs_confirmation({"domain": "climate", "service": "set_temperature"}) is False
+    assert tool.needs_confirmation({"domain": "scene", "service": "turn_on"}) is False
+
+
+def test_needs_confirmation_is_true_for_lock_and_cover_even_with_wildcard() -> None:
+    """The safety floor a wildcard allowlist can't bypass -- a direct user
+    request: automate everything except a door lock or garage door (which
+    Home Assistant models as a `cover` entity)."""
+    tool = HomeAssistantCallServiceTool(
+        _mock_client(lambda r: httpx.Response(200, json=[])),
+        _events(),
+        no_confirm_domains=["*"],
+    )
+    assert tool.needs_confirmation({"domain": "lock", "service": "unlock"}) is True
+    assert tool.needs_confirmation({"domain": "cover", "service": "open_cover"}) is True
+
+
+def test_needs_confirmation_is_true_for_lock_and_cover_even_if_explicitly_allowlisted() -> (
+    None
+):
+    tool = HomeAssistantCallServiceTool(
+        _mock_client(lambda r: httpx.Response(200, json=[])),
+        _events(),
+        no_confirm_domains=["lock", "cover"],
+    )
+    assert tool.needs_confirmation({"domain": "lock", "service": "unlock"}) is True
+    assert tool.needs_confirmation({"domain": "cover", "service": "open_cover"}) is True
+
+
 def test_no_confirm_domains_setting_parses_comma_separated_list() -> None:
     settings = Settings(home_assistant_no_confirm_domains=" light, switch ,fan")
     assert settings.home_assistant_no_confirm_domain_list() == [

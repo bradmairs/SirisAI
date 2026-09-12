@@ -81,12 +81,17 @@ class Settings(BaseSettings):
 
     # Skip confirmation for home_assistant_call_service calls whose
     # `domain` argument is in this comma-separated allowlist (e.g.
-    # "light,switch,fan,media_player") -- everything else (locks,
-    # alarms, covers/garage doors, climate, ...) still requires
-    # confirmation, same as before this existed. Empty (default) =
-    # every call still requires confirmation, unchanged. See
-    # HomeAssistantCallServiceTool.needs_confirmation() and
-    # Tool.needs_confirmation()'s base docstring for the mechanism.
+    # "light,switch,fan,media_player") -- everything else still requires
+    # confirmation, same as before this existed. Empty (default) = every
+    # call still requires confirmation, unchanged. A single "*" means
+    # every domain -- a direct user request ("automate this for
+    # everything besides a door lock or garage door") that a plain
+    # per-domain list would need updating for every time a new device
+    # type gets added -- EXCEPT lock and cover (garage doors are a
+    # `cover` entity in Home Assistant), which HomeAssistantCallServiceTool
+    # always confirms regardless of this setting; see its
+    # needs_confirmation() and Tool.needs_confirmation()'s base docstring
+    # for the mechanism.
     home_assistant_no_confirm_domains: str = ""
 
     def home_assistant_no_confirm_domain_list(self) -> list[str]:

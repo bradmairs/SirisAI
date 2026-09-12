@@ -70,6 +70,15 @@ _EXPECTED_STATE_BY_SERVICE: dict[str, str] = {
     "disarm": "disarmed",
 }
 
+# Always require confirmation for these domains, even when
+# SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS is "*" (every other domain) --
+# a direct user request: physical security (a door lock, and a garage
+# door, which Home Assistant models as a `cover` entity) should never be
+# auto-approved just because "everything else" is. Not configurable, same
+# reasoning as HomeAssistantCreateAutomationTool/DeleteAutomationTool's
+# unconditional CONFIRM_REQUIRED.
+_ALWAYS_CONFIRM_DOMAINS = {"lock", "cover"}
+
 
 class HomeAssistantListEntitiesTool(Tool):
     name = "home_assistant_list_entities"
@@ -226,8 +235,16 @@ class HomeAssistantCallServiceTool(Tool):
         """Skips confirmation for a call whose `domain` is in
         SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS -- everything else
         (an unconfigured/empty allowlist means everything) still needs
-        it, same as before this existed."""
-        return arguments.get("domain") not in self._no_confirm_domains
+        it, same as before this existed. A single "*" in the allowlist
+        means every domain, EXCEPT _ALWAYS_CONFIRM_DOMAINS (lock, cover),
+        which always need it regardless -- that floor can't be bypassed
+        by "*" or by explicitly listing "lock"/"cover" either."""
+        domain = arguments.get("domain")
+        if domain in _ALWAYS_CONFIRM_DOMAINS:
+            return True
+        if "*" in self._no_confirm_domains:
+            return False
+        return domain not in self._no_confirm_domains
 
     def run(
         self,
