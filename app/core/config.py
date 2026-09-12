@@ -350,6 +350,17 @@ class Settings(BaseSettings):
     frigate_base_url: str = ""
     frigate_api_key: str = ""
 
+    # Synology NAS (app/synology/, app/plugins/builtin/synology.py) -- DSM
+    # Web API for system status, storage health, disk SMART, and backup tasks.
+    # Uses session-based auth (SYNO.API.Auth) with a local DSM user account.
+    # All three must be set for the synology_get_status tool to be registered.
+    # Create a DSM user with read-only access to the relevant APIs if desired.
+    # Verify SSL can be false for self-signed certs on self-hosted DSM.
+    synology_base_url: str = ""
+    synology_username: str = ""
+    synology_password: str = ""
+    synology_verify_ssl: bool = True
+
     # Conversation handoff between rooms (app/satellites/service.py,
     # milestone 75). Each satellite process keeps its own local
     # conversation_id in memory (satellite/siris_satellite/client.py) --

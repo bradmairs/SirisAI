@@ -155,6 +155,7 @@ from app.plugins.builtin.sonarr import (
 )
 from app.plugins.builtin.speedtest import RunSpeedTestTool
 from app.plugins.builtin.system_info import SystemInfoTool
+from app.plugins.builtin.synology import SynologyGetStatusTool
 from app.plugins.builtin.tautulli import (
     TautulliCurrentActivityTool,
     TautulliGetLibrariesTool,
@@ -199,6 +200,7 @@ from app.skills.builtin.self_maintenance import SelfMaintenanceSkill
 from app.skills.builtin.server_health import ServerHealthSkill
 from app.sonarr.client import SonarrClient
 from app.speedtest.client import SpeedTestClient
+from app.synology.client import SynologyClient
 from app.tautulli.client import TautulliClient
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
@@ -226,6 +228,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("listenarr_", "listenarr"),
     ("cleanuparr_", "cleanuparr"),
     ("obsidian_", "obsidian"),
+    ("synology_", "synology"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -415,6 +418,7 @@ class SirisAI:
         self._cleanuparr_client: CleanuparrClient | None = None
         self._obsidian_client: ObsidianClient | None = None
         self._frigate_client: FrigateClient | None = None
+        self._synology_client: SynologyClient | None = None
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -674,6 +678,19 @@ class SirisAI:
             )
             self.tools.register(FrigateListCamerasTool(self._frigate_client))
             self.tools.register(FrigateRecentEventsTool(self._frigate_client))
+
+        if (
+            self.settings.synology_base_url
+            and self.settings.synology_username
+            and self.settings.synology_password
+        ):
+            self._synology_client = SynologyClient(
+                base_url=self.settings.synology_base_url,
+                username=self.settings.synology_username,
+                password=self.settings.synology_password,
+                verify_ssl=self.settings.synology_verify_ssl,
+            )
+            self.tools.register(SynologyGetStatusTool(self._synology_client))
 
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite
@@ -1019,6 +1036,7 @@ class SirisAI:
             self._cleanuparr_client,
             self._obsidian_client,
             self._frigate_client,
+            self._synology_client,
             self._embedding_client,
         )
         for client in sync_clients:
