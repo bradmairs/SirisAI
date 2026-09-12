@@ -14,7 +14,10 @@ class RunSpeedTestTool(Tool):
     description = (
         "Measure real internet speed (download/upload throughput and ping) on this "
         "server's own network connection. Takes 5-25 seconds -- it actually transfers "
-        "data to measure real throughput, not a cached or estimated figure."
+        "data to measure real throughput, not a cached or estimated figure. Optionally "
+        "filter test servers by geographic location (country, city, or ISP name), but "
+        "a match isn't guaranteed -- check the result's location_matched field, since "
+        "an unmatched location silently falls back to automatic server selection."
     )
     # SAFE_ACTION, not READ: unlike every other READ tool here, running
     # this has a real-world side effect (consumes real bandwidth for the
@@ -29,6 +32,14 @@ class RunSpeedTestTool(Tool):
                 "enum": ["download", "upload", "both"],
                 "description": "Which direction(s) to measure. Defaults to both.",
             },
+            "location": {
+                "type": "string",
+                "description": (
+                    "Optional geographic location (country, city, or ISP name) to "
+                    "filter test servers by before selecting the best one by latency. "
+                    "Not guaranteed to match -- see location_matched in the result."
+                ),
+            },
         },
         "required": [],
     }
@@ -36,5 +47,5 @@ class RunSpeedTestTool(Tool):
     def __init__(self, client: SpeedTestClient) -> None:
         self._client = client
 
-    def run(self, direction: str = "both", **kwargs: Any) -> Any:
-        return self._client.run(direction=direction)
+    def run(self, direction: str = "both", location: str | None = None, **kwargs: Any) -> Any:
+        return self._client.run(direction=direction, location=location)

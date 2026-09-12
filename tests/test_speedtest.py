@@ -17,9 +17,16 @@ class _FakeSpeedtest:
     def __init__(self, calls: list[str], **kwargs: Any) -> None:
         self._calls = calls
         self.results = _FakeResults()
+        self.servers: dict[float, list[dict[str, str]]] = {
+            10.0: [{"country": "Testland", "name": "Testville", "sponsor": "Test ISP"}],
+            20.0: [{"country": "Otherland", "name": "Otherville", "sponsor": "Other ISP"}],
+        }
 
-    def get_best_server(self) -> None:
-        self._calls.append("get_best_server")
+    def get_servers(self) -> None:
+        self._calls.append("get_servers")
+
+    def get_best_server(self, servers: list[dict[str, str]] | None = None) -> None:
+        self._calls.append(f"get_best_server({len(servers) if servers else 'auto'})")
 
     def download(self) -> None:
         self._calls.append("download")
@@ -38,7 +45,7 @@ def test_run_both_directions_calls_download_and_upload() -> None:
 
     result = client.run(direction="both")
 
-    assert calls == ["get_best_server", "download", "upload"]
+    assert calls == ["get_best_server(auto)", "download", "upload"]
     assert result == {
         "ping_ms": 12.35,
         "server": "Test ISP, Testville, Testland",
@@ -53,7 +60,7 @@ def test_run_download_only_skips_upload() -> None:
 
     result = client.run(direction="download")
 
-    assert calls == ["get_best_server", "download"]
+    assert calls == ["get_best_server(auto)", "download"]
     assert "download_mbps" in result
     assert "upload_mbps" not in result
 
@@ -64,7 +71,7 @@ def test_run_upload_only_skips_download() -> None:
 
     result = client.run(direction="upload")
 
-    assert calls == ["get_best_server", "upload"]
+    assert calls == ["get_best_server(auto)", "upload"]
     assert "upload_mbps" in result
     assert "download_mbps" not in result
 
@@ -78,6 +85,53 @@ def test_tool_defaults_to_both_directions() -> None:
 
     assert "download_mbps" in result
     assert "upload_mbps" in result
+
+
+def test_run_with_no_location_skips_server_lookup() -> None:
+    calls: list[str] = []
+    client = SpeedTestClient(speedtest_factory=_fake_factory(calls))
+
+    result = client.run(direction="download")
+
+    assert "get_servers" not in calls
+    assert "location_requested" not in result
+    assert "location_matched" not in result
+
+
+def test_run_with_matching_location_filters_servers() -> None:
+    calls: list[str] = []
+    client = SpeedTestClient(speedtest_factory=_fake_factory(calls))
+
+    result = client.run(direction="download", location="Testland")
+
+    assert calls[:2] == ["get_servers", "get_best_server(1)"]
+    assert result["location_requested"] == "Testland"
+    assert result["location_matched"] is True
+    assert "note" not in result
+
+
+def test_run_with_unmatched_location_falls_back_and_says_so() -> None:
+    """The bug this fixes: silently substituting a server nowhere near
+    what was asked for, with no way to tell the fallback happened."""
+    calls: list[str] = []
+    client = SpeedTestClient(speedtest_factory=_fake_factory(calls))
+
+    result = client.run(direction="download", location="Nonexistentland")
+
+    assert calls[:2] == ["get_servers", "get_best_server(auto)"]
+    assert result["location_requested"] == "Nonexistentland"
+    assert result["location_matched"] is False
+    assert "Nonexistentland" in result["note"]
+
+
+def test_tool_passes_location_through() -> None:
+    calls: list[str] = []
+    client = SpeedTestClient(speedtest_factory=_fake_factory(calls))
+    tool = RunSpeedTestTool(client)
+
+    result = tool.run(direction="download", location="Testland")
+
+    assert result["location_matched"] is True
 
 
 def test_tool_is_safe_action_not_read() -> None:
