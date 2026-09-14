@@ -4353,6 +4353,53 @@ provider for the same capability actually exists to design against.
     introduced -- the ambiguity flag was already the correct safety net
     for it).
 
+102. **Done** -- `home_assistant_call_service` fuzzy fallback: recover
+    from a guessed `entity_id` that doesn't exist. User-requested
+    follow-up to milestone 101's fuzzy entity matching, which only
+    helped when the model called `home_assistant_resolve_entity` first
+    -- if it skipped that and passed a slightly-wrong `entity_id`
+    straight to `home_assistant_call_service` (e.g. `light.loung_lamp`
+    for a real `light.lounge_lamp`), the call just silently failed or
+    no-op'd against Home Assistant with no recovery.
+
+    What shipped:
+    - `HomeAssistantClient.get_state_or_none()` (`app/home_assistant/client.py`)
+      -- like `get_state()`, but returns `None` instead of raising on a
+      404, so the tool doesn't need its own try/except at the call site.
+    - `HomeAssistantCallServiceTool.run()` now checks whether a given
+      `entity_id` actually exists before calling the service; if not,
+      `_resolve_fallback()` reuses milestone 101's own
+      `_entity_name_matches()` against every same-domain entity (the
+      guessed id's own words as the needle, exactly like
+      `home_assistant_resolve_entity`'s own matching) and substitutes it
+      *only* when exactly one candidate matches. Zero or multiple
+      candidates leave `entity_id` untouched -- same "don't guess among
+      several" caution as `resolve_entity`'s own `ambiguous` flag, so
+      the worst case is identical to before this change (a no-op/fail),
+      never a wrong device.
+    - A substitution wraps the return value (`{"result", "resolved_entity_id",
+      "note"}`) so both the audit log and `verify()` can see what
+      actually ran -- `verify()` now checks the resolved entity_id when
+      one is present, not the original (nonexistent) one, which would
+      otherwise always "fail" even though the real target changed state
+      exactly as expected. The common case (entity already existed) is
+      completely unaffected -- same bare return shape as before.
+
+    Verified: full suite (809 passed, up from 803) covering the
+    existence check itself, a single-candidate substitution (and that
+    it's logged and returned correctly), the zero- and multiple-candidate
+    cases leaving `entity_id` untouched, a domain-wide call with no
+    `entity_id` skipping the check entirely, and `verify()` correctly
+    checking the resolved entity. Live-verified against a real `uvicorn`
+    process and a fake, stateful Home Assistant server (its `light.turn_off`
+    handler actually flips the entity's tracked state, so `verify()` has
+    something real to check): calling with `entity_id='light.loung_lamp'`
+    against a real `light.lounge_lamp` entity correctly substituted,
+    ran, and verified true against the resolved entity; calling with a
+    genuinely unrelated `entity_id` left it untouched and behaved
+    identically to before this change (including `verify()`'s own
+    pre-existing 404-on-a-nonexistent-entity error, unchanged).
+
 ## Running locally
 
 ```bash
