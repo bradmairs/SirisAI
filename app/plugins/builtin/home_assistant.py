@@ -186,8 +186,10 @@ class HomeAssistantCallServiceTool(Tool):
         "service='turn_on', entity_id='light.living_room'. The same request however it's "
         "phrased -- 'turn off the lounge lamps' and 'turn the lounge lamps off' both mean "
         "service='turn_off' -- what matters is the verb and the device, not their order. Use "
-        "home_assistant_resolve_entity first if you don't know the exact entity_id. Extra "
-        "service-specific fields (like 'brightness_pct' or 'temperature') go in service_data."
+        "home_assistant_resolve_entity first if you don't know the exact entity_id -- if you "
+        "give one that doesn't exist anyway, this still checks for a single close match "
+        "before giving up. Extra service-specific fields (like 'brightness_pct' or "
+        "'temperature') go in service_data."
     )
     # Arbitrary/unbounded: this can call *any* Home Assistant service --
     # including ones with real physical consequences (unlocking a door,
@@ -254,8 +256,23 @@ class HomeAssistantCallServiceTool(Tool):
         service_data: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
+        target_entity_id = entity_id
+        resolution_note: str | None = None
+        # Fuzzy fallback (a user-requested hardening pass): the model is
+        # supposed to call home_assistant_resolve_entity first when it
+        # doesn't already know the exact entity_id, but when it skips
+        # that and guesses wrong, this used to just fail/no-op against
+        # Home Assistant with no recovery. Only ever substitutes when
+        # exactly one same-domain entity is a close spelling match --
+        # zero or multiple candidates fall through to the original
+        # (still-wrong) entity_id, same "let it fail/no-op rather than
+        # guess among several" caution home_assistant_resolve_entity's
+        # own `ambiguous` flag already uses.
+        if entity_id and self._client.get_state_or_none(entity_id) is None:
+            target_entity_id, resolution_note = self._resolve_fallback(domain, entity_id)
+
         result = self._client.call_service(
-            domain, service, entity_id=entity_id, **(service_data or {})
+            domain, service, entity_id=target_entity_id, **(service_data or {})
         )
         # Behavioral pattern anomalies (milestone 41): log this as an
         # Event, grouped by "{domain}.{service}" + entity_id (e.g.
@@ -268,10 +285,37 @@ class HomeAssistantCallServiceTool(Tool):
         # event_timing_check already does the rest once this exists.
         self._events.log_event(
             f"{domain}.{service}",
-            entity_name=entity_id,
+            entity_name=target_entity_id,
             source="home_assistant_call_service",
         )
+        if resolution_note:
+            # Wrapped rather than returned bare: callers (verify() here,
+            # and anyone reading /siris/activity) need to know the
+            # substitution happened and what it actually ran against.
+            # Unwrapped in the common case (no substitution) so every
+            # existing caller/test of the normal path is unaffected.
+            return {"result": result, "resolved_entity_id": target_entity_id, "note": resolution_note}
         return result
+
+    def _resolve_fallback(self, domain: str, entity_id: str) -> tuple[str, str | None]:
+        """entity_id doesn't exist -- see if exactly one same-domain
+        entity is a close spelling match (same tokenize-and-compare
+        helper home_assistant_resolve_entity uses), same discipline: one
+        match substitutes, zero or several leave `entity_id` untouched
+        rather than guess."""
+        states = self._client.list_states(domain=domain)
+        needle_words = entity_id.lower().replace(".", " ").replace("_", " ").replace("-", " ").split()
+        candidates = [
+            state["entity_id"]
+            for state in states
+            if _entity_name_matches(
+                needle_words,
+                f"{state['entity_id']} {state.get('attributes', {}).get('friendly_name', '')}".lower(),
+            )
+        ]
+        if len(candidates) == 1:
+            return candidates[0], f"'{entity_id}' doesn't exist -- matched it to '{candidates[0]}' instead."
+        return entity_id, None
 
     def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
         """Independent check that the call actually took effect, not just
@@ -282,8 +326,19 @@ class HomeAssistantCallServiceTool(Tool):
         and a service in `_EXPECTED_STATE_BY_SERVICE` are given; anything
         else honestly raises `NotImplementedError` (this tool's base
         class's own "doesn't support verify" convention) rather than
-        claiming to check something with no single correct end state."""
-        entity_id = arguments.get("entity_id")
+        claiming to check something with no single correct end state.
+
+        Checks the entity the call actually ran against, not necessarily
+        what was originally asked for: when run()'s fuzzy fallback
+        substituted a different entity_id, `result` carries
+        `resolved_entity_id` -- checking the original (nonexistent) one
+        would always "fail" even though the real target changed state
+        exactly as expected."""
+        entity_id = (
+            result.get("resolved_entity_id")
+            if isinstance(result, dict) and "resolved_entity_id" in result
+            else arguments.get("entity_id")
+        )
         expected_state = _EXPECTED_STATE_BY_SERVICE.get(arguments.get("service", ""))
         if entity_id is None or expected_state is None:
             raise NotImplementedError(

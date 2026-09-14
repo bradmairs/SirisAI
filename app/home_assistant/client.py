@@ -49,6 +49,18 @@ class HomeAssistantClient:
         response.raise_for_status()
         return response.json()
 
+    def get_state_or_none(self, entity_id: str) -> dict | None:
+        """Like `get_state()`, but returns None instead of raising when
+        the entity doesn't exist -- used by HomeAssistantCallServiceTool's
+        fuzzy fallback (a user-requested hardening pass) to check
+        existence without every call site needing its own try/except
+        around a 404."""
+        response = self._client.get(f"/api/states/{entity_id}")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()
+
     def call_service(self, domain: str, service: str, entity_id: str | None = None, **service_data: object) -> object:
         payload = dict(service_data)
         if entity_id:

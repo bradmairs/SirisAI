@@ -294,6 +294,12 @@ def test_resolve_entity_fuzzy_matching_still_supports_multiple_ambiguous_matches
 
 def test_call_service_posts_domain_service_and_entity() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            # The fuzzy-fallback existence check (run() calls this before
+            # the actual service call) -- entity exists, so nothing else
+            # should happen here.
+            assert request.url.path == "/api/states/light.kitchen"
+            return httpx.Response(200, json={"entity_id": "light.kitchen", "state": "on"})
         assert request.method == "POST"
         assert request.url.path == "/api/services/light/turn_on"
         body = json.loads(request.content)
@@ -345,6 +351,169 @@ def test_call_service_logs_an_event_without_entity_id() -> None:
     logged = events.recent_events(limit=1)
     assert logged[0]["description"] == "homeassistant.restart"
     assert logged[0]["entity_name"] is None
+    client.close()
+
+
+# -- Fuzzy fallback (a user-requested hardening pass): the model is
+# supposed to call home_assistant_resolve_entity first when it doesn't
+# already know the exact entity_id, but when it guesses wrong anyway,
+# this should recover rather than silently failing/no-op-ing against a
+# nonexistent entity.
+
+
+def _fallback_handler(states: list[dict], expected_final_entity_id: str):
+    """A single mock handler wired for the full run() sequence: GET the
+    guessed entity_id (404 -- it doesn't exist), GET the domain's full
+    state list (to find a fuzzy candidate), then POST the service call
+    against whatever entity_id run() decided to use."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/api/states":
+            return httpx.Response(200, json=states)
+        if request.method == "GET":
+            return httpx.Response(404)
+        assert request.method == "POST"
+        assert request.url.path == "/api/services/light/turn_off"
+        body = json.loads(request.content)
+        assert body["entity_id"] == expected_final_entity_id
+        return httpx.Response(200, json=[{"entity_id": expected_final_entity_id, "state": "off"}])
+
+    return handler
+
+
+def test_call_service_substitutes_a_single_fuzzy_match_for_a_nonexistent_entity() -> None:
+    states = [
+        {
+            "entity_id": "light.lounge_lamp",
+            "state": "on",
+            "attributes": {"friendly_name": "Lounge Lamp"},
+        }
+    ]
+    client = _mock_client(_fallback_handler(states, "light.lounge_lamp"))
+    tool = HomeAssistantCallServiceTool(client, _events())
+
+    result = tool.run(domain="light", service="turn_off", entity_id="light.loung_lamp")
+
+    assert result["resolved_entity_id"] == "light.lounge_lamp"
+    assert "light.loung_lamp" in result["note"]
+    assert "light.lounge_lamp" in result["note"]
+    assert result["result"] == [{"entity_id": "light.lounge_lamp", "state": "off"}]
+    client.close()
+
+
+def test_call_service_logs_the_event_against_the_resolved_entity() -> None:
+    states = [
+        {
+            "entity_id": "light.lounge_lamp",
+            "state": "on",
+            "attributes": {"friendly_name": "Lounge Lamp"},
+        }
+    ]
+    client = _mock_client(_fallback_handler(states, "light.lounge_lamp"))
+    events = _events()
+    tool = HomeAssistantCallServiceTool(client, events)
+
+    tool.run(domain="light", service="turn_off", entity_id="light.loung_lamp")
+
+    logged = events.recent_events(entity_name="light.lounge_lamp", limit=1)
+    assert logged[0]["description"] == "light.turn_off"
+    client.close()
+
+
+def test_call_service_leaves_entity_id_untouched_when_no_fuzzy_candidate_exists() -> None:
+    states = [
+        {
+            "entity_id": "switch.fan",
+            "state": "on",
+            "attributes": {"friendly_name": "Fan"},
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/api/states":
+            return httpx.Response(200, json=states)
+        if request.method == "GET":
+            return httpx.Response(404)
+        body = json.loads(request.content)
+        assert body["entity_id"] == "light.totally_unrelated"
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCallServiceTool(client, _events())
+
+    result = tool.run(domain="light", service="turn_off", entity_id="light.totally_unrelated")
+
+    assert result == []
+    client.close()
+
+
+def test_call_service_leaves_entity_id_untouched_when_multiple_fuzzy_candidates_exist() -> None:
+    states = [
+        {
+            "entity_id": "light.lounge_lamp_1",
+            "state": "on",
+            "attributes": {"friendly_name": "Lounge Lamp 1"},
+        },
+        {
+            "entity_id": "light.lounge_lamp_2",
+            "state": "off",
+            "attributes": {"friendly_name": "Lounge Lamp 2"},
+        },
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/api/states":
+            return httpx.Response(200, json=states)
+        if request.method == "GET":
+            return httpx.Response(404)
+        body = json.loads(request.content)
+        assert body["entity_id"] == "light.lounge_lamp"
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCallServiceTool(client, _events())
+
+    result = tool.run(domain="light", service="turn_off", entity_id="light.lounge_lamp")
+
+    assert result == []
+    client.close()
+
+
+def test_call_service_skips_the_existence_check_without_an_entity_id() -> None:
+    """A domain-wide service call (e.g. homeassistant.restart) has no
+    entity_id to check -- the fallback logic must not attempt one."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST", "no GET should happen when entity_id is None"
+        return httpx.Response(200, json=[])
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCallServiceTool(client, _events())
+
+    result = tool.run(domain="homeassistant", service="restart")
+
+    assert result == []
+    client.close()
+
+
+def test_verify_uses_the_resolved_entity_id_after_a_fuzzy_substitution() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/api/states/light.lounge_lamp":
+            return httpx.Response(
+                200, json={"entity_id": "light.lounge_lamp", "state": "off", "attributes": {}}
+            )
+        return httpx.Response(404)
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCallServiceTool(client, _events())
+
+    result = {"result": [], "resolved_entity_id": "light.lounge_lamp", "note": "substituted"}
+    verification = tool.verify(
+        {"domain": "light", "service": "turn_off", "entity_id": "light.loung_lamp"}, result
+    )
+
+    assert verification.verified is True
+    assert "light.lounge_lamp" in verification.detail
     client.close()
 
 
@@ -558,11 +727,18 @@ def test_allowlisted_domain_call_runs_without_explicit_confirmation_end_to_end()
     )
     try:
         assert siris._home_assistant_client is not None
-        with patch.object(
-            siris._home_assistant_client,
-            "call_service",
-            return_value=[{"entity_id": "light.kitchen", "state": "on"}],
-        ) as mock_call:
+        with (
+            patch.object(
+                siris._home_assistant_client,
+                "get_state_or_none",
+                return_value={"entity_id": "light.kitchen", "state": "off"},
+            ),
+            patch.object(
+                siris._home_assistant_client,
+                "call_service",
+                return_value=[{"entity_id": "light.kitchen", "state": "on"}],
+            ) as mock_call,
+        ):
             result = siris.run_tool(
                 "home_assistant_call_service",
                 {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"},
