@@ -201,6 +201,66 @@
   .memory-entry .delete-btn:hover { color: var(--error); border-color: var(--error); }
   .memory-entry .delete-btn:disabled { opacity: 0.5; cursor: default; }
 
+  /* Goals, Routines, Scenes -- shared card look, same shape as .gap-entry */
+  #goals-view, #routines-view, #scenes-view { padding: 1rem; overflow-y: auto; }
+  #goals-toolbar, #routines-toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  #goal-create, #routine-create, #scene-create { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+  #goal-create input, #routine-create input, #scene-create input {
+    flex: 1;
+    min-width: 8rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+  }
+  #routine-create input#routine-interval { flex: 0 0 8rem; }
+  .goal-entry, .routine-entry, .scene-entry {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+  .goal-entry .title-row, .routine-entry .title-row, .scene-entry .title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .goal-entry .title-row strong, .routine-entry .title-row strong, .scene-entry .title-row strong { font-size: 0.95rem; }
+  .goal-status { display: inline-block; border-radius: 999px; padding: 0.05rem 0.55rem; font-size: 0.72rem; margin-left: 0.5rem; vertical-align: middle; }
+  .goal-status.active { background: #3a2f14; color: #e0a83a; }
+  .goal-status.completed { background: #1c3a24; color: #6fbf73; }
+  .goal-status.abandoned { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  .objective-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem; font-size: 0.85rem; }
+  .objective-row input[type=checkbox] { flex-shrink: 0; }
+  .objective-row.done span { color: var(--muted); text-decoration: line-through; }
+  .objective-add { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+  .objective-add input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+  }
+  .entry-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+  .entry-actions button, .objective-add button {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.78rem;
+  }
+  .entry-actions button:disabled, .objective-add button:disabled { opacity: 0.5; cursor: default; }
+  .routine-entry.disabled, .scene-entry .steps { color: var(--muted); }
+  .scene-entry .steps { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; white-space: pre-wrap; word-wrap: break-word; margin-top: 0.35rem; }
+  .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+
   /* Gaps */
   #gaps-view { padding: 1rem; overflow-y: auto; }
   #gaps-toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
@@ -259,6 +319,9 @@
   <nav>
     <button data-view="chat" class="active">Chat</button>
     <button data-view="memory">Memory</button>
+    <button data-view="goals">Goals</button>
+    <button data-view="routines">Routines</button>
+    <button data-view="scenes">Scenes</button>
     <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
@@ -293,6 +356,53 @@
       <button class="action-btn" type="submit">Add</button>
     </form>
     <div id="memory-list"></div>
+  </section>
+
+  <section id="goals-view" class="view">
+    <form id="goal-create">
+      <input id="goal-title" type="text" placeholder="New goal title..." />
+      <button class="action-btn" type="submit">Create</button>
+    </form>
+    <div id="goals-toolbar">
+      <select id="goals-status-filter">
+        <option value="active" selected>Active</option>
+        <option value="">All</option>
+        <option value="completed">Completed</option>
+        <option value="abandoned">Abandoned</option>
+      </select>
+      <button class="action-btn" id="goals-refresh">Refresh</button>
+    </div>
+    <div id="goals-list"></div>
+  </section>
+
+  <section id="routines-view" class="view">
+    <form id="routine-create">
+      <input id="routine-name" type="text" placeholder="Name, e.g. overnight_server_watch" />
+      <input id="routine-trigger" type="text" placeholder="Trigger description, e.g. nightly" />
+      <input id="routine-interval" type="number" min="1" placeholder="Interval (minutes)" />
+      <input id="routine-actions" type="text" placeholder="Tool names, comma-separated" />
+      <button class="action-btn" type="submit">Create</button>
+    </form>
+    <div id="routines-toolbar">
+      <button class="action-btn" id="routines-refresh">Refresh</button>
+      <button class="action-btn" id="routines-run-due">Run due now</button>
+    </div>
+    <div id="routines-list"></div>
+  </section>
+
+  <section id="scenes-view" class="view">
+    <p class="empty" id="scenes-unavailable" style="display:none;">
+      Scenes need Home Assistant configured (SIRISAI_HOME_ASSISTANT_BASE_URL/TOKEN) -- see /siris/status.
+    </p>
+    <div id="scenes-body" style="display:none;">
+      <form id="scene-create">
+        <input id="scene-name" type="text" placeholder="Scene name, e.g. movie_night" />
+        <input id="scene-steps" type="text" placeholder='Steps JSON, e.g. [{"domain":"light","service":"turn_off","entity_id":"light.a"}]' />
+        <button class="action-btn" type="submit">Create</button>
+      </form>
+      <button class="action-btn" id="scenes-refresh" style="margin-bottom: 1rem;">Refresh</button>
+      <div id="scenes-list"></div>
+    </div>
   </section>
 
   <section id="gaps-view" class="view">
@@ -349,6 +459,39 @@
     return response.status === 204 ? null : response.json();
   }
 
+  // Shared by the Goals/Routines/Scenes tabs: invoke any registered tool
+  // directly via POST /siris/tools/{name}/run, the same generic endpoint
+  // the Gaps tab already uses for resolve_capability_gap/dismiss_capability_gap/
+  // rebuild_and_restart. `confirmed: true` is only meaningful for a
+  // CONFIRM_REQUIRED tool (currently just run_scene here) -- a plain SAFE_ACTION
+  // tool ignores it, so it's always safe to pass through.
+  function runTool(name, args, confirmed) {
+    return api(`/siris/tools/${name}/run`, {
+      method: "POST",
+      body: JSON.stringify({ arguments: args, confirmed: !!confirmed }),
+    });
+  }
+
+  // Generic "do this action, then reload the tab" button, same shape as
+  // the Gaps tab's own gapActionButton but reusable across Goals/Routines/
+  // Scenes instead of being redefined per tab.
+  function actionButton(label, onClick, reload) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        await onClick();
+        reload();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    });
+    return btn;
+  }
+
   // --- Navigation ---
   const navButtons = document.querySelectorAll("nav button");
   const views = document.querySelectorAll("section.view");
@@ -359,6 +502,9 @@
       btn.classList.add("active");
       document.getElementById(`${btn.dataset.view}-view`).classList.add("active");
       if (btn.dataset.view === "memory") loadMemory();
+      if (btn.dataset.view === "goals") loadGoals();
+      if (btn.dataset.view === "routines") loadRoutines();
+      if (btn.dataset.view === "scenes") loadScenes();
       if (btn.dataset.view === "gaps") loadGaps();
       if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
@@ -624,6 +770,368 @@
       loadMemory();
     } catch (err) {
       memoryList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  });
+
+  // --- Goals ---
+  const goalsList = document.getElementById("goals-list");
+
+  function renderGoals(goals) {
+    goalsList.innerHTML = "";
+    if (!goals.length) {
+      goalsList.innerHTML = '<p class="empty">No goals yet.</p>';
+      return;
+    }
+    for (const goal of goals) {
+      const div = document.createElement("div");
+      div.className = "goal-entry";
+
+      const titleRow = document.createElement("div");
+      titleRow.className = "title-row";
+      const title = document.createElement("strong");
+      title.textContent = goal.title;
+      const statusBadge = document.createElement("span");
+      statusBadge.className = `goal-status ${goal.status}`;
+      statusBadge.textContent = goal.status;
+      title.appendChild(statusBadge);
+      titleRow.appendChild(title);
+      div.appendChild(titleRow);
+
+      for (const objective of goal.objectives) {
+        const row = document.createElement("label");
+        row.className = objective.done ? "objective-row done" : "objective-row";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = objective.done;
+        checkbox.disabled = objective.done;
+        checkbox.addEventListener("change", async () => {
+          checkbox.disabled = true;
+          try {
+            await runTool("complete_goal_objective", { objective_id: objective.id });
+            loadGoals();
+          } catch (err) {
+            alert(err.message);
+            checkbox.disabled = false;
+          }
+        });
+        const text = document.createElement("span");
+        text.textContent = objective.description;
+        row.appendChild(checkbox);
+        row.appendChild(text);
+        div.appendChild(row);
+      }
+
+      const addForm = document.createElement("form");
+      addForm.className = "objective-add";
+      const addInput = document.createElement("input");
+      addInput.type = "text";
+      addInput.placeholder = "Add an objective...";
+      const addBtn = document.createElement("button");
+      addBtn.type = "submit";
+      addBtn.textContent = "Add";
+      addForm.appendChild(addInput);
+      addForm.appendChild(addBtn);
+      addForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const description = addInput.value.trim();
+        if (!description) return;
+        addBtn.disabled = true;
+        try {
+          await runTool("add_goal_objective", { goal_id: goal.id, description });
+          loadGoals();
+        } catch (err) {
+          alert(err.message);
+          addBtn.disabled = false;
+        }
+      });
+      div.appendChild(addForm);
+
+      const actions = document.createElement("div");
+      actions.className = "entry-actions";
+      if (goal.status !== "completed") {
+        actions.appendChild(
+          actionButton(
+            "Mark completed",
+            () => runTool("update_goal_status", { goal_id: goal.id, status: "completed" }),
+            loadGoals
+          )
+        );
+      }
+      if (goal.status !== "abandoned") {
+        actions.appendChild(
+          actionButton(
+            "Abandon",
+            () => runTool("update_goal_status", { goal_id: goal.id, status: "abandoned" }),
+            loadGoals
+          )
+        );
+      }
+      if (goal.status !== "active") {
+        actions.appendChild(
+          actionButton(
+            "Reactivate",
+            () => runTool("update_goal_status", { goal_id: goal.id, status: "active" }),
+            loadGoals
+          )
+        );
+      }
+      div.appendChild(actions);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `#${goal.id} · created ${new Date(goal.created_at).toLocaleString()}`;
+      div.appendChild(meta);
+
+      goalsList.appendChild(div);
+    }
+  }
+
+  async function loadGoals() {
+    goalsList.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const statusFilter = document.getElementById("goals-status-filter").value;
+      const params = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : "";
+      const goals = await api(`/siris/goals${params}`);
+      renderGoals(goals);
+    } catch (err) {
+      goalsList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("goals-refresh").addEventListener("click", loadGoals);
+  document.getElementById("goals-status-filter").addEventListener("change", loadGoals);
+
+  document.getElementById("goal-create").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("goal-title");
+    const title = input.value.trim();
+    if (!title) return;
+    try {
+      await runTool("create_goal", { title });
+      input.value = "";
+      loadGoals();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  // --- Routines ---
+  const routinesList = document.getElementById("routines-list");
+
+  function renderRoutines(routines) {
+    routinesList.innerHTML = "";
+    if (!routines.length) {
+      routinesList.innerHTML = '<p class="empty">No routines yet.</p>';
+      return;
+    }
+    for (const routine of routines) {
+      const div = document.createElement("div");
+      div.className = routine.enabled ? "routine-entry" : "routine-entry disabled";
+
+      const titleRow = document.createElement("div");
+      titleRow.className = "title-row";
+      const title = document.createElement("strong");
+      title.textContent = `${routine.name} — every ${routine.interval_minutes}m (${routine.trigger_description})`;
+      titleRow.appendChild(title);
+      div.appendChild(titleRow);
+
+      const runsLine = document.createElement("div");
+      runsLine.className = "meta";
+      runsLine.textContent = `Runs: ${routine.actions.join(", ")}`;
+      div.appendChild(runsLine);
+
+      const actions = document.createElement("div");
+      actions.className = "entry-actions";
+      actions.appendChild(
+        actionButton(
+          routine.enabled ? "Disable" : "Enable",
+          () => runTool("set_routine_enabled", { routine_id: routine.id, enabled: !routine.enabled }),
+          loadRoutines
+        )
+      );
+      div.appendChild(actions);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `#${routine.id} · last run ${
+        routine.last_run_at ? new Date(routine.last_run_at).toLocaleString() : "never"
+      }`;
+      div.appendChild(meta);
+
+      routinesList.appendChild(div);
+    }
+  }
+
+  async function loadRoutines() {
+    routinesList.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const routines = await api("/siris/routines");
+      renderRoutines(routines);
+    } catch (err) {
+      routinesList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("routines-refresh").addEventListener("click", loadRoutines);
+
+  document.getElementById("routines-run-due").addEventListener("click", async () => {
+    const btn = document.getElementById("routines-run-due");
+    btn.disabled = true;
+    try {
+      await api("/siris/routines/run_due", { method: "POST" });
+      loadRoutines();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById("routine-create").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = document.getElementById("routine-name").value.trim();
+    const triggerDescription = document.getElementById("routine-trigger").value.trim();
+    const intervalMinutes = parseInt(document.getElementById("routine-interval").value, 10);
+    const actions = document
+      .getElementById("routine-actions")
+      .value.split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    if (!name || !triggerDescription || !intervalMinutes || !actions.length) {
+      alert("Name, trigger description, interval, and at least one action are required.");
+      return;
+    }
+    try {
+      await runTool("create_routine", {
+        name,
+        trigger_description: triggerDescription,
+        interval_minutes: intervalMinutes,
+        actions,
+      });
+      document.getElementById("routine-name").value = "";
+      document.getElementById("routine-trigger").value = "";
+      document.getElementById("routine-interval").value = "";
+      document.getElementById("routine-actions").value = "";
+      loadRoutines();
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  // --- Scenes (the tools behind these actions only register with Home
+  // Assistant configured -- see app/plugins/builtin/scenes.py -- so this
+  // tab checks /siris/status first and shows a plain notice instead of a
+  // list/create form that would just 404 on every action) ---
+  const scenesList = document.getElementById("scenes-list");
+  const scenesUnavailable = document.getElementById("scenes-unavailable");
+  const scenesBody = document.getElementById("scenes-body");
+
+  function renderScenes(scenes) {
+    scenesList.innerHTML = "";
+    if (!scenes.length) {
+      scenesList.innerHTML = '<p class="empty">No scenes yet.</p>';
+      return;
+    }
+    for (const scene of scenes) {
+      const div = document.createElement("div");
+      div.className = "scene-entry";
+
+      const titleRow = document.createElement("div");
+      titleRow.className = "title-row";
+      const title = document.createElement("strong");
+      title.textContent = scene.name;
+      titleRow.appendChild(title);
+      div.appendChild(titleRow);
+
+      const steps = document.createElement("div");
+      steps.className = "steps";
+      steps.textContent = JSON.stringify(scene.steps);
+      div.appendChild(steps);
+
+      const actions = document.createElement("div");
+      actions.className = "entry-actions";
+
+      const runBtn = document.createElement("button");
+      runBtn.type = "button";
+      runBtn.textContent = "Run";
+      runBtn.addEventListener("click", async () => {
+        if (!confirm(`Run scene "${scene.name}"? This replays every step against Home Assistant now.`)) return;
+        runBtn.disabled = true;
+        try {
+          // confirmed: true -- the confirm() dialog above *is* the human
+          // approval CONFIRM_REQUIRED needs, same pattern the Gaps tab
+          // already uses for rebuild_and_restart.
+          await runTool("run_scene", { scene_id: scene.id }, true);
+          loadScenes();
+        } catch (err) {
+          alert(err.message);
+          runBtn.disabled = false;
+        }
+      });
+      actions.appendChild(runBtn);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.textContent = "Delete";
+      deleteBtn.addEventListener("click", async () => {
+        if (!confirm(`Delete scene "${scene.name}"? This does not affect any devices.`)) return;
+        deleteBtn.disabled = true;
+        try {
+          await runTool("delete_scene", { scene_id: scene.id });
+          loadScenes();
+        } catch (err) {
+          alert(err.message);
+          deleteBtn.disabled = false;
+        }
+      });
+      actions.appendChild(deleteBtn);
+      div.appendChild(actions);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `#${scene.id} · ${new Date(scene.created_at).toLocaleString()}`;
+      div.appendChild(meta);
+
+      scenesList.appendChild(div);
+    }
+  }
+
+  async function loadScenes() {
+    try {
+      const status = await api("/siris/status");
+      const available = status.tools.includes("create_scene");
+      scenesUnavailable.style.display = available ? "none" : "";
+      scenesBody.style.display = available ? "" : "none";
+      if (!available) return;
+      scenesList.innerHTML = '<p class="empty">Loading...</p>';
+      const scenes = await api("/siris/scenes");
+      renderScenes(scenes);
+    } catch (err) {
+      scenesList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("scenes-refresh").addEventListener("click", loadScenes);
+
+  document.getElementById("scene-create").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = document.getElementById("scene-name").value.trim();
+    const stepsRaw = document.getElementById("scene-steps").value.trim();
+    if (!name || !stepsRaw) return;
+    let steps;
+    try {
+      steps = JSON.parse(stepsRaw);
+    } catch (err) {
+      alert('Steps must be valid JSON, e.g. [{"domain":"light","service":"turn_off","entity_id":"light.a"}]');
+      return;
+    }
+    try {
+      await runTool("create_scene", { name, steps });
+      document.getElementById("scene-name").value = "";
+      document.getElementById("scene-steps").value = "";
+      loadScenes();
+    } catch (err) {
+      alert(err.message);
     }
   });
 

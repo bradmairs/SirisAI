@@ -1,6 +1,8 @@
 import uuid
 from typing import Any
 
+from fastapi.testclient import TestClient
+
 from app.core.config import Settings
 from app.core.siris import SirisAI, get_siris
 from app.plugins.base import ToolPermission
@@ -215,3 +217,27 @@ def test_verify_raises_not_implemented() -> None:
         raise AssertionError("expected NotImplementedError")
     except NotImplementedError:
         pass
+
+
+# -- GET /siris/scenes
+
+
+def test_list_scenes_route_is_available_without_home_assistant_configured(client: TestClient) -> None:
+    # The route itself only reads SceneStore (see app/scenes/service.py) --
+    # unlike create_scene/delete_scene/run_scene, it doesn't need Home
+    # Assistant configured to exist, even though the shared `client`
+    # fixture's app never has it configured (see conftest.py).
+    response = client.get("/siris/scenes")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+def test_list_scenes_route_includes_a_directly_created_scene(client: TestClient) -> None:
+    siris = get_siris()
+    name = f"scene-{uuid.uuid4()}"
+    created = siris.scenes.create_scene(name, [{"domain": "light", "service": "turn_off"}])
+
+    response = client.get("/siris/scenes")
+
+    assert response.status_code == 200
+    assert any(s["id"] == created["id"] and s["name"] == name for s in response.json())

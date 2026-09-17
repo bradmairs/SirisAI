@@ -7,7 +7,19 @@ from pathlib import Path
 import psutil
 from fastapi import FastAPI
 
-from app.api.routes import events, health, integrations, memory, proactive, routines, satellites, siris, voice, web
+from app.api.routes import (
+    events,
+    health,
+    integrations,
+    memory,
+    proactive,
+    routines,
+    satellites,
+    scenes,
+    siris,
+    voice,
+    web,
+)
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.siris import get_siris
@@ -54,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router)
     app.include_router(proactive.router)
     app.include_router(routines.router)
+    app.include_router(scenes.router)
     app.include_router(satellites.router)
     app.include_router(integrations.router)
     app.include_router(voice.router)
