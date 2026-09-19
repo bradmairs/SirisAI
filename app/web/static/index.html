@@ -271,6 +271,29 @@
   .routine-entry.disabled { color: var(--muted); }
   .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
 
+  /* Cron */
+  #cron-view { padding: 1rem; overflow-y: auto; }
+  #cron-view button#cron-refresh { margin-bottom: 1rem; }
+  .cron-host-group { margin-bottom: 1.25rem; }
+  .cron-host-group h3 { font-size: 0.9rem; margin: 0 0 0.5rem; color: var(--muted); font-weight: 600; }
+  .cron-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+  .cron-entry.disabled { color: var(--muted); }
+  .cron-entry .cron-schedule { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; color: var(--accent); }
+  .cron-entry.disabled .cron-schedule { color: var(--muted); }
+  .cron-entry .cron-command { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; margin-top: 0.2rem; word-break: break-all; }
+  .cron-entry button { flex-shrink: 0; }
+  .cron-host-error { border-color: var(--error); color: var(--error); background: var(--panel); border-width: 1px; border-style: solid; border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem; font-size: 0.85rem; }
+
   /* Gaps */
   #gaps-view { padding: 1rem; overflow-y: auto; }
   #gaps-toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
@@ -331,6 +354,7 @@
     <button data-view="memory">Memory</button>
     <button data-view="goals">Goals</button>
     <button data-view="routines">Routines</button>
+    <button data-view="cron">Cron</button>
     <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
@@ -397,6 +421,16 @@
       <button class="action-btn" id="routines-run-due">Run due now</button>
     </div>
     <div id="routines-list"></div>
+  </section>
+
+  <section id="cron-view" class="view">
+    <p class="empty" id="cron-unavailable" style="display:none;">
+      No cron hosts configured (SIRISAI_CRON_HOSTS) -- see /siris/status.
+    </p>
+    <div id="cron-body" style="display:none;">
+      <button class="action-btn" id="cron-refresh">Refresh</button>
+      <div id="cron-list"></div>
+    </div>
   </section>
 
   <section id="gaps-view" class="view">
@@ -498,6 +532,7 @@
       if (btn.dataset.view === "memory") loadMemory();
       if (btn.dataset.view === "goals") loadGoals();
       if (btn.dataset.view === "routines") loadRoutines();
+      if (btn.dataset.view === "cron") loadCron();
       if (btn.dataset.view === "gaps") loadGaps();
       if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
@@ -1171,6 +1206,98 @@
       alert(err.message);
     }
   });
+
+  // --- Cron (read/toggle crontabs on OTHER machines on the network -- a
+  // home Linux server, Raspberry Pis -- via SSH; a completely different
+  // thing from the Routines tab above, which is SirisAI's own scheduled
+  // tool runs. See app/cron/ vs app/routines/.) ---
+  const cronList = document.getElementById("cron-list");
+  const cronUnavailable = document.getElementById("cron-unavailable");
+  const cronBody = document.getElementById("cron-body");
+
+  function renderCron(jobs) {
+    cronList.innerHTML = "";
+    if (!jobs.length) {
+      cronList.innerHTML = '<p class="empty">No cron jobs found.</p>';
+      return;
+    }
+    const jobsByHost = new Map();
+    for (const job of jobs) {
+      if (!jobsByHost.has(job.host)) jobsByHost.set(job.host, []);
+      jobsByHost.get(job.host).push(job);
+    }
+    for (const [host, hostJobs] of jobsByHost) {
+      const group = document.createElement("div");
+      group.className = "cron-host-group";
+      const heading = document.createElement("h3");
+      heading.textContent = host;
+      group.appendChild(heading);
+
+      const errorJob = hostJobs.find((j) => j.error);
+      if (errorJob) {
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "cron-host-error";
+        errorDiv.textContent = errorJob.error;
+        group.appendChild(errorDiv);
+        cronList.appendChild(group);
+        continue;
+      }
+
+      for (const job of hostJobs) {
+        const div = document.createElement("div");
+        div.className = job.enabled ? "cron-entry" : "cron-entry disabled";
+
+        const body = document.createElement("div");
+        const schedule = document.createElement("div");
+        schedule.className = "cron-schedule";
+        schedule.textContent = job.schedule;
+        const command = document.createElement("div");
+        command.className = "cron-command";
+        command.textContent = job.command;
+        body.appendChild(schedule);
+        body.appendChild(command);
+        div.appendChild(body);
+
+        const actions = document.createElement("div");
+        actions.className = "entry-actions";
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.textContent = job.enabled ? "Disable" : "Enable";
+        toggleBtn.addEventListener("click", async () => {
+          toggleBtn.disabled = true;
+          try {
+            await runTool("cron_set_job_enabled", { host: job.host, line: job.line, enabled: !job.enabled });
+            loadCron();
+          } catch (err) {
+            alert(err.message);
+            toggleBtn.disabled = false;
+          }
+        });
+        actions.appendChild(toggleBtn);
+        div.appendChild(actions);
+
+        group.appendChild(div);
+      }
+      cronList.appendChild(group);
+    }
+  }
+
+  async function loadCron() {
+    try {
+      const status = await api("/siris/status");
+      const available = status.tools.includes("cron_list_jobs");
+      cronUnavailable.style.display = available ? "none" : "";
+      cronBody.style.display = available ? "" : "none";
+      if (!available) return;
+      cronList.innerHTML = '<p class="empty">Loading...</p>';
+      const jobs = await api("/siris/cron_jobs");
+      renderCron(jobs);
+    } catch (err) {
+      cronList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("cron-refresh").addEventListener("click", loadCron);
 
   // --- Gaps (things SirisAI has reported it can't do yet) ---
   const gapsList = document.getElementById("gaps-list");

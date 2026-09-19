@@ -64,6 +64,7 @@ from app.plugins.builtin.bazarr import (
     BazarrWantedMoviesTool,
 )
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
+from app.plugins.builtin.cron import CronListJobsTool, CronSetJobEnabledTool
 from app.plugins.builtin.docker import (
     DockerGetContainerLogsTool,
     DockerListContainersTool,
@@ -176,6 +177,7 @@ from app.plugins.builtin.unifi import (
 from app.plugins.builtin.weather import WeatherCurrentTool
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
+from app.cron.client import CronHostsClient, parse_cron_hosts
 from app.frigate.client import FrigateClient
 from app.listenarr.client import ListenarrClient
 from app.obsidian.client import ObsidianClient
@@ -229,6 +231,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("cleanuparr_", "cleanuparr"),
     ("obsidian_", "obsidian"),
     ("synology_", "synology"),
+    ("cron_", "cron"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -419,6 +422,7 @@ class SirisAI:
         self._obsidian_client: ObsidianClient | None = None
         self._frigate_client: FrigateClient | None = None
         self._synology_client: SynologyClient | None = None
+        self.cron_client: CronHostsClient | None = None
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -691,6 +695,11 @@ class SirisAI:
                 verify_ssl=self.settings.synology_verify_ssl,
             )
             self.tools.register(SynologyGetStatusTool(self._synology_client))
+
+        if self.settings.cron_hosts:
+            self.cron_client = CronHostsClient(parse_cron_hosts(self.settings.cron_hosts))
+            self.tools.register(CronListJobsTool(self.cron_client))
+            self.tools.register(CronSetJobEnabledTool(self.cron_client))
 
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite

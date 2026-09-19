@@ -4458,6 +4458,73 @@ provider for the same capability actually exists to design against.
     Home Assistant server's tracked entity state actually flips, and
     confirmed delete removes it from the list.
 
+104. **Done** -- Cron overview: a read/toggle window onto crontab entries
+    on other machines on the network (a home Linux server, Raspberry
+    Pis), in a new Web UI tab. User-requested, and explicitly distinct
+    from Routines: "I don't want routines" -- these are cron jobs that
+    already exist independently on other machines, not something SirisAI
+    schedules or runs itself, so this is pure read (plus enable/disable),
+    never create.
+
+    Backend:
+    - `SIRISAI_CRON_HOSTS` (`app/core/config.py`) -- comma-separated
+      `user@host` (or `user@host:port`) entries, e.g.
+      `brad@192.168.0.127,root@192.168.0.83`. Deliberately no separate
+      SSH key-path setting: `CronHostsClient` (`app/cron/client.py`)
+      shells out to the system `ssh` binary rather than pulling in a
+      Python SSH library, so it picks up whatever identity file/agent/
+      known_hosts already grants SirisAI's own host user access to reach
+      these machines -- the same access already used to reach them any
+      other way (the user's own reasoning for this: "Hermes should be
+      able to access both of these").
+    - Only each host's own connecting-user crontab (`crontab -l`/
+      `crontab -`) is read/written -- not `/etc/crontab` or
+      `/etc/cron.d/*`, which would need root on hosts this doesn't have
+      it on and a riskier whole-file rewrite. Connecting as root (one of
+      the two hosts this was built for) already covers root's own
+      crontab, which is where most Pi automation typically lives anyway.
+    - `cron_list_jobs` (READ) parses every configured host's crontab into
+      `{host, schedule, command, line, enabled}` entries -- `line` is the
+      stable identifier `cron_set_job_enabled` (SAFE_ACTION) uses to find
+      and toggle (comment out/uncomment) the right line, rather than a
+      position that could shift between listing and toggling. A host
+      that fails to connect contributes one `{host, error}` entry instead
+      of failing the whole list -- one unreachable Pi doesn't blank the
+      overview. Both tools, and `GET /siris/cron_jobs` (the direct-read
+      equivalent of `cron_list_jobs`, same relationship `GET
+      /siris/scenes` has to `list_scenes`), only do anything once
+      `SIRISAI_CRON_HOSTS` is set; the route returns `[]` rather than
+      erroring when it isn't, same "empty = feature not engaged"
+      convention used elsewhere.
+    - Web UI: a new Cron tab (feature-detected via `/siris/status`'s tool
+      list, same pattern the Gaps tab already uses for
+      `rebuild_and_restart`), grouped by host, each entry showing
+      schedule/command and an Enable/Disable button calling
+      `cron_set_job_enabled` through the existing generic
+      `POST /siris/tools/{name}/run` endpoint.
+
+    Verified: full suite (842 passed, up from 825) covering
+    `parse_cron_hosts`, crontab parsing (schedule/command/enabled,
+    `@reboot`-style special schedules, env-var lines and plain comments
+    correctly *not* treated as jobs), toggling both directions, an
+    unreachable host degrading to an error entry without affecting
+    others, tool registration/permission tiers gated on
+    `SIRISAI_CRON_HOSTS`, and the route's empty-list default. Live-verified
+    against a *real* SSH server and a *real* crontab (not a fake/mocked
+    one -- this is the first integration in this codebase to shell out to
+    `ssh` rather than call an HTTP API, so proving the actual subprocess
+    invocation and remote `crontab -l`/`crontab -` round trip mattered
+    more than usual): stood up a local `sshd` with a real user crontab
+    (an enabled job, a disabled/commented-out job, an interval job, and
+    an `@reboot` job) and drove the real REST endpoints end to end --
+    `GET /siris/cron_jobs` and `POST /siris/tools/cron_list_jobs/run`
+    both parsed it correctly; `POST /siris/tools/cron_set_job_enabled/run`
+    disabled an active job and re-enabled a disabled one, each confirmed
+    by re-reading the actual crontab afterward (not just the tool's own
+    return value); and a second host pointed at an unreachable address
+    correctly came back as one `{host, error}` entry alongside the first
+    host's real jobs rather than failing the whole response.
+
 ## Running locally
 
 ```bash
