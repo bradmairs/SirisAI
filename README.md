@@ -4400,6 +4400,64 @@ provider for the same capability actually exists to design against.
     identically to before this change (including `verify()`'s own
     pre-existing 404-on-a-nonexistent-entity error, unchanged).
 
+103. **Done** -- Web UI parity for Goals, Routines, and Scenes: three new
+    tabs so they're usable without chat or `curl`. All three were already
+    fully built on the backend (milestones 23/29 and the Scenes work) --
+    only reachable indirectly until now.
+
+    Backend: one new route, `GET /siris/scenes`
+    (`app/api/routes/scenes.py`) -- the direct-read equivalent of
+    `list_scenes`, same relationship `GET /siris/routines` already has to
+    `list_routines`. Registered unconditionally (`SceneStore` itself has
+    nothing to do with Home Assistant, see `app/scenes/service.py`) even
+    though the create/delete/run *tools* only register alongside it.
+    `GET /siris/goals` and `GET /siris/routines` already existed, so
+    nothing else was needed on the read side. Every mutating action
+    (`create_goal`, `add_goal_objective`, `complete_goal_objective`,
+    `update_goal_status`, `create_routine`, `set_routine_enabled`,
+    `create_scene`, `delete_scene`, `run_scene`) is invoked from the UI via
+    the existing generic `POST /siris/tools/{name}/run` endpoint rather
+    than a dedicated route each -- the same pattern the Gaps tab already
+    established for `resolve_capability_gap`/`dismiss_capability_gap`/
+    `rebuild_and_restart`, so no new mutating routes were needed either.
+
+    Frontend (`app/web/static/index.html`):
+    - **Goals tab**: create by title, a status filter (active/all/
+      completed/abandoned), a checkbox per objective (`complete_goal_objective`),
+      an inline "add objective" row, and Mark completed/Abandon/Reactivate
+      buttons driving `update_goal_status`.
+    - **Routines tab**: create form (name, trigger description, interval
+      minutes, comma-separated tool names), an Enable/Disable toggle per
+      routine, and a "Run due now" button hitting the existing
+      `POST /siris/routines/run_due`.
+    - **Scenes tab**: registered only with Home Assistant configured, so
+      the tab checks `GET /siris/status`'s tool list first and shows a
+      plain notice instead of a dead create form when unavailable --
+      same feature-detection the Gaps tab already does for
+      `rebuild_and_restart`. Create takes a name plus a steps *JSON*
+      array (parsed client-side; each step is exactly
+      `home_assistant_call_service`'s own shape, so no step-builder UI
+      was invented for it), and each scene gets Run (a native `confirm()`
+      dialog, then `run_scene` called with `confirmed: true` -- the
+      dialog *is* the human approval `CONFIRM_REQUIRED` needs, the same
+      pattern already used for `rebuild_and_restart`) and Delete buttons.
+
+    Verified: full suite (825 passed, up from 823) including two new
+    route tests confirming `GET /siris/scenes` works without Home
+    Assistant configured and reflects a directly created scene.
+    Live-verified against a real `uvicorn` process (Home Assistant
+    pointed at a fake, stateful server) driving the exact REST calls the
+    UI's JS makes for all three tabs end to end: created a goal with an
+    objective, added a second objective, completed the first, marked the
+    goal completed, and confirmed the active-only filter then excluded
+    it; created a routine, confirmed a disabled routine is skipped by
+    `run_due`, re-enabled it, and confirmed `run_due` then actually ran
+    it; created a scene, confirmed an unconfirmed `run_scene` call
+    correctly comes back `confirmation_required` (never runs
+    unconfirmed), then confirmed `confirmed: true` runs it and the fake
+    Home Assistant server's tracked entity state actually flips, and
+    confirmed delete removes it from the list.
+
 ## Running locally
 
 ```bash
