@@ -212,11 +212,11 @@
   .memory-entry .delete-btn:hover { color: var(--error); border-color: var(--error); }
   .memory-entry .delete-btn:disabled { opacity: 0.5; cursor: default; }
 
-  /* Goals, Routines, Scenes -- shared card look, same shape as .gap-entry */
-  #goals-view, #routines-view, #scenes-view { padding: 1rem; overflow-y: auto; }
+  /* Goals, Routines -- shared card look, same shape as .gap-entry */
+  #goals-view, #routines-view { padding: 1rem; overflow-y: auto; }
   #goals-toolbar, #routines-toolbar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
-  #goal-create, #routine-create, #scene-create { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
-  #goal-create input, #routine-create input, #scene-create input {
+  #goal-create, #routine-create { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+  #goal-create input, #routine-create input {
     flex: 1;
     min-width: 8rem;
     background: var(--panel);
@@ -226,20 +226,20 @@
     padding: 0.5rem 0.7rem;
   }
   #routine-create input#routine-interval { flex: 0 0 8rem; }
-  .goal-entry, .routine-entry, .scene-entry {
+  .goal-entry, .routine-entry {
     border: 1px solid var(--border);
     background: var(--panel);
     border-radius: 8px;
     padding: 0.6rem 0.8rem;
     margin-bottom: 0.5rem;
   }
-  .goal-entry .title-row, .routine-entry .title-row, .scene-entry .title-row {
+  .goal-entry .title-row, .routine-entry .title-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 0.5rem;
   }
-  .goal-entry .title-row strong, .routine-entry .title-row strong, .scene-entry .title-row strong { font-size: 0.95rem; }
+  .goal-entry .title-row strong, .routine-entry .title-row strong { font-size: 0.95rem; }
   .goal-status { display: inline-block; border-radius: 999px; padding: 0.05rem 0.55rem; font-size: 0.72rem; margin-left: 0.5rem; vertical-align: middle; }
   .goal-status.active { background: #3a2f14; color: #e0a83a; }
   .goal-status.completed { background: #1c3a24; color: #6fbf73; }
@@ -268,8 +268,7 @@
     font-size: 0.78rem;
   }
   .entry-actions button:disabled, .objective-add button:disabled { opacity: 0.5; cursor: default; }
-  .routine-entry.disabled, .scene-entry .steps { color: var(--muted); }
-  .scene-entry .steps { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; white-space: pre-wrap; word-wrap: break-word; margin-top: 0.35rem; }
+  .routine-entry.disabled { color: var(--muted); }
   .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
 
   /* Gaps */
@@ -332,7 +331,6 @@
     <button data-view="memory">Memory</button>
     <button data-view="goals">Goals</button>
     <button data-view="routines">Routines</button>
-    <button data-view="scenes">Scenes</button>
     <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
@@ -401,21 +399,6 @@
     <div id="routines-list"></div>
   </section>
 
-  <section id="scenes-view" class="view">
-    <p class="empty" id="scenes-unavailable" style="display:none;">
-      Scenes need Home Assistant configured (SIRISAI_HOME_ASSISTANT_BASE_URL/TOKEN) -- see /siris/status.
-    </p>
-    <div id="scenes-body" style="display:none;">
-      <form id="scene-create">
-        <input id="scene-name" type="text" placeholder="Scene name, e.g. movie_night" />
-        <input id="scene-steps" type="text" placeholder='Steps JSON, e.g. [{"domain":"light","service":"turn_off","entity_id":"light.a"}]' />
-        <button class="action-btn" type="submit">Create</button>
-      </form>
-      <button class="action-btn" id="scenes-refresh" style="margin-bottom: 1rem;">Refresh</button>
-      <div id="scenes-list"></div>
-    </div>
-  </section>
-
   <section id="gaps-view" class="view">
     <div id="gaps-toolbar">
       <button class="action-btn" id="gaps-refresh">Refresh</button>
@@ -470,11 +453,11 @@
     return response.status === 204 ? null : response.json();
   }
 
-  // Shared by the Goals/Routines/Scenes tabs: invoke any registered tool
+  // Shared by the Goals/Routines tabs: invoke any registered tool
   // directly via POST /siris/tools/{name}/run, the same generic endpoint
   // the Gaps tab already uses for resolve_capability_gap/dismiss_capability_gap/
   // rebuild_and_restart. `confirmed: true` is only meaningful for a
-  // CONFIRM_REQUIRED tool (currently just run_scene here) -- a plain SAFE_ACTION
+  // CONFIRM_REQUIRED tool -- a plain SAFE_ACTION
   // tool ignores it, so it's always safe to pass through.
   function runTool(name, args, confirmed) {
     return api(`/siris/tools/${name}/run`, {
@@ -484,8 +467,8 @@
   }
 
   // Generic "do this action, then reload the tab" button, same shape as
-  // the Gaps tab's own gapActionButton but reusable across Goals/Routines/
-  // Scenes instead of being redefined per tab.
+  // the Gaps tab's own gapActionButton but reusable across Goals/Routines
+  // instead of being redefined per tab.
   function actionButton(label, onClick, reload) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -515,7 +498,6 @@
       if (btn.dataset.view === "memory") loadMemory();
       if (btn.dataset.view === "goals") loadGoals();
       if (btn.dataset.view === "routines") loadRoutines();
-      if (btn.dataset.view === "scenes") loadScenes();
       if (btn.dataset.view === "gaps") loadGaps();
       if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
@@ -1185,123 +1167,6 @@
       document.getElementById("routine-interval").value = "";
       document.getElementById("routine-actions").value = "";
       loadRoutines();
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  // --- Scenes (the tools behind these actions only register with Home
-  // Assistant configured -- see app/plugins/builtin/scenes.py -- so this
-  // tab checks /siris/status first and shows a plain notice instead of a
-  // list/create form that would just 404 on every action) ---
-  const scenesList = document.getElementById("scenes-list");
-  const scenesUnavailable = document.getElementById("scenes-unavailable");
-  const scenesBody = document.getElementById("scenes-body");
-
-  function renderScenes(scenes) {
-    scenesList.innerHTML = "";
-    if (!scenes.length) {
-      scenesList.innerHTML = '<p class="empty">No scenes yet.</p>';
-      return;
-    }
-    for (const scene of scenes) {
-      const div = document.createElement("div");
-      div.className = "scene-entry";
-
-      const titleRow = document.createElement("div");
-      titleRow.className = "title-row";
-      const title = document.createElement("strong");
-      title.textContent = scene.name;
-      titleRow.appendChild(title);
-      div.appendChild(titleRow);
-
-      const steps = document.createElement("div");
-      steps.className = "steps";
-      steps.textContent = JSON.stringify(scene.steps);
-      div.appendChild(steps);
-
-      const actions = document.createElement("div");
-      actions.className = "entry-actions";
-
-      const runBtn = document.createElement("button");
-      runBtn.type = "button";
-      runBtn.textContent = "Run";
-      runBtn.addEventListener("click", async () => {
-        if (!confirm(`Run scene "${scene.name}"? This replays every step against Home Assistant now.`)) return;
-        runBtn.disabled = true;
-        try {
-          // confirmed: true -- the confirm() dialog above *is* the human
-          // approval CONFIRM_REQUIRED needs, same pattern the Gaps tab
-          // already uses for rebuild_and_restart.
-          await runTool("run_scene", { scene_id: scene.id }, true);
-          loadScenes();
-        } catch (err) {
-          alert(err.message);
-          runBtn.disabled = false;
-        }
-      });
-      actions.appendChild(runBtn);
-
-      const deleteBtn = document.createElement("button");
-      deleteBtn.type = "button";
-      deleteBtn.textContent = "Delete";
-      deleteBtn.addEventListener("click", async () => {
-        if (!confirm(`Delete scene "${scene.name}"? This does not affect any devices.`)) return;
-        deleteBtn.disabled = true;
-        try {
-          await runTool("delete_scene", { scene_id: scene.id });
-          loadScenes();
-        } catch (err) {
-          alert(err.message);
-          deleteBtn.disabled = false;
-        }
-      });
-      actions.appendChild(deleteBtn);
-      div.appendChild(actions);
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.textContent = `#${scene.id} · ${new Date(scene.created_at).toLocaleString()}`;
-      div.appendChild(meta);
-
-      scenesList.appendChild(div);
-    }
-  }
-
-  async function loadScenes() {
-    try {
-      const status = await api("/siris/status");
-      const available = status.tools.includes("create_scene");
-      scenesUnavailable.style.display = available ? "none" : "";
-      scenesBody.style.display = available ? "" : "none";
-      if (!available) return;
-      scenesList.innerHTML = '<p class="empty">Loading...</p>';
-      const scenes = await api("/siris/scenes");
-      renderScenes(scenes);
-    } catch (err) {
-      scenesList.innerHTML = `<p class="empty">${err.message}</p>`;
-    }
-  }
-
-  document.getElementById("scenes-refresh").addEventListener("click", loadScenes);
-
-  document.getElementById("scene-create").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = document.getElementById("scene-name").value.trim();
-    const stepsRaw = document.getElementById("scene-steps").value.trim();
-    if (!name || !stepsRaw) return;
-    let steps;
-    try {
-      steps = JSON.parse(stepsRaw);
-    } catch (err) {
-      alert('Steps must be valid JSON, e.g. [{"domain":"light","service":"turn_off","entity_id":"light.a"}]');
-      return;
-    }
-    try {
-      await runTool("create_scene", { name, steps });
-      document.getElementById("scene-name").value = "";
-      document.getElementById("scene-steps").value = "";
-      loadScenes();
     } catch (err) {
       alert(err.message);
     }
