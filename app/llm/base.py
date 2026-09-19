@@ -13,6 +13,7 @@ provider's raw response shape.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,6 +36,18 @@ class LLMResponse:
     completion_tokens: int | None = None
 
 
+@dataclass
+class LLMChunk:
+    """One increment of a streamed completion (see LLMClient.stream_generate):
+    a piece of the model's reasoning (`thinking`) and/or of its answer
+    (`content`). The last chunk of a stream has `response` set -- the same
+    fully-assembled LLMResponse generate() would have returned."""
+
+    thinking: str = ""
+    content: str = ""
+    response: "LLMResponse | None" = None
+
+
 class LLMClient(ABC):
     """Common interface every model backend implements."""
 
@@ -52,6 +65,22 @@ class LLMClient(ABC):
         choose to call instead of answering directly. Raises on backend
         failure."""
         raise NotImplementedError
+
+    async def stream_generate(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: object,
+    ) -> AsyncIterator[LLMChunk]:
+        """Same as generate(), but yields LLMChunks as the model produces
+        them so a caller can show progress live. Backends that can't
+        stream inherit this default: one generate() call, then its whole
+        text as a single chunk followed by the final one."""
+        response = await self.generate(messages, tools=tools, **kwargs)
+        if response.text:
+            yield LLMChunk(content=response.text)
+        yield LLMChunk(response=response)
 
     async def aclose(self) -> None:
         """Release any resources (connections, etc). No-op by default."""

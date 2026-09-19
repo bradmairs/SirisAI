@@ -67,6 +67,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from app.llm.streaming import EventCallback, generate_with_events
 from app.planning.planner import Planner
 from app.plugins.base import ConfirmationRequired
 
@@ -155,8 +156,18 @@ class Cortex:
     """One request -> response orchestration path for a chat turn. See
     module docstring."""
 
-    def __init__(self, max_plan_steps: int = 5) -> None:
+    def __init__(self, max_plan_steps: int = 5, on_event: EventCallback | None = None) -> None:
         self.max_plan_steps = max_plan_steps
+        # Optional live-progress callback for POST /siris/chat/stream: called
+        # with small dicts ({"type": "status" | "thinking" | "content" |
+        # "tool_start" | "tool_end" | "final", ...}) as the turn progresses.
+        # None (default) = silent, and every code path below behaves exactly
+        # as it did before this existed.
+        self.on_event = on_event
+
+    async def _emit(self, event: dict[str, Any]) -> None:
+        if self.on_event is not None:
+            await self.on_event(event)
 
     async def process(
         self,
@@ -183,6 +194,10 @@ class Cortex:
             use_planner=use_planner,
             model_role=model_role,
         )
+        # The answer is complete here -- tell a streaming client now, so it
+        # doesn't sit waiting on memory extraction (a whole extra LLM pass)
+        # to see it.
+        await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, prompt, result)
         return result
 
@@ -211,6 +226,7 @@ class Cortex:
         if siris.settings.persona:
             system_messages.append({"role": "system", "content": siris.settings.persona})
         if use_context:
+            await self._emit({"type": "status", "message": "Gathering context"})
             context_text = await asyncio.to_thread(siris.context.build, siris, prompt)
             if context_text:
                 system_messages.append({"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"})
@@ -222,8 +238,9 @@ class Cortex:
         if use_planner:
             return await self._run_planned(siris, conversation_id, messages, tools, llm_client, resolved_role)
 
+        await self._emit({"type": "status", "message": "Thinking"})
         try:
-            result = await llm_client.generate(messages, tools=tools)
+            result = await generate_with_events(llm_client, messages, self.on_event, tools=tools)
         except Exception:
             logger.exception("LLM generate() failed")
             return CortexResult(conversation_id=conversation_id, model_role=resolved_role, error="LLM backend call failed.")
@@ -273,6 +290,7 @@ class Cortex:
         answer, and the turn ends there -- same as confirming a single
         non-planned tool call always has."""
         result = await self._confirm_inner(siris, conversation_id, name, arguments, use_planner=use_planner)
+        await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, f"(user confirmed: {name})", result)
         return result
 
@@ -364,15 +382,19 @@ class Cortex:
         back to the tool-call-only result if that follow-up call fails or
         produces no text; a raw tool result is already an acceptable
         answer, the follow-up is a best-effort upgrade."""
+        await self._emit({"type": "tool_start", "name": name, "arguments": arguments})
         try:
             output = await asyncio.to_thread(
                 siris.run_tool, name, arguments, conversation_id=conversation_id, confirmed=confirmed, trigger=trigger
             )
         except ConfirmationRequired:
+            await self._emit({"type": "tool_end", "name": name, "status": "needs_confirmation"})
             return CortexResult(conversation_id=conversation_id, pending_confirmation=(name, arguments), model_role=model_role)
         except PermissionError as exc:
+            await self._emit({"type": "tool_end", "name": name, "status": "error"})
             return CortexResult(conversation_id=conversation_id, model_role=model_role, error=str(exc), permission_denied=True)
         except Exception as exc:
+            await self._emit({"type": "tool_end", "name": name, "status": "error"})
             logger.exception("Tool '%s' failed", name)
             # Same follow-up-synthesis treatment as a successful result
             # (below) rather than a bare error straight to the client --
@@ -398,8 +420,9 @@ class Cortex:
                     {"role": "tool", "content": json.dumps(error_payload)},
                     {"role": "system", "content": _SYNTHESIS_HONESTY_NUDGE},
                 ]
+                await self._emit({"type": "status", "message": "Writing answer"})
                 try:
-                    follow_up = await llm_client.generate(follow_up_messages)
+                    follow_up = await generate_with_events(llm_client, follow_up_messages, self.on_event)
                 except Exception:
                     logger.exception("Follow-up LLM call after tool '%s' error failed", name)
                 else:
@@ -408,6 +431,7 @@ class Cortex:
                         return CortexResult(conversation_id=conversation_id, response=follow_up.text, model_role=model_role)
             return CortexResult(conversation_id=conversation_id, model_role=model_role, error=f"Tool '{name}' failed.")
 
+        await self._emit({"type": "tool_end", "name": name, "status": "ok"})
         siris.conversation.add_message(
             conversation_id, role="tool", content=json.dumps(output), tool_name=name, tool_arguments=arguments
         )
@@ -424,10 +448,11 @@ class Cortex:
                 {"role": "tool", "content": json.dumps(output)},
                 {"role": "system", "content": _SYNTHESIS_HONESTY_NUDGE},
             ]
+            await self._emit({"type": "status", "message": "Writing answer"})
             try:
                 # No `tools` offered here on purpose -- this call is meant
                 # to produce a final text answer, not choose another tool.
-                follow_up = await llm_client.generate(follow_up_messages)
+                follow_up = await generate_with_events(llm_client, follow_up_messages, self.on_event)
             except Exception:
                 logger.exception("Follow-up LLM call after tool '%s' failed", name)
             else:
@@ -449,7 +474,9 @@ class Cortex:
         model_role: str,
     ) -> CortexResult:
         try:
-            plan_result = await Planner(max_steps=self.max_plan_steps).run(siris, conversation_id, messages, tools, llm_client)
+            plan_result = await Planner(max_steps=self.max_plan_steps, on_event=self.on_event).run(
+                siris, conversation_id, messages, tools, llm_client
+            )
         except Exception:
             logger.exception("Planner's LLM generate() failed")
             return CortexResult(conversation_id=conversation_id, model_role=model_role, error="LLM backend call failed.")

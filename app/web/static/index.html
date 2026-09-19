@@ -106,6 +106,17 @@
   .msg.tool { align-self: flex-start; background: var(--tool-bubble); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
   .msg.error { align-self: flex-start; background: #3a2222; color: var(--error); }
   .msg.confirm { align-self: flex-start; background: #3a2f14; border: 1px solid #7a5a1a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
+  /* Live turn: what SirisAI is doing while it works (status, reasoning, tool steps) above the answer as it streams in. */
+  .msg.live { display: flex; flex-direction: column; gap: 0.45rem; }
+  .live-status { display: flex; align-items: center; gap: 0.5rem; color: var(--muted); font-size: 0.82rem; }
+  .live-spinner { width: 0.75rem; height: 0.75rem; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: live-spin 0.8s linear infinite; flex: none; }
+  @keyframes live-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .live-spinner { animation-duration: 3s; } }
+  details.thinking { border-left: 2px solid var(--border); padding-left: 0.6rem; color: var(--muted); font-size: 0.82rem; }
+  details.thinking summary { cursor: pointer; user-select: none; }
+  .thinking-text { white-space: pre-wrap; max-height: 12rem; overflow-y: auto; margin-top: 0.3rem; line-height: 1.35; }
+  .tool-steps { display: flex; flex-direction: column; gap: 0.15rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: var(--muted); }
+  .tool-step.error { color: var(--error); }
   .confirm-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
   .confirm-actions button { border: none; border-radius: 6px; padding: 0.25rem 0.7rem; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
   .confirm-actions .confirm-yes { background: #e0a83a; color: #1a1206; }
@@ -532,18 +543,184 @@
     const span = document.createElement("span");
     span.textContent = text;
     div.appendChild(span);
-    if (cls === "assistant") {
-      const speakBtn = document.createElement("button");
-      speakBtn.type = "button";
-      speakBtn.className = "speak-btn";
-      speakBtn.title = "Play";
-      speakBtn.textContent = "\u{1f50a}";
-      speakBtn.addEventListener("click", () => speak(text, speakBtn));
-      div.appendChild(speakBtn);
-    }
+    if (cls === "assistant") attachSpeakButton(div, text);
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
     return div;
+  }
+
+  function attachSpeakButton(div, text) {
+    const speakBtn = document.createElement("button");
+    speakBtn.type = "button";
+    speakBtn.className = "speak-btn";
+    speakBtn.title = "Play";
+    speakBtn.textContent = "\u{1f50a}";
+    speakBtn.addEventListener("click", () => speak(text, speakBtn));
+    div.appendChild(speakBtn);
+  }
+
+  // One chat turn, streamed (POST /siris/chat/stream or /siris/chat/confirm/stream,
+  // Server-Sent Events): shows a live bubble with what SirisAI is doing right now
+  // -- current stage, its reasoning as it thinks, each tool it runs -- and the
+  // answer as it's written, instead of nothing until the whole reply is ready.
+  // Resolves with the final ChatResponse (same shape as the non-streaming
+  // endpoints); rejects with an Error carrying the server's message.
+  async function runChatTurn(path, body) {
+    const div = document.createElement("div");
+    div.className = "msg assistant live";
+
+    const status = document.createElement("div");
+    status.className = "live-status";
+    const spinner = document.createElement("span");
+    spinner.className = "live-spinner";
+    const statusText = document.createElement("span");
+    status.append(spinner, statusText);
+
+    const thinking = document.createElement("details");
+    thinking.className = "thinking";
+    thinking.hidden = true;
+    thinking.open = true;
+    const thinkingSummary = document.createElement("summary");
+    const thinkingText = document.createElement("div");
+    thinkingText.className = "thinking-text";
+    thinking.append(thinkingSummary, thinkingText);
+
+    const steps = document.createElement("div");
+    steps.className = "tool-steps";
+    const answer = document.createElement("span");
+    div.append(status, thinking, steps, answer);
+    messages.appendChild(div);
+
+    const started = Date.now();
+    let stage = "Thinking";
+    // Reasoning can happen twice in a turn (deciding what to do, then
+    // writing the answer after a tool ran) -- total time is accumulated
+    // across phases, and each new phase re-opens the panel.
+    let thinkingMs = 0;
+    let thinkingSince = null;
+    let answerText = "";
+    let finalResponse = null;
+    let failure = null;
+    const stepEls = new Map();
+
+    const scroll = () => { messages.scrollTop = messages.scrollHeight; };
+    const elapsed = () => Math.round((Date.now() - started) / 1000);
+    const renderStatus = () => {
+      statusText.textContent = `${stage}\u2026 ${elapsed()}s`;
+      if (thinkingSince !== null) {
+        thinkingSummary.textContent = `Thinking\u2026 ${Math.round((thinkingMs + Date.now() - thinkingSince) / 1000)}s`;
+      }
+    };
+    const startThinking = () => {
+      if (thinkingSince !== null) return;
+      thinkingSince = Date.now();
+      if (thinkingText.textContent) thinkingText.textContent += "\n\n";
+      thinking.hidden = false;
+      thinking.open = true;
+    };
+    const endThinking = () => {
+      if (thinkingSince === null) return;
+      thinkingMs += Date.now() - thinkingSince;
+      thinkingSince = null;
+      thinkingSummary.textContent = `Thought for ${Math.max(1, Math.round(thinkingMs / 1000))}s`;
+      thinking.open = false;
+    };
+    renderStatus();
+    const timer = setInterval(renderStatus, 1000);
+
+    const handle = (event) => {
+      if (event.type === "status") {
+        stage = event.message;
+      } else if (event.type === "thinking") {
+        stage = "Thinking";
+        startThinking();
+        thinkingText.textContent += event.delta;
+        thinkingText.scrollTop = thinkingText.scrollHeight;
+      } else if (event.type === "content") {
+        endThinking();
+        stage = "Writing answer";
+        answerText += event.delta;
+        answer.textContent = answerText;
+      } else if (event.type === "tool_start") {
+        // Any text streamed so far was provisional -- the model chose a
+        // tool instead, and the real answer is written after it runs.
+        answerText = "";
+        answer.textContent = "";
+        endThinking();
+        stage = `Running ${event.name}`;
+        const el = document.createElement("div");
+        el.className = "tool-step";
+        el.title = JSON.stringify(event.arguments);
+        el.textContent = `\u{1f527} ${event.name}\u2026`;
+        steps.appendChild(el);
+        stepEls.set(event.name, el);
+      } else if (event.type === "tool_end") {
+        const el = stepEls.get(event.name);
+        if (el) {
+          const marks = { ok: "\u2713", error: "\u2717", needs_confirmation: "\u26a0\ufe0f" };
+          const notes = { needs_confirmation: " (needs your confirmation)", error: " (failed)" };
+          el.textContent = `${marks[event.status] || ""} ${event.name}${notes[event.status] || ""}`;
+          if (event.status === "error") el.classList.add("error");
+        }
+        stage = "Thinking";
+      } else if (event.type === "final") {
+        finalResponse = event.response;
+      } else if (event.type === "error") {
+        failure = new Error(event.detail || "request failed");
+      }
+      renderStatus();
+      scroll();
+    };
+
+    try {
+      const response = await api(path, { method: "POST", body: JSON.stringify(body), raw: true });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary;
+        while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          for (const line of block.split("\n")) {
+            if (line.startsWith("data: ")) handle(JSON.parse(line.slice(6)));
+          }
+        }
+        // The answer (or error) is already in -- don't wait for the
+        // server to finish background work (memory extraction) before
+        // handing control back.
+        if (finalResponse || failure) {
+          reader.cancel().catch(() => {});
+          break;
+        }
+      }
+    } catch (err) {
+      failure = failure || err;
+    } finally {
+      clearInterval(timer);
+    }
+
+    status.remove();
+    endThinking();
+    if (failure || !finalResponse) {
+      if (!thinkingText.textContent && !steps.children.length && !answerText) div.remove();
+      throw failure || new Error("The connection closed before SirisAI finished.");
+    }
+
+    if (finalResponse.confirmation_required) {
+      if (!thinkingText.textContent && !steps.children.length) div.remove();
+      answer.remove();
+    } else {
+      const text = finalResponse.response || "Done.";
+      answer.textContent = text;
+      attachSpeakButton(div, text);
+    }
+    div.classList.remove("live");
+    scroll();
+    return finalResponse;
   }
 
   function addConfirmationPrompt(name, args) {
@@ -570,10 +747,6 @@
       yesBtn.disabled = true;
       noBtn.disabled = true;
       try {
-        const result = await api("/siris/chat/confirm", {
-          method: "POST",
-          body: JSON.stringify({ conversation_id: conversationId, tool_name: name, arguments: args }),
-        });
         div.remove();
         // Only the model's plain-English answer is shown -- the raw tool
         // call/result is still in GET /siris/activity for anyone who
@@ -581,7 +754,11 @@
         // should basically always produce text once a tool actually ran
         // (a completed action, not just a lookup), so "Done." is a rare
         // fallback, not the common case.
-        addMessage(result.response || "Done.", "assistant");
+        await runChatTurn("/siris/chat/confirm/stream", {
+          conversation_id: conversationId,
+          tool_name: name,
+          arguments: args,
+        });
       } catch (err) {
         addMessage(err.message, "error");
       }
@@ -675,19 +852,14 @@
     chatInput.value = "";
     chatSendBtn.disabled = true;
     try {
-      const result = await api("/siris/chat", {
-        method: "POST",
-        body: JSON.stringify({ prompt, conversation_id: conversationId }),
-      });
+      // Only the model's plain-English answer is shown, never the raw
+      // tool call/result -- that's still in GET /siris/activity for
+      // anyone who wants it. "Done." is a rare fallback for the case
+      // synthesis didn't produce text at all (see runChatTurn).
+      const result = await runChatTurn("/siris/chat/stream", { prompt, conversation_id: conversationId });
       conversationId = result.conversation_id;
       if (result.confirmation_required) {
         addConfirmationPrompt(result.confirmation_required.name, result.confirmation_required.arguments);
-      } else {
-        // Only the model's plain-English answer is shown, never the raw
-        // tool call/result -- that's still in GET /siris/activity for
-        // anyone who wants it. "Done." is a rare fallback for the case
-        // synthesis didn't produce text at all.
-        addMessage(result.response || "Done.", "assistant");
       }
     } catch (err) {
       addMessage(err.message, "error");

@@ -5,10 +5,14 @@ liveness probe, `/siris/status` is app-level introspection (what's
 registered, what backend is active) that will grow as the core does.
 """
 
+import asyncio
+import json
 import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.core.auth import require_api_key
@@ -278,6 +282,28 @@ def _shape_response(result: CortexResult) -> ChatResponse:
     )
 
 
+def _resolve_conversation(siris: SirisAI, request: "ChatRequest") -> str:
+    """The conversation_id a chat turn runs in: the one supplied if it
+    exists, else (for a satellite) the room-handoff candidate, else a new
+    one -- and, for a satellite, records this as fresh activity in its
+    room. Shared by POST /chat and POST /chat/stream."""
+    conversation_id = request.conversation_id
+    if conversation_id is None or not siris.conversation.conversation_exists(
+        conversation_id
+    ):
+        handoff_id = None
+        if request.room:
+            handoff_id = siris.satellites.handoff_candidate(
+                exclude_room=request.room,
+                within_seconds=siris.settings.satellite_handoff_window_seconds,
+            )
+        conversation_id = handoff_id or siris.conversation.create_conversation()
+
+    if request.room:
+        siris.satellites.record_activity(request.room, conversation_id=conversation_id)
+    return conversation_id
+
+
 @router.post("/chat")
 async def chat(
     request: ChatRequest, siris: SirisAI = Depends(get_siris)
@@ -345,21 +371,7 @@ async def chat(
     triggers for the exact case it's meant to fix.
     """
     assert siris.llm is not None
-
-    conversation_id = request.conversation_id
-    if conversation_id is None or not siris.conversation.conversation_exists(
-        conversation_id
-    ):
-        handoff_id = None
-        if request.room:
-            handoff_id = siris.satellites.handoff_candidate(
-                exclude_room=request.room,
-                within_seconds=siris.settings.satellite_handoff_window_seconds,
-            )
-        conversation_id = handoff_id or siris.conversation.create_conversation()
-
-    if request.room:
-        siris.satellites.record_activity(request.room, conversation_id=conversation_id)
+    conversation_id = _resolve_conversation(siris, request)
 
     result = await Cortex(max_plan_steps=request.max_plan_steps).process(
         siris,
@@ -411,6 +423,135 @@ async def confirm_tool_call(
         use_planner=request.use_planner,
     )
     return _shape_response(result)
+
+
+# Background turn tasks are held here until they finish so a streaming
+# client disconnecting mid-turn doesn't get its task garbage-collected (or
+# cancelled) halfway through persisting the conversation / running a tool.
+_running_turns: set["asyncio.Task[None]"] = set()
+
+_SSE_KEEPALIVE_SECONDS = 15.0
+
+
+def _sse(event: dict[str, Any]) -> str:
+    return f"data: {json.dumps(event)}\n\n"
+
+
+def _stream_turn(
+    run: Callable[[Callable[[dict[str, Any]], Awaitable[None]]], Awaitable[Any]],
+) -> StreamingResponse:
+    """Run one Cortex turn in the background and relay its progress events
+    to the client as Server-Sent Events. `run` is handed the event callback
+    to build its Cortex with. Events are the dicts Cortex/Planner emit
+    (status, thinking, content, tool_start, tool_end), with the terminal
+    `final` event (a CortexResult) shaped into the same ChatResponse
+    POST /chat returns -- or an `error` event carrying the same HTTP status
+    /chat would have raised -- so a streaming client and a non-streaming
+    one always end up with the same answer."""
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+    async def on_event(event: dict[str, Any]) -> None:
+        await queue.put(event)
+
+    async def runner() -> None:
+        try:
+            await run(on_event)
+        except Exception:
+            logger.exception("Streaming chat turn failed")
+            await queue.put({"type": "error", "status": 500, "detail": "Chat turn failed."})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(runner())
+    _running_turns.add(task)
+    task.add_done_callback(_running_turns.discard)
+
+    async def events() -> AsyncIterator[str]:
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=_SSE_KEEPALIVE_SECONDS)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            if event is None:
+                return
+            if event["type"] == "final":
+                try:
+                    body = _shape_response(event["result"]).model_dump(mode="json")
+                    event = {"type": "final", "response": body}
+                except HTTPException as exc:
+                    event = {"type": "error", "status": exc.status_code, "detail": exc.detail}
+            yield _sse(event)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    request: ChatRequest, siris: SirisAI = Depends(get_siris)
+) -> StreamingResponse:
+    """Same turn as POST /chat, streamed as Server-Sent Events so a client
+    can show what SirisAI is doing while it works instead of nothing until
+    the whole answer is ready. Each `data:` line is a JSON event:
+
+    - `{"type": "status", "message": ...}` -- a stage ("Gathering context",
+      "Thinking", "Writing answer").
+    - `{"type": "thinking", "delta": ...}` -- the model's reasoning, as it
+      produces it (models that expose it, e.g. Qwen3 via Ollama).
+    - `{"type": "content", "delta": ...}` -- answer text as it's produced.
+      Provisional: if the model then calls a tool, the real answer is
+      written after the tool runs.
+    - `{"type": "tool_start", "name", "arguments"}` /
+      `{"type": "tool_end", "name", "status": "ok"|"error"|"needs_confirmation"}`.
+    - `{"type": "final", "response": <ChatResponse>}` -- exactly what
+      POST /chat would have returned; always the last event of a
+      successful turn (memory extraction runs after it).
+    - `{"type": "error", "status", "detail"}` -- what POST /chat would
+      have raised as an HTTP error.
+
+    Lines starting with `:` are keepalive comments. A client disconnecting
+    mid-turn doesn't cancel the turn -- it still runs to completion, so
+    the conversation is left consistent."""
+    assert siris.llm is not None
+    conversation_id = _resolve_conversation(siris, request)
+
+    async def run(on_event: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
+        await Cortex(max_plan_steps=request.max_plan_steps, on_event=on_event).process(
+            siris,
+            conversation_id,
+            request.prompt,
+            use_context=request.use_context,
+            use_tools=request.use_tools,
+            use_planner=request.use_planner,
+            model_role=request.model_role,
+        )
+
+    return _stream_turn(run)
+
+
+@router.post("/chat/confirm/stream")
+async def confirm_tool_call_stream(
+    request: ConfirmToolRequest, siris: SirisAI = Depends(get_siris)
+) -> StreamingResponse:
+    """POST /chat/confirm, streamed -- see POST /chat/stream for the event
+    format."""
+    if not siris.conversation.conversation_exists(request.conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    async def run(on_event: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
+        await Cortex(max_plan_steps=request.max_plan_steps, on_event=on_event).confirm(
+            siris,
+            request.conversation_id,
+            request.tool_name,
+            request.arguments,
+            use_planner=request.use_planner,
+        )
+
+    return _stream_turn(run)
 
 
 class MessageResponse(BaseModel):

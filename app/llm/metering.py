@@ -27,9 +27,10 @@ off the event loop, instead of three on it.
 """
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
-from app.llm.base import LLMClient, LLMResponse
+from app.llm.base import LLMChunk, LLMClient, LLMResponse
 from app.metrics.service import MetricsStore
 
 METRIC_PROMPT_TOKENS = "llm_tokens_prompt"
@@ -50,7 +51,22 @@ class MeteredLLMClient(LLMClient):
         **kwargs: object,
     ) -> LLMResponse:
         response = await self._inner.generate(messages, tools=tools, **kwargs)
+        await self._record(response)
+        return response
 
+    async def stream_generate(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: object,
+    ) -> AsyncIterator[LLMChunk]:
+        async for chunk in self._inner.stream_generate(messages, tools=tools, **kwargs):
+            if chunk.response is not None:
+                await self._record(chunk.response)
+            yield chunk
+
+    async def _record(self, response: LLMResponse) -> None:
         samples: dict[str, float] = {}
         if response.prompt_tokens is not None:
             samples[METRIC_PROMPT_TOKENS] = float(response.prompt_tokens)
@@ -60,8 +76,6 @@ class MeteredLLMClient(LLMClient):
             samples[METRIC_TOTAL_TOKENS] = float(response.prompt_tokens + response.completion_tokens)
         if samples:
             await asyncio.to_thread(self._metrics.record_samples, samples)
-
-        return response
 
     async def aclose(self) -> None:
         await self._inner.aclose()

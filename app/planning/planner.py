@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.llm.base import LLMClient
+from app.llm.streaming import EventCallback, generate_with_events
 from app.plugins.base import ConfirmationRequired
 
 if TYPE_CHECKING:
@@ -80,8 +81,13 @@ class PlanResult:
 
 
 class Planner:
-    def __init__(self, max_steps: int = 5) -> None:
+    def __init__(self, max_steps: int = 5, on_event: EventCallback | None = None) -> None:
         self.max_steps = max_steps
+        # Optional live-progress callback (see app/llm/streaming.py and
+        # POST /siris/chat/stream): reasoning/answer text as it's produced,
+        # plus tool_start/tool_end around each step. None (default) = silent,
+        # exactly as before.
+        self.on_event = on_event
 
     async def run(
         self,
@@ -97,7 +103,7 @@ class Planner:
         steps: list[PlanStep] = []
 
         for _ in range(self.max_steps):
-            result = await llm_client.generate(working_messages, tools=tools)
+            result = await generate_with_events(llm_client, working_messages, self.on_event, tools=tools)
 
             if not result.tool_calls:
                 return PlanResult(steps=steps, final_text=result.text)
@@ -108,6 +114,8 @@ class Planner:
             # accumulated data that led the model to choose this next
             # call, not just this one call's own arguments.
             evidence = [{"tool": s.name, "result": s.result} for s in steps] or None
+            if self.on_event is not None:
+                await self.on_event({"type": "tool_start", "name": call.name, "arguments": call.arguments})
             try:
                 output = await asyncio.to_thread(
                     siris.run_tool,
@@ -119,11 +127,15 @@ class Planner:
                     evidence=evidence,
                 )
             except ConfirmationRequired:
+                await self._emit_tool_end(call.name, "needs_confirmation")
                 return PlanResult(steps=steps, pending_confirmation=(call.name, call.arguments))
             except PermissionError as exc:
+                await self._emit_tool_end(call.name, "error")
                 return PlanResult(steps=steps, error=str(exc), permission_denied=True)
             except Exception as exc:
+                await self._emit_tool_end(call.name, "error")
                 return PlanResult(steps=steps, error=str(exc))
+            await self._emit_tool_end(call.name, "ok")
 
             steps.append(PlanStep(name=call.name, arguments=call.arguments, result=output))
             working_messages = [
@@ -140,3 +152,7 @@ class Planner:
         # surface everything gathered rather than erroring; the caller can
         # still show the raw evidence even without a synthesized answer.
         return PlanResult(steps=steps, final_text=None)
+
+    async def _emit_tool_end(self, name: str, status: str) -> None:
+        if self.on_event is not None:
+            await self.on_event({"type": "tool_end", "name": name, "status": status})
