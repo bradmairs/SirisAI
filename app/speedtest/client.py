@@ -25,6 +25,14 @@ from typing import Any, Callable
 
 import speedtest
 
+# speedtest-cli reports a server's latency as ~1,800,000 ms when every
+# latency probe to it failed (found live, 2026-09-19: a location-filtered
+# pick returned exactly that as "ping_ms" while download still measured a
+# real 297 Mbps) -- the server was usable for throughput, just not for a
+# ping reading. Anything at or above a minute is that sentinel, never a
+# real round trip.
+_UNUSABLE_PING_MS = 60_000
+
 
 class SpeedTestClient:
     def __init__(self, speedtest_factory: Callable[..., Any] = speedtest.Speedtest) -> None:
@@ -53,8 +61,10 @@ class SpeedTestClient:
         else:
             test.get_best_server()
 
+        ping = test.results.ping
+        ping_usable = ping is not None and ping < _UNUSABLE_PING_MS
         result: dict = {
-            "ping_ms": round(test.results.ping, 2),
+            "ping_ms": round(ping, 2) if ping_usable else None,
             "server": (
                 f"{test.results.server['sponsor']}, {test.results.server['name']}, "
                 f"{test.results.server['country']}"
@@ -70,6 +80,11 @@ class SpeedTestClient:
                     "small, non-deterministic regional subset, not the full global "
                     "list) -- used automatic nearest-server selection instead."
                 )
+        if not ping_usable:
+            result["ping_note"] = (
+                "Latency probes to this test server all failed, so no ping reading is "
+                "available -- download/upload were still measured."
+            )
         if direction in ("download", "both"):
             test.download()
             result["download_mbps"] = round(test.results.download / 1_000_000, 2)

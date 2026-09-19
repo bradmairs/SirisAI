@@ -9,6 +9,7 @@ then SirisAI simply doesn't offer these tools to the model.
 """
 
 import difflib
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -69,6 +70,17 @@ _EXPECTED_STATE_BY_SERVICE: dict[str, str] = {
     "arm_night": "armed_night",
     "disarm": "disarmed",
 }
+
+# How long verify() waits for a device's reported state to catch up with
+# the call (found live, 2026-09-19: a real light accepted turn_on and was
+# "on" 2 seconds later, but verify() read it back instantly, saw "off",
+# and recorded verified=False -- a false alarm on every toggle of a
+# device that's slow to report). Polls up to _VERIFY_ATTEMPTS times,
+# _VERIFY_POLL_SECONDS apart, and stops the moment the state matches, so
+# a fast device costs nothing extra and only a genuinely-wrong state
+# (offline/unavailable) pays the full wait.
+_VERIFY_ATTEMPTS = 4
+_VERIFY_POLL_SECONDS = 1.0
 
 # Always require confirmation for these domains, even when
 # SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS is "*" (every other domain) --
@@ -345,7 +357,13 @@ class HomeAssistantCallServiceTool(Tool):
                 f"{self.name} does not support verify for this domain/service"
             )
 
-        actual_state = self._client.get_state(entity_id).get("state")
+        actual_state = None
+        for attempt in range(_VERIFY_ATTEMPTS):
+            actual_state = self._client.get_state(entity_id).get("state")
+            if actual_state == expected_state:
+                break
+            if attempt < _VERIFY_ATTEMPTS - 1:
+                time.sleep(_VERIFY_POLL_SECONDS)
         if actual_state == expected_state:
             return ToolVerification(
                 verified=True,

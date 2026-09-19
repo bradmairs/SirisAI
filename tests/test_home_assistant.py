@@ -546,9 +546,12 @@ def test_verify_reports_success_when_entity_reaches_the_expected_state() -> None
     client.close()
 
 
-def test_verify_reports_failure_when_entity_never_reached_the_expected_state() -> None:
+def test_verify_reports_failure_when_entity_never_reached_the_expected_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The exact gap this exists for: an offline light can accept the
     turn_on call (HA still returns 200) without ever actually turning on."""
+    monkeypatch.setattr("app.plugins.builtin.home_assistant._VERIFY_POLL_SECONDS", 0)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
@@ -574,6 +577,52 @@ def test_verify_reports_failure_when_entity_never_reached_the_expected_state() -
     assert verification.verified is False
     assert "unavailable" in verification.detail
     assert "on" in verification.detail
+
+
+def test_verify_waits_for_a_slow_device_to_report_its_new_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Found live: a real light was "on" 2s after turn_on, but verify()
+    read it back instantly, saw "off", and recorded a false failure."""
+    monkeypatch.setattr("app.plugins.builtin.home_assistant._VERIFY_POLL_SECONDS", 0)
+    reads = iter(["off", "off", "on"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"entity_id": "light.kitchen", "state": next(reads), "attributes": {}},
+        )
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCallServiceTool(client, _events())
+
+    verification = tool.verify(
+        {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}, {}
+    )
+
+    assert verification.verified is True
+    assert "'on'" in verification.detail
+    client.close()
+
+
+def test_verify_stops_polling_as_soon_as_the_state_matches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.plugins.builtin.home_assistant._VERIFY_POLL_SECONDS", 0)
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(
+            200, json={"entity_id": "light.kitchen", "state": "on", "attributes": {}}
+        )
+
+    client = _mock_client(handler)
+    tool = HomeAssistantCallServiceTool(client, _events())
+    tool.verify({"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}, {})
+
+    assert len(calls) == 1
+    client.close()
 
 
 def test_verify_checks_lock_and_cover_domains_too() -> None:

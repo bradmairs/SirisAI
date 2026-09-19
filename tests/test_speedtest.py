@@ -6,6 +6,8 @@ from app.speedtest.client import SpeedTestClient
 
 
 class _FakeResults:
+    ping: float | None
+
     def __init__(self) -> None:
         self.ping = 12.345
         self.server = {"sponsor": "Test ISP", "name": "Testville", "country": "Testland"}
@@ -139,3 +141,30 @@ def test_tool_is_safe_action_not_read() -> None:
     effect (bandwidth consumption) even without touching persistent
     state -- SAFE_ACTION reflects that, not READ."""
     assert RunSpeedTestTool(SpeedTestClient()).permission == ToolPermission.SAFE_ACTION
+
+
+def test_unusable_ping_sentinel_is_reported_as_none_with_a_note() -> None:
+    """speedtest-cli's ~1,800,000 ms "every latency probe failed" value must
+    never be shown to a user as if it were a real ping."""
+
+    class _AllProbesFailed(_FakeSpeedtest):
+        def __init__(self, calls: list[str], **kwargs: Any) -> None:
+            super().__init__(calls, **kwargs)
+            self.results.ping = 1_800_000.0
+
+    calls: list[str] = []
+    client = SpeedTestClient(speedtest_factory=lambda **kw: _AllProbesFailed(calls, **kw))
+
+    result = client.run(direction="download")
+
+    assert result["ping_ms"] is None
+    assert "ping_note" in result
+    assert result["download_mbps"] == 100.0
+
+
+def test_a_real_ping_has_no_ping_note() -> None:
+    calls: list[str] = []
+    result = SpeedTestClient(speedtest_factory=_fake_factory(calls)).run(direction="download")
+
+    assert result["ping_ms"] == 12.35
+    assert "ping_note" not in result
