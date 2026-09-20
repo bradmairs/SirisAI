@@ -366,6 +366,20 @@ class Settings(BaseSettings):
     synology_password: str = ""
     synology_verify_ssl: bool = True
 
+    # Cron job overview (app/cron/, app/plugins/builtin/cron.py) -- read and
+    # toggle crontab entries on other machines on the network (a home Linux
+    # server, Raspberry Pis) via plain `ssh` + the remote `crontab` command.
+    # Comma-separated "user@host" (or "user@host:port") entries, e.g.
+    # "brad@192.168.0.127,root@192.168.0.83". Deliberately no separate
+    # key-path setting here -- this shells out to the system `ssh` binary,
+    # so it picks up whatever identity file/agent/known_hosts SirisAI's own
+    # host user already has configured for reaching these machines (the
+    # same access already used to reach them any other way), rather than
+    # this codebase reinventing SSH key management. Empty disables the
+    # feature entirely (cron_list_jobs/cron_set_job_enabled unregistered,
+    # GET /siris/cron_jobs returns an empty list).
+    cron_hosts: str = ""
+
     # Conversation handoff between rooms (app/satellites/service.py,
     # milestone 75). Each satellite process keeps its own local
     # conversation_id in memory (satellite/siris_satellite/client.py) --
