@@ -230,3 +230,17 @@ def test_list_cron_jobs_route_reflects_the_configured_cron_client() -> None:
     assert jobs == [
         {"host": "root@pi.local", "schedule": "0 3 * * *", "command": "/bin/true", "line": "0 3 * * * /bin/true", "enabled": True}
     ]
+
+
+def test_missing_ssh_binary_is_reported_per_host_not_raised() -> None:
+    """Found live: a container with no `ssh` made GET /siris/cron_jobs 500
+    instead of showing each host's error in the tab."""
+    client = CronHostsClient(
+        [CronHost(user="brad", host="192.168.0.127"), CronHost(user="root", host="192.168.0.83")],
+        ssh_binary="/nonexistent/ssh",
+    )
+
+    jobs = client.list_jobs()
+
+    assert [j["host"] for j in jobs] == ["brad@192.168.0.127", "root@192.168.0.83"]
+    assert all("isn't installed" in j["error"] for j in jobs)

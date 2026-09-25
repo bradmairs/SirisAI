@@ -6,6 +6,11 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+      # SSH identity + known_hosts for the cron overview (SIRISAI_CRON_HOSTS):
+      # kept under ./data so it survives rebuilds. Generate a dedicated key
+      # here (ssh-keygen -t ed25519 -N "" -f data/ssh/id_ed25519) and add
+      # the .pub to each cron host's authorized_keys -- see .env.example.
+      - ./data/ssh:/root/.ssh
       # Uncomment to enable the docker_* tools (see README) -- gives this
       # container full control over the host's Docker. Only do this if
       # you're comfortable with that; it's the whole reason

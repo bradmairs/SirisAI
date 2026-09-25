@@ -89,6 +89,15 @@ class CronHostsClient:
             )
         except subprocess.TimeoutExpired as exc:
             raise CronHostError(f"Timed out connecting to {host.label}") from exc
+        except FileNotFoundError as exc:
+            # Found live (2026-09-25): the container image had no `ssh` at
+            # all, so this escaped as an unhandled FileNotFoundError and
+            # GET /siris/cron_jobs returned a bare 500 instead of the
+            # per-host error list_jobs() is built to produce.
+            raise CronHostError(
+                f"The '{self._ssh_binary}' client isn't installed where SirisAI runs, "
+                f"so {host.label} can't be reached."
+            ) from exc
         if result.returncode != 0:
             raise CronHostError(f"ssh {host.label} failed ({result.returncode}): {result.stderr.strip()}")
         return result.stdout
