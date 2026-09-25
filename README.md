@@ -4525,6 +4525,35 @@ provider for the same capability actually exists to design against.
     correctly came back as one `{host, error}` entry alongside the first
     host's real jobs rather than failing the whole response.
 
+105. **Done** -- CI: run the test suite automatically on every PR and push
+    to main (`.github/workflows/tests.yml`). Every milestone up to this
+    one had "still no CI configured" noted in its own PR -- correctness
+    depended entirely on whoever was working the repo (me, in this
+    session) remembering to run `pytest` by hand before merging.
+    GitHub-hosted `ubuntu-latest`, Python 3.12 (matching the Dockerfile),
+    `pip install -r requirements-dev.txt` then `pytest` -- the same two
+    commands used locally throughout this whole session, scoped to
+    `tests/` the same way `pytest.ini` already is (`satellite/` stays
+    excluded, per its own comment: a separate deployable with hardware-
+    adjacent test requirements).
+
+    Deliberately minimal: no lint/type-check step, since there's no
+    committed ruff/mypy config in the repo to run against, and inventing
+    one wasn't asked for -- adding rules nobody agreed to would just be
+    noise on every future PR. Doesn't (can't) cover the live-verification
+    every milestone in this README describes doing by hand -- real
+    Home Assistant/SSH round trips against fake or real servers -- only
+    the fast unit/integration suite; that manual step is still what
+    proves a feature works end to end, this just guarantees the suite
+    itself gets run every time instead of relying on memory.
+
+    Verified: confirmed the exact two commands the workflow runs
+    (`pip install -r requirements-dev.txt`, `pytest`) succeed locally
+    against a clean install of the pinned dependencies -- 863 passed.
+    The workflow itself will get its first real run on this change's own
+    PR, which is the natural live-verification for "does CI run" (no
+    fake CI to test it against beforehand).
+
 ## Running locally
 
 ```bash
