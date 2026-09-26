@@ -139,6 +139,30 @@ class AuditLogStore:
             reverse=True,
         )
 
+    def recent_outcomes(self, since: datetime) -> dict[str, dict[str, int]]:
+        """Per tool since `since` (naive UTC): successful runs, and failures
+        caused by the environment rather than bad arguments -- what the
+        circuit breaker in app/core/health.py needs. Runs held for
+        confirmation don't count either way."""
+        from app.core.health import is_environmental_error
+
+        with self._session_factory() as session:
+            rows = session.execute(
+                select(ToolExecution.tool_name, ToolExecution.error, ToolExecution.confirmation_required).where(
+                    ToolExecution.created_at >= since
+                )
+            ).all()
+        out: dict[str, dict[str, int]] = {}
+        for name, error, needed_confirmation in rows:
+            if needed_confirmation:
+                continue
+            entry = out.setdefault(name, {"successes": 0, "environmental_failures": 0})
+            if error is None:
+                entry["successes"] += 1
+            elif is_environmental_error(error):
+                entry["environmental_failures"] += 1
+        return out
+
     def verification_stats_by_tool(self, limit: int = 500, days: int | None = None) -> list[dict[str, Any]]:
         """Aggregate Tool.verify() outcomes per tool among the most
         recent `limit` executions -- a trust ledger (a hardening pass):

@@ -2,6 +2,8 @@
 no API key or account required, just a latitude/longitude.
 """
 
+from datetime import datetime
+
 import httpx
 
 _WMO_WEATHER_CODES = {
@@ -63,6 +65,38 @@ class WeatherClient:
             "precipitation_mm": current.get("precipitation"),
             "conditions": _WMO_WEATHER_CODES.get(code, f"weather code {code}"),
         }
+
+    def forecast(self, days: int = 3, timezone: str = "auto") -> list[dict]:
+        """Daily outlook for the next `days` days (today first)."""
+        days = max(1, min(int(days), 7))
+        response = self._client.get(
+            "/v1/forecast",
+            params={
+                "latitude": self._latitude,
+                "longitude": self._longitude,
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max",
+                "temperature_unit": "celsius",
+                "timezone": timezone,
+                "forecast_days": days,
+            },
+        )
+        response.raise_for_status()
+        daily = response.json().get("daily", {})
+        out = []
+        for i, day in enumerate(daily.get("time", [])):
+            code = (daily.get("weather_code") or [None] * (i + 1))[i]
+            out.append(
+                {
+                    "date": day,
+                    "weekday": datetime.fromisoformat(day).strftime("%A"),
+                    "conditions": _WMO_WEATHER_CODES.get(code, f"weather code {code}"),
+                    "high_c": (daily.get("temperature_2m_max") or [None] * (i + 1))[i],
+                    "low_c": (daily.get("temperature_2m_min") or [None] * (i + 1))[i],
+                    "rain_chance_percent": (daily.get("precipitation_probability_max") or [None] * (i + 1))[i],
+                    "rain_mm": (daily.get("precipitation_sum") or [None] * (i + 1))[i],
+                }
+            )
+        return out
 
     def close(self) -> None:
         self._client.close()

@@ -278,6 +278,11 @@ class Settings(BaseSettings):
     # of them (see app/plugins/selector.py). 110 tools cost ~14,200 prompt
     # tokens per turn versus ~1,050 with none. 0 = always offer everything.
     tool_selection_max: int = 32
+
+    # Background scheduler (app/core/scheduler.py): delivers due reminders and
+    # timers and alerts when a tool has been failing. On by default.
+    scheduler_enabled: bool = True
+    scheduler_interval_seconds: float = 20.0
     # "everyone left" -> away scene, "someone's home" -> home scene.
     # presence_device_names is comma-separated UniFi client names/hostnames
     # (e.g. "brads-iphone,jans-iphone") that count as "someone is home"

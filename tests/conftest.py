@@ -35,6 +35,9 @@ os.environ.setdefault("SIRISAI_DEFAULT_USE_PLANNER", "false")
 # by name, so they see the full list. Tests for the selector build it directly.
 os.environ.setdefault("SIRISAI_TOOL_SELECTION_MAX", "0")
 
+# The background scheduler would fire during the suite; its jobs are tested directly.
+os.environ.setdefault("SIRISAI_SCHEDULER_ENABLED", "false")
+
 import pytest
 from fastapi.testclient import TestClient
 

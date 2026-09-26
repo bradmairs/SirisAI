@@ -511,3 +511,20 @@ class Scene(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC)
     )
+
+
+class Reminder(Base):
+    """A time-based reminder or timer: "remind me at 7pm", "timer for 10
+    minutes". Delivered as a push notification by the background scheduler
+    (app/core/scheduler.py) at `due_at` (naive UTC, like every other
+    timestamp here). `status` is pending -> sent, or cancelled / failed."""
+
+    __tablename__ = "reminders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message: Mapped[str] = mapped_column(Text)
+    due_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    status: Mapped[str] = mapped_column(Text, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

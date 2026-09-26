@@ -1,5 +1,6 @@
 """FastAPI application entrypoint."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,6 +24,7 @@ from app.api.routes import (
 )
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.core import scheduler
 from app.core.siris import get_siris
 from app.db.base import Base
 from app.db.migrate import apply_column_patches, apply_index_patches
@@ -53,8 +55,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # rather than on first request.
     siris = get_siris()
 
+    scheduler_task = None
+    if settings.scheduler_enabled:
+        scheduler_task = asyncio.create_task(scheduler.run(siris, settings.scheduler_interval_seconds))
+
     yield
 
+    if scheduler_task is not None:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
     await siris.aclose()
 
 

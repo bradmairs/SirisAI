@@ -26,6 +26,7 @@ from app.calendar.client import CalendarClient
 from app.context.engine import ContextEngine
 from app.conversation.service import ConversationStore
 from app.core import taint
+from app.core.health import broken_tools
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.docker.client import DockerClient
@@ -182,7 +183,10 @@ from app.plugins.builtin.unifi import (
     UniFiRestartDeviceTool,
     UniFiUnblockClientTool,
 )
-from app.plugins.builtin.weather import WeatherCurrentTool
+from app.plugins.builtin.weather import WeatherCurrentTool, WeatherForecastTool
+from app.plugins.builtin.reminders import CancelReminderTool, ListRemindersTool, SetReminderTool
+from app.plugins.builtin.integration_health import IntegrationHealthTool
+from app.reminders.service import ReminderStore
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
 from app.cron.client import CronHostsClient, parse_cron_hosts
@@ -255,6 +259,10 @@ _CATEGORY_NAMES: dict[str, str] = {
     "delete_entity_relationship": "memory",
     "delete_event": "memory",
     "get_current_time": "system",
+    "integration_health": "system",
+    "set_reminder": "reminders",
+    "list_reminders": "reminders",
+    "cancel_reminder": "reminders",
     "notify": "notify",
     "list_pending_notifications": "notify",
     "system_info": "system",
@@ -367,6 +375,7 @@ class SirisAI:
         default_factory=lambda: ConversationStore(SessionLocal)
     )
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
+    reminders: ReminderStore = field(default_factory=lambda: ReminderStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -420,6 +429,8 @@ class SirisAI:
             self.tts = build_tts_client(self.settings)
         self._home_assistant_client: HomeAssistantClient | None = None
         self.integration_notes: dict[str, str] = {}
+        self._tool_alerts: dict[str, float] = {}
+        self._broken_cache: tuple[float, set[str]] = (0.0, set())
         self.tool_selector = ToolSelector(self.settings.tool_selection_max)
         self._docker_client: DockerClient | None = None
         self._plex_client: PlexClient | None = None
@@ -455,6 +466,10 @@ class SirisAI:
         self.tools.register(DeleteEntityRelationshipTool(self.entities))
         self.tools.register(DeleteEventTool(self.events))
         self.tools.register(GetCurrentTimeTool(self.settings.timezone))
+        self.tools.register(SetReminderTool(self.reminders, self.settings.timezone))
+        self.tools.register(ListRemindersTool(self.reminders, self.settings.timezone))
+        self.tools.register(CancelReminderTool(self.reminders))
+        self.tools.register(IntegrationHealthTool(self))
         self.tools.register(CreateGoalTool(self.goals))
         self.tools.register(ListGoalsTool(self.goals))
         self.tools.register(UpdateGoalStatusTool(self.goals))
@@ -587,6 +602,7 @@ class SirisAI:
                 longitude=self.settings.weather_longitude,
             )
             self.tools.register(WeatherCurrentTool(self._weather_client))
+            self.tools.register(WeatherForecastTool(self._weather_client, timezone=self.settings.timezone))
 
         if self.settings.caldav_url:
             calendar_client = CalendarClient(
@@ -832,10 +848,25 @@ class SirisAI:
         disabled RESTRICTED tools. With a `prompt`, narrowed to the tools
         relevant to it (SIRISAI_TOOL_SELECTION_MAX, app/plugins/selector.py)
         plus any in `recent_tool_names`."""
-        specs = self.tools.specs(exclude=self.restricted_tool_names_to_exclude())
+        exclude = self.restricted_tool_names_to_exclude()
         if prompt is None:
-            return specs
+            return self.tools.specs(exclude=exclude)
+        # Tools whose backing service is down are left out for a while so
+        # they stop steering the model into a wall (app/core/health.py).
+        specs = self.tools.specs(exclude=exclude | self._paused_tools())
         return self.tool_selector.select(prompt, specs, recent_tool_names)
+
+    def _paused_tools(self) -> set[str]:
+        stamp, cached = self._broken_cache
+        if time.monotonic() - stamp < 30:
+            return cached
+        try:
+            broken = broken_tools(self)
+        except Exception:
+            logger.exception("Circuit-breaker check failed")
+            broken = set()
+        self._broken_cache = (time.monotonic(), broken)
+        return broken
 
     def list_tools(self) -> list[dict[str, Any]]:
         """Every registered tool -- including skills, which are just tools

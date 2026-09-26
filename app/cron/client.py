@@ -63,6 +63,10 @@ class CronHostsClient:
         self._timeout = timeout
         self._ssh_binary = ssh_binary
 
+    @property
+    def hosts(self) -> list[CronHost]:
+        return list(self._hosts)
+
     def _ssh_args(self, host: CronHost, remote_command: str) -> list[str]:
         return [
             self._ssh_binary,

@@ -194,6 +194,13 @@ def metrics_dashboard(siris: SirisAI = Depends(get_siris)) -> MetricsDashboardRe
     return MetricsDashboardResponse(llm_tokens=llm_tokens, power_draw=power_draw)
 
 
+@router.get("/integrations/health")
+def integrations_health(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Reachability of every configured integration, plus which tools are
+    currently paused for failing (see app/core/health.py)."""
+    return siris.tools.get("integration_health").run()  # type: ignore[union-attr]
+
+
 class ChatRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None
