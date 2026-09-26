@@ -4597,6 +4597,37 @@ that env var is set; `/health` and `/` never require it. For anything
 reachable off `localhost` (e.g. tunneled in via Tailscale), set
 `SIRISAI_API_KEY` -- generate one with `openssl rand -hex 32`.
 
+## Using SirisAI from a phone
+
+**Add to Home Screen.** Open the web UI in Safari, tap Share, then Add to Home
+Screen. It installs as an app (own icon, no browser bar) and reopens your last
+conversation. The History menu lists past ones.
+
+**Siri and Apple Shortcuts.** `POST /siris/ask` returns the answer as plain
+text, so a Shortcut can speak it:
+
+1. New Shortcut. Add **Ask for Input** (Text, "What do you want to ask?").
+2. Add **Get Contents of URL**: URL `http://<server>:8000/siris/ask`, Method
+   POST, Headers `Authorization: Bearer <your SIRISAI_API_KEY>`, Request Body
+   File with the *Provided Input*.
+3. Add **Speak Text** with the *Contents of URL*.
+4. Name the Shortcut "Ask Siris", then say "Hey Siri, Ask Siris".
+
+Actions that need confirmation (locks, garage doors, automations, code changes)
+are not run from Shortcuts: the reply tells you to approve them in the web UI.
+
+**Reminders and timers.** "Remind me at 7pm to take the bins out" and "set a
+timer for 10 minutes" arrive as push notifications (ntfy), sent by the
+background scheduler.
+
+## Optional: Obsidian relay
+
+The Obsidian Local REST API plugin only listens on 127.0.0.1 inside its own
+container. `docker compose --profile obsidian-relay up -d` starts a small socat
+sidecar that shares that container's network and republishes the port, so it
+survives restarts (recreate the sidecar if the Obsidian container is recreated).
+Set `SIRISAI_OBSIDIAN_BASE_URL=https://<server>:27123`.
+
 ## Running with Docker
 
 ```bash

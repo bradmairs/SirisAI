@@ -21,3 +21,18 @@ services:
     environment:
       SIRISAI_DATABASE_URL: sqlite:///./data/sirisai.db
     restart: unless-stopped
+
+  # Optional: makes the Obsidian Local REST API reachable from this container.
+  # The plugin only listens on 127.0.0.1 inside its own container, so this
+  # sidecar shares that container's network namespace and republishes the port
+  # on all interfaces (Obsidian's container must publish 27123). Replaces the
+  # hand-made socat relay, which disappeared whenever Obsidian's container was
+  # recreated. Enable with:  docker compose --profile obsidian-relay up -d
+  # If the Obsidian container is ever recreated, recreate this one too:
+  #   docker compose --profile obsidian-relay up -d --force-recreate obsidian-relay
+  obsidian-relay:
+    profiles: ["obsidian-relay"]
+    image: alpine/socat
+    network_mode: "container:obsidian"
+    command: TCP-LISTEN:27123,fork,reuseaddr TCP:127.0.0.1:27124
+    restart: unless-stopped

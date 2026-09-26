@@ -26,12 +26,14 @@
     --error: #ff6b6b;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
   }
@@ -39,7 +41,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.75rem;
     padding: 0.75rem 1rem;
+    padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
@@ -50,7 +55,15 @@
     letter-spacing: 0.02em;
   }
   header h1 span { color: var(--accent); }
-  nav { display: flex; gap: 0.25rem; }
+  nav { display: flex; gap: 0.25rem; overflow-x: auto; max-width: 100%; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { flex: none; white-space: nowrap; }
+  @media (max-width: 640px) {
+    header { padding-inline: 0.75rem; }
+    nav { order: 2; width: 100%; }
+    .msg { max-width: 92% !important; }
+    #key-bar { flex-wrap: wrap; }
+  }
   nav button {
     background: none;
     border: 1px solid transparent;
@@ -103,9 +116,25 @@
   #chat-view.active { display: flex; flex-direction: column; overflow: hidden; }
 
   /* Chat */
-  #chat-toolbar { display: flex; justify-content: flex-end; padding: 0.4rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  #chat-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.4rem 1rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   #new-chat-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 0.25rem 0.6rem; cursor: pointer; font-size: 0.78rem; }
   #new-chat-btn:hover { color: var(--text); }
+  #history-select { background: var(--panel); border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 0.25rem 0.4rem; font-size: 0.78rem; max-width: 60%; }
+  #chat-send-btn.stop { background: #b83a3a; color: #fff; }
+  /* Rendered markdown in assistant bubbles */
+  .md { white-space: normal; }
+  .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+  .md p { margin: 0 0 0.55rem; white-space: pre-wrap; }
+  .md ul, .md ol { margin: 0 0 0.55rem; padding-left: 1.3rem; }
+  .md li { margin: 0.15rem 0; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 0.7rem 0 0.35rem; font-size: 0.98rem; }
+  .md code { background: rgba(255,255,255,0.08); padding: 0.05rem 0.3rem; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+  .md pre { background: #14161a; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; overflow-x: auto; margin: 0 0 0.55rem; }
+  .md pre code { background: none; padding: 0; white-space: pre; font-size: 0.8rem; }
+  .md blockquote { margin: 0 0 0.55rem; padding-left: 0.7rem; border-left: 3px solid var(--border); color: var(--muted); }
+  .md a { color: var(--accent); }
+  .md hr { border: 0; border-top: 1px solid var(--border); margin: 0.7rem 0; }
+  .tag.bad { color: var(--error); border-color: var(--error); }
   #messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .msg { max-width: 70%; padding: 0.55rem 0.8rem; border-radius: 10px; line-height: 1.4; font-size: 0.92rem; white-space: pre-wrap; word-wrap: break-word; }
   .msg.user { align-self: flex-end; background: var(--user-bubble); }
@@ -377,7 +406,7 @@
 
 <main>
   <section id="chat-view" class="view active">
-    <div id="chat-toolbar"><button type="button" id="new-chat-btn">New chat</button></div>
+    <div id="chat-toolbar"><select id="history-select" title="Past conversations" aria-label="Past conversations"><option value="">History</option></select><button type="button" id="new-chat-btn">New chat</button></div>
     <div id="messages"></div>
     <form id="chat-form">
       <button type="button" id="mic-btn" title="Record a voice message">&#127908;</button>
@@ -555,17 +584,149 @@
   // sending it back to carry context forward.
   let conversationId = null;
 
+  const CONV_KEY = "sirisai_conversation";
+  function rememberConversation(id) {
+    try { localStorage.setItem(CONV_KEY, id || ""); } catch (err) { /* storage can be unavailable */ }
+  }
+
+  const historySelect = document.getElementById("history-select");
+
+  async function refreshHistory() {
+    try {
+      const list = await api("/siris/conversations?limit=20");
+      historySelect.innerHTML = '<option value="">History</option>';
+      for (const c of list) {
+        const opt = document.createElement("option");
+        opt.value = c.conversation_id;
+        const when = new Date(c.last_at + "Z").toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+        opt.textContent = `${when} \u2014 ${c.started_with}`;
+        historySelect.appendChild(opt);
+      }
+      if (conversationId) historySelect.value = conversationId;
+    } catch (err) { /* history is a convenience; the chat works without it */ }
+  }
+
+  async function openConversation(id) {
+    const history = await api(`/siris/conversations/${id}`);
+    messages.innerHTML = "";
+    for (const m of history) {
+      if (!m.content) continue;
+      if (m.role === "user") addMessage(m.content, "user");
+      else if (m.role === "assistant") addMessage(m.content, "assistant");
+    }
+    conversationId = id;
+    rememberConversation(id);
+  }
+
+  historySelect.addEventListener("change", async () => {
+    if (!historySelect.value) return;
+    try { await openConversation(historySelect.value); } catch (err) { addMessage(err.message, "error"); }
+  });
+
   document.getElementById("new-chat-btn").addEventListener("click", () => {
     conversationId = null;
+    rememberConversation("");
+    historySelect.value = "";
     messages.innerHTML = "";
     chatInput.focus();
   });
 
+  // Minimal, safe markdown for assistant replies. Everything is built with
+  // DOM nodes and textContent (never innerHTML), and links must be http(s).
+  function mdInline(parent, text) {
+    const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\[[^\]\n]+\]\((https?:\/\/[^\s)]+)\))|(\*[^*\s][^*\n]*\*)/g;
+    let last = 0, m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+      if (m[1]) {
+        const c = document.createElement("code"); c.textContent = m[1].slice(1, -1); parent.appendChild(c);
+      } else if (m[2]) {
+        const b = document.createElement("strong"); mdInline(b, m[2].slice(2, -2)); parent.appendChild(b);
+      } else if (m[3]) {
+        const a = document.createElement("a");
+        a.href = m[4]; a.target = "_blank"; a.rel = "noopener noreferrer";
+        a.textContent = m[3].slice(1, m[3].indexOf("]"));
+        parent.appendChild(a);
+      } else if (m[5]) {
+        const em = document.createElement("em"); em.textContent = m[5].slice(1, -1); parent.appendChild(em);
+      }
+      last = re.lastIndex;
+    }
+    if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+  }
+
+  function renderMarkdown(container, text) {
+    container.textContent = "";
+    container.classList.add("md");
+    const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+    let para = [];
+    let list = null;
+    const flushPara = () => {
+      if (!para.length) return;
+      const p = document.createElement("p"); mdInline(p, para.join("\n")); container.appendChild(p); para = [];
+    };
+    const flushList = () => { list = null; };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const fence = line.match(/^\s*```\s*([\w+-]*)\s*$/);
+      if (fence) {
+        flushPara(); flushList();
+        const code = [];
+        i++;
+        while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
+        const pre = document.createElement("pre"); const c = document.createElement("code");
+        c.textContent = code.join("\n"); pre.appendChild(c); container.appendChild(pre);
+        continue;
+      }
+      const item = line.match(/^\s*([-*\u2022]|\d+[.)])\s+(.*)$/);
+      if (item) {
+        flushPara();
+        const ordered = /\d/.test(item[1]);
+        if (!list || list.ordered !== ordered) {
+          const el = document.createElement(ordered ? "ol" : "ul"); container.appendChild(el); list = { el, ordered };
+        }
+        const li = document.createElement("li"); mdInline(li, item[2]); list.el.appendChild(li);
+        continue;
+      }
+      const heading = line.match(/^(#{1,4})\s+(.*)$/);
+      if (heading) {
+        flushPara(); flushList();
+        const h = document.createElement("h" + Math.min(heading[1].length + 1, 4)); mdInline(h, heading[2]); container.appendChild(h);
+        continue;
+      }
+      const quote = line.match(/^>\s?(.*)$/);
+      if (quote) {
+        flushPara(); flushList();
+        let bq = container.lastElementChild;
+        if (!bq || bq.tagName !== "BLOCKQUOTE") { bq = document.createElement("blockquote"); container.appendChild(bq); }
+        if (bq.textContent) bq.appendChild(document.createElement("br"));
+        mdInline(bq, quote[1]);
+        continue;
+      }
+      if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { flushPara(); flushList(); container.appendChild(document.createElement("hr")); continue; }
+      if (!line.trim()) { flushPara(); flushList(); continue; }
+      flushList();
+      para.push(line);
+    }
+    flushPara();
+  }
+
+  // What a voice should read: the text without markdown punctuation.
+  function plainText(text) {
+    return String(text || "")
+      .replace(/```[\w+-]*\n?/g, "")
+      .replace(/\[([^\]]+)\]\(https?:[^)]+\)/g, "$1")
+      .replace(/[*`#>]+/g, "")
+      .replace(/^\s*[-\u2022]\s+/gm, "");
+  }
+
+  let ttsEnabled = true;
+
   function addMessage(text, cls) {
     const div = document.createElement("div");
     div.className = `msg ${cls}`;
-    const span = document.createElement("span");
-    span.textContent = text;
+    const span = document.createElement(cls === "assistant" ? "div" : "span");
+    if (cls === "assistant") renderMarkdown(span, text); else span.textContent = text;
     div.appendChild(span);
     if (cls === "assistant") attachSpeakButton(div, text);
     messages.appendChild(div);
@@ -574,12 +735,13 @@
   }
 
   function attachSpeakButton(div, text) {
+    if (!ttsEnabled) return;
     const speakBtn = document.createElement("button");
     speakBtn.type = "button";
     speakBtn.className = "speak-btn";
     speakBtn.title = "Play";
     speakBtn.textContent = "\u{1f50a}";
-    speakBtn.addEventListener("click", () => speak(text, speakBtn));
+    speakBtn.addEventListener("click", () => speak(plainText(text), speakBtn));
     div.appendChild(speakBtn);
   }
 
@@ -589,7 +751,7 @@
   // answer as it's written, instead of nothing until the whole reply is ready.
   // Resolves with the final ChatResponse (same shape as the non-streaming
   // endpoints); rejects with an Error carrying the server's message.
-  async function runChatTurn(path, body) {
+  async function runChatTurn(path, body, signal) {
     const div = document.createElement("div");
     div.className = "msg assistant live";
 
@@ -611,7 +773,7 @@
 
     const steps = document.createElement("div");
     steps.className = "tool-steps";
-    const answer = document.createElement("span");
+    const answer = document.createElement("div");
     div.append(status, thinking, steps, answer);
     messages.appendChild(div);
 
@@ -664,7 +826,7 @@
         endThinking();
         stage = "Writing answer";
         answerText += event.delta;
-        answer.textContent = answerText;
+        renderMarkdown(answer, answerText);
       } else if (event.type === "tool_start") {
         // Any text streamed so far was provisional -- the model chose a
         // tool instead, and the real answer is written after it runs.
@@ -697,7 +859,7 @@
     };
 
     try {
-      const response = await api(path, { method: "POST", body: JSON.stringify(body), raw: true });
+      const response = await api(path, { method: "POST", body: JSON.stringify(body), raw: true, signal });
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -722,7 +884,7 @@
         }
       }
     } catch (err) {
-      failure = failure || err;
+      failure = failure || (err && err.name === "AbortError" ? Object.assign(new Error("Stopped."), { aborted: true }) : err);
     } finally {
       clearInterval(timer);
     }
@@ -731,6 +893,7 @@
     endThinking();
     if (failure || !finalResponse) {
       if (!thinkingText.textContent && !steps.children.length && !answerText) div.remove();
+      else div.classList.remove("live");
       throw failure || new Error("The connection closed before SirisAI finished.");
     }
 
@@ -739,7 +902,7 @@
       answer.remove();
     } else {
       const text = finalResponse.response || "Done.";
-      answer.textContent = text;
+      renderMarkdown(answer, text);
       attachSpeakButton(div, text);
     }
     div.classList.remove("live");
@@ -747,7 +910,7 @@
     return finalResponse;
   }
 
-  function addConfirmationPrompt(name, args) {
+  function addConfirmationPrompt(name, args, usePlanner) {
     const div = document.createElement("div");
     div.className = "msg confirm";
 
@@ -782,6 +945,7 @@
           conversation_id: conversationId,
           tool_name: name,
           arguments: args,
+          use_planner: !!usePlanner,
         });
       } catch (err) {
         addMessage(err.message, "error");
@@ -868,28 +1032,44 @@
 
   const chatSendBtn = document.getElementById("chat-send-btn");
 
+  // While a reply is being produced the Send button becomes Stop. Stopping
+  // ends the wait in this page; SirisAI may still finish anything it had
+  // already started (the turn runs to completion on the server).
+  let running = null;
+  chatSendBtn.addEventListener("click", (e) => {
+    if (running) { e.preventDefault(); running.abort(); }
+  });
+
   chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (running) return;
     const prompt = chatInput.value.trim();
     if (!prompt) return;
     addMessage(prompt, "user");
     chatInput.value = "";
-    chatSendBtn.disabled = true;
+    running = new AbortController();
+    chatSendBtn.textContent = "Stop";
+    chatSendBtn.classList.add("stop");
     try {
       // Only the model's plain-English answer is shown, never the raw
       // tool call/result -- that's still in GET /siris/activity for
       // anyone who wants it. "Done." is a rare fallback for the case
       // synthesis didn't produce text at all (see runChatTurn).
-      const result = await runChatTurn("/siris/chat/stream", { prompt, conversation_id: conversationId });
+      const result = await runChatTurn("/siris/chat/stream", { prompt, conversation_id: conversationId }, running.signal);
       conversationId = result.conversation_id;
+      rememberConversation(conversationId);
       if (result.confirmation_required) {
-        addConfirmationPrompt(result.confirmation_required.name, result.confirmation_required.arguments);
+        addConfirmationPrompt(result.confirmation_required.name, result.confirmation_required.arguments, result.used_planner);
       }
     } catch (err) {
-      addMessage(err.message, "error");
+      if (err && err.aborted) addMessage("Stopped. SirisAI may still finish anything it had already started.", "tool");
+      else addMessage(err.message, "error");
     } finally {
-      chatSendBtn.disabled = false;
+      running = null;
+      chatSendBtn.textContent = "Send";
+      chatSendBtn.classList.remove("stop");
       chatInput.focus();
+      refreshHistory();
     }
   });
 
@@ -1512,6 +1692,44 @@
       }
       dl.appendChild(dt);
       dl.appendChild(dd);
+
+      // Whether each configured service is reachable right now, and which
+      // tools are paused because they keep failing.
+      try {
+        const health = await api("/siris/integrations/health");
+        const hdt = document.createElement("dt");
+        hdt.textContent = "Integrations";
+        const hdd = document.createElement("dd");
+        for (const c of health.integrations) {
+          const span = document.createElement("span");
+          span.className = c.ok ? "tag" : "tag bad";
+          span.textContent = c.ok ? c.name : `${c.name}: down`;
+          span.title = c.detail;
+          hdd.appendChild(span);
+        }
+        for (const [name, note] of Object.entries(health.notes || {})) {
+          const span = document.createElement("span");
+          span.className = "tag bad";
+          span.textContent = `${name}: ${note}`;
+          hdd.appendChild(span);
+        }
+        dl.appendChild(hdt);
+        dl.appendChild(hdd);
+        if (health.paused_tools.length) {
+          const pdt = document.createElement("dt");
+          pdt.textContent = "Paused tools";
+          const pdd = document.createElement("dd");
+          for (const name of health.paused_tools) {
+            const span = document.createElement("span");
+            span.className = "tag bad";
+            span.textContent = name;
+            pdd.appendChild(span);
+          }
+          dl.appendChild(pdt);
+          dl.appendChild(pdd);
+        }
+      } catch (err) { /* health is extra; the rest of the status still shows */ }
+
       statusBody.innerHTML = "";
       statusBody.appendChild(dl);
     } catch (err) {
@@ -1520,6 +1738,22 @@
   }
 
   document.getElementById("status-refresh").addEventListener("click", loadStatus);
+
+  // Startup: hide voice controls that can't work, reopen the last conversation,
+  // fill the history list.
+  (async () => {
+    try {
+      const status = await api("/siris/status");
+      if (status.stt_provider === "none") micBtn.hidden = true;
+      ttsEnabled = status.tts_provider !== "none";
+    } catch (err) { /* not signed in yet; the controls stay */ }
+    let saved = "";
+    try { saved = localStorage.getItem(CONV_KEY) || ""; } catch (err) { /* ignore */ }
+    if (saved) {
+      try { await openConversation(saved); } catch (err) { rememberConversation(""); }
+    }
+    refreshHistory();
+  })();
 
   chatInput.focus();
 })();
