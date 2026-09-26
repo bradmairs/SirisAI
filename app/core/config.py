@@ -273,6 +273,11 @@ class Settings(BaseSettings):
     # "turn on the light at 40%" correctly only 1 time in 4 (it stopped after
     # the entity lookup), versus 4 in 4 with the planner at similar latency.
     default_use_planner: bool = True
+
+    # Offer the model only the most relevant tools each turn instead of all
+    # of them (see app/plugins/selector.py). 110 tools cost ~14,200 prompt
+    # tokens per turn versus ~1,050 with none. 0 = always offer everything.
+    tool_selection_max: int = 32
     # "everyone left" -> away scene, "someone's home" -> home scene.
     # presence_device_names is comma-separated UniFi client names/hostnames
     # (e.g. "brads-iphone,jans-iphone") that count as "someone is home"

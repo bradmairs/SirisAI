@@ -31,6 +31,10 @@ os.environ.setdefault("SIRISAI_AUTO_MEMORY_EXTRACTION_ENABLED", "false")
 # here; tests for the default itself pass use_planner / Settings explicitly.
 os.environ.setdefault("SIRISAI_DEFAULT_USE_PLANNER", "false")
 
+# Tool selection narrows what the model is offered; tests fake an LLM that picks
+# by name, so they see the full list. Tests for the selector build it directly.
+os.environ.setdefault("SIRISAI_TOOL_SELECTION_MAX", "0")
+
 import pytest
 from fastapi.testclient import TestClient
 

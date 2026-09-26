@@ -537,7 +537,7 @@ def test_process_runs_automatic_memory_extraction_after_a_real_response() -> Non
     siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Sure, here's the weather.")), settings=settings)
     conversation_id = siris.conversation.create_conversation()
 
-    result = asyncio.run(Cortex().process(siris, conversation_id, "what's the weather", use_context=False, use_tools=False))
+    result = asyncio.run(Cortex().process(siris, conversation_id, "I prefer dark roast coffee.", use_context=False, use_tools=False))
 
     assert result.response == "Sure, here's the weather."
     assert any("dark roast coffee" in m["content"] for m in siris.memory.recall())
@@ -609,7 +609,7 @@ def test_automatic_memory_extraction_records_its_own_honest_audit_trigger() -> N
     siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Sure.")), settings=settings)
     conversation_id = siris.conversation.create_conversation()
 
-    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+    asyncio.run(Cortex().process(siris, conversation_id, "I use a Synology NAS.", use_context=False, use_tools=False))
 
     entries = siris.audit.find_recent("remember", limit=5)
     assert entries
@@ -617,16 +617,19 @@ def test_automatic_memory_extraction_records_its_own_honest_audit_trigger() -> N
     assert "planner: step" not in entries[0]["trigger"]
 
 
-def test_confirm_also_runs_automatic_memory_extraction() -> None:
+def test_confirm_does_not_run_automatic_memory_extraction() -> None:
     settings = Settings(auto_memory_extraction_enabled=True)
     siris = _siris(_MainThenExtractionLLMClient(LLMResponse(text="Confirmed and done.")), settings=settings)
     siris.tools.register(_ConfirmRequiredTool())
     conversation_id = siris.conversation.create_conversation()
+    before_ids = {m["id"] for m in siris.memory.recall()}
 
     result = asyncio.run(Cortex().confirm(siris, conversation_id, "dangerous_action", {"target": "the-thing"}))
 
     assert result.tool_call is not None
-    assert any("dark roast coffee" in m["content"] for m in siris.memory.recall())
+    # A confirmation isn't the user stating a fact, so extraction is skipped
+    # (it used to run and re-save whatever the action touched).
+    assert {m["id"] for m in siris.memory.recall()} == before_ids
 
 
 def test_automatic_memory_extraction_uses_the_fast_model_role_when_configured() -> None:
@@ -639,8 +642,21 @@ def test_automatic_memory_extraction_uses_the_fast_model_role_when_configured() 
     siris.model_router = ModelRouter(fast=fast, policy="off", fast_max_prompt_chars=120)
     conversation_id = siris.conversation.create_conversation()
 
-    result = asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+    result = asyncio.run(Cortex().process(siris, conversation_id, "I use a Synology NAS.", use_context=False, use_tools=False))
 
     assert result.response == "Sure."  # the main turn still used the general client, unaffected
     assert fast.extraction_calls > 0  # but extraction itself ran on the fast client
     assert any("dark roast coffee" in m["content"] for m in siris.memory.recall())
+
+
+def test_extraction_pre_check_only_fires_for_statements_about_the_user() -> None:
+    from app.cortex.orchestrator import _worth_extracting
+
+    assert _worth_extracting("I prefer dark roast coffee.")
+    assert _worth_extracting("Remember that my NAS is a Synology DS920.")
+    assert _worth_extracting("My favourite colour is teal")
+    assert not _worth_extracting("What's my favourite coffee?")
+    assert not _worth_extracting("I'm heading to bed?")
+    assert not _worth_extracting("Turn on the office light")
+    assert not _worth_extracting("Good morning!")
+    assert not _worth_extracting("(user confirmed: home_assistant_call_service)")

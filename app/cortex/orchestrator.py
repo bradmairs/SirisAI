@@ -95,15 +95,37 @@ _MEMORY_EXTRACTION_TOOL_NAMES = {
 }
 _MEMORY_EXTRACTION_MAX_STEPS = 3
 _MEMORY_EXTRACTION_SYSTEM_PROMPT = (
-    "You just handled one exchange in an ongoing conversation. Decide whether anything in it is "
-    "worth saving to long-term memory for future conversations.\n\n"
-    "Save something only if it's a durable fact that would still be useful weeks from now -- a "
-    "stated preference, an important fact about the user, their setup, or a named person/service/"
-    "device/project. Do not save routine questions, one-off requests, or small talk.\n\n"
+    "You just handled one exchange in an ongoing conversation. Decide whether the USER told you "
+    "something worth saving to long-term memory for future conversations.\n\n"
+    "Save something only if the user themselves stated it and it will still be true and useful weeks "
+    "from now: a preference, a fact about them, their home or setup, or a named person/service/"
+    "device/project. Save it in one short sentence.\n\n"
+    "Never save: anything that came from a tool result, system status or the assistant's own reply "
+    "(device lists, network details, CPU or disk figures, weather); what SirisAI is or can do; goals, "
+    "routines or tasks that were just created; a one-off request or command; a current state or a "
+    "passing remark (\"I'm going to bed\", \"turn it on\"); greetings and small talk. If unsure, save "
+    "nothing.\n\n"
     "Before saving anything, use recall / recall_entity_facts / recall_entity_relationships to "
     "check it isn't already known -- don't save a duplicate of something already remembered. If "
     "nothing qualifies, don't call any tool at all -- just say so."
 )
+
+# A cheap pre-check before spending a whole extra LLM call on extraction:
+# the user's message has to actually state something about themselves or
+# their setup. Found live: extraction ran after almost every turn, re-saved
+# the same fact (deduped, but still a wasted call) and stored things like the
+# UniFi device list and "heading to bed" as long-term memories.
+_STATEMENT_RE = re.compile(
+    r"\b(i am|i'm|i\u2019m|i've|i\u2019ve|i have|i like|i love|i hate|i prefer|i work|i live|i use|i own|"
+    r"i moved|i bought|i got|my [a-z' ]{1,30} (is|are|was|were)|remember (that|this)|call me|"
+    r"from now on|always|never|we (are|have|use)|our [a-z' ]{1,30} (is|are))\b",
+    re.IGNORECASE,
+)
+
+
+def _worth_extracting(user_text: str) -> bool:
+    text = user_text.strip()
+    return bool(text) and not text.endswith("?") and _STATEMENT_RE.search(text) is not None
 
 # Follow-up synthesis nudge (a hardening pass, live-hit 2026-09-06): the
 # non-planner path offers exactly one tool call per turn, so a compound
@@ -253,7 +275,14 @@ class Cortex:
         taint.begin_turn(context_text if use_context else "", f"{user_text}\n{prompt}")
         messages = [*system_messages, *messages]
 
-        tools = siris.available_tool_specs() if use_tools else None
+        tools = None
+        if use_tools:
+            recent_tools = [
+                call["function"]["name"]
+                for m in messages[-10:]
+                for call in (m.get("tool_calls") or [])
+            ]
+            tools = await asyncio.to_thread(siris.available_tool_specs, prompt, recent_tools)
         resolved_role, llm_client = siris.model_router.pick(siris.llm, prompt, role=model_role)
 
         if use_planner:
@@ -586,6 +615,8 @@ class Cortex:
         if not siris.settings.auto_memory_extraction_enabled:
             return
         taint.begin_turn("", "")
+        if not _worth_extracting(context_label):
+            return
         if result.error or not result.response or siris.llm is None or siris.model_router is None:
             return
 

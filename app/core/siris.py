@@ -13,6 +13,7 @@ dependency, so routes never construct their own.
 import logging
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
@@ -68,6 +69,7 @@ from app.plugins.builtin.bazarr import (
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
 from app.plugins.builtin.cron import CronListJobsTool, CronSetJobEnabledTool
 from app.plugins.builtin.clock import GetCurrentTimeTool
+from app.plugins.selector import ToolSelector
 from app.plugins.builtin.docker import (
     DockerGetContainerLogsTool,
     DockerListContainersTool,
@@ -418,6 +420,7 @@ class SirisAI:
             self.tts = build_tts_client(self.settings)
         self._home_assistant_client: HomeAssistantClient | None = None
         self.integration_notes: dict[str, str] = {}
+        self.tool_selector = ToolSelector(self.settings.tool_selection_max)
         self._docker_client: DockerClient | None = None
         self._plex_client: PlexClient | None = None
         self._unifi_client: UniFiClient | None = None
@@ -822,10 +825,17 @@ class SirisAI:
             if tool.permission is ToolPermission.RESTRICTED and tool.name not in allowed
         }
 
-    def available_tool_specs(self) -> list[dict[str, Any]]:
+    def available_tool_specs(
+        self, prompt: str | None = None, recent_tool_names: Iterable[str] = ()
+    ) -> list[dict[str, Any]]:
         """Tool specs to offer the model: everything registered except
-        disabled RESTRICTED tools."""
-        return self.tools.specs(exclude=self.restricted_tool_names_to_exclude())
+        disabled RESTRICTED tools. With a `prompt`, narrowed to the tools
+        relevant to it (SIRISAI_TOOL_SELECTION_MAX, app/plugins/selector.py)
+        plus any in `recent_tool_names`."""
+        specs = self.tools.specs(exclude=self.restricted_tool_names_to_exclude())
+        if prompt is None:
+            return specs
+        return self.tool_selector.select(prompt, specs, recent_tool_names)
 
     def list_tools(self) -> list[dict[str, Any]]:
         """Every registered tool -- including skills, which are just tools
