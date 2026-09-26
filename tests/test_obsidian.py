@@ -313,3 +313,48 @@ def test_create_or_update_note_dry_run_reraises_non_404_errors() -> None:
     with pytest.raises(httpx.HTTPStatusError):
         tool.dry_run(path="Projects/SirisAI.md", content="# New content")
     client.close()
+
+
+# -- search falls back to file names when the plugin's own search fails (found live:
+#    one vault entry that no longer exists on disk made every search a 500)
+
+
+def test_search_falls_back_to_file_name_matches_when_the_plugin_search_errors() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/search/simple/":
+            return httpx.Response(
+                500,
+                json={
+                    "message": "Error encountered while calling Obsidian `prepareSimpleSearch` API.\nError: ENOENT: no such file or directory, open '/NAS/Vaults/Work/Old_DownloadConflict.md'",
+                    "errorCode": 50010,
+                },
+            )
+        if request.url.path == "/vault/":
+            return httpx.Response(200, json={"files": ["Homelab Notes.md", "Budgets.md", "Projects/"]})
+        if request.url.path == "/vault/Projects/":
+            return httpx.Response(200, json={"files": ["Homelab Rebuild.md", "Kitchen.md"]})
+        raise AssertionError(request.url.path)
+
+    client = _mock_client(handler)
+    results = client.search("homelab")
+    assert [r["path"] for r in results] == ["Homelab Notes.md", "Projects/Homelab Rebuild.md"]
+    assert "file names only" in results[0]["note"] and "Old_DownloadConflict.md" in results[0]["note"]
+    client.close()
+
+
+def test_fallback_search_says_so_when_no_file_name_matches() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/search/simple/":
+            return httpx.Response(500, json={"message": "boom"})
+        return httpx.Response(200, json={"files": ["Budgets.md"]})
+
+    results = _mock_client(handler).search("zebra")
+    assert results[0]["path"] is None and "No file names matched" in results[0]["note"]
+
+
+def test_a_non_500_search_error_still_raises() -> None:
+    import pytest
+
+    client = _mock_client(lambda r: httpx.Response(401, json={"message": "no"}))
+    with pytest.raises(httpx.HTTPStatusError):
+        client.search("x")

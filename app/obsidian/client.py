@@ -87,6 +87,12 @@ class ObsidianClient:
         response = self._client.post(
             "/search/simple/", params={"query": query, "contextLength": context_length}
         )
+        if response.status_code == 500:
+            # Found live (2026-09-26): the plugin's search aborts on a single
+            # vault entry that no longer exists on disk (a sync-conflict file),
+            # so one bad file made every search fail. Fall back to matching
+            # file names so there's still an answer, and say why.
+            return self._search_by_file_name(query, response)
         response.raise_for_status()
         return [
             {
@@ -95,6 +101,37 @@ class ObsidianClient:
                 "excerpts": [match["context"] for match in result.get("matches", [])],
             }
             for result in response.json()
+        ]
+
+    def _all_files(self, folder: str | None = None, depth: int = 0) -> list[str]:
+        files: list[str] = []
+        for entry in self.list_notes(folder):
+            path = f"{folder.strip('/')}/{entry}" if folder else entry
+            if entry.endswith("/"):
+                if depth < 4:
+                    try:
+                        files.extend(self._all_files(path.rstrip("/"), depth + 1))
+                    except httpx.HTTPError:
+                        continue
+            else:
+                files.append(path)
+        return files
+
+    def _search_by_file_name(self, query: str, failed: httpx.Response) -> list[dict]:
+        try:
+            reason = failed.json().get("message", "")
+        except ValueError:
+            reason = ""
+        broken = reason.split("open '")[-1].split("'")[0] if "open '" in reason else None
+        note = (
+            "Searching note contents failed because the vault has an entry Obsidian can't open"
+            + (f" ({broken})" if broken else "")
+            + ", so these are matches on file names only."
+        )
+        needle = query.strip().lower()
+        matches = [p for p in self._all_files() if needle in p.lower()]
+        return [{"path": p, "score": None, "excerpts": [], "note": note} for p in matches[:20]] or [
+            {"path": None, "score": None, "excerpts": [], "note": note + " No file names matched."}
         ]
 
     def close(self) -> None:

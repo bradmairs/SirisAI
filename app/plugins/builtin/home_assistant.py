@@ -779,6 +779,21 @@ class HomeAssistantCompleteTodoItemTool(Tool):
         return {"completed": item, "list": entity_id}
 
 
+def _describe_event_start(start: dict[str, Any], zone: Any) -> str:
+    """"Sun 27 Sep (all day)" / "Sat 26 Sep 09:30" -- with the weekday worked
+    out here, because the model got weekdays for bare ISO dates wrong (found
+    live: "Sunday, September 21" for a 27 September event)."""
+    try:
+        if "dateTime" in start:
+            moment = datetime.fromisoformat(str(start["dateTime"]).replace("Z", "+00:00")).astimezone(zone)
+            return moment.strftime("%a %-d %b %H:%M")
+        if "date" in start:
+            return datetime.fromisoformat(str(start["date"])).strftime("%a %-d %b") + " (all day)"
+    except ValueError:
+        pass
+    return str(start.get("dateTime") or start.get("date") or "")
+
+
 class HomeAssistantGetCalendarEventsTool(Tool):
     name = "home_assistant_get_calendar_events"
     description = (
@@ -819,6 +834,7 @@ class HomeAssistantGetCalendarEventsTool(Tool):
                     {
                         "calendar": cal.get("name") or cal["entity_id"],
                         "summary": ev.get("summary"),
+                        "when": _describe_event_start(start, zone),
                         "start": stamp,
                         "all_day": "date" in start and "dateTime" not in start,
                         "location": ev.get("location"),

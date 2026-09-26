@@ -117,6 +117,7 @@ def test_calendar_events_are_merged_across_calendars_and_sorted() -> None:
     events = HomeAssistantGetCalendarEventsTool(_client(handler), timezone="Australia/Melbourne").run(days=2)
     assert [e["summary"] for e in events] == ["Bins out", "Standup"]
     assert events[0]["all_day"] is True and events[0]["location"] == "Kerb"
+    assert events[0]["when"] == "Sat 26 Sep (all day)" and events[1]["when"] == "Sat 26 Sep 09:30"
     assert events[1]["calendar"] == "Work" and events[1]["all_day"] is False
 
 
