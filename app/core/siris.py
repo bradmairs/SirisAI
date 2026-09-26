@@ -214,6 +214,7 @@ from app.skills.builtin.event_timing import EventTimingSkill
 from app.skills.builtin.geofence_reminder import GeofenceReminderCheckSkill
 from app.skills.builtin.goal_check_in import GoalCheckInSkill
 from app.skills.builtin.goal_decomposition import GoalDecompositionCheckSkill
+from app.skills.builtin.bedtime import BedtimeCheckSkill
 from app.skills.builtin.house_status import HouseStatusSkill
 from app.skills.builtin.meeting_prep import MeetingPrepSkill
 from app.skills.builtin.new_device_alert import NewDeviceAlertSkill
@@ -801,6 +802,7 @@ class SirisAI:
         self.tools.register(SkillTool(GoalDecompositionCheckSkill(), self))
         self.tools.register(SkillTool(NewDeviceAlertSkill(), self))
         self.tools.register(SkillTool(HouseStatusSkill(), self))
+        self.tools.register(SkillTool(BedtimeCheckSkill(), self))
         self.tools.register(SkillTool(MeetingPrepSkill(), self))
         self.tools.register(
             SkillTool(

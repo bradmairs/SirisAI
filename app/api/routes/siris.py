@@ -12,7 +12,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import Request
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.core.auth import require_api_key
@@ -395,6 +396,47 @@ async def chat(
         model_role=request.model_role,
     )
     return _shape_response(result)
+
+
+@router.post("/ask", response_class=PlainTextResponse)
+async def ask(request: Request, siris: SirisAI = Depends(get_siris)) -> PlainTextResponse:
+    """Ask SirisAI something and get the answer back as plain text -- built
+    for Apple Shortcuts ("Get Contents of URL" -> "Speak Text"), so "Hey Siri,
+    ask SirisAI ..." works. Send `{"prompt": "..."}` (optionally with a
+    `conversation_id` from the `X-Conversation-Id` header of a previous reply)
+    or just the question as the raw request body; authenticate with the same
+    `Authorization: Bearer <key>` header as every other route.
+
+    An action that needs confirmation isn't run: the reply says so, and you
+    approve it in the web UI."""
+    assert siris.llm is not None
+    raw = (await request.body()).decode("utf-8", errors="replace").strip()
+    prompt, conversation_id = raw, None
+    if raw.startswith("{"):
+        try:
+            body = json.loads(raw)
+            prompt = str(body.get("prompt") or "").strip()
+            conversation_id = body.get("conversation_id")
+        except (ValueError, AttributeError):
+            pass
+    if not prompt:
+        raise HTTPException(status_code=422, detail="Send a question as the body, or JSON with a 'prompt'.")
+
+    chat_request = ChatRequest(prompt=prompt, conversation_id=conversation_id)
+    conversation_id = _resolve_conversation(siris, chat_request)
+    result = await Cortex().process(
+        siris,
+        conversation_id,
+        prompt,
+        use_planner=siris.settings.default_use_planner,
+    )
+    shaped = _shape_response(result)
+    if shaped.confirmation_required is not None:
+        pending = shaped.confirmation_required
+        text = f"I need your OK before I run {pending.name.replace('_', ' ')}. Open SirisAI to approve it."
+    else:
+        text = shaped.response or "Done."
+    return PlainTextResponse(text, headers={"X-Conversation-Id": conversation_id})
 
 
 class ConfirmToolRequest(BaseModel):

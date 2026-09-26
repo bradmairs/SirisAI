@@ -71,6 +71,12 @@ class DailyBriefingSkill(Skill):
             except Exception:
                 pass
 
+        if siris.tools.get("weather_forecast") is not None:
+            try:
+                briefing["forecast"] = siris.run_tool("weather_forecast", {"days": 1})[0]
+            except Exception:
+                pass
+
         if siris.tools.get("calendar_upcoming_events") is not None:
             try:
                 briefing["calendar"] = siris.run_tool(
@@ -78,6 +84,32 @@ class DailyBriefingSkill(Skill):
                 )
             except Exception:
                 pass
+        elif siris.tools.get("home_assistant_get_calendar_events") is not None:
+            # No CalDAV configured: use the calendars Home Assistant already has.
+            try:
+                briefing["calendar"] = siris.run_tool("home_assistant_get_calendar_events", {"days": 1})
+            except Exception:
+                pass
+
+        if siris.tools.get("home_assistant_get_todo_items") is not None:
+            try:
+                lists = siris.run_tool("home_assistant_get_todo_items", {})
+                briefing["todo"] = [i["summary"] for lst in lists for i in lst["items"] if i.get("summary")]
+            except Exception:
+                pass
+
+        try:
+            from datetime import UTC, datetime, timedelta
+
+            from app.core.clock import get_zone
+
+            zone = get_zone(siris.settings.timezone)
+            end_of_day = datetime.now(zone).replace(hour=23, minute=59, second=59).astimezone(UTC)
+            due = [r for r in siris.reminders.list_pending() if datetime.fromisoformat(r["due_at"]).replace(tzinfo=UTC) <= end_of_day]
+            if due:
+                briefing["reminders_today"] = [r["message"] for r in due]
+        except Exception:
+            pass
 
         if siris.tools.get("tautulli_recent_history") is not None:
             try:
@@ -112,6 +144,13 @@ class DailyBriefingSkill(Skill):
                 f"Weather: {weather['temperature_c']}°C, {weather['conditions']}."
             )
 
+        forecast = briefing.get("forecast")
+        if forecast is not None:
+            lines.append(
+                f"Forecast: {forecast['conditions']}, {forecast['low_c']}-{forecast['high_c']}°C, "
+                f"{forecast['rain_chance_percent']}% chance of rain."
+            )
+
         calendar = briefing.get("calendar")
         if calendar is not None:
             if calendar:
@@ -119,6 +158,14 @@ class DailyBriefingSkill(Skill):
                 lines.append(f"Today: {events}.")
             else:
                 lines.append("Nothing on the calendar today.")
+
+        todo = briefing.get("todo")
+        if todo:
+            lines.append(f"To-do ({len(todo)}): {', '.join(todo[:6])}.")
+
+        reminders_today = briefing.get("reminders_today")
+        if reminders_today:
+            lines.append(f"Reminders today: {'; '.join(reminders_today)}.")
 
         plex_activity = briefing.get("plex_recent_activity")
         if plex_activity is not None:
