@@ -33,6 +33,7 @@ surfaces it.
 
 import json
 import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -138,7 +139,7 @@ class AuditLogStore:
             reverse=True,
         )
 
-    def verification_stats_by_tool(self, limit: int = 500) -> list[dict[str, Any]]:
+    def verification_stats_by_tool(self, limit: int = 500, days: int | None = None) -> list[dict[str, Any]]:
         """Aggregate Tool.verify() outcomes per tool among the most
         recent `limit` executions -- a trust ledger (a hardening pass):
         this codebase already records verified/verification_detail per
@@ -152,12 +153,13 @@ class AuditLogStore:
         first, so a tool whose verify() is failing more than it's
         passing surfaces without needing to already know its name."""
         with self._session_factory() as session:
-            stmt = (
-                select(ToolExecution.tool_name, ToolExecution.verified)
-                .order_by(ToolExecution.id.desc())
-                .limit(limit)
-            )
-            rows = session.execute(stmt).all()
+            stmt = select(ToolExecution.tool_name, ToolExecution.verified)
+            if days is not None:
+                # Old failures from a since-fixed bug shouldn't drag today's
+                # score down (found live: 25% for Home Assistant from
+                # pre-fix false negatives).
+                stmt = stmt.where(ToolExecution.created_at >= datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days))
+            rows = session.execute(stmt.order_by(ToolExecution.id.desc()).limit(limit)).all()
 
         counts: dict[str, dict[str, int]] = {}
         for tool_name, verified in rows:

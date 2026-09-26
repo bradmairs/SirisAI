@@ -70,6 +70,12 @@ class EventTimingSkill(Skill):
             if baseline is None or baseline.mean_interval_hours < _MIN_MEAN_INTERVAL_HOURS:
                 continue
 
+            if baseline.stdev_interval_hours >= baseline.mean_interval_hours:
+                # Intervals vary as much as their own average: this isn't a
+                # schedule, so "overdue" would just be noise (found live: a
+                # lamp flagged overdue at "every 32.9h +/- 47.7h").
+                continue
+
             hours_since = (now - baseline.last_occurred_at).total_seconds() / 3600
             threshold_hours = baseline.mean_interval_hours + _STDEV_MULTIPLIER * baseline.stdev_interval_hours
             if hours_since <= threshold_hours:

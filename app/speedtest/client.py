@@ -23,6 +23,9 @@ doesn't shadow the real import inside this package.
 
 from typing import Any, Callable
 
+import socket
+import time
+
 import speedtest
 
 # speedtest-cli reports a server's latency as ~1,800,000 ms when every
@@ -32,6 +35,25 @@ import speedtest
 # ping reading. Anything at or above a minute is that sentinel, never a
 # real round trip.
 _UNUSABLE_PING_MS = 60_000
+
+
+def _tcp_ping_ms(host_port: str | None, attempts: int = 3) -> float | None:
+    """Average TCP connect time to the test server, used when speedtest-cli's
+    own latency probe failed (it does intermittently: 3 of 4 runs on the
+    home server) so the result still carries a real reading."""
+    if not host_port:
+        return None
+    host, _, port = host_port.partition(":")
+    samples = []
+    for _ in range(attempts):
+        started = time.perf_counter()
+        try:
+            with socket.create_connection((host, int(port) if port else 80), timeout=3):
+                pass
+        except (OSError, ValueError):
+            continue
+        samples.append((time.perf_counter() - started) * 1000)
+    return round(sum(samples) / len(samples), 2) if samples else None
 
 
 class SpeedTestClient:
@@ -63,8 +85,9 @@ class SpeedTestClient:
 
         ping = test.results.ping
         ping_usable = ping is not None and ping < _UNUSABLE_PING_MS
+        estimated_ping = None if ping_usable else _tcp_ping_ms(test.results.server.get("host"))
         result: dict = {
-            "ping_ms": round(ping, 2) if ping_usable else None,
+            "ping_ms": round(ping, 2) if ping_usable else estimated_ping,
             "server": (
                 f"{test.results.server['sponsor']}, {test.results.server['name']}, "
                 f"{test.results.server['country']}"
@@ -80,7 +103,12 @@ class SpeedTestClient:
                     "small, non-deterministic regional subset, not the full global "
                     "list) -- used automatic nearest-server selection instead."
                 )
-        if not ping_usable:
+        if not ping_usable and estimated_ping is not None:
+            result["ping_note"] = (
+                "The speed test's own latency probe failed, so this ping is the TCP connect time to "
+                "the test server instead."
+            )
+        elif not ping_usable:
             result["ping_note"] = (
                 "Latency probes to this test server all failed, so no ping reading is "
                 "available -- download/upload were still measured."

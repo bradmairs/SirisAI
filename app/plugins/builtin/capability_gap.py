@@ -114,7 +114,11 @@ class ReportCapabilityGapTool(Tool):
         suggested_tool_spec: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
-        return self._gaps.report_gap(requested_capability, suggested_integration, suggested_tool_spec)
+        gap = self._gaps.report_gap(requested_capability, suggested_integration, suggested_tool_spec)
+        # Said out loud so the reply doesn't imply the request is being
+        # worked on (found live: "I have initiated the search").
+        gap["note"] = "This only records the missing capability. Nothing was searched, built or fixed."
+        return gap
 
 
 class ListCapabilityGapsTool(Tool):

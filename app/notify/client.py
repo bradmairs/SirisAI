@@ -25,6 +25,23 @@ from typing import Any
 import httpx
 
 
+_NTFY_PRIORITIES = {"min": 1, "low": 2, "default": 3, "normal": 3, "high": 4, "urgent": 5, "max": 5}
+
+
+def _ntfy_priority(priority: str | int | None) -> int | None:
+    """ntfy's JSON publish API takes priority as an integer 1-5 and answers a
+    400 to a name like "default" (found live, 2026-09-26: a reminder failed
+    because the model passed priority="default"). Accept names or numbers."""
+    if priority is None or priority == "":
+        return None
+    if isinstance(priority, int):
+        return priority if 1 <= priority <= 5 else None
+    text = str(priority).strip().lower()
+    if text.isdigit():
+        return int(text) if 1 <= int(text) <= 5 else None
+    return _NTFY_PRIORITIES.get(text)
+
+
 class NotifyClient:
     def __init__(
         self, base_url: str, topic: str, timeout: float = 10.0, transport: httpx.BaseTransport | None = None
@@ -44,8 +61,9 @@ class NotifyClient:
             payload["title"] = title
         if actions:
             payload["actions"] = actions
-        if priority:
-            payload["priority"] = priority
+        level = _ntfy_priority(priority)
+        if level is not None:
+            payload["priority"] = level
         response = self._client.post("/", json=payload)
         response.raise_for_status()
 

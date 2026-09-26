@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
+from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient
 from app.core.user_context import resolve_user_id
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ class TranscribeResponse(BaseModel):
 @router.post("/transcribe", response_model=TranscribeResponse)
 async def transcribe(file: UploadFile = File(...), siris: SirisAI = Depends(get_siris)) -> TranscribeResponse:
     assert siris.stt is not None
+    if isinstance(siris.stt, NullSpeechToTextClient):
+        raise HTTPException(status_code=501, detail="Speech-to-text isn't configured (set SIRISAI_STT_PROVIDER).")
     audio = await file.read()
     try:
         text = await siris.stt.transcribe(
@@ -49,6 +52,8 @@ class SpeakRequest(BaseModel):
 @router.post("/speak")
 async def speak(request: SpeakRequest, siris: SirisAI = Depends(get_siris)) -> Response:
     assert siris.tts is not None
+    if isinstance(siris.tts, NullTextToSpeechClient):
+        raise HTTPException(status_code=501, detail="Text-to-speech isn't configured (set SIRISAI_TTS_PROVIDER).")
     try:
         audio = await siris.tts.synthesize(request.text)
     except Exception:

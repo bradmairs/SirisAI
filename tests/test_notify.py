@@ -97,11 +97,30 @@ def test_send_with_priority_includes_it() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        assert body["priority"] == "urgent"
+        assert body["priority"] == 5  # ntfy's JSON API wants 1-5, not a name
         return httpx.Response(200)
 
     client = _mock_client(handler)
     client.send("the roof is on fire", priority="urgent")
+    client.close()
+
+
+def test_priority_names_and_numbers_map_to_ntfy_levels() -> None:
+    """Found live: priority="default" made ntfy answer 400."""
+    from app.notify.client import _ntfy_priority
+
+    assert [_ntfy_priority(p) for p in ("min", "low", "default", "high", "urgent")] == [1, 2, 3, 4, 5]
+    assert _ntfy_priority("4") == 4 and _ntfy_priority(2) == 2
+    assert _ntfy_priority("bogus") is None and _ntfy_priority(9) is None and _ntfy_priority(None) is None
+
+
+def test_unrecognised_priority_is_omitted_rather_than_sent() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "priority" not in json.loads(request.content)
+        return httpx.Response(200)
+
+    client = _mock_client(handler)
+    client.send("hello", priority="whenever")
     client.close()
 
 

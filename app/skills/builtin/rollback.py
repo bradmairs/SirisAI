@@ -41,6 +41,8 @@ if TYPE_CHECKING:
 # already trusts to have a single correct state. "disarm" has no safe
 # single inverse (which arm mode was it in before?) so it's absent
 # rather than guessed at.
+_NO_TOOL_NAMED = {"", "unspecified", "unknown", "none", "null", "last", "latest", "recent", "any", "n/a"}
+
 _HOME_ASSISTANT_INVERSE_SERVICE: dict[str, str] = {
     "turn_on": "turn_off",
     "turn_off": "turn_on",
@@ -124,7 +126,8 @@ _INVERSE_HANDLERS = {
 class RollbackLastActionSkill(Skill):
     name = "rollback_last_action"
     description = (
-        "Reverse the most recent call to a specific tool, if that tool has a known, safe "
+        "Reverse the most recent call to a specific tool (or, with tool_name omitted, the most recent "
+        "undoable action of any kind), if that tool has a known, safe "
         "inverse -- e.g. deleting a movie radarr_add_movie just added, or calling the opposite "
         "Home Assistant service (turn_on -> turn_off, lock -> unlock). Only tools with a "
         "registered inverse are supported; anything else is reported as unsupported rather "
@@ -138,10 +141,23 @@ class RollbackLastActionSkill(Skill):
                 "description": "The tool whose most recent call to reverse, e.g. 'radarr_add_movie'.",
             },
         },
-        "required": ["tool_name"],
+        "required": [],
     }
 
     def run(self, siris: "SirisAI", tool_name: str = "", **kwargs: Any) -> Any:
+        if tool_name.strip().lower() in _NO_TOOL_NAMED:
+            # "Undo the last thing you did": pick the most recent successful
+            # call among the tools that have a known inverse, instead of
+            # making the model guess a name (it proposed "Unspecified").
+            candidates = [
+                entry
+                for name in _INVERSE_HANDLERS
+                for entry in siris.audit.find_recent(name, limit=1)
+                if entry["error"] is None
+            ]
+            if not candidates:
+                return {"rolled_back": False, "reason": "There's no recent action I know how to undo."}
+            tool_name = max(candidates, key=lambda e: e["id"])["tool_name"]
         handler = _INVERSE_HANDLERS.get(tool_name)
         if handler is None:
             return {

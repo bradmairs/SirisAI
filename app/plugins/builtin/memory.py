@@ -32,6 +32,7 @@ there's no undo once it's gone.
 
 from typing import Any
 
+from app.core.clock import to_local
 from app.memory.entities import EntityMemoryStore
 from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
@@ -195,11 +196,79 @@ class RecallEventsTool(Tool):
         "required": [],
     }
 
+    def __init__(self, events: EventMemoryStore, timezone: str = "UTC") -> None:
+        self._events = events
+        self._timezone = timezone
+
+    def run(self, entity_name: str | None = None, limit: int = 20, **kwargs: Any) -> Any:
+        events = self._events.recent_events(entity_name=entity_name, limit=limit)
+        # Stored times are UTC; give the model (and so the user) local ones.
+        return [{**e, "at_local": to_local(e["created_at"], self._timezone)} for e in events]
+
+
+class DeleteEntityFactTool(Tool):
+    name = "delete_entity_fact"
+    description = (
+        "Delete one saved fact about an entity, by its id (from recall_entity_facts). Use this "
+        "when a fact is wrong or the user asks to forget it. There is no undo."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {"fact_id": {"type": "integer", "description": "The fact's id, from recall_entity_facts."}},
+        "required": ["fact_id"],
+    }
+
+    def __init__(self, entities: EntityMemoryStore) -> None:
+        self._entities = entities
+
+    def run(self, fact_id: int = 0, **kwargs: Any) -> Any:
+        if not self._entities.delete_fact(fact_id):
+            raise ValueError(f"Unknown entity fact id: {fact_id}")
+        return {"deleted": True, "id": fact_id}
+
+
+class DeleteEntityRelationshipTool(Tool):
+    name = "delete_entity_relationship"
+    description = (
+        "Delete one saved relationship between entities, by its id (from "
+        "recall_entity_relationships). There is no undo."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "relationship_id": {"type": "integer", "description": "The relationship's id, from recall_entity_relationships."}
+        },
+        "required": ["relationship_id"],
+    }
+
+    def __init__(self, entities: EntityMemoryStore) -> None:
+        self._entities = entities
+
+    def run(self, relationship_id: int = 0, **kwargs: Any) -> Any:
+        if not self._entities.delete_relationship(relationship_id):
+            raise ValueError(f"Unknown relationship id: {relationship_id}")
+        return {"deleted": True, "id": relationship_id}
+
+
+class DeleteEventTool(Tool):
+    name = "delete_event"
+    description = "Delete one logged event by its id (from recall_events), e.g. one that was logged by mistake. There is no undo."
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {"event_id": {"type": "integer", "description": "The event's id, from recall_events."}},
+        "required": ["event_id"],
+    }
+
     def __init__(self, events: EventMemoryStore) -> None:
         self._events = events
 
-    def run(self, entity_name: str | None = None, limit: int = 20, **kwargs: Any) -> Any:
-        return self._events.recent_events(entity_name=entity_name, limit=limit)
+    def run(self, event_id: int = 0, **kwargs: Any) -> Any:
+        if not self._events.delete_event(event_id):
+            raise ValueError(f"Unknown event id: {event_id}")
+        return {"deleted": True, "id": event_id}
 
 
 class RememberEntityRelationshipTool(Tool):

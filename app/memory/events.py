@@ -70,6 +70,15 @@ class EventMemoryStore:
             session.commit()
             return self._serialize(row)
 
+    def delete_event(self, event_id: int) -> bool:
+        with self._session_factory() as session:
+            row = session.get(Event, event_id)
+            if row is None:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
+
     def recent_events(self, entity_name: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         with self._session_factory() as session:
             stmt = select(Event).order_by(Event.created_at.desc(), Event.id.desc()).limit(limit)

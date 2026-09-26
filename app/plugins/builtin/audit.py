@@ -20,7 +20,8 @@ class ExplainRecentActionTool(Tool):
     name = "explain_recent_action"
     description = (
         "Explain why SirisAI took a specific action recently, e.g. 'why did you restart plex' -> "
-        "tool_name='docker_restart_container', argument_contains='plex'. Looks up the most "
+        "tool_name='docker_restart_container', argument_contains='plex'. Omit tool_name to explain "
+        "the most recent action of any kind. Looks up the most "
         "recent matching audit log entries and returns each one's trigger (what caused it), "
         "evidence (supporting data that justified it, if any was recorded), policy (what "
         "allowed it to run without asking first), and -- for tools that support it, e.g. "
@@ -41,14 +42,20 @@ class ExplainRecentActionTool(Tool):
                 "description": "Optional substring filter on the call's arguments, e.g. 'plex'.",
             },
         },
-        "required": ["tool_name"],
+        "required": [],
     }
 
     def __init__(self, audit: AuditLogStore) -> None:
         self._audit = audit
 
     def run(self, tool_name: str = "", argument_contains: str | None = None, **kwargs: Any) -> Any:
-        return self._audit.find_recent(tool_name, argument_contains=argument_contains)
+        if tool_name:
+            return self._audit.find_recent(tool_name, argument_contains=argument_contains)
+        # No tool named ("explain the last thing you did"): the most recent
+        # calls that changed something, skipping plain lookups.
+        recent = self._audit.list_recent(limit=40)
+        actions = [e for e in recent if not str(e.get("policy") or "").startswith("READ")]
+        return actions[:5]
 
 
 class TrustLedgerTool(Tool):
@@ -62,10 +69,19 @@ class TrustLedgerTool(Tool):
         "one specific recent call succeeded (explain_recent_action is for that)."
     )
     permission = ToolPermission.READ
-    parameters = {"type": "object", "properties": {}, "required": []}
+    parameters = {
+        "type": "object",
+        "properties": {
+            "days": {
+                "type": "integer",
+                "description": "Only count runs from the last N days. Defaults to 3, so old failures from a bug that's since been fixed don't drag the score down.",
+            }
+        },
+        "required": [],
+    }
 
     def __init__(self, audit: AuditLogStore) -> None:
         self._audit = audit
 
-    def run(self, **kwargs: Any) -> Any:
-        return self._audit.verification_stats_by_tool()
+    def run(self, days: int = 3, **kwargs: Any) -> Any:
+        return self._audit.verification_stats_by_tool(days=days)

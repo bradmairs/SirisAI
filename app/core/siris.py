@@ -67,6 +67,7 @@ from app.plugins.builtin.bazarr import (
 )
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
 from app.plugins.builtin.cron import CronListJobsTool, CronSetJobEnabledTool
+from app.plugins.builtin.clock import GetCurrentTimeTool
 from app.plugins.builtin.docker import (
     DockerGetContainerLogsTool,
     DockerListContainersTool,
@@ -110,6 +111,9 @@ from app.plugins.builtin.memory import (
     RememberEntityFactTool,
     RememberEntityRelationshipTool,
     RememberTool,
+    DeleteEntityFactTool,
+    DeleteEntityRelationshipTool,
+    DeleteEventTool,
 )
 from app.plugins.builtin.notify import ListPendingNotificationsTool, NotifyTool
 from app.plugins.builtin.obsidian import (
@@ -245,6 +249,10 @@ _CATEGORY_NAMES: dict[str, str] = {
     "recall_entity_relationships": "memory",
     "log_event": "memory",
     "recall_events": "memory",
+    "delete_entity_fact": "memory",
+    "delete_entity_relationship": "memory",
+    "delete_event": "memory",
+    "get_current_time": "system",
     "notify": "notify",
     "list_pending_notifications": "notify",
     "system_info": "system",
@@ -439,7 +447,11 @@ class SirisAI:
         self.tools.register(RememberEntityRelationshipTool(self.entities))
         self.tools.register(RecallEntityRelationshipsTool(self.entities))
         self.tools.register(LogEventTool(self.events))
-        self.tools.register(RecallEventsTool(self.events))
+        self.tools.register(RecallEventsTool(self.events, timezone=self.settings.timezone))
+        self.tools.register(DeleteEntityFactTool(self.entities))
+        self.tools.register(DeleteEntityRelationshipTool(self.entities))
+        self.tools.register(DeleteEventTool(self.events))
+        self.tools.register(GetCurrentTimeTool(self.settings.timezone))
         self.tools.register(CreateGoalTool(self.goals))
         self.tools.register(ListGoalsTool(self.goals))
         self.tools.register(UpdateGoalStatusTool(self.goals))
@@ -1037,6 +1049,7 @@ class SirisAI:
             "restricted_tools_disabled": sorted(
                 self.restricted_tool_names_to_exclude()
             ),
+            "integration_notes": dict(self.integration_notes),
         }
 
     async def aclose(self) -> None:

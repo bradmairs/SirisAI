@@ -4,15 +4,17 @@ from app.core.siris import get_siris
 from app.main import app
 
 
-def test_transcribe_without_backend_returns_502(client: TestClient) -> None:
+def test_transcribe_without_backend_returns_501_saying_it_is_not_configured(client: TestClient) -> None:
     # Default test config has stt_provider="none" -> NullSpeechToTextClient.
     response = client.post("/siris/voice/transcribe", files={"file": ("test.wav", b"fake-audio", "audio/wav")})
-    assert response.status_code == 502
+    assert response.status_code == 501
+    assert "isn't configured" in response.json()["detail"]
 
 
-def test_speak_without_backend_returns_502(client: TestClient) -> None:
+def test_speak_without_backend_returns_501_saying_it_is_not_configured(client: TestClient) -> None:
     response = client.post("/siris/voice/speak", json={"text": "hello"})
-    assert response.status_code == 502
+    assert response.status_code == 501
+    assert "isn't configured" in response.json()["detail"]
 
 
 class _FakeSTTClient:
