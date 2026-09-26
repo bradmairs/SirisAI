@@ -574,6 +574,12 @@ class MessageResponse(BaseModel):
     created_at: str
 
 
+@router.get("/conversations")
+def list_conversations(limit: int = 20, siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
+    """Recent conversations, newest first, for the web UI's history list."""
+    return siris.conversation.recent_conversations(limit=max(1, min(limit, 50)))
+
+
 @router.get("/conversations/{conversation_id}", response_model=list[MessageResponse])
 def get_conversation(
     conversation_id: str, siris: SirisAI = Depends(get_siris)

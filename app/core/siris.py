@@ -10,6 +10,7 @@ FastAPI gets a single shared instance via `get_siris()`, used as a
 dependency, so routes never construct their own.
 """
 
+import json
 import logging
 import os
 import time
@@ -102,6 +103,12 @@ from app.plugins.builtin.home_assistant import (
     HomeAssistantListEntitiesTool,
     HomeAssistantRenderTemplateTool,
     HomeAssistantResolveEntityTool,
+    HomeAssistantAddTodoItemTool,
+    HomeAssistantCompleteTodoItemTool,
+    HomeAssistantGetCalendarEventsTool,
+    HomeAssistantGetTodoItemsTool,
+    HomeAssistantListMediaPlayersTool,
+    HomeAssistantMediaControlTool,
 )
 from app.plugins.builtin.listenarr import ListenarrQueueTool, ListenarrSystemStatusTool
 from app.plugins.builtin.memory import (
@@ -183,6 +190,9 @@ from app.plugins.builtin.unifi import (
     UniFiRestartDeviceTool,
     UniFiUnblockClientTool,
 )
+from app.plugins.builtin.web import WebFetchTool, WebSearchTool
+from app.websearch.client import WebSearchClient
+from app.plugins.builtin.conversations import RecentConversationsTool, SearchConversationsTool
 from app.plugins.builtin.weather import WeatherCurrentTool, WeatherForecastTool
 from app.plugins.builtin.reminders import CancelReminderTool, ListRemindersTool, SetReminderTool
 from app.plugins.builtin.integration_health import IntegrationHealthTool
@@ -260,6 +270,10 @@ _CATEGORY_NAMES: dict[str, str] = {
     "delete_event": "memory",
     "get_current_time": "system",
     "integration_health": "system",
+    "web_search": "web",
+    "web_fetch": "web",
+    "search_conversations": "memory",
+    "recent_conversations": "memory",
     "set_reminder": "reminders",
     "list_reminders": "reminders",
     "cancel_reminder": "reminders",
@@ -470,6 +484,12 @@ class SirisAI:
         self.tools.register(ListRemindersTool(self.reminders, self.settings.timezone))
         self.tools.register(CancelReminderTool(self.reminders))
         self.tools.register(IntegrationHealthTool(self))
+        self.tools.register(SearchConversationsTool(self.conversation, self.settings.timezone))
+        self.tools.register(RecentConversationsTool(self.conversation, self.settings.timezone))
+        if self.settings.web_tools_enabled:
+            web_client = WebSearchClient(searx_url=self.settings.web_search_url)
+            self.tools.register(WebSearchTool(web_client))
+            self.tools.register(WebFetchTool(web_client))
         self.tools.register(CreateGoalTool(self.goals))
         self.tools.register(ListGoalsTool(self.goals))
         self.tools.register(UpdateGoalStatusTool(self.goals))
@@ -525,6 +545,14 @@ class SirisAI:
             self.tools.register(
                 HomeAssistantDeleteAutomationTool(self._home_assistant_client)
             )
+            self.tools.register(HomeAssistantGetTodoItemsTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantAddTodoItemTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantCompleteTodoItemTool(self._home_assistant_client))
+            self.tools.register(
+                HomeAssistantGetCalendarEventsTool(self._home_assistant_client, timezone=self.settings.timezone)
+            )
+            self.tools.register(HomeAssistantListMediaPlayersTool(self._home_assistant_client))
+            self.tools.register(HomeAssistantMediaControlTool(self._home_assistant_client))
             self.tools.register(
                 SkillTool(
                     GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
@@ -1046,6 +1074,9 @@ class SirisAI:
                 policy=policy,
             )
             raise
+
+        if name in taint.EXTERNAL_CONTENT_TOOLS:
+            taint.add_untrusted(json.dumps(result, default=str))
 
         verification = None
         try:

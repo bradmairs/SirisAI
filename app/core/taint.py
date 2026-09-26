@@ -18,7 +18,9 @@ import re
 from contextvars import ContextVar
 from typing import Any
 
-_context_text: ContextVar[str] = ContextVar("turn_context_text", default="")
+# A list, not a str: run_tool executes in a worker thread on a *copy* of the
+# context, and an in-place append is visible to the whole turn.
+_context_parts: ContextVar[list[str]] = ContextVar("turn_context_parts", default=[])
 _user_text: ContextVar[str] = ContextVar("turn_user_text", default="")
 
 # State-changing tools whose arguments are free text the model composes.
@@ -54,9 +56,33 @@ _INSTRUCTION_RE = re.compile(
 )
 
 
+# Read tools that return text written by someone else (a web page, a note, a
+# calendar invite, a media title). What they return joins the untrusted
+# context for the rest of the turn.
+EXTERNAL_CONTENT_TOOLS = frozenset(
+    {
+        "web_search",
+        "web_fetch",
+        "obsidian_search",
+        "obsidian_get_note",
+        "obsidian_list_notes",
+        "home_assistant_get_calendar_events",
+        "calendar_upcoming_events",
+        "home_assistant_get_todo_items",
+        "plex_search",
+        "plex_now_playing",
+    }
+)
+
+
 def begin_turn(context_text: str | None, user_text: str | None) -> None:
-    _context_text.set((context_text or "").lower())
+    _context_parts.set([(context_text or "").lower()])
     _user_text.set((user_text or "").lower())
+
+
+def add_untrusted(text: str) -> None:
+    """Add text returned by an external-content tool to this turn's untrusted context."""
+    _context_parts.get().append(text.lower())
 
 
 def sanitize_untrusted(text: str | None, max_len: int = 160) -> str:
@@ -83,8 +109,8 @@ def copied_from_context(tool_name: str, arguments: dict[str, Any]) -> str | None
     but nowhere in what the user said; otherwise None."""
     if tool_name not in FREE_TEXT_WRITERS:
         return None
-    context, user = _context_text.get(), _user_text.get()
-    if not context:
+    context, user = "\n".join(_context_parts.get()), _user_text.get()
+    if not context.strip():
         return None
     for value in _strings(arguments):
         needle = " ".join(value.lower().split())

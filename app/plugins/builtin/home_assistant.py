@@ -666,3 +666,257 @@ class HomeAssistantDeleteAutomationTool(Tool):
             verified=False,
             detail=f"Automation {automation_id} is still present after delete.",
         )
+
+
+# -- To-do lists, calendars and media players (Home Assistant already has all
+# three; SirisAI had no way to reach them -- "what's on my calendar?" said the
+# calendar wasn't configured, and "to-do list" answered with goals).
+
+
+def _resolve_entity_id(client: HomeAssistantClient, domain: str, hint: str | None, what: str) -> str:
+    """The entity_id for `hint` (an id or a loose name) within `domain`. With
+    no hint and exactly one entity, that one; anything ambiguous raises with
+    the candidates so the model can ask instead of guessing."""
+    states = client.list_states(domain=domain)
+    if not states:
+        raise ValueError(f"Home Assistant has no {what}.")
+    if hint:
+        hint_l = hint.strip().lower()
+        for st in states:
+            if st["entity_id"].lower() == hint_l:
+                return st["entity_id"]
+        words = hint_l.split()
+        matches = [
+            st
+            for st in states
+            if _entity_name_matches(words, f"{st['entity_id']} {st.get('attributes', {}).get('friendly_name', '')}".lower())
+        ]
+    else:
+        matches = states
+    if len(matches) == 1:
+        return matches[0]["entity_id"]
+    options = ", ".join(
+        f"{m['entity_id']} ({m.get('attributes', {}).get('friendly_name') or m['state']})" for m in (matches or states)
+    )
+    raise ValueError(f"Which {what}? Options: {options}")
+
+
+class HomeAssistantGetTodoItemsTool(Tool):
+    name = "home_assistant_get_todo_items"
+    description = (
+        "Get the open items on a Home Assistant to-do or shopping list. With no list named, returns every list "
+        "and its open items. Use for 'what's on my to-do list', 'what do I need from the shops'."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "list_name": {"type": "string", "description": "Optional list entity_id or loose name, e.g. 'shopping'."},
+            "include_completed": {"type": "boolean", "description": "Also return completed items. Defaults to false."},
+        },
+        "required": [],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, list_name: str | None = None, include_completed: bool = False, **kwargs: Any) -> Any:
+        if list_name:
+            entity_ids = [_resolve_entity_id(self._client, "todo", list_name, "to-do list")]
+        else:
+            entity_ids = [s["entity_id"] for s in self._client.list_states(domain="todo")]
+        status = None if include_completed else "needs_action"
+        return [
+            {"list": eid, "items": self._client.get_todo_items(eid, status=status)}
+            for eid in entity_ids
+        ]
+
+
+class HomeAssistantAddTodoItemTool(Tool):
+    name = "home_assistant_add_todo_item"
+    description = (
+        "Add an item to a Home Assistant to-do or shopping list, e.g. item='milk', list_name='shopping'. "
+        "If there is only one list it is used automatically."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "item": {"type": "string", "description": "The item to add, e.g. 'milk'."},
+            "list_name": {"type": "string", "description": "Optional list entity_id or loose name."},
+        },
+        "required": ["item"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, item: str = "", list_name: str | None = None, **kwargs: Any) -> Any:
+        entity_id = _resolve_entity_id(self._client, "todo", list_name, "to-do list")
+        self._client.add_todo_item(entity_id, item)
+        return {"added": item, "list": entity_id}
+
+
+class HomeAssistantCompleteTodoItemTool(Tool):
+    name = "home_assistant_complete_todo_item"
+    description = "Tick off an item on a Home Assistant to-do or shopping list by its text (as returned by home_assistant_get_todo_items)."
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "item": {"type": "string", "description": "The item's exact text."},
+            "list_name": {"type": "string", "description": "Optional list entity_id or loose name."},
+        },
+        "required": ["item"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, item: str = "", list_name: str | None = None, **kwargs: Any) -> Any:
+        entity_id = _resolve_entity_id(self._client, "todo", list_name, "to-do list")
+        self._client.complete_todo_item(entity_id, item)
+        return {"completed": item, "list": entity_id}
+
+
+class HomeAssistantGetCalendarEventsTool(Tool):
+    name = "home_assistant_get_calendar_events"
+    description = (
+        "Get upcoming events from the calendars in Home Assistant (all of them unless one is named), for the next "
+        "N days starting now, soonest first. Use for 'what's on my calendar today/tomorrow/this week'."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "days": {"type": "integer", "description": "How many days ahead to look, 1-30. Defaults to 1 (today)."},
+            "calendar": {"type": "string", "description": "Optional calendar entity_id or loose name."},
+        },
+        "required": [],
+    }
+
+    def __init__(self, client: HomeAssistantClient, timezone: str = "UTC") -> None:
+        self._client = client
+        self._timezone = timezone
+
+    def run(self, days: int = 1, calendar: str | None = None, **kwargs: Any) -> Any:
+        from app.core.clock import get_zone
+
+        zone = get_zone(self._timezone)
+        now = datetime.now(zone)
+        days = max(1, min(int(days), 30))
+        end = (now + timedelta(days=days)).replace(hour=23, minute=59, second=59) if days == 1 else now + timedelta(days=days)
+        if calendar:
+            calendars = [{"entity_id": _resolve_entity_id(self._client, "calendar", calendar, "calendar"), "name": calendar}]
+        else:
+            calendars = self._client.list_calendars()
+        events: list[dict[str, Any]] = []
+        for cal in calendars:
+            for ev in self._client.get_calendar_events(cal["entity_id"], now, end):
+                start = ev.get("start", {})
+                stamp = start.get("dateTime") or start.get("date") or ""
+                events.append(
+                    {
+                        "calendar": cal.get("name") or cal["entity_id"],
+                        "summary": ev.get("summary"),
+                        "start": stamp,
+                        "all_day": "date" in start and "dateTime" not in start,
+                        "location": ev.get("location"),
+                    }
+                )
+        events.sort(key=lambda e: e["start"])
+        return events
+
+
+_MEDIA_ACTIONS = {
+    "play": "media_play",
+    "pause": "media_pause",
+    "stop": "media_stop",
+    "next": "media_next_track",
+    "previous": "media_previous_track",
+    "on": "turn_on",
+    "off": "turn_off",
+    "mute": "volume_mute",
+    "unmute": "volume_mute",
+    "volume": "volume_set",
+    "play_media": "play_media",
+}
+
+
+class HomeAssistantListMediaPlayersTool(Tool):
+    name = "home_assistant_list_media_players"
+    description = "List media players (speakers, TVs) with their state, volume and what is playing. Use before controlling one."
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(self, **kwargs: Any) -> Any:
+        out = []
+        for st in self._client.list_states(domain="media_player"):
+            attrs = st.get("attributes", {})
+            out.append(
+                {
+                    "entity_id": st["entity_id"],
+                    "name": attrs.get("friendly_name"),
+                    "state": st["state"],
+                    "volume_percent": round(attrs["volume_level"] * 100) if isinstance(attrs.get("volume_level"), (int, float)) else None,
+                    "playing": attrs.get("media_title"),
+                    "source": attrs.get("source"),
+                }
+            )
+        return out
+
+
+class HomeAssistantMediaControlTool(Tool):
+    name = "home_assistant_media_control"
+    description = (
+        "Control a media player (speaker or TV): play, pause, stop, next, previous, volume (with volume_percent), "
+        "mute, unmute, on, off, or play_media (with media_content_id and media_content_type such as 'music'). The "
+        "player can be an entity_id or a loose name like 'lounge speaker'. Note: playing something by name (like "
+        "'jazz') needs a content id the player understands; many players (e.g. Echo) can't be asked for a genre."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "player": {"type": "string", "description": "Media player entity_id or loose name."},
+            "action": {"type": "string", "enum": sorted(_MEDIA_ACTIONS), "description": "What to do."},
+            "volume_percent": {"type": "integer", "description": "For action=volume: 0-100."},
+            "media_content_id": {"type": "string", "description": "For action=play_media."},
+            "media_content_type": {"type": "string", "description": "For action=play_media, e.g. 'music'."},
+        },
+        "required": ["player", "action"],
+    }
+
+    def __init__(self, client: HomeAssistantClient) -> None:
+        self._client = client
+
+    def run(
+        self,
+        player: str = "",
+        action: str = "",
+        volume_percent: int | None = None,
+        media_content_id: str | None = None,
+        media_content_type: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        service = _MEDIA_ACTIONS.get(action)
+        if service is None:
+            raise ValueError(f"Unknown action '{action}'. Options: {', '.join(sorted(_MEDIA_ACTIONS))}")
+        entity_id = _resolve_entity_id(self._client, "media_player", player, "media player")
+        data: dict[str, Any] = {}
+        if action == "volume":
+            if volume_percent is None or not 0 <= volume_percent <= 100:
+                raise ValueError("volume needs volume_percent between 0 and 100.")
+            data["volume_level"] = volume_percent / 100
+        elif action in ("mute", "unmute"):
+            data["is_volume_muted"] = action == "mute"
+        elif action == "play_media":
+            if not media_content_id or not media_content_type:
+                raise ValueError("play_media needs media_content_id and media_content_type.")
+            data["media_content_id"] = media_content_id
+            data["media_content_type"] = media_content_type
+        self._client.call_service("media_player", service, entity_id=entity_id, **data)
+        return {"player": entity_id, "action": action, **({"volume_percent": volume_percent} if action == "volume" else {})}

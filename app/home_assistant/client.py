@@ -69,6 +69,39 @@ class HomeAssistantClient:
         response.raise_for_status()
         return response.json()
 
+    def get_todo_items(self, entity_id: str, status: str | None = "needs_action") -> list[dict]:
+        """Items on one to-do list. Uses the todo.get_items service's
+        response mode (HA 2023.9+), which returns data instead of acting."""
+        payload: dict[str, Any] = {"entity_id": entity_id}
+        if status:
+            payload["status"] = status
+        response = self._client.post("/api/services/todo/get_items", params={"return_response": "true"}, json=payload)
+        response.raise_for_status()
+        body = response.json()
+        items = (body.get("service_response") or {}).get(entity_id, {}).get("items", [])
+        return [
+            {"summary": i.get("summary"), "status": i.get("status"), "due": i.get("due"), "description": i.get("description")}
+            for i in items
+        ]
+
+    def add_todo_item(self, entity_id: str, item: str) -> None:
+        self.call_service("todo", "add_item", entity_id=entity_id, item=item)
+
+    def complete_todo_item(self, entity_id: str, item: str) -> None:
+        self.call_service("todo", "update_item", entity_id=entity_id, item=item, status="completed")
+
+    def list_calendars(self) -> list[dict]:
+        response = self._client.get("/api/calendars")
+        response.raise_for_status()
+        return response.json()
+
+    def get_calendar_events(self, entity_id: str, start: datetime, end: datetime) -> list[dict]:
+        response = self._client.get(
+            f"/api/calendars/{entity_id}", params={"start": start.isoformat(), "end": end.isoformat()}
+        )
+        response.raise_for_status()
+        return response.json()
+
     def get_logbook(self, entity_id: str | None = None, since: datetime | None = None) -> list[dict]:
         """Human-readable "what happened and why" -- state changes AND
         the automation/context that caused them, where Home Assistant
