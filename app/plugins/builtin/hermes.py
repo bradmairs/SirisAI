@@ -48,7 +48,7 @@ class HermesRunTaskTool(Tool):
         "clear, specific natural-language instruction; Hermes reports back what "
         "it did."
     )
-    permission = ToolPermission.SAFE_ACTION
+    permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
         "properties": {

@@ -91,7 +91,8 @@ def test_create_routine_tool_rejects_unknown_action(client: TestClient) -> None:
                 "trigger_description": "hourly",
                 "interval_minutes": 60,
                 "actions": ["this_tool_does_not_exist"],
-            }
+            },
+            "confirmed": True,
         },
     )
     assert response.status_code == 502
@@ -106,7 +107,8 @@ def test_create_routine_tool_rejects_non_positive_interval(client: TestClient) -
                 "trigger_description": "hourly",
                 "interval_minutes": 0,
                 "actions": ["echo"],
-            }
+            },
+            "confirmed": True,
         },
     )
     assert response.status_code == 502
@@ -258,3 +260,22 @@ def test_run_due_endpoint_actually_runs_a_due_routine(client: TestClient) -> Non
     # Immediately due again? No -- just ran, interval is 1 minute, hasn't elapsed.
     second_run = client.post("/siris/routines/run_due").json()
     assert not any(r["routine_id"] == routine["id"] for r in second_run)
+
+
+def test_create_routine_asks_for_confirmation_before_running(client: TestClient) -> None:
+    """A routine is a standing job that runs tools unattended, so creating
+    one needs a human yes -- like creating a Home Assistant automation."""
+    response = client.post(
+        "/siris/tools/create_routine/run",
+        json={
+            "arguments": {
+                "name": f"needs-confirm-{uuid.uuid4()}",
+                "trigger_description": "hourly",
+                "interval_minutes": 60,
+                "actions": ["echo"],
+            }
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["confirmation_required"] is not None
+    assert response.json()["tool_call"] is None

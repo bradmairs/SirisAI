@@ -26,6 +26,11 @@ os.environ.setdefault("SIRISAI_DATABASE_URL", f"sqlite:///{tempfile.mkdtemp()}/t
 # own `Settings(auto_memory_extraction_enabled=True, ...)`.
 os.environ.setdefault("SIRISAI_AUTO_MEMORY_EXTRACTION_ENABLED", "false")
 
+# The planner is on by default in real deployments (see Settings.default_use_planner).
+# Most existing tests fake an LLM tailored to the single-tool flow, so they opt out
+# here; tests for the default itself pass use_planner / Settings explicitly.
+os.environ.setdefault("SIRISAI_DEFAULT_USE_PLANNER", "false")
+
 import pytest
 from fastapi.testclient import TestClient
 

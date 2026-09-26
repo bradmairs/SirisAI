@@ -90,7 +90,7 @@ def test_list_states_filters_by_domain() -> None:
     client = _mock_client(handler)
     tool = HomeAssistantListEntitiesTool(client)
     result = tool.run(domain="light")
-    assert result == [{"entity_id": "light.kitchen", "state": "on"}]
+    assert result == [{"entity_id": "light.kitchen", "name": None, "state": "on"}]
     client.close()
 
 

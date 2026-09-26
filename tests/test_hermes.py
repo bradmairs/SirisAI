@@ -71,9 +71,10 @@ def test_hermes_run_task_tool_wraps_client_result() -> None:
     client.close()
 
 
-def test_hermes_run_task_tool_is_safe_action_permission() -> None:
+def test_hermes_run_task_requires_confirmation() -> None:
+    """It runs tasks on a server terminal, so it never runs unasked."""
     assert HermesRunTaskTool(_mock_client(lambda r: httpx.Response(200, json={"choices": []}))).permission is (
-        ToolPermission.SAFE_ACTION
+        ToolPermission.CONFIRM_REQUIRED
     )
 
 

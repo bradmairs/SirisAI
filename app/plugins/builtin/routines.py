@@ -25,7 +25,7 @@ class CreateRoutineTool(Tool):
         "action must be the name of an already-registered tool (see list_tools) -- a routine "
         "doesn't invent new capability, it composes existing ones."
     )
-    permission = ToolPermission.SAFE_ACTION
+    permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
         "properties": {

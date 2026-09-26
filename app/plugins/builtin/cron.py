@@ -41,7 +41,7 @@ class CronSetJobEnabledTool(Tool):
         "cron_list_jobs -- line identifies the job by its schedule+command text, not by position, "
         "since the crontab may have changed since it was listed."
     )
-    permission = ToolPermission.SAFE_ACTION
+    permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
         "properties": {

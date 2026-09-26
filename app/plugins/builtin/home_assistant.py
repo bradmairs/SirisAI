@@ -117,7 +117,11 @@ class HomeAssistantListEntitiesTool(Tool):
 
     def run(self, domain: str | None = None, **kwargs: Any) -> Any:
         return [
-            {"entity_id": s["entity_id"], "state": s["state"]}
+            {
+                "entity_id": s["entity_id"],
+                "name": s.get("attributes", {}).get("friendly_name"),
+                "state": s["state"],
+            }
             for s in self._client.list_states(domain=domain)
         ]
 
@@ -375,6 +379,20 @@ class HomeAssistantCallServiceTool(Tool):
         )
 
 
+def _normalize_automation_actions(actions: list[Any]) -> list[Any]:
+    """Home Assistant wants `{"service": "light.turn_off", ...}`. The model
+    often writes `{"domain": "light", "service": "turn_off", ...}` (found
+    live: HA rejected it with a 400). Rewrite that shape; leave anything
+    else exactly as given."""
+    fixed: list[Any] = []
+    for item in actions:
+        if isinstance(item, dict) and "domain" in item and isinstance(item.get("service"), str) and "." not in item["service"]:
+            item = {**item}
+            item["service"] = f"{item.pop('domain')}.{item['service']}"
+        fixed.append(item)
+    return fixed
+
+
 class HomeAssistantCreateAutomationTool(Tool):
     name = "home_assistant_create_automation"
     description = (
@@ -414,7 +432,9 @@ class HomeAssistantCreateAutomationTool(Tool):
                 "type": "array",
                 "items": {"type": "object"},
                 "description": "One or more Home Assistant actions, e.g. "
-                "[{'service': 'light.turn_on', 'target': {'entity_id': 'light.hallway'}}].",
+                "[{'service': 'light.turn_on', 'target': {'entity_id': 'light.hallway'}}]. Put the "
+                "domain and service together as 'light.turn_on' in one 'service' key -- never separate "
+                "'domain' and 'service' keys.",
             },
             "condition": {
                 "type": "array",
@@ -451,7 +471,7 @@ class HomeAssistantCreateAutomationTool(Tool):
         return self._client.create_automation(
             alias,
             trigger or [],
-            action or [],
+            _normalize_automation_actions(action or []),
             condition=condition,
             mode=mode,
             description=description,
@@ -477,10 +497,16 @@ class HomeAssistantCreateAutomationTool(Tool):
                 f"{self.name} does not support verify without an automation_id"
             )
 
-        automations = self._client.list_states(domain="automation")
-        found = any(
-            a.get("attributes", {}).get("id") == automation_id for a in automations
-        )
+        # A new automation registers a moment after HA accepts it, so poll
+        # instead of reading once (same race as call_service's verify()).
+        found = False
+        for attempt in range(_VERIFY_ATTEMPTS):
+            automations = self._client.list_states(domain="automation")
+            found = any(a.get("attributes", {}).get("id") == automation_id for a in automations)
+            if found:
+                break
+            if attempt < _VERIFY_ATTEMPTS - 1:
+                time.sleep(_VERIFY_POLL_SECONDS)
         if found:
             return ToolVerification(
                 verified=True, detail=f"Automation {automation_id} confirmed present."

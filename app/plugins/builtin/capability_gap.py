@@ -229,7 +229,7 @@ class ResolveCapabilityGapTool(Tool):
         "Use gap_id from list_capability_gaps. A gap that isn't 'open' (already resolved, "
         "failed, or dismissed) is left alone and reported back as-is rather than re-attempted."
     )
-    permission = ToolPermission.SAFE_ACTION
+    permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
         "properties": {

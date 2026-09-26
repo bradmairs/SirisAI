@@ -45,7 +45,7 @@ def test_optional_tool_libraries_not_registered_by_default() -> None:
 
 
 def test_docker_tools_registered_when_configured() -> None:
-    siris = SirisAI(settings=Settings(docker_base_url="unix:///var/run/docker.sock"))
+    siris = SirisAI(settings=Settings(docker_base_url="http://127.0.0.1:2375"))
     try:
         names = {tool.name for tool in siris.tools.list()}
         assert {"docker_list_containers", "docker_restart_container"} <= names
@@ -187,3 +187,12 @@ def test_frigate_tools_registered_with_base_url_alone() -> None:
     finally:
         assert siris._frigate_client is not None
         siris._frigate_client.close()
+
+
+def test_docker_tools_not_registered_when_the_socket_is_not_mounted() -> None:
+    """Found live: with the socket absent every docker_* call failed with
+    "No such file or directory" and took server_health_check with it."""
+    siris = SirisAI(settings=Settings(docker_base_url="unix:///nonexistent/docker.sock"))
+    names = {tool.name for tool in siris.tools.list()}
+    assert "docker_list_containers" not in names
+    assert "docker" in siris.integration_notes

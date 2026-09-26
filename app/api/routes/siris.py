@@ -208,7 +208,8 @@ class ChatRequest(BaseModel):
     # lets this turn chain multiple tool calls (plan -> execute -> verify
     # -> ... -> respond) instead of at most one. False by default so
     # existing callers see no behavior change unless they ask for it.
-    use_planner: bool = False
+    # None (default) = SIRISAI_DEFAULT_USE_PLANNER decides (on by default).
+    use_planner: bool | None = None
     max_plan_steps: int = 5
     # A satellite's room (milestone 48, see app/satellites/service.py) --
     # when set, this counts as fresh activity in that room, so
@@ -249,6 +250,9 @@ class ChatResponse(BaseModel):
     # app/planning/planner.py). Empty/absent for a plan that produced a
     # final answer without needing any tool.
     plan: list[ToolCallResult] | None = None
+    # Whether this turn ran through the planner. Send it back as `use_planner`
+    # on /chat/confirm so a confirmed step continues the same plan.
+    used_planner: bool = False
 
 
 def _to_tool_call_result(outcome: ToolCallOutcome) -> ToolCallResult:
@@ -279,6 +283,7 @@ def _shape_response(result: CortexResult) -> ChatResponse:
         else None,
         model_role=result.model_role,
         plan=[_to_tool_call_result(step) for step in result.plan] or None,
+        used_planner=result.used_planner,
     )
 
 
@@ -379,7 +384,7 @@ async def chat(
         request.prompt,
         use_context=request.use_context,
         use_tools=request.use_tools,
-        use_planner=request.use_planner,
+        use_planner=siris.settings.default_use_planner if request.use_planner is None else request.use_planner,
         model_role=request.model_role,
     )
     return _shape_response(result)
@@ -526,7 +531,7 @@ async def chat_stream(
             request.prompt,
             use_context=request.use_context,
             use_tools=request.use_tools,
-            use_planner=request.use_planner,
+            use_planner=siris.settings.default_use_planner if request.use_planner is None else request.use_planner,
             model_role=request.model_role,
         )
 

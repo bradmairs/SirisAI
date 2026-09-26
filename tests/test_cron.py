@@ -200,7 +200,7 @@ def test_cron_tools_registered_with_expected_permissions_when_cron_hosts_configu
     list_tool = siris.tools.get("cron_list_jobs")
     set_tool = siris.tools.get("cron_set_job_enabled")
     assert list_tool is not None and list_tool.permission is ToolPermission.READ
-    assert set_tool is not None and set_tool.permission is ToolPermission.SAFE_ACTION
+    assert set_tool is not None and set_tool.permission is ToolPermission.CONFIRM_REQUIRED
     assert siris.cron_client is not None
 
 

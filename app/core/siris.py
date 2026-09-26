@@ -11,6 +11,7 @@ dependency, so routes never construct their own.
 """
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -23,6 +24,7 @@ from app.capabilities.service import CapabilityGapStore
 from app.calendar.client import CalendarClient
 from app.context.engine import ContextEngine
 from app.conversation.service import ConversationStore
+from app.core import taint
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
 from app.docker.client import DockerClient
@@ -407,6 +409,7 @@ class SirisAI:
         if self.tts is None:
             self.tts = build_tts_client(self.settings)
         self._home_assistant_client: HomeAssistantClient | None = None
+        self.integration_notes: dict[str, str] = {}
         self._docker_client: DockerClient | None = None
         self._plex_client: PlexClient | None = None
         self._unifi_client: UniFiClient | None = None
@@ -516,8 +519,18 @@ class SirisAI:
             self.tools.register(PlexLibrarySectionsTool(self._plex_client))
             self.tools.register(PlexSearchTool(self._plex_client))
 
-        if self.settings.docker_base_url:
-            self._docker_client = DockerClient(base_url=self.settings.docker_base_url)
+        docker_url = self.settings.docker_base_url
+        if docker_url.startswith("unix://") and not os.path.exists(docker_url.removeprefix("unix://")):
+            # Configured, but the socket isn't mounted into this container:
+            # offering the tools would just make every call fail (found live,
+            # 2026-09-26). Say so in status instead.
+            self.integration_notes["docker"] = (
+                f"{docker_url} isn't mounted in this container (uncomment the docker.sock "
+                "volume in docker-compose.yml to enable the docker_* tools)"
+            )
+            docker_url = ""
+        if docker_url:
+            self._docker_client = DockerClient(base_url=docker_url)
             self.tools.register(DockerListContainersTool(self._docker_client))
             self.tools.register(DockerResolveContainerTool(self._docker_client))
             self.tools.register(DockerGetContainerLogsTool(self._docker_client))
@@ -924,6 +937,14 @@ class SirisAI:
             and tool.needs_confirmation(arguments)
         )
         policy = _describe_policy(tool, confirmed, call_needs_confirmation)
+        if not confirmed and not call_needs_confirmation and tool.permission is ToolPermission.SAFE_ACTION:
+            copied = taint.copied_from_context(name, arguments)
+            if copied is not None:
+                call_needs_confirmation = True
+                policy = (
+                    "SAFE_ACTION: held for confirmation -- an argument was copied from background "
+                    "context (recent events/memories), not from anything the user said"
+                )
 
         if (
             tool.permission is ToolPermission.RESTRICTED

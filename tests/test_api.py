@@ -117,13 +117,14 @@ def test_chat_tool_call_without_follow_up_text_falls_back_to_tool_call_only(clie
     """If the follow-up synthesis call doesn't produce text (e.g. the model
     calls another tool instead, which SirisAI doesn't chain into a loop),
     the response degrades to the pre-synthesis shape: `tool_call` set,
-    `response` left unset -- still a usable response, not an error."""
+    `response` says what ran instead of leaving clients to show a bare
+    "Done." -- still a usable response, not an error."""
     _override_llm(_FakeToolCallingNoFollowUpTextLLMClient())
     try:
         response = client.post("/siris/chat", json={"prompt": "please echo this"})
         assert response.status_code == 200
         body = response.json()
-        assert body["response"] is None
+        assert "echo" in body["response"] and "haven't changed anything" in body["response"]
         assert body["tool_call"] == {
             "name": "echo",
             "arguments": {"message": "please echo this"},

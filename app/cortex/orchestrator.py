@@ -62,14 +62,16 @@ swallowed and logged, never the reason a chat turn fails.
 """
 
 import asyncio
+import re
 import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from app.core import taint
 from app.llm.streaming import EventCallback, generate_with_events
 from app.planning.planner import Planner
-from app.plugins.base import ConfirmationRequired
+from app.plugins.base import ConfirmationRequired, ToolPermission
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -150,6 +152,21 @@ class CortexResult:
     # the model-choosing-a-tool case.
     error: str | None = None
     permission_denied: bool = False
+    # Whether this turn ran through the planner (multi-step). The web UI
+    # needs it to send `use_planner` back on /chat/confirm.
+    used_planner: bool = False
+
+
+# Phrases that claim a state change happened. Used by
+# Cortex._check_action_claims: if the text says one of these but every tool
+# that ran only read data, the answer is claiming something it didn't do
+# (found live: "Memory entry confirmed and removed" after only `recall`).
+_ACTION_CLAIM_RE = re.compile(
+    r"\b(removed|deleted|forgotten|forgot|erased)\b|"
+    r"\bturned (on|off)\b|"
+    r"\b(i've|i have|has been|have been|is now) (saved|stored|created|sent|logged|recorded|set up|added)\b",
+    re.IGNORECASE,
+)
 
 
 class Cortex:
@@ -197,6 +214,7 @@ class Cortex:
         # The answer is complete here -- tell a streaming client now, so it
         # doesn't sit waiting on memory extraction (a whole extra LLM pass)
         # to see it.
+        self._finalize(siris, result)
         await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, prompt, result)
         return result
@@ -223,6 +241,7 @@ class Cortex:
         # applies regardless of use_context, a separate concern (tone, not
         # situational data).
         system_messages: list[dict[str, Any]] = []
+        context_text: str | None = None
         if siris.settings.persona:
             system_messages.append({"role": "system", "content": siris.settings.persona})
         if use_context:
@@ -230,13 +249,17 @@ class Cortex:
             context_text = await asyncio.to_thread(siris.context.build, siris, prompt)
             if context_text:
                 system_messages.append({"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"})
+        user_text = "\n".join(m["content"] or "" for m in messages if m.get("role") == "user")
+        taint.begin_turn(context_text if use_context else "", f"{user_text}\n{prompt}")
         messages = [*system_messages, *messages]
 
         tools = siris.available_tool_specs() if use_tools else None
         resolved_role, llm_client = siris.model_router.pick(siris.llm, prompt, role=model_role)
 
         if use_planner:
-            return await self._run_planned(siris, conversation_id, messages, tools, llm_client, resolved_role)
+            planned = await self._run_planned(siris, conversation_id, messages, tools, llm_client, resolved_role)
+            planned.used_planner = True
+            return planned
 
         await self._emit({"type": "status", "message": "Thinking"})
         try:
@@ -290,6 +313,7 @@ class Cortex:
         answer, and the turn ends there -- same as confirming a single
         non-planned tool call always has."""
         result = await self._confirm_inner(siris, conversation_id, name, arguments, use_planner=use_planner)
+        self._finalize(siris, result)
         await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, f"(user confirmed: {name})", result)
         return result
@@ -311,6 +335,7 @@ class Cortex:
             trigger="chat: user explicitly confirmed a previously-proposed action",
         )
         if not use_planner or confirmed.error or confirmed.tool_call is None or siris.llm is None:
+            confirmed.used_planner = use_planner
             return confirmed
 
         continuation_messages = [
@@ -333,6 +358,7 @@ class Cortex:
             model_role=rest.model_role,
             error=rest.error,
             permission_denied=rest.permission_denied,
+            used_planner=True,
         )
 
     @staticmethod
@@ -507,6 +533,45 @@ class Cortex:
 
         return CortexResult(conversation_id=conversation_id, response=plan_result.final_text, plan=plan, model_role=model_role)
 
+    @staticmethod
+    def _tools_run(result: "CortexResult") -> list[str]:
+        outcomes = list(result.plan)
+        if result.tool_call is not None:
+            outcomes.append(result.tool_call)
+        return [o.name for o in outcomes]
+
+    def _finalize(self, siris: "SirisAI", result: "CortexResult") -> None:
+        """Make sure what the user is told matches what actually happened.
+
+        - No answer text but tools ran: say what ran, rather than letting a
+          client show a bare "Done." (found live: a lookup-only turn ended
+          "Done." and the light never changed).
+        - Answer claims a change ("removed", "turned on", "saved") but every
+          tool that ran only read data: append a correction.
+        """
+        if result.error or result.pending_confirmation:
+            return
+        ran = self._tools_run(result)
+
+        def changes_state(tool_name: str) -> bool:
+            tool = siris.tools.get(tool_name)
+            return tool is not None and tool.permission is not ToolPermission.READ
+
+        if not result.response:
+            if ran:
+                if any(changes_state(n) for n in ran):
+                    result.response = f"I ran {', '.join(ran)} but didn't get a written answer back, so I can't confirm the outcome."
+                else:
+                    result.response = (
+                        f"I looked things up ({', '.join(ran)}) but couldn't put together an answer, "
+                        "and I haven't changed anything."
+                    )
+            return
+
+        if _ACTION_CLAIM_RE.search(result.response) and not any(changes_state(n) for n in ran):
+            looked = f" (I only ran: {', '.join(ran)})" if ran else ""
+            result.response += f"\n\nNote: I haven't actually changed anything{looked}. Ask me to do it and I'll run the action."
+
     async def _maybe_extract_memory(
         self, siris: "SirisAI", conversation_id: str, context_label: str, result: "CortexResult"
     ) -> None:
@@ -520,6 +585,7 @@ class Cortex:
         user exactly as it would if this didn't exist."""
         if not siris.settings.auto_memory_extraction_enabled:
             return
+        taint.begin_turn("", "")
         if result.error or not result.response or siris.llm is None or siris.model_router is None:
             return
 

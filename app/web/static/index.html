@@ -1196,7 +1196,7 @@
         trigger_description: triggerDescription,
         interval_minutes: intervalMinutes,
         actions,
-      });
+      }, true);
       document.getElementById("routine-name").value = "";
       document.getElementById("routine-trigger").value = "";
       document.getElementById("routine-interval").value = "";
@@ -1266,7 +1266,7 @@
         toggleBtn.addEventListener("click", async () => {
           toggleBtn.disabled = true;
           try {
-            await runTool("cron_set_job_enabled", { host: job.host, line: job.line, enabled: !job.enabled });
+            await runTool("cron_set_job_enabled", { host: job.host, line: job.line, enabled: !job.enabled }, true);
             loadCron();
           } catch (err) {
             alert(err.message);
@@ -1391,12 +1391,13 @@
           actions.className = "gap-actions";
           if (canResolve) {
             actions.appendChild(
-              gapActionButton("Attempt fix", () =>
-                api("/siris/tools/resolve_capability_gap/run", {
+              gapActionButton("Attempt fix", () => {
+                if (!confirm("Let Hermes draft, test and merge a code change to main for this gap?")) return null;
+                return api("/siris/tools/resolve_capability_gap/run", {
                   method: "POST",
-                  body: JSON.stringify({ arguments: { gap_id: entry.id } }),
-                })
-              )
+                  body: JSON.stringify({ arguments: { gap_id: entry.id }, confirmed: true }),
+                });
+              })
             );
           }
           if (canDismiss) {

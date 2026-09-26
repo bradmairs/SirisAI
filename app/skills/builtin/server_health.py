@@ -54,12 +54,21 @@ class ServerHealthSkill(Skill):
             self._check_metric(siris, warnings, f"disk_percent:{path}", usage["percent_used"], f"Disk usage on {path}")
 
         containers = None
+        docker_note = None
         if siris.tools.get("docker_list_containers") is not None:
-            containers = siris.run_tool("docker_list_containers", {"all_containers": True})
-            for container in containers:
-                if container["state"] != "running":
-                    label = container["names"][0] if container["names"] else container["id"]
-                    warnings.append(f"Container '{label}' is {container['state']}")
+            # Docker being unreachable (socket not mounted, daemon down) is a
+            # fact about the check, not a reason to fail the whole health
+            # check -- found live: it took server_health_check, daily_briefing
+            # and every "good morning" down with it.
+            try:
+                containers = siris.run_tool("docker_list_containers", {"all_containers": True})
+            except Exception as exc:
+                docker_note = f"Docker status unavailable: {exc}"
+            else:
+                for container in containers:
+                    if container["state"] != "running":
+                        label = container["names"][0] if container["names"] else container["id"]
+                        warnings.append(f"Container '{label}' is {container['state']}")
 
         # Homelab power draw (milestone 47's cost/resource dashboard) --
         # this codebase has no power sensor of its own, so it reuses the
@@ -82,6 +91,7 @@ class ServerHealthSkill(Skill):
         return {
             "system": system,
             "docker_containers": containers,
+            "docker_note": docker_note,
             "warnings": warnings,
             "healthy": not warnings,
         }

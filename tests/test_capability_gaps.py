@@ -352,12 +352,13 @@ def test_resolve_does_not_re_attempt_a_non_open_gap() -> None:
     assert calls == []
 
 
-def test_resolve_capability_gap_is_safe_action_permission() -> None:
+def test_resolve_capability_gap_requires_confirmation() -> None:
     tool = ResolveCapabilityGapTool(
         SirisAI(settings=get_siris().settings).capability_gaps,
         _hermes_client(lambda r: httpx.Response(200, json={"choices": []})),
     )
-    assert tool.permission is ToolPermission.SAFE_ACTION
+    # It lets Hermes write and merge code to main, so a human confirms first.
+    assert tool.permission is ToolPermission.CONFIRM_REQUIRED
 
 
 def test_resolve_capability_gap_registered_only_when_hermes_configured() -> None:

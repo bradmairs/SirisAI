@@ -260,6 +260,19 @@ class Settings(BaseSettings):
     # writes; existing memory tools remain available to the model exactly
     # as they always have either way.
     auto_memory_extraction_enabled: bool = True
+
+    # Timezone SirisAI reports dates/times in (an IANA name, e.g.
+    # "Australia/Melbourne"). The model has no clock of its own: the current
+    # date/time is injected into every turn's context in this zone, and
+    # event times shown to the user are converted to it.
+    timezone: str = "UTC"
+
+    # Whether a chat turn may chain several tool calls (plan -> act -> plan
+    # ... -> answer, app/planning/planner.py) when the request doesn't say.
+    # Default on: found live (2026-09-26) that the single-tool path answered
+    # "turn on the light at 40%" correctly only 1 time in 4 (it stopped after
+    # the entity lookup), versus 4 in 4 with the planner at similar latency.
+    default_use_planner: bool = True
     # "everyone left" -> away scene, "someone's home" -> home scene.
     # presence_device_names is comma-separated UniFi client names/hostnames
     # (e.g. "brads-iphone,jans-iphone") that count as "someone is home"

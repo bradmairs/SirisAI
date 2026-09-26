@@ -118,7 +118,7 @@ class DockerRestartContainerTool(Tool):
     description = "Restart a Docker container by name or id."
     # Routine and reversible -- matches this tool library's own
     # "restarting a known service -> SAFE_ACTION" reasoning.
-    permission = ToolPermission.SAFE_ACTION
+    permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
         "properties": {

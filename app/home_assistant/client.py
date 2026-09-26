@@ -119,7 +119,12 @@ class HomeAssistantClient:
         if description:
             config["description"] = description
         response = self._client.post(f"/api/config/automation/config/{automation_id}", json=config)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # HA's own message says exactly what's wrong with the config;
+            # surface it (a bare "400 Bad Request" gave the model nothing to
+            # correct -- found live, 2026-09-26).
+            detail = response.text.strip()[:400]
+            raise RuntimeError(f"Home Assistant rejected this automation ({response.status_code}): {detail}")
         result = response.json()
         result["automation_id"] = automation_id
         return result
