@@ -10,3 +10,7 @@ data/*.db-journal
 !data/.gitkeep
 .pytest_cache/
 *.egg-info/
+
+# Server-local files: the cron SSH key and per-machine compose overrides
+data/ssh/
+docker-compose.override.yml
