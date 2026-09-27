@@ -4630,8 +4630,38 @@ Set `SIRISAI_OBSIDIAN_BASE_URL=https://<server>:27123`.
 
 ## Running with Docker
 
+Two ways to get a container running, same `.env` and `./data` bind mount
+either way:
+
+**Build from source** (this repo's own `docker-compose.yml` -- what this
+project's own server runs, since it's under active development here):
+
 ```bash
 docker compose up --build
+```
+
+**Pull a prebuilt image** (no clone needed, the Radarr/Sonarr-style path --
+GitHub Actions builds and pushes `ghcr.io/bradmairs/sirisai` on every push to
+`main`, see `.github/workflows/docker-publish.yml`):
+
+```yaml
+# docker-compose.yml
+services:
+  sirisai:
+    image: ghcr.io/bradmairs/sirisai:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      SIRISAI_DATABASE_URL: sqlite:///./data/sirisai.db
+    restart: unless-stopped
+```
+
+```bash
+docker compose pull && docker compose up -d
 ```
 
 SQLite data persists to `./data` on the host via a bind mount.
