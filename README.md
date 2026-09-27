@@ -4620,6 +4620,56 @@ are not run from Shortcuts: the reply tells you to approve them in the web UI.
 timer for 10 minutes" arrive as push notifications (ntfy), sent by the
 background scheduler.
 
+## Optional: voice (speech-to-text / text-to-speech)
+
+The mic button and the speaker icon on assistant replies only appear once
+`SIRISAI_STT_PROVIDER`/`SIRISAI_TTS_PROVIDER` are set to `openai_compatible`
+(see `.env.example`) -- without a backend configured they're deliberately
+hidden rather than shown broken.
+
+This project's own server runs [speaches](https://speaches.ai)
+(`ghcr.io/speaches-ai/speaches:latest-cpu`), a single CPU-only container
+providing both OpenAI-compatible endpoints (faster-whisper for STT, Kokoro
+for TTS) -- CPU-only so it never competes with Ollama for GPU:
+
+```yaml
+# ~/Docker/Speaches/docker-compose.yml
+services:
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    restart: unless-stopped
+    ports:
+      - "8085:8000"
+    volumes:
+      - hf-hub-cache:/home/ubuntu/.cache/huggingface/hub
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+volumes:
+  hf-hub-cache:
+```
+
+Download its models once (inside the running container, since it already
+has `uv`):
+
+```bash
+docker exec -e SPEACHES_BASE_URL=http://localhost:8000 speaches-speaches-1 \
+  uv tool run speaches-cli model download Systran/faster-distil-whisper-small.en
+docker exec -e SPEACHES_BASE_URL=http://localhost:8000 speaches-speaches-1 \
+  uv tool run speaches-cli model download speaches-ai/Kokoro-82M-v1.0-ONNX
+```
+
+Then point SirisAI at it (its own `.env`/override, not speaches'):
+
+```
+SIRISAI_STT_PROVIDER=openai_compatible
+SIRISAI_STT_BASE_URL=http://<server>:8085
+SIRISAI_STT_MODEL=Systran/faster-distil-whisper-small.en
+SIRISAI_TTS_PROVIDER=openai_compatible
+SIRISAI_TTS_BASE_URL=http://<server>:8085
+SIRISAI_TTS_MODEL=speaches-ai/Kokoro-82M-v1.0-ONNX
+SIRISAI_TTS_VOICE=af_heart
+```
+
 ## Optional: Obsidian relay
 
 The Obsidian Local REST API plugin only listens on 127.0.0.1 inside its own
