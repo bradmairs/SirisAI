@@ -68,6 +68,15 @@ class CapabilityGapStore:
     def mark_resolved(self, gap_id: int, detail: str) -> dict[str, Any] | None:
         return self._set_status(gap_id, "resolved", detail)
 
+    def mark_pr_open(self, gap_id: int, detail: str) -> dict[str, Any] | None:
+        """Hermes opened a pull request for this gap (a hardening pass,
+        2026-09-27: resolve_capability_gap no longer lets Hermes merge to
+        main itself -- see that tool's own docstring). Distinct from
+        `mark_resolved` (which still means "actually done, on main") so a
+        gap in this state isn't silently re-offered as fixed before a human
+        has reviewed and merged the PR."""
+        return self._set_status(gap_id, "pr_open", detail)
+
     def mark_failed(self, gap_id: int, detail: str) -> dict[str, Any] | None:
         return self._set_status(gap_id, "failed", detail)
 

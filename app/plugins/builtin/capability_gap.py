@@ -23,15 +23,22 @@ implementation work to Hermes rather than doing it itself: SirisAI is
 the thing running *inside* the container a fix might need to rebuild, so
 it was never going to write and merge its own replacement from in here.
 
-SAFE_ACTION rather than CONFIRM_REQUIRED: the user explicitly chose
-"draft and merge without a review prompt, but gate the rebuild/restart
-separately" when this was scoped, so invoking resolve_capability_gap
-itself is the deliberate act (a human, or the model when explicitly
-asked, has to call it) -- once called, the merge decision is Hermes's
-own job to make correctly, not a second confirmation SirisAI adds on
-top. The actual redeploy is a separate, always-CONFIRM_REQUIRED tool
-(RebuildAndRestartTool, app/plugins/builtin/hermes.py) precisely because
-that step still needs a human's explicit go-ahead every time.
+CONFIRM_REQUIRED (a hardening pass, 2026-09-26 live testing): Hermes is
+delegated real git/terminal access to this repo, so invoking it at all is
+already the meaningful decision -- a human has to say yes before that
+delegation happens, not just before the eventual rebuild/restart.
+
+Hermes is asked to open a pull request rather than merge to main directly
+(a further hardening pass, 2026-09-27): SirisAI can gate the *delegation*
+with a confirmation, but it has no way to gate what Hermes actually does
+once it's working -- an autonomous coding agent merging its own change to
+the branch a home's physical devices are controlled from, with nothing
+but its own test run as a check, was never a safe default. A PR is the
+same idea `rebuild_and_restart` already applies to redeploying: the risky
+step gets a second, independent point of human judgement instead of one
+tool call approving the whole chain. Reviewing and merging the PR is a
+manual step on GitHub (or a later Claude Code session); rebuild_and_restart
+picks up whatever is on main once that's done, same as always.
 
 Hermes's own free-text reply is the only signal available for "did this
 actually merge" -- SirisAI has no independent git access to check itself
@@ -67,8 +74,8 @@ from app.hermes.client import HermesClient
 from app.notify.client import NotifyClient
 from app.plugins.base import Tool, ToolPermission
 
-_MERGED_MARKER = "RESULT: MERGED"
-_NOT_MERGED_MARKER = "RESULT: NOT_MERGED"
+_PR_OPENED_MARKER = "RESULT: PR_OPENED"
+_NOT_OPENED_MARKER = "RESULT: NOT_OPENED"
 
 
 class ReportCapabilityGapTool(Tool):
@@ -193,31 +200,37 @@ def _build_resolve_instruction(gap: dict[str, Any]) -> str:
     lines += [
         "",
         "Work on a new branch, add tests for the new capability, and run the full test suite. "
-        "Only merge to the main branch if the full suite passes. SirisAI controls real devices "
-        "in a home, including things like door locks -- do not merge anything you are not "
-        "confident is correct and safe; leaving the gap unresolved is always better than a bad "
-        "merge.",
+        "Only proceed if the full suite passes. SirisAI controls real devices in a home, "
+        "including things like door locks -- do not open a pull request for anything you are "
+        "not confident is correct and safe; leaving the gap unresolved is always better than a "
+        "bad change.",
+        "",
+        "Push the branch and open a pull request against main (e.g. `gh pr create`) -- do NOT "
+        "merge it yourself. A human reviews and merges it separately; you are not the last "
+        "check on a change that can control physical devices in someone's home.",
         "",
         "End your reply with exactly one of these two lines, and nothing after it:",
-        _MERGED_MARKER,
-        f"{_NOT_MERGED_MARKER}: <one-line reason>",
+        f"{_PR_OPENED_MARKER}: <pull request URL>",
+        f"{_NOT_OPENED_MARKER}: <one-line reason>",
     ]
     return "\n".join(lines)
 
 
-def _parse_hermes_result(response: str) -> tuple[bool, str]:
-    """Whether Hermes reported a successful merge, and the detail to
-    store either way. Never inferred from prose -- only the exact marker
-    line the instruction asked for counts as a merge; anything else
-    (including a plausible-sounding but unmarked "done!") is treated as
-    not merged, per this module's own docstring."""
-    if _MERGED_MARKER in response:
-        return True, response
-    if _NOT_MERGED_MARKER in response:
-        return False, response
-    return False, (
-        "Hermes Agent's response didn't include the expected RESULT: MERGED / "
-        "RESULT: NOT_MERGED marker, so this was treated as not merged rather than assumed "
+def _parse_hermes_result(response: str) -> tuple[str | None, str]:
+    """The PR URL if Hermes reported opening one, else None, and the detail
+    to store either way. Never inferred from prose -- only the exact marker
+    line the instruction asked for counts as a real result; anything else
+    (including a plausible-sounding but unmarked "done!") is treated as not
+    opened, per this module's own docstring."""
+    marker_line = next((line for line in response.splitlines() if line.strip().startswith(_PR_OPENED_MARKER)), None)
+    if marker_line is not None:
+        url = marker_line.strip()[len(_PR_OPENED_MARKER) :].lstrip(":").strip()
+        return (url or "opened, no URL given"), response
+    if _NOT_OPENED_MARKER in response:
+        return None, response
+    return None, (
+        f"Hermes Agent's response didn't include the expected {_PR_OPENED_MARKER} / "
+        f"{_NOT_OPENED_MARKER} marker, so this was treated as not opened rather than assumed "
         "successful:\n\n" + response
     )
 
@@ -226,12 +239,14 @@ class ResolveCapabilityGapTool(Tool):
     name = "resolve_capability_gap"
     description = (
         "Delegate a reported capability gap to Hermes Agent to actually implement: Hermes "
-        "drafts the code on a new branch, adds tests, runs the full suite, and merges to main "
-        "only if everything passes. A successful merge sends a push notification (if "
-        "configured) that a fix is ready to deploy. This does NOT rebuild or restart SirisAI "
-        "itself -- use rebuild_and_restart for that, as a separate, explicitly confirmed step. "
-        "Use gap_id from list_capability_gaps. A gap that isn't 'open' (already resolved, "
-        "failed, or dismissed) is left alone and reported back as-is rather than re-attempted."
+        "drafts the code on a new branch, adds tests, runs the full suite, and -- only if "
+        "everything passes -- opens a pull request for a human to review and merge (it does "
+        "not merge it itself). A successful pull request sends a push notification (if "
+        "configured) to review it. This does NOT merge, rebuild, or restart SirisAI itself -- "
+        "merging is a manual GitHub step, and rebuild_and_restart (a separate, explicitly "
+        "confirmed tool) redeploys whatever is on main once that's done. Use gap_id from "
+        "list_capability_gaps. A gap that isn't 'open' (already has a PR open, failed, or was "
+        "dismissed) is left alone and reported back as-is rather than re-attempted."
     )
     permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
@@ -269,14 +284,14 @@ class ResolveCapabilityGapTool(Tool):
             }
 
         response = self._hermes.run_task(_build_resolve_instruction(gap))
-        merged, detail = _parse_hermes_result(response)
+        pr_url, detail = _parse_hermes_result(response)
         updated = (
-            self._gaps.mark_resolved(gap_id, detail)
-            if merged
+            self._gaps.mark_pr_open(gap_id, detail)
+            if pr_url is not None
             else self._gaps.mark_failed(gap_id, detail)
         )
-        if merged:
-            self._notify_ready_to_deploy(gap["requested_capability"])
+        if pr_url is not None:
+            self._notify_pr_ready(gap["requested_capability"], pr_url)
         return {
             "gap_id": gap_id,
             "status": updated["status"],
@@ -284,28 +299,16 @@ class ResolveCapabilityGapTool(Tool):
             "detail": updated["resolution_detail"],
         }
 
-    def _notify_ready_to_deploy(self, requested_capability: str) -> None:
+    def _notify_pr_ready(self, requested_capability: str, pr_url: str) -> None:
         if self._notify is None:
             return
 
-        actions = None
-        if self._public_base_url:
-            headers = {"Content-Type": "application/json"}
-            if self._api_key:
-                headers["Authorization"] = f"Bearer {self._api_key}"
-            actions = [
-                {
-                    "action": "http",
-                    "label": "Rebuild now",
-                    "url": f"{self._public_base_url.rstrip('/')}/siris/tools/rebuild_and_restart/run",
-                    "method": "POST",
-                    "headers": headers,
-                    "body": json.dumps({"arguments": {}, "confirmed": True}),
-                }
-            ]
+        # "view" (open the URL), not "http" (silently call it): merging is a
+        # human decision now, not a one-tap action from a notification.
+        actions = [{"action": "view", "label": "Review PR", "url": pr_url}] if pr_url.startswith("http") else None
 
         self._notify.send(
-            message=f"Fix merged for '{requested_capability}'. Rebuild & restart to deploy it.",
-            title="SirisAI: fix ready to deploy",
+            message=f"Pull request ready for review: '{requested_capability}'. Review and merge it on GitHub, then rebuild to deploy.",
+            title="SirisAI: PR ready for review",
             actions=actions,
         )

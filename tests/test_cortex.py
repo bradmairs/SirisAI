@@ -660,3 +660,75 @@ def test_extraction_pre_check_only_fires_for_statements_about_the_user() -> None
     assert not _worth_extracting("Turn on the office light")
     assert not _worth_extracting("Good morning!")
     assert not _worth_extracting("(user confirmed: home_assistant_call_service)")
+
+
+# -- Push notification when a chat turn needs confirmation (a hardening
+# pass, 2026-09-27): the user may not be watching the app right when the
+# model picks a CONFIRM_REQUIRED tool. Shares app/notify/confirmation.py
+# with RoutineRunner (see tests/test_notify_confirmation.py for that
+# module's own behavior); these check Cortex actually calls it.
+
+
+def test_process_notifies_when_a_tool_call_needs_confirmation(monkeypatch: Any) -> None:
+    calls = []
+    monkeypatch.setattr(
+        "app.cortex.orchestrator.notify_confirmation_needed",
+        lambda siris, context, name, arguments: calls.append((context, name, arguments)),
+    )
+    siris = _siris(_FixedLLMClient(LLMResponse(tool_calls=[ToolCall(name="dangerous_action", arguments={"target": "prod"})])))
+    siris.tools.register(_ConfirmRequiredTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "do the dangerous thing", use_context=False))
+
+    assert result.pending_confirmation == ("dangerous_action", {"target": "prod"})
+    assert calls == [("SirisAI", "dangerous_action", {"target": "prod"})]
+
+
+def test_process_does_not_notify_when_nothing_needs_confirming(monkeypatch: Any) -> None:
+    calls = []
+    monkeypatch.setattr("app.cortex.orchestrator.notify_confirmation_needed", lambda *a, **k: calls.append(a))
+    siris = _siris(_FixedLLMClient(LLMResponse(text="all good")))
+    conversation_id = siris.conversation.create_conversation()
+
+    asyncio.run(Cortex().process(siris, conversation_id, "hello", use_context=False, use_tools=False))
+
+    assert calls == []
+
+
+def test_confirm_continuation_notifies_on_a_second_pending_confirmation(monkeypatch: Any) -> None:
+    """use_planner=true confirming one step can immediately hit another
+    CONFIRM_REQUIRED tool (PlanResult.pending_confirmation) -- that also
+    deserves a push, not just the very first one in a turn."""
+    calls = []
+    monkeypatch.setattr(
+        "app.cortex.orchestrator.notify_confirmation_needed",
+        lambda siris, context, name, arguments: calls.append((name, arguments)),
+    )
+    siris = _siris(
+        _SequenceLLMClient([LLMResponse(tool_calls=[ToolCall(name="dangerous_action", arguments={"target": "second"})])])
+    )
+    siris.tools.register(_ConfirmRequiredTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(
+        Cortex().confirm(siris, conversation_id, "dangerous_action", {"target": "first"}, use_planner=True)
+    )
+
+    assert result.pending_confirmation == ("dangerous_action", {"target": "second"})
+    assert calls == [("dangerous_action", {"target": "second"})]
+
+
+def test_a_failing_notification_does_not_break_the_turn(monkeypatch: Any) -> None:
+    monkeypatch.setattr(
+        "app.cortex.orchestrator.notify_confirmation_needed",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ntfy down")),
+    )
+    siris = _siris(_FixedLLMClient(LLMResponse(tool_calls=[ToolCall(name="dangerous_action", arguments={"target": "x"})])))
+    siris.tools.register(_ConfirmRequiredTool())
+    conversation_id = siris.conversation.create_conversation()
+
+    result = asyncio.run(Cortex().process(siris, conversation_id, "do it", use_context=False))
+
+    assert result.pending_confirmation == ("dangerous_action", {"target": "x"})
+    assert result.error is None

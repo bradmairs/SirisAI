@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.core import taint
+from app.notify.confirmation import notify_confirmation_needed
 from app.llm.streaming import EventCallback, generate_with_events
 from app.planning.planner import Planner
 from app.plugins.base import ConfirmationRequired, ToolPermission
@@ -577,8 +578,19 @@ class Cortex:
           "Done." and the light never changed).
         - Answer claims a change ("removed", "turned on", "saved") but every
           tool that ran only read data: append a correction.
+        - A tool call is waiting on confirmation: push a notification with a
+          one-tap Confirm button (same as a routine's action needing one --
+          app/notify/confirmation.py), since the user may not be looking at
+          the app right when this happens.
         """
-        if result.error or result.pending_confirmation:
+        if result.error:
+            return
+        if result.pending_confirmation:
+            name, arguments = result.pending_confirmation
+            try:
+                notify_confirmation_needed(siris, "SirisAI", name, arguments)
+            except Exception:
+                logger.exception("Confirmation-needed notification failed")
             return
         ran = self._tools_run(result)
 

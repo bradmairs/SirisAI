@@ -274,7 +274,7 @@ def test_resolve_raises_for_unknown_gap_id() -> None:
         pass
 
 
-def test_resolve_merged_marks_gap_resolved_with_full_response_as_detail() -> None:
+def test_resolve_opens_pr_marks_gap_pr_open_with_full_response_and_url() -> None:
     siris = SirisAI(settings=get_siris().settings)
     gap = siris.capability_gaps.report_gap(f"resolvable {uuid.uuid4()}", suggested_integration="Some API")
 
@@ -283,21 +283,26 @@ def test_resolve_merged_marks_gap_resolved_with_full_response_as_detail() -> Non
         instruction = parsed["messages"][0]["content"]
         assert gap["requested_capability"] in instruction
         assert "Some API" in instruction
+        assert "do NOT merge it yourself" in instruction
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"content": "Implemented and merged.\nRESULT: MERGED"}}]},
+            json={
+                "choices": [
+                    {"message": {"content": "Implemented and pushed.\nRESULT: PR_OPENED: https://github.com/bradmairs/SirisAI/pull/58"}}
+                ]
+            },
         )
 
     tool = ResolveCapabilityGapTool(siris.capability_gaps, _hermes_client(handler))
     result = tool.run(gap_id=gap["id"])
 
-    assert result["status"] == "resolved"
+    assert result["status"] == "pr_open"
     assert result["attempted"] is True
-    assert "RESULT: MERGED" in result["detail"]
-    assert siris.capability_gaps.get_gap(gap["id"])["status"] == "resolved"
+    assert "pull/58" in result["detail"]
+    assert siris.capability_gaps.get_gap(gap["id"])["status"] == "pr_open"
 
 
-def test_resolve_not_merged_marks_gap_failed_with_reason() -> None:
+def test_resolve_not_opened_marks_gap_failed_with_reason() -> None:
     siris = SirisAI(settings=get_siris().settings)
     gap = siris.capability_gaps.report_gap(f"not resolvable {uuid.uuid4()}")
 
@@ -306,7 +311,7 @@ def test_resolve_not_merged_marks_gap_failed_with_reason() -> None:
             200,
             json={
                 "choices": [
-                    {"message": {"content": "Couldn't get tests passing.\nRESULT: NOT_MERGED: flaky test suite"}}
+                    {"message": {"content": "Couldn't get tests passing.\nRESULT: NOT_OPENED: flaky test suite"}}
                 ]
             },
         )
@@ -332,6 +337,19 @@ def test_resolve_with_no_result_marker_is_treated_as_failed_not_assumed_successf
 
     assert result["status"] == "failed"
     assert "All done, looks great!" in result["detail"]
+
+
+def test_resolve_does_not_merge_even_if_hermes_reports_a_merge_instead_of_a_pr() -> None:
+    """A stale/misbehaving Hermes reporting the old RESULT: MERGED marker
+    must not be read as a pull request either -- only the new marker counts."""
+    siris = SirisAI(settings=get_siris().settings)
+    gap = siris.capability_gaps.report_gap(f"old marker {uuid.uuid4()}")
+
+    hermes = _hermes_client(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: MERGED"}}]}))
+    result = ResolveCapabilityGapTool(siris.capability_gaps, hermes).run(gap_id=gap["id"])
+
+    assert result["status"] == "failed"
+    hermes.close()
 
 
 def test_resolve_does_not_re_attempt_a_non_open_gap() -> None:
@@ -381,7 +399,7 @@ def _mock_notify_client(handler) -> NotifyClient:
     return NotifyClient(base_url="https://ntfy.sh", topic="test-topic", transport=httpx.MockTransport(handler))
 
 
-def test_resolve_merged_sends_a_plain_notification_without_public_base_url() -> None:
+def test_resolve_pr_opened_sends_a_notification_with_a_view_action() -> None:
     siris = SirisAI(settings=get_siris().settings)
     gap = siris.capability_gaps.report_gap(f"notify me {uuid.uuid4()}")
 
@@ -391,54 +409,45 @@ def test_resolve_merged_sends_a_plain_notification_without_public_base_url() -> 
         notify_calls.append(json.loads(request.content))
         return httpx.Response(200)
 
-    hermes = _hermes_client(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: MERGED"}}]}))
+    hermes = _hermes_client(
+        lambda r: httpx.Response(
+            200, json={"choices": [{"message": {"content": "RESULT: PR_OPENED: https://github.com/bradmairs/SirisAI/pull/58"}}]}
+        )
+    )
     notify = _mock_notify_client(notify_handler)
     tool = ResolveCapabilityGapTool(siris.capability_gaps, hermes, notify=notify)
 
     tool.run(gap_id=gap["id"])
 
     assert len(notify_calls) == 1
-    assert notify_calls[0]["title"] == "SirisAI: fix ready to deploy"
+    assert notify_calls[0]["title"] == "SirisAI: PR ready for review"
     assert gap["requested_capability"] in notify_calls[0]["message"]
+    assert "review and merge" in notify_calls[0]["message"].lower()
+    action = notify_calls[0]["actions"][0]
+    # "view" (opens the URL for a human to look at), never "http" (which
+    # would silently call it) -- merging is a manual decision now.
+    assert action == {"action": "view", "label": "Review PR", "url": "https://github.com/bradmairs/SirisAI/pull/58"}
+    hermes.close()
+    notify.close()
+
+
+def test_resolve_pr_opened_with_no_usable_url_sends_no_action_button() -> None:
+    siris = SirisAI(settings=get_siris().settings)
+    gap = siris.capability_gaps.report_gap(f"no url {uuid.uuid4()}")
+
+    notify_calls = []
+    hermes = _hermes_client(
+        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: PR_OPENED: "}}]})
+    )
+    notify = _mock_notify_client(lambda r: (notify_calls.append(json.loads(r.content)), httpx.Response(200))[1])
+    ResolveCapabilityGapTool(siris.capability_gaps, hermes, notify=notify).run(gap_id=gap["id"])
+
     assert "actions" not in notify_calls[0]
     hermes.close()
     notify.close()
 
 
-def test_resolve_merged_includes_a_rebuild_action_button_with_public_base_url() -> None:
-    siris = SirisAI(settings=get_siris().settings)
-    gap = siris.capability_gaps.report_gap(f"notify with button {uuid.uuid4()}")
-
-    notify_calls = []
-
-    def notify_handler(request: httpx.Request) -> httpx.Response:
-        notify_calls.append(json.loads(request.content))
-        return httpx.Response(200)
-
-    hermes = _hermes_client(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: MERGED"}}]}))
-    notify = _mock_notify_client(notify_handler)
-    tool = ResolveCapabilityGapTool(
-        siris.capability_gaps,
-        hermes,
-        notify=notify,
-        public_base_url="https://siris.example.com",
-        api_key="secret",
-    )
-
-    tool.run(gap_id=gap["id"])
-
-    action = notify_calls[0]["actions"][0]
-    assert action["action"] == "http"
-    assert action["label"] == "Rebuild now"
-    assert action["url"] == "https://siris.example.com/siris/tools/rebuild_and_restart/run"
-    assert action["method"] == "POST"
-    assert action["headers"]["Authorization"] == "Bearer secret"
-    assert json.loads(action["body"]) == {"arguments": {}, "confirmed": True}
-    hermes.close()
-    notify.close()
-
-
-def test_resolve_not_merged_does_not_send_a_notification() -> None:
+def test_resolve_not_opened_does_not_send_a_notification() -> None:
     siris = SirisAI(settings=get_siris().settings)
     gap = siris.capability_gaps.report_gap(f"no notify on failure {uuid.uuid4()}")
 
@@ -449,7 +458,7 @@ def test_resolve_not_merged_does_not_send_a_notification() -> None:
         return httpx.Response(200)
 
     hermes = _hermes_client(
-        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: NOT_MERGED: nope"}}]})
+        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: NOT_OPENED: nope"}}]})
     )
     notify = _mock_notify_client(notify_handler)
     tool = ResolveCapabilityGapTool(siris.capability_gaps, hermes, notify=notify)
@@ -465,10 +474,12 @@ def test_resolve_merged_without_notify_configured_does_not_raise() -> None:
     siris = SirisAI(settings=get_siris().settings)
     gap = siris.capability_gaps.report_gap(f"no notify configured {uuid.uuid4()}")
 
-    hermes = _hermes_client(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: MERGED"}}]}))
+    hermes = _hermes_client(
+        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "RESULT: PR_OPENED: https://github.com/bradmairs/SirisAI/pull/1"}}]})
+    )
     tool = ResolveCapabilityGapTool(siris.capability_gaps, hermes)
 
     result = tool.run(gap_id=gap["id"])
 
-    assert result["status"] == "resolved"
+    assert result["status"] == "pr_open"
     hermes.close()
