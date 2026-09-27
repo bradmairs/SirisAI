@@ -13,6 +13,7 @@ import httpx
 from app.plugins.base import Tool, ToolPermission
 from app.satellites.service import SatelliteStore
 from app.voice import sync_tts
+from app.voice.pronunciation import for_speech
 
 
 class SpeakInCurrentRoomTool(Tool):
@@ -54,7 +55,7 @@ class SpeakInCurrentRoomTool(Tool):
             return {"sent": False, "reason": "no satellite currently known"}
 
         audio = sync_tts.synthesize(
-            self._tts_base_url, self._tts_model, self._tts_voice, message, transport=self._transport
+            self._tts_base_url, self._tts_model, self._tts_voice, for_speech(message), transport=self._transport
         )
 
         with httpx.Client(transport=self._transport) as client:

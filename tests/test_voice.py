@@ -60,6 +60,20 @@ def test_speak_with_backend_configured(client: TestClient) -> None:
         app.dependency_overrides.pop(get_siris, None)
 
 
+def test_speak_pronounces_its_own_name_as_cyrus(client: TestClient) -> None:
+    """A direct user request: "Siris" read wrong on TTS, wanted spoken as
+    "Cyrus" -- text actually sent to synthesis, not just displayed text,
+    should carry the substitution."""
+    fake_siris = get_siris()
+    fake_siris.tts = _FakeTTSClient()  # type: ignore[assignment]
+    app.dependency_overrides[get_siris] = lambda: fake_siris
+    try:
+        response = client.post("/siris/voice/speak", json={"text": "Hi, I'm SirisAI."})
+        assert response.content == b"audio-for:Hi, I'm Cyrus AI."
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+
+
 def test_voice_routes_require_api_key_when_configured(client: TestClient) -> None:
     from app.core.config import Settings, get_settings
 

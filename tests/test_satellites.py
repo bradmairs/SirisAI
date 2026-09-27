@@ -272,6 +272,27 @@ def test_speak_in_current_room_synthesizes_and_pushes_to_the_current_rooms_satel
     assert push_calls[0].content == b"fake-mp3-bytes"
 
 
+def test_speak_in_current_room_pronounces_its_own_name_as_cyrus() -> None:
+    store = _isolated_satellites()
+    room = _room("kitchen")
+    store.register(room, "http://kitchen.local:8090")
+
+    tts_calls: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "tts.local":
+            import json
+
+            tts_calls.append(json.loads(request.content))
+            return httpx.Response(200, content=b"fake-mp3-bytes")
+        return httpx.Response(200)
+
+    tool = SpeakInCurrentRoomTool(store, "http://tts.local", "tts-model", "nova", transport=httpx.MockTransport(handler))
+    tool.run(message="SirisAI noticed the dryer finished")
+
+    assert tts_calls[0]["input"] == "Cyrus AI noticed the dryer finished"
+
+
 def test_speak_in_current_room_propagates_a_push_failure() -> None:
     store = _isolated_satellites()
     room = _room("kitchen")

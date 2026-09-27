@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient
+from app.voice.pronunciation import for_speech
 from app.core.user_context import resolve_user_id
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ async def speak(request: SpeakRequest, siris: SirisAI = Depends(get_siris)) -> R
     if isinstance(siris.tts, NullTextToSpeechClient):
         raise HTTPException(status_code=501, detail="Text-to-speech isn't configured (set SIRISAI_TTS_PROVIDER).")
     try:
-        audio = await siris.tts.synthesize(request.text)
+        audio = await siris.tts.synthesize(for_speech(request.text))
     except Exception:
         logger.exception("TTS synthesize() failed")
         raise HTTPException(status_code=502, detail="Text-to-speech backend call failed.") from None
