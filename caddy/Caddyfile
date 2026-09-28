@@ -1,0 +1,13 @@
+# HTTPS front end for SirisAI, self-signed (tls internal) since this stays
+# LAN-only -- browsers only expose microphone recording
+# (navigator.mediaDevices.getUserMedia) on a secure context (https://, or
+# localhost), and SirisAI's own plain-http address doesn't qualify. The
+# first visit from any browser/device shows a security warning (Caddy's
+# root CA isn't in any device's trust store) -- click through once
+# ("Advanced" -> "Proceed"); most browsers remember that per origin.
+# Everything else about SirisAI is unchanged: this only adds a second,
+# optional way to reach it.
+:8443 {
+	tls internal
+	reverse_proxy sirisai:8000
+}
