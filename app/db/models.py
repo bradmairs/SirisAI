@@ -442,6 +442,24 @@ class EventReactionCursor(Base):
     last_event_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class SchedulerState(Base):
+    """Single-row watermark for the background scheduler's own once-a-day
+    work (app/core/scheduler.py) -- currently just the daily briefing.
+    Same "exactly one row, at id=1" shape as EventReactionCursor, needed
+    for the same reason: a date, not a set/counter, since a calendar day
+    either has or hasn't had its briefing sent, and this has to survive a
+    process restart -- unlike the scheduler's interval-based checks
+    (health, presence, geofence), which just use an in-memory timer and
+    lose at most a few minutes of cadence on restart, firing the daily
+    briefing twice in one day (or on a stale schedule after a long
+    outage) is the kind of mistake worth persisting against."""
+
+    __tablename__ = "scheduler_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    last_briefing_date: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class GeofenceReminder(Base):
     """A one-shot or recurring reminder triggered by a Home Assistant
     `person`/`device_tracker` entity's `state` becoming a specific zone

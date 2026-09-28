@@ -1,6 +1,7 @@
-"""Background jobs: deliver due reminders/timers, and watch SirisAI's own
-health. One asyncio task started with the app (app/main.py); each job is a
-plain function so tests call it directly.
+"""Background jobs: deliver due reminders/timers, watch SirisAI's own
+health, and run the proactive checks (app/notify/proactive.py) that used
+to need an external cron job. One asyncio task started with the app
+(app/main.py); each job is a plain function so tests call it directly.
 """
 
 import asyncio
@@ -9,7 +10,9 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from app.core import clock
 from app.core.health import broken_tools
+from app.notify import proactive
 from app.reminders.service import MAX_ATTEMPTS
 
 if TYPE_CHECKING:
@@ -66,21 +69,87 @@ def alert_on_broken_tools(siris: "SirisAI", now: datetime | None = None) -> list
     return alerted
 
 
+def run_proactive_check(siris: "SirisAI", now: datetime | None = None) -> None:
+    """The same check POST /siris/proactive/check runs, on
+    SIRISAI_PROACTIVE_CHECK_INTERVAL_MINUTES instead of needing an
+    external cron job. Best-effort: a failure here shouldn't take the
+    scheduler down, same posture as everything else in this module."""
+    try:
+        proactive.run_health_check(siris, "proactive check: automated schedule")
+    except Exception:
+        logger.exception("Scheduled proactive check failed")
+
+
+def run_presence_and_geofence_checks(siris: "SirisAI") -> None:
+    """presence_check and geofence_reminder_check, on
+    SIRISAI_PRESENCE_CHECK_INTERVAL_MINUTES -- both "did a zone transition
+    happen" checks, and both no-ops (None) when their underlying
+    capability isn't configured."""
+    for run_check, label in (
+        (proactive.run_presence_check, "presence"),
+        (proactive.run_geofence_check, "geofence"),
+    ):
+        try:
+            run_check(siris, f"proactive check: automated schedule ({label})")
+        except Exception:
+            logger.exception("Scheduled %s check failed", label)
+
+
+def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
+    """Runs daily_briefing once, the first scheduler tick at or past
+    SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
+    (SchedulerStateStore, persisted -- see that module's own docstring for
+    why this one needs a real row instead of an in-memory timer). Returns
+    whether it ran. Disabled (does nothing, returns False) when
+    SIRISAI_BRIEFING_HOUR_LOCAL is unset."""
+    hour = siris.settings.briefing_hour_local
+    if hour is None:
+        return False
+    local_now = (now or datetime.now(UTC)).astimezone(clock.get_zone(siris.settings.timezone))
+    if local_now.hour < hour:
+        return False
+    today = local_now.date().isoformat()
+    if siris.scheduler_state.last_briefing_date() == today:
+        return False
+    try:
+        proactive.run_daily_briefing(siris, "proactive check: automated schedule (daily briefing)")
+    except Exception:
+        logger.exception("Scheduled daily briefing failed")
+    # Marked sent even on failure -- a broken briefing should surface once
+    # (in the logs) and get investigated, not retry every tick for the
+    # rest of the day.
+    siris.scheduler_state.mark_briefing_sent(today)
+    return True
+
+
 def tick(siris: "SirisAI", now: datetime | None = None, run_health: bool = False) -> dict[str, object]:
     result: dict[str, object] = {"reminders_sent": deliver_due_reminders(siris, now)}
     if run_health:
         result["tool_alerts"] = alert_on_broken_tools(siris, now)
+    result["briefing_sent"] = maybe_run_daily_briefing(siris, now)
     return result
 
 
 async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_health = 0.0
+    last_proactive = 0.0
+    last_presence = 0.0
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
             await asyncio.to_thread(tick, siris, datetime.now(UTC), due_health)
             if due_health:
                 last_health = time.monotonic()
+
+            proactive_interval = siris.settings.proactive_check_interval_minutes * 60
+            if proactive_interval > 0 and time.monotonic() - last_proactive >= proactive_interval:
+                await asyncio.to_thread(run_proactive_check, siris, datetime.now(UTC))
+                last_proactive = time.monotonic()
+
+            presence_interval = siris.settings.presence_check_interval_minutes * 60
+            if presence_interval > 0 and time.monotonic() - last_presence >= presence_interval:
+                await asyncio.to_thread(run_presence_and_geofence_checks, siris)
+                last_presence = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

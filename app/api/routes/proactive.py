@@ -1,26 +1,30 @@
 """Proactive checks: composes existing skills with a notification, so
-something can run unprompted (e.g. from cron) rather than only in response
-to a chat turn.
+something can run unprompted rather than only in response to a chat turn.
 
-Deliberately not a background scheduler inside this process -- SirisAI
-doesn't decide on its own when to check. Something external (a cron job,
-a systemd timer) decides the cadence. What runs on that cadence got
-smarter in milestone 26 (app/notify/manager.py, `NotificationManager`):
-rather than joining every warning into one flat message, each warning is
-scored and correlated -- still deterministic scoring, not fuzzy LLM
-judgment, so the "stops well short of autonomous action" boundary this
-milestone's roadmap entry draws still holds. Only "urgent" items actually
-push immediately; "notify"-tier items are queued instead (an
-interruption controller, milestone 72, app/notify/pending.py) and
-surface in the next daily_briefing rather than interrupting the user for
-something that can wait. `event_timing_check`, `goal_check_in`, `goal_decomposition_check`,
-`new_device_alert`, and `event_reaction_check` (app/skills/builtin/,
-later hardening passes) compose in the same way -- their warnings go
-through the same NotificationManager pass as server_health_check's.
-`event_reaction_check` is what closes the "proactively notify based on
-an incoming event" gap app/api/routes/events.py's own module docstring
-originally left open, via a deterministic keyword scan rather than
-per-event LLM judgment -- see its own module docstring for why.
+Delivered two ways, not mutually exclusive: the background scheduler
+(app/core/scheduler.py, SIRISAI_PROACTIVE_CHECK_INTERVAL_MINUTES /
+SIRISAI_BRIEFING_HOUR_LOCAL) calls the same functions these routes wrap
+(app/notify/proactive.py) on its own cadence, and these routes stay
+callable directly too -- an external cron/systemd timer, or just testing
+one check by hand. Neither is required for the other to work.
+
+What runs on that cadence got smarter in milestone 26 (app/notify/manager.py,
+`NotificationManager`): rather than joining every warning into one flat
+message, each warning is scored and correlated -- still deterministic
+scoring, not fuzzy LLM judgment, so the "stops well short of autonomous
+action" boundary this milestone's roadmap entry draws still holds. Only
+"urgent" items actually push immediately; "notify"-tier items are queued
+instead (an interruption controller, milestone 72, app/notify/pending.py)
+and surface in the next daily_briefing rather than interrupting the user
+for something that can wait. `event_timing_check`, `goal_check_in`,
+`goal_decomposition_check`, `new_device_alert`, and `event_reaction_check`
+(app/skills/builtin/, later hardening passes) compose in the same way --
+their warnings go through the same NotificationManager pass as
+server_health_check's. `event_reaction_check` is what closes the
+"proactively notify based on an incoming event" gap
+app/api/routes/events.py's own module docstring originally left open, via
+a deterministic keyword scan rather than per-event LLM judgment -- see
+its own module docstring for why.
 
 POST /briefing (milestone 53) also speaks its summary aloud via
 speak_in_current_room, alongside the push notification -- a second,
@@ -42,7 +46,8 @@ from pydantic import BaseModel
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
-from app.notify.manager import NotificationItem, NotificationManager
+from app.notify import proactive
+from app.notify.manager import NotificationItem
 
 router = APIRouter(
     prefix="/siris/proactive",
@@ -97,77 +102,28 @@ def run_health_check_and_notify(
 ) -> HealthCheckResponse:
     """Run server_health_check, event_timing_check, goal_check_in,
     goal_decomposition_check, new_device_alert, and event_reaction_check,
-    score and correlate
-    whatever warnings any of them finds (NotificationManager), push
-    "urgent" items immediately -- if a
-    notify channel is configured (SIRISAI_NTFY_TOPIC) -- and queue
-    "notify"-tier items instead of pushing them. Meant to be triggered on
-    a schedule from outside this process -- see the README for a crontab
-    example. `notifications` in the response shows every item's
+    score and correlate whatever warnings any of them finds
+    (NotificationManager), push "urgent" items immediately -- if a notify
+    channel is configured (SIRISAI_NTFY_TOPIC) -- and queue "notify"-tier
+    items instead of pushing them. Runs automatically every
+    SIRISAI_PROACTIVE_CHECK_INTERVAL_MINUTES (app/core/scheduler.py); this
+    route exists for calling it directly too (an external schedule, or
+    just testing it). `notifications` in the response shows every item's
     classification regardless of whether anything was actually sent or
     queued, so a caller can see what was judged worth surfacing (and what
-    wasn't).
-
-    Escalation tiers (milestone 44) plus an interruption controller
-    (milestone 72): "urgent" still raises the notification's ntfy
-    priority so it can break through a phone's do-not-disturb/silent
-    settings, and now "notify"-tier items don't push at all -- they're
-    queued (app/notify/pending.py) to surface in the next daily_briefing
-    instead of interrupting the user for something that can wait for the
-    digest. `queued` in the response is how many landed there this call."""
-    trigger = "proactive check: automated schedule (see POST /siris/proactive/check)"
-    result = siris.run_tool("server_health_check", {}, trigger=trigger)
-    event_timing = siris.run_tool("event_timing_check", {}, trigger=trigger)
-    goal_check_in = siris.run_tool("goal_check_in", {}, trigger=trigger)
-    goal_decomposition = siris.run_tool("goal_decomposition_check", {}, trigger=trigger)
-    new_device_alert = siris.run_tool("new_device_alert", {}, trigger=trigger)
-    event_reaction = siris.run_tool("event_reaction_check", {}, trigger=trigger)
-
-    warnings = (
-        result["warnings"]
-        + event_timing["warnings"]
-        + goal_check_in["warnings"]
-        + goal_decomposition["warnings"]
-        + new_device_alert["warnings"]
-        + event_reaction["warnings"]
-    )
-    items = NotificationManager(siris.entities).summarize(warnings) if warnings else []
-    urgent_items = [item for item in items if item.action == "urgent"]
-    deferred_items = [item for item in items if item.action == "notify"]
-
-    notified = False
-    if urgent_items and siris.tools.get("notify") is not None:
-        title = "SirisAI: urgent"
-        summary = "; ".join(item.message for item in urgent_items)
-        # Evidence (milestone 28): the classified items that justified
-        # sending, not just the notify call's own title/message.
-        evidence = [
-            {"message": item.message, "severity": item.severity, "action": item.action}
-            for item in urgent_items
-        ]
-        siris.run_tool(
-            "notify",
-            {"title": title, "message": summary, "priority": "urgent"},
-            trigger=trigger,
-            evidence=evidence,
-        )
-        notified = True
-
-    for item in deferred_items:
-        siris.pending_notifications.queue(
-            item.message, severity=item.severity, category=item.category
-        )
-
+    wasn't)."""
+    trigger = "proactive check: POST /siris/proactive/check"
+    outcome = proactive.run_health_check(siris, trigger)
     return HealthCheckResponse(
-        result=result,
-        event_timing=event_timing,
-        goal_check_in=goal_check_in,
-        goal_decomposition=goal_decomposition,
-        new_device_alert=new_device_alert,
-        event_reaction=event_reaction,
-        notified=notified,
-        queued=len(deferred_items),
-        notifications=[_to_response(i) for i in items],
+        result=outcome.result,
+        event_timing=outcome.event_timing,
+        goal_check_in=outcome.goal_check_in,
+        goal_decomposition=outcome.goal_decomposition,
+        new_device_alert=outcome.new_device_alert,
+        event_reaction=outcome.event_reaction,
+        notified=outcome.notified,
+        queued=outcome.queued,
+        notifications=[_to_response(i) for i in outcome.notifications],
     )
 
 
@@ -187,37 +143,16 @@ def run_daily_briefing(siris: SirisAI = Depends(get_siris)) -> BriefingResponse:
     whatever channels are configured -- if a notify channel is configured
     (SIRISAI_NTFY_TOPIC), and/or a voice satellite is currently known
     (milestone 53, via speak_in_current_room), always sends/speaks to
-    both independently. Meant to be triggered on a schedule from outside
-    this process, same as POST /siris/proactive/check -- see the README
-    for a crontab example. Unlike /check, always sends/speaks when a
+    both independently. Runs automatically once a day at
+    SIRISAI_BRIEFING_HOUR_LOCAL (app/core/scheduler.py); this route exists
+    for calling it directly too. Unlike /check, always sends/speaks when a
     channel is configured (a briefing is the point of calling this at
     all, not a conditional alert), and doesn't go through
     NotificationManager -- there's nothing to score or correlate,
     `daily_briefing` already composed one summary."""
-    trigger = "proactive check: automated schedule (see POST /siris/proactive/briefing)"
-    result = siris.run_tool("daily_briefing", {}, trigger=trigger)
-
-    notified = False
-    if siris.tools.get("notify") is not None:
-        siris.run_tool(
-            "notify",
-            {"title": "SirisAI: daily briefing", "message": result["summary"]},
-            trigger=trigger,
-            evidence=result,
-        )
-        notified = True
-
-    spoken = False
-    if siris.tools.get("speak_in_current_room") is not None:
-        speak_result = siris.run_tool(
-            "speak_in_current_room",
-            {"message": result["summary"]},
-            trigger=trigger,
-            evidence=result,
-        )
-        spoken = bool(speak_result.get("sent"))
-
-    return BriefingResponse(result=result, notified=notified, spoken=spoken)
+    trigger = "proactive check: POST /siris/proactive/briefing"
+    outcome = proactive.run_daily_briefing(siris, trigger)
+    return BriefingResponse(result=outcome.result, notified=outcome.notified, spoken=outcome.spoken)
 
 
 class PresenceCheckResponse(BaseModel):
@@ -232,17 +167,17 @@ def run_presence_check(siris: SirisAI = Depends(get_siris)) -> PresenceCheckResp
     presence tracking isn't configured (SIRISAI_UNIFI_* +
     SIRISAI_PRESENCE_DEVICE_NAMES) -- unlike /check and /briefing, which
     are always registered, this tool only exists when there's UniFi
-    presence data to check in the first place. Meant to be triggered
-    frequently from outside this process (e.g. every few minutes) --
-    same "no in-process scheduler" boundary as every other proactive
-    route, just a shorter interval than a health check needs."""
-    if siris.tools.get("presence_check") is None:
+    presence data to check in the first place. Runs automatically every
+    SIRISAI_PRESENCE_CHECK_INTERVAL_MINUTES (app/core/scheduler.py) when
+    configured -- a shorter interval than the health check needs, since a
+    presence transition is worth catching quickly."""
+    trigger = "proactive check: POST /siris/proactive/presence"
+    result = proactive.run_presence_check(siris, trigger)
+    if result is None:
         raise HTTPException(
             status_code=404,
             detail="Presence tracking isn't configured (needs UniFi settings and SIRISAI_PRESENCE_DEVICE_NAMES).",
         )
-    trigger = "proactive check: automated schedule (see POST /siris/proactive/presence)"
-    result = siris.run_tool("presence_check", {}, trigger=trigger)
     return PresenceCheckResponse(result=result)
 
 
@@ -258,18 +193,16 @@ def run_geofence_reminder_check(siris: SirisAI = Depends(get_siris)) -> Geofence
     fired -- not routed through NotificationManager, since a reminder's
     message is arbitrary text the user already wrote and approved by
     creating it, not an auto-generated warning needing severity
-    classification. 404 if Home Assistant isn't configured, same
-    "only exists when its underlying capability does" reasoning
-    POST /siris/proactive/presence already uses -- a separate endpoint
-    rather than folding into /check, since a personal reminder isn't a
-    system-health warning /check's NotificationManager pass is scoring.
-    Meant to be triggered periodically from outside this process, same
-    as every other proactive route."""
-    if siris.tools.get("geofence_reminder_check") is None:
+    classification. 404 if Home Assistant isn't configured, same "only
+    exists when its underlying capability does" reasoning
+    POST /siris/proactive/presence already uses. Runs automatically every
+    SIRISAI_PRESENCE_CHECK_INTERVAL_MINUTES when configured, same cadence
+    as /presence -- both are "did a zone transition happen" checks."""
+    trigger = "proactive check: POST /siris/proactive/geofence"
+    result = proactive.run_geofence_check(siris, trigger)
+    if result is None:
         raise HTTPException(
             status_code=404,
             detail="Geofence reminders aren't available (Home Assistant isn't configured).",
         )
-    trigger = "proactive check: automated schedule (see POST /siris/proactive/geofence)"
-    result = siris.run_tool("geofence_reminder_check", {}, trigger=trigger)
     return GeofenceCheckResponse(result=result)

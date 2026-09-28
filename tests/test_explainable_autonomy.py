@@ -214,7 +214,7 @@ def test_proactive_check_notify_call_carries_trigger_and_evidence() -> None:
     notify_call = next(c for c in fake_siris.calls if c["name"] == "notify")
     assert (
         notify_call["trigger"]
-        == "proactive check: automated schedule (see POST /siris/proactive/check)"
+        == "proactive check: POST /siris/proactive/check"
     )
     assert notify_call["evidence"] == [
         {

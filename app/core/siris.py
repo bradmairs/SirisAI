@@ -196,6 +196,7 @@ from app.plugins.builtin.conversations import RecentConversationsTool, SearchCon
 from app.plugins.builtin.weather import WeatherCurrentTool, WeatherForecastTool
 from app.plugins.builtin.reminders import CancelReminderTool, ListRemindersTool, SetReminderTool
 from app.plugins.builtin.integration_health import IntegrationHealthTool
+from app.core.scheduler_state import SchedulerStateStore
 from app.reminders.service import ReminderStore
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
@@ -391,6 +392,7 @@ class SirisAI:
     )
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
     reminders: ReminderStore = field(default_factory=lambda: ReminderStore(SessionLocal))
+    scheduler_state: SchedulerStateStore = field(default_factory=lambda: SchedulerStateStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:

@@ -156,12 +156,13 @@ class Settings(BaseSettings):
     weather_latitude: float | None = None
     weather_longitude: float | None = None
 
-    @field_validator("weather_latitude", "weather_longitude", mode="before")
+    @field_validator("weather_latitude", "weather_longitude", "briefing_hour_local", mode="before")
     @classmethod
     def _blank_env_string_means_unset(cls, value: Any) -> Any:
         # An unset .env line (SIRISAI_WEATHER_LATITUDE=) arrives here as ""
-        # rather than being omitted entirely, which float | None otherwise
-        # rejects -- treat blank the same as not set.
+        # rather than being omitted entirely, which float | None (or
+        # int | None, for briefing_hour_local) otherwise rejects -- treat
+        # blank the same as not set.
         if isinstance(value, str) and value.strip() == "":
             return None
         return value
@@ -289,6 +290,15 @@ class Settings(BaseSettings):
     web_tools_enabled: bool = True
     web_search_url: str = ""
     scheduler_interval_seconds: float = 20.0
+
+    # Proactive checks (app/notify/proactive.py), run automatically by the
+    # background scheduler instead of needing an external cron job.
+    # 0 disables a given check; each is independent.
+    proactive_check_interval_minutes: float = 30.0
+    presence_check_interval_minutes: float = 3.0
+    # Local hour (0-23, in SIRISAI_TIMEZONE) the daily briefing goes out.
+    # None disables it.
+    briefing_hour_local: int | None = 7
     # "everyone left" -> away scene, "someone's home" -> home scene.
     # presence_device_names is comma-separated UniFi client names/hostnames
     # (e.g. "brads-iphone,jans-iphone") that count as "someone is home"
