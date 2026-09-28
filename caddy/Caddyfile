@@ -7,7 +7,11 @@
 # ("Advanced" -> "Proceed"); most browsers remember that per origin.
 # Everything else about SirisAI is unchanged: this only adds a second,
 # optional way to reach it.
-:8443 {
+# A hostless "*:8443" address can't pre-issue a cert (Caddy needs to know
+# which name(s) to put in it), so list the actual names this is reachable
+# as -- the LAN IP and localhost. Caddy still binds 0.0.0.0:8443 regardless
+# of these hostnames; they're only used for cert issuance/SNI matching.
+192.168.0.100:8443, localhost:8443 {
 	tls internal
 	reverse_proxy sirisai:8000
 }
