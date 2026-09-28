@@ -11,6 +11,18 @@
 # which name(s) to put in it), so list the actual names this is reachable
 # as -- the LAN IP and localhost. Caddy still binds 0.0.0.0:8443 regardless
 # of these hostnames; they're only used for cert issuance/SNI matching.
+#
+# default_sni matters because most devices on the LAN will reach this via
+# the bare IP, and RFC 6066 forbids sending the SNI extension for an IP
+# literal -- curl, browsers, etc. all connect with no SNI at all in that
+# case (only tools like `openssl s_client -servername <ip>` fake it, which
+# is why that looked fine in testing while curl/browsers didn't). Without
+# this, an SNI-less handshake falls through to Caddy's broken hostless
+# fallback and the TLS handshake fails outright.
+{
+	default_sni 192.168.0.100
+}
+
 192.168.0.100:8443, localhost:8443 {
 	tls internal
 	reverse_proxy sirisai:8000
