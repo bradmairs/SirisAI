@@ -85,6 +85,18 @@
     color: var(--muted);
     flex-shrink: 0;
   }
+  #settings-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    padding: 0.4rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  #settings-bar label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+  #settings-bar input[type="checkbox"] { accent-color: var(--accent); width: 1rem; height: 1rem; }
   #key-bar input {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -405,6 +417,11 @@
   <span id="key-status"></span>
 </div>
 
+<div id="settings-bar">
+  <label><input type="checkbox" id="auto-speak-toggle" /> Auto-play voice replies</label>
+  <label><input type="checkbox" id="auto-thinking-toggle" /> Show thinking live</label>
+</div>
+
 <main>
   <section id="chat-view" class="view active">
     <div id="chat-toolbar"><select id="history-select" title="Past conversations" aria-label="Past conversations"><option value="">History</option></select><button type="button" id="new-chat-btn">New chat</button></div>
@@ -722,6 +739,8 @@
   }
 
   let ttsEnabled = true;
+  let autoSpeakEnabled = false;
+  let autoShowThinking = true;
 
   function addMessage(text, cls) {
     const div = document.createElement("div");
@@ -766,7 +785,7 @@
     const thinking = document.createElement("details");
     thinking.className = "thinking";
     thinking.hidden = true;
-    thinking.open = true;
+    thinking.open = autoShowThinking;
     const thinkingSummary = document.createElement("summary");
     const thinkingText = document.createElement("div");
     thinkingText.className = "thinking-text";
@@ -803,7 +822,7 @@
       thinkingSince = Date.now();
       if (thinkingText.textContent) thinkingText.textContent += "\n\n";
       thinking.hidden = false;
-      thinking.open = true;
+      thinking.open = autoShowThinking;
     };
     const endThinking = () => {
       if (thinkingSince === null) return;
@@ -905,6 +924,7 @@
       const text = finalResponse.response || "Done.";
       renderMarkdown(answer, text);
       attachSpeakButton(div, text);
+      if (autoSpeakEnabled && ttsEnabled) speak(plainText(text));
     }
     div.classList.remove("live");
     scroll();
@@ -965,7 +985,7 @@
   }
 
   async function speak(text, btn) {
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     try {
       const response = await api("/siris/voice/speak", {
         method: "POST",
@@ -976,9 +996,12 @@
       const audio = new Audio(URL.createObjectURL(blob));
       await audio.play();
     } catch (err) {
-      addMessage(err.message, "error");
+      // Autoplay can be blocked by the browser until the user has
+      // interacted with the page at all -- not worth an error bubble for
+      // the automatic case, the speaker button is still right there.
+      if (btn) addMessage(err.message, "error");
     } finally {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -1739,6 +1762,26 @@
   }
 
   document.getElementById("status-refresh").addEventListener("click", loadStatus);
+
+  // --- Per-viewer preferences (this browser only, not synced anywhere) ---
+  const AUTO_SPEAK_KEY = "sirisai_auto_speak";
+  const AUTO_THINKING_KEY = "sirisai_auto_thinking";
+  const autoSpeakToggle = document.getElementById("auto-speak-toggle");
+  const autoThinkingToggle = document.getElementById("auto-thinking-toggle");
+  try {
+    autoSpeakEnabled = localStorage.getItem(AUTO_SPEAK_KEY) === "1";
+    autoShowThinking = localStorage.getItem(AUTO_THINKING_KEY) !== "0"; // default on, matches prior behavior
+  } catch (err) { /* storage can be unavailable; defaults above still apply */ }
+  autoSpeakToggle.checked = autoSpeakEnabled;
+  autoThinkingToggle.checked = autoShowThinking;
+  autoSpeakToggle.addEventListener("change", () => {
+    autoSpeakEnabled = autoSpeakToggle.checked;
+    try { localStorage.setItem(AUTO_SPEAK_KEY, autoSpeakEnabled ? "1" : "0"); } catch (err) { /* ignore */ }
+  });
+  autoThinkingToggle.addEventListener("change", () => {
+    autoShowThinking = autoThinkingToggle.checked;
+    try { localStorage.setItem(AUTO_THINKING_KEY, autoShowThinking ? "1" : "0"); } catch (err) { /* ignore */ }
+  });
 
   // Startup: hide voice controls that can't work, reopen the last conversation,
   // fill the history list.
