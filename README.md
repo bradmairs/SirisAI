@@ -4670,6 +4670,36 @@ SIRISAI_TTS_MODEL=speaches-ai/Kokoro-82M-v1.0-ONNX
 SIRISAI_TTS_VOICE=af_heart
 ```
 
+Two UI toggles next to the API key field control voice/thinking behavior per
+browser (persisted in `localStorage`, default off/on respectively): **Auto-play
+voice replies** speaks every assistant reply automatically instead of needing
+the speaker icon clicked, and **Show thinking live** controls whether the
+reasoning panel auto-expands while streaming vs. staying collapsed (still
+generated either way, just not shown by default).
+
+### The mic needs a secure context
+
+Browsers only expose microphone recording (`navigator.mediaDevices`) on a
+secure context -- `https://` or `http://localhost`, not a plain LAN
+`http://<ip>:8000` address. This project's own server front-ends SirisAI with
+a self-signed HTTPS reverse proxy for exactly this reason:
+`docker compose --profile https up -d` starts a Caddy container
+(`caddy/Caddyfile`) on port 8443. Two things matter for its config:
+
+- The site address must name real hostnames it's reachable as (e.g.
+  `<lan-ip>:8443, localhost:8443`), not a hostless `:8443` -- Caddy can't
+  pre-issue a cert without knowing what name(s) to put in it, and the
+  on-demand fallback for a hostless site fails the TLS handshake outright.
+- `default_sni <lan-ip>` (a global option) is required for LAN-IP access to
+  work at all: RFC 6066 forbids the SNI extension for IP-literal hostnames,
+  so curl/browsers connecting to `https://<lan-ip>:8443` send **no SNI**
+  (only `openssl s_client -servername <ip>` fakes it, which is why testing
+  with that alone looks fine while real clients don't connect).
+
+First visit shows a self-signed-certificate warning (Caddy's root CA isn't in
+any device's trust store) -- click through once ("Advanced" -> "Proceed");
+browsers remember that per origin.
+
 ## Optional: Obsidian relay
 
 The Obsidian Local REST API plugin only listens on 127.0.0.1 inside its own
