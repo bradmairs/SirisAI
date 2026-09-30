@@ -73,6 +73,16 @@ class Settings(BaseSettings):
     tts_model: str = "tts-1"
     tts_voice: str = "default"
 
+    # Spoken confirmation (POST /siris/voice/converse): when a voice turn
+    # needs confirmation, SirisAI asks out loud and a following "yes"/"no"
+    # answers it. Domains listed here are never confirmable by voice -- they
+    # still need a tap in the app (locks, garage doors/covers, alarms).
+    voice_confirmation_enabled: bool = True
+    voice_confirmation_blocked_domains: str = "lock,cover,alarm_control_panel"
+
+    def voice_confirmation_blocked_domain_set(self) -> set[str]:
+        return {d.strip().lower() for d in self.voice_confirmation_blocked_domains.split(",") if d.strip()}
+
     # Home Assistant (app/home_assistant/, app/plugins/builtin/home_assistant.py).
     # Empty base_url or token = the home_assistant_* tools aren't registered
     # at all -- fill both in via .env to enable, no code changes needed.

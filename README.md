@@ -4554,6 +4554,72 @@ provider for the same capability actually exists to design against.
     PR, which is the natural live-verification for "does CI run" (no
     fake CI to test it against beforehand).
 
+106. **Done** -- Streaming voice conversation: replies start playing after
+    the first sentence, you can interrupt, follow-ups need no wake word,
+    and actions can be confirmed out loud. First pick from the Jarvis
+    brainstorm ("conversation that feels like Jarvis").
+
+    Server -- `POST /siris/voice/converse` (`app/api/routes/voice.py`,
+    `app/voice/turn.py`): audio (or `text`) in, newline-delimited JSON
+    out -- `transcript`, then a `sentence` event (text + base64 MP3) for
+    each sentence of the reply *as it is written*, then `final`. It rides
+    the same Cortex event stream `/siris/chat/stream` uses, so it gets
+    tools, the planner, context and persona unchanged.
+    - `SentenceChunker` (`app/voice/sentences.py`) splits streamed text at
+      sentence ends and newlines (not at "e.g."/"21.5"), skips fenced
+      code, and `speakable()` strips markdown before TTS.
+    - What's spoken always matches the recorded answer: text before a
+      tool call is treated as a preamble, and at `final` only the part of
+      the answer not already spoken is added -- covering the correction
+      Cortex's `_finalize` appends after streaming, a planner's trimmed
+      final text, and backends that don't stream.
+    - Spoken confirmation (`app/voice/confirmations.py`): when the turn
+      stops for confirmation, SirisAI says "I need your OK to turn on
+      reactor. Should I go ahead?" and a short "yes"/"go ahead"/"no"/
+      "cancel" as the next utterance in that conversation answers it
+      (pending for 2 minutes, in memory). Locks, covers (garage doors)
+      and alarm panels are never confirmable by voice
+      (`SIRISAI_VOICE_CONFIRMATION_BLOCKED_DOMAINS`) -- you're told to
+      confirm those in the app. `SIRISAI_VOICE_CONFIRMATION_ENABLED=false`
+      turns spoken confirmation off entirely.
+    - `final.expects_reply` is true when SirisAI asked something, so the
+      satellite knows to keep listening.
+
+    Satellite (`satellite/siris_satellite/`): a conversation is now a loop.
+    `PlaybackQueue` plays each sentence as it arrives; barge-in listens for
+    the wake word *during* playback and kills mpg123 the moment it fires,
+    then records straight away; after a reply it listens for
+    `FOLLOW_UP_SECONDS` (default 6) without the wake word, at least 8s when
+    a question was asked. Recording start/stop is `UtteranceRecorder`
+    (`recorder.py`, pure logic): wait for speech, 0.3s pre-roll, stop after
+    1.2s of non-speech. "Is this speech" comes from Silero VAD (bundled with
+    openWakeWord) with the old loudness check as a fallback. An older server
+    without `/converse` (404) makes the satellite fall back to transcribe ->
+    chat -> speak. New optional `SIRISAI_SATELLITE_USER` sends a fixed
+    `X-Siris-User` for a satellite in someone's own room. CI now runs the
+    satellite's own suite too (a second job in `.github/workflows/tests.yml`).
+
+    Not done: acoustic echo cancellation (the satellite's own speaker is
+    rarely loud enough at its mic to fire the wake word; `BARGE_IN=false`
+    if yours is), and the web UI still uses its existing record ->
+    transcribe -> review flow.
+
+    Verified: 16 new server tests (chunking, markdown stripping, prefix
+    reconciliation, yes/no parsing, the endpoint's sentence streaming,
+    correction-spoken-once, yes runs / no cancels / blocked domain never
+    voice-confirmable) and 13 new satellite tests (streamed playback,
+    follow-up windows, question window, barge-in cutting playback short,
+    fallback to the old endpoints, recorder timing). Live: a real uvicorn
+    server backed by fake Ollama (word-by-word streaming), fake STT/TTS
+    and a fake Home Assistant, driven by the real `SirisClient` and
+    `Satellite` loop with scripted audio. The first sentence played at
+    0.5s of a 2s answer; a follow-up was answered without the wake word;
+    "turn on the reactor" -> "Should I go ahead?" -> "yes" turned the
+    Home Assistant switch on (checked in HA's state afterwards); "unlock
+    the front door" -> "yes" left the lock locked and said to confirm in
+    the app; saying the wake word 0.9s into a three-sentence reply cut it
+    off after the first sentence and recorded the next question.
+
 ## Running locally
 
 ```bash

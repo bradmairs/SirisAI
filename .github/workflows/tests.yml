@@ -1,13 +1,10 @@
 name: Tests
 
-# Runs the main app's test suite (tests/, see pytest.ini) on every PR and on
-# every push to main -- previously nothing ran it automatically, so
-# correctness depended entirely on whoever was working the repo remembering
-# to run `pytest` by hand before merging.
-#
-# Scoped the same way pytest.ini already is: satellite/ is a separate
-# deployable with its own hardware-adjacent requirements-test.txt and isn't
-# run here (see pytest.ini's own comment for why).
+# Runs the main app's test suite (tests/, see pytest.ini) and the voice
+# satellite's own suite (satellite/tests/) on every PR and on every push to
+# main. The satellite is a separate deployable with its own requirements;
+# its tests use fakes for the mic/speaker, so they need no audio hardware
+# or wake-word model.
 
 on:
   push:
@@ -31,3 +28,23 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  satellite:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: satellite
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: satellite/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Run tests
+        run: PYTHONPATH=. pytest tests

@@ -132,3 +132,54 @@ def test_register_raises_on_backend_failure() -> None:
         raised = True
     client.close()
     assert raised
+
+
+# -- converse (POST /siris/voice/converse, streamed NDJSON)
+
+
+def test_converse_streams_events_and_carries_conversation_id() -> None:
+    seen: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/siris/voice/converse"
+        seen.append(request.content)
+        lines = [
+            {"type": "transcript", "text": "hi"},
+            {"type": "sentence", "text": "Hello.", "audio": "bXAz"},
+            {"type": "final", "conversation_id": "conv-9", "response": "Hello.", "expects_reply": False},
+        ]
+        return httpx.Response(200, content="".join(json.dumps(line) + "\n" for line in lines).encode())
+
+    client = SirisClient(base_url="http://localhost:8000", room="den", user="brad", transport=httpx.MockTransport(handler))
+    events = list(client.converse(b"wav-bytes"))
+    assert [e["type"] for e in events] == ["transcript", "sentence", "final"]
+    list(client.converse(b"more"))
+    client.close()
+
+    assert b'name="room"' in seen[0] and b"den" in seen[0]
+    assert b"wav-bytes" in seen[0]
+    assert b"conversation_id" not in seen[0]
+    assert b'name="conversation_id"' in seen[1] and b"conv-9" in seen[1]
+
+
+def test_converse_sends_the_configured_user_header() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["x-siris-user"] == "brad"
+        return httpx.Response(200, content=b'{"type": "final", "response": null}\n')
+
+    client = SirisClient(base_url="http://localhost:8000", user="brad", transport=httpx.MockTransport(handler))
+    list(client.converse(b"x"))
+    client.close()
+
+
+def test_converse_on_an_older_server_raises_unsupported() -> None:
+    from siris_satellite.client import ConverseUnsupported
+
+    client = _mock_client(lambda request: httpx.Response(404))
+    try:
+        list(client.converse(b"x"))
+        raised = False
+    except ConverseUnsupported:
+        raised = True
+    client.close()
+    assert raised
