@@ -6,6 +6,8 @@ registered, what backend is active) that will grow as the core does.
 """
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -226,6 +228,31 @@ class ChatRequest(BaseModel):
     # API calls); nothing about the rest of this endpoint changes either
     # way.
     room: str | None = None
+    # Photos attached to this message: base64 (a data: URL prefix is fine),
+    # up to 4 images of 8MB each. Looked at by SIRISAI_VISION_MODEL.
+    images: list[str] | None = None
+
+
+_MAX_IMAGES = 4
+_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+def _decode_images(images: list[str] | None) -> list[bytes] | None:
+    if not images:
+        return None
+    if len(images) > _MAX_IMAGES:
+        raise HTTPException(status_code=422, detail=f"At most {_MAX_IMAGES} images per message.")
+    decoded = []
+    for image in images:
+        data = image.split(",", 1)[1] if image.startswith("data:") else image
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="An attached image isn't valid base64.") from None
+        if len(raw) > _MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=422, detail="An attached image is larger than 8MB.")
+        decoded.append(raw)
+    return decoded
 
 
 class ToolCallResult(BaseModel):
@@ -384,6 +411,7 @@ async def chat(
     triggers for the exact case it's meant to fix.
     """
     assert siris.llm is not None
+    images = _decode_images(request.images)
     conversation_id = _resolve_conversation(siris, request)
 
     result = await Cortex(max_plan_steps=request.max_plan_steps).process(
@@ -394,6 +422,7 @@ async def chat(
         use_tools=request.use_tools,
         use_planner=siris.settings.default_use_planner if request.use_planner is None else request.use_planner,
         model_role=request.model_role,
+        images=images,
     )
     return _shape_response(result)
 
@@ -571,6 +600,7 @@ async def chat_stream(
     mid-turn doesn't cancel the turn -- it still runs to completion, so
     the conversation is left consistent."""
     assert siris.llm is not None
+    images = _decode_images(request.images)
     conversation_id = _resolve_conversation(siris, request)
 
     async def run(on_event: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
@@ -582,6 +612,7 @@ async def chat_stream(
             use_tools=request.use_tools,
             use_planner=siris.settings.default_use_planner if request.use_planner is None else request.use_planner,
             model_role=request.model_role,
+            images=images,
         )
 
     return _stream_turn(run)

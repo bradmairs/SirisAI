@@ -205,6 +205,21 @@
     font-size: 1rem;
     flex-shrink: 0;
   }
+  #attach-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    width: 2.6rem;
+    cursor: pointer;
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+  #attachments { display: flex; gap: 0.4rem; padding: 0.4rem 1rem 0; flex-wrap: wrap; }
+  .attachment { position: relative; }
+  .attachment img, .msg img.attached { max-height: 72px; max-width: 120px; border-radius: 6px; border: 1px solid var(--border); display: block; }
+  .msg img.attached { max-height: 160px; max-width: 240px; margin-top: 0.3rem; }
+  .attachment button { position: absolute; top: -6px; right: -6px; border-radius: 999px; border: none; background: var(--error); color: #1a0d0d; width: 1.2rem; height: 1.2rem; font-size: 0.7rem; cursor: pointer; padding: 0; }
   #mic-btn.recording { background: var(--error); border-color: var(--error); color: #1a0d0d; }
   .speak-btn {
     background: none;
@@ -430,8 +445,11 @@
   <section id="chat-view" class="view active">
     <div id="chat-toolbar"><select id="history-select" title="Past conversations" aria-label="Past conversations"><option value="">History</option></select><button type="button" id="new-chat-btn">New chat</button></div>
     <div id="messages"></div>
+    <div id="attachments" hidden></div>
     <form id="chat-form">
       <button type="button" id="mic-btn" title="Record a voice message">&#127908;</button>
+      <button type="button" id="attach-btn" title="Attach a photo">&#128206;</button>
+      <input type="file" id="attach-input" accept="image/*" multiple hidden />
       <input id="chat-input" type="text" placeholder="Ask SirisAI..." autocomplete="off" />
       <button type="submit" id="chat-send-btn">Send</button>
     </form>
@@ -644,7 +662,10 @@
     messages.innerHTML = "";
     for (const m of history) {
       if (!m.content) continue;
-      if (m.role === "user") addMessage(m.content, "user");
+      if (m.role === "user") {
+        const hadImage = /\[\[image: [\s\S]*?\]\]/.test(m.content);
+        addMessage(m.content.replace(/\s*\[\[image: [\s\S]*?\]\]/g, "").trim() + (hadImage ? " \u{1F4CE}" : ""), "user");
+      }
       else if (m.role === "assistant") addMessage(m.content, "assistant");
     }
     conversationId = id;
@@ -1079,12 +1100,83 @@
     if (running) { e.preventDefault(); running.abort(); }
   });
 
+  // --- Photo attachments: resized in the browser (max 1280px JPEG) and sent
+  // as base64 with the next message; SIRISAI_VISION_MODEL looks at them.
+  const attachBtn = document.getElementById("attach-btn");
+  const attachInput = document.getElementById("attach-input");
+  const attachmentsBox = document.getElementById("attachments");
+  let pendingImages = [];
+
+  function renderAttachments() {
+    attachmentsBox.innerHTML = "";
+    attachmentsBox.hidden = pendingImages.length === 0;
+    pendingImages.forEach((dataUrl, index) => {
+      const wrap = document.createElement("div");
+      wrap.className = "attachment";
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "x";
+      remove.title = "Remove";
+      remove.addEventListener("click", () => { pendingImages.splice(index, 1); renderAttachments(); });
+      wrap.appendChild(img);
+      wrap.appendChild(remove);
+      attachmentsBox.appendChild(wrap);
+    });
+  }
+
+  function resizeImage(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Couldn't read that image."));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("That file isn't an image the browser can read."));
+        img.onload = () => {
+          const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addImageFiles(files) {
+    for (const file of files) {
+      if (!file.type.startsWith("image/") || pendingImages.length >= 4) continue;
+      try { pendingImages.push(await resizeImage(file)); } catch (err) { addMessage(err.message, "error"); }
+    }
+    renderAttachments();
+  }
+
+  attachBtn.addEventListener("click", () => attachInput.click());
+  attachInput.addEventListener("change", () => { addImageFiles([...attachInput.files]); attachInput.value = ""; });
+  chatInput.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+    if (files.length) { e.preventDefault(); addImageFiles(files); }
+  });
+
   chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (running) return;
-    const prompt = chatInput.value.trim();
+    const images = pendingImages;
+    const prompt = chatInput.value.trim() || (images.length ? "What's in this picture?" : "");
     if (!prompt) return;
-    addMessage(prompt, "user");
+    const userBubble = addMessage(prompt, "user");
+    for (const src of images) {
+      const img = document.createElement("img");
+      img.className = "attached";
+      img.src = src;
+      if (userBubble) userBubble.appendChild(img);
+    }
+    pendingImages = [];
+    renderAttachments();
     chatInput.value = "";
     running = new AbortController();
     chatSendBtn.textContent = "Stop";
@@ -1094,7 +1186,9 @@
       // tool call/result -- that's still in GET /siris/activity for
       // anyone who wants it. "Done." is a rare fallback for the case
       // synthesis didn't produce text at all (see runChatTurn).
-      const result = await runChatTurn("/siris/chat/stream", { prompt, conversation_id: conversationId }, running.signal);
+      const body = { prompt, conversation_id: conversationId };
+      if (images.length) body.images = images;
+      const result = await runChatTurn("/siris/chat/stream", body, running.signal);
       conversationId = result.conversation_id;
       rememberConversation(conversationId);
       if (result.confirmation_required) {

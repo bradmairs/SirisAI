@@ -100,6 +100,18 @@ class FrigateClient:
             for event in response.json()
         ]
 
+    def latest_snapshot(self, camera: str, height: int = 720) -> bytes:
+        """The camera's current frame as a JPEG (Frigate's /api/<camera>/latest.jpg)."""
+        response = self._client.get(f"/api/{camera}/latest.jpg", params={"h": height})
+        response.raise_for_status()
+        return response.content
+
+    def event_snapshot(self, event_id: str) -> bytes:
+        """The saved snapshot for one detection event."""
+        response = self._client.get(f"/api/events/{event_id}/snapshot.jpg")
+        response.raise_for_status()
+        return response.content
+
     def close(self) -> None:
         self._client.close()
 

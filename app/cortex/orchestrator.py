@@ -184,6 +184,9 @@ class CortexResult:
 # Cortex._check_action_claims: if the text says one of these but every tool
 # that ran only read data, the answer is claiming something it didn't do
 # (found live: "Memory entry confirmed and removed" after only `recall`).
+# How an attached image's description is stored inside the user's message.
+_IMAGE_NOTE_RE = re.compile(r"\[\[image: (.*?)\]\]", re.DOTALL)
+
 _ACTION_CLAIM_RE = re.compile(
     r"\b(removed|deleted|forgotten|forgot|erased)\b|"
     r"\bturned (on|off)\b|"
@@ -219,6 +222,7 @@ class Cortex:
         use_tools: bool = True,
         use_planner: bool = False,
         model_role: str | None = None,
+        images: list[bytes] | None = None,
     ) -> CortexResult:
         """request -> context -> route -> plan/act -> response, for a new
         user turn. Persists the user's prompt immediately, and whatever
@@ -233,6 +237,7 @@ class Cortex:
             use_tools=use_tools,
             use_planner=use_planner,
             model_role=model_role,
+            images=images,
         )
         # The answer is complete here -- tell a streaming client now, so it
         # doesn't sit waiting on memory extraction (a whole extra LLM pass)
@@ -252,11 +257,17 @@ class Cortex:
         use_tools: bool = True,
         use_planner: bool = False,
         model_role: str | None = None,
+        images: list[bytes] | None = None,
     ) -> CortexResult:
         assert siris.llm is not None
         assert siris.model_router is not None
 
-        siris.conversation.add_message(conversation_id, role="user", content=prompt)
+        image_note: str | None = None
+        if images:
+            await self._emit({"type": "status", "message": "Looking at the image"})
+            image_note = await self._describe_images(siris, prompt, images)
+        stored_prompt = prompt if image_note is None else f"{prompt}\n\n[[image: {image_note}]]"
+        siris.conversation.add_message(conversation_id, role="user", content=stored_prompt)
         messages = self._load_messages(siris, conversation_id)
 
         # Persona (a hardening pass, milestone 45) comes before context --
@@ -272,8 +283,12 @@ class Cortex:
             context_text = await asyncio.to_thread(siris.context.build, siris, prompt)
             if context_text:
                 system_messages.append({"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"})
-        user_text = "\n".join(m["content"] or "" for m in messages if m.get("role") == "user")
+        user_text = "\n".join(_IMAGE_NOTE_RE.sub("", m["content"] or "") for m in messages if m.get("role") == "user")
         taint.begin_turn(context_text if use_context else "", f"{user_text}\n{prompt}")
+        # What an image says is the image's words, not the user's: text read
+        # off a photo (a sign, a screen) mustn't count as something they said.
+        for note in _IMAGE_NOTE_RE.findall("\n".join(m["content"] or "" for m in messages if m.get("role") == "user")):
+            taint.add_untrusted(note)
         messages = [*system_messages, *messages]
 
         tools = None
@@ -390,6 +405,26 @@ class Cortex:
             permission_denied=rest.permission_denied,
             used_planner=True,
         )
+
+    @staticmethod
+    async def _describe_images(siris: "SirisAI", prompt: str, images: list[bytes]) -> str:
+        """What the vision model sees in the attached images, framed by the
+        user's question -- stored with their message (see _IMAGE_NOTE_RE) so
+        later turns can still refer to the picture."""
+        count = f"{len(images)} images" if len(images) > 1 else "an image"
+        if siris.vision is None:
+            return f"the user attached {count}, but image understanding isn't set up (SIRISAI_VISION_MODEL), so it couldn't be looked at"
+        question = (
+            f"The user sent this with the message: {prompt!r}\n"
+            "Describe the image in detail, focusing on what's relevant to that message. "
+            "Transcribe any visible text exactly."
+        )
+        try:
+            description = await asyncio.to_thread(siris.vision.describe, images, question)
+        except Exception:
+            logger.exception("Vision model call failed")
+            return f"the user attached {count}, but the vision model failed to look at it"
+        return f"the user attached {count}; a vision model described it as: {description}"
 
     @staticmethod
     def _load_messages(siris: "SirisAI", conversation_id: str) -> list[dict[str, Any]]:

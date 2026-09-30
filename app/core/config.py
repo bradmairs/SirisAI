@@ -414,6 +414,14 @@ class Settings(BaseSettings):
     frigate_base_url: str = ""
     frigate_api_key: str = ""
 
+    # Image understanding (app/vision/client.py): an Ollama vision model,
+    # e.g. "qwen2.5vl:7b", "llava:7b" or "gemma3:4b" (`ollama pull` it first).
+    # Enables frigate_look_at_camera / frigate_describe_event (with Frigate
+    # configured) and photos attached in chat. Empty = off. vision_base_url
+    # defaults to SIRISAI_OLLAMA_BASE_URL.
+    vision_model: str = ""
+    vision_base_url: str = ""
+
     # Synology NAS (app/synology/, app/plugins/builtin/synology.py) -- DSM
     # Web API for system status, storage health, disk SMART, and backup tasks.
     # Uses session-based auth (SYNO.API.Auth) with a local DSM user account.

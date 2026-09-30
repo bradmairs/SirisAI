@@ -63,6 +63,8 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
     {
         "web_search",
         "web_fetch",
+        "frigate_look_at_camera",
+        "frigate_describe_event",
         "obsidian_search",
         "obsidian_get_note",
         "obsidian_list_notes",

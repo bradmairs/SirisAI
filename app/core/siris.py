@@ -79,7 +79,13 @@ from app.plugins.builtin.docker import (
     DockerRestartContainerTool,
 )
 from app.plugins.builtin.echo import EchoTool
-from app.plugins.builtin.frigate import FrigateListCamerasTool, FrigateRecentEventsTool
+from app.plugins.builtin.frigate import (
+    FrigateDescribeEventTool,
+    FrigateListCamerasTool,
+    FrigateLookAtCameraTool,
+    FrigateRecentEventsTool,
+)
+from app.vision.client import VisionClient
 from app.plugins.builtin.geofence import (
     CreateGeofenceReminderTool,
     ListGeofenceRemindersTool,
@@ -259,6 +265,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("obsidian_", "obsidian"),
     ("synology_", "synology"),
     ("cron_", "cron"),
+    ("frigate_", "frigate"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -469,6 +476,12 @@ class SirisAI:
         self._cleanuparr_client: CleanuparrClient | None = None
         self._obsidian_client: ObsidianClient | None = None
         self._frigate_client: FrigateClient | None = None
+        self.vision: VisionClient | None = None
+        if self.settings.vision_model:
+            self.vision = VisionClient(
+                base_url=self.settings.vision_base_url or self.settings.ollama_base_url,
+                model=self.settings.vision_model,
+            )
         self._synology_client: SynologyClient | None = None
         self.cron_client: CronHostsClient | None = None
         self._speaker_encoder: SpeakerEncoder | None = None
@@ -767,6 +780,9 @@ class SirisAI:
             )
             self.tools.register(FrigateListCamerasTool(self._frigate_client))
             self.tools.register(FrigateRecentEventsTool(self._frigate_client))
+            if self.vision is not None:
+                self.tools.register(FrigateLookAtCameraTool(self._frigate_client, self.vision))
+                self.tools.register(FrigateDescribeEventTool(self._frigate_client, self.vision))
 
         if (
             self.settings.synology_base_url
@@ -1194,6 +1210,7 @@ class SirisAI:
             self._frigate_client,
             self._synology_client,
             self._embedding_client,
+            self.vision,
         )
         for client in sync_clients:
             if client is not None:
