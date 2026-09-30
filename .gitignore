@@ -14,3 +14,4 @@ data/*.db-journal
 # Server-local files: the cron SSH key and per-machine compose overrides
 data/ssh/
 docker-compose.override.yml
+models/

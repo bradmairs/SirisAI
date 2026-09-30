@@ -14,6 +14,7 @@ nothing here should ever be the reason a chat call fails.
 from typing import TYPE_CHECKING
 
 from app.core.clock import describe_now, to_local
+from app.core.user_context import DEFAULT_USER_ID, get_current_user_id
 from app.core.taint import sanitize_untrusted
 
 if TYPE_CHECKING:
@@ -29,6 +30,9 @@ class ContextEngine:
         None if there's nothing worth including."""
         tz = siris.settings.timezone
         lines: list[str] = [f"Current date and time: {describe_now(tz)}"]
+        user_id = get_current_user_id()
+        if user_id != DEFAULT_USER_ID:
+            lines.append(f"You are talking with: {user_id}")
 
         system_tool = siris.tools.get("system_info")
         if system_tool is not None:

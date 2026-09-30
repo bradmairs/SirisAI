@@ -83,6 +83,16 @@ class Settings(BaseSettings):
     def voice_confirmation_blocked_domain_set(self) -> set[str]:
         return {d.strip().lower() for d in self.voice_confirmation_blocked_domains.split(",") if d.strip()}
 
+    # Speaker recognition (app/voice/speaker.py, app/voice/voiceprints.py):
+    # enrolled household members are recognised by voice on
+    # POST /siris/voice/converse, so memory/goals/"my ..." follow whoever is
+    # talking. On whenever the encoder weights exist at this path --
+    # `python scripts/fetch_voice_encoder.py models/voice_encoder.npz` (the
+    # Docker image does this at build time). A match needs at least this
+    # cosine similarity and to be clearly ahead of the next-closest person.
+    speaker_id_model_path: str = "models/voice_encoder.npz"
+    speaker_id_threshold: float = 0.80
+
     # Home Assistant (app/home_assistant/, app/plugins/builtin/home_assistant.py).
     # Empty base_url or token = the home_assistant_* tools aren't registered
     # at all -- fill both in via .env to enable, no code changes needed.

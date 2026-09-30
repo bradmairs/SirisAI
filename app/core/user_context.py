@@ -36,6 +36,13 @@ def get_current_user_id() -> str:
     return _current_user_id.get()
 
 
+def set_current_user_id(user_id: str) -> None:
+    """Switch who this request is acting as -- used when a voice turn
+    recognises the speaker (app/voice/voiceprints.py) and no explicit
+    X-Siris-User header was sent."""
+    _current_user_id.set(user_id)
+
+
 async def resolve_user_id(x_siris_user: str | None = Header(default=None)) -> str:
     """FastAPI dependency: reads X-Siris-User (blank/absent -> the default
     user) and sets it as the current request's user for the rest of this

@@ -7,12 +7,13 @@ it is still being written.
 (or any client) can still compose them with POST /siris/chat itself.
 """
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -22,7 +23,7 @@ from app.core.siris import SirisAI, get_siris
 from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient
 from app.voice.pronunciation import for_speech
 from app.voice.turn import VoiceTurn
-from app.core.user_context import resolve_user_id
+from app.core.user_context import get_current_user_id, resolve_user_id, set_current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +78,15 @@ async def converse(
     conversation_id: str | None = Form(None),
     room: str | None = Form(None),
     synthesize: bool = Form(True),
+    x_siris_user: str | None = Header(default=None),
     siris: SirisAI = Depends(get_siris),
 ) -> StreamingResponse:
     """One spoken turn, streamed back as newline-delimited JSON:
 
     - `{"type": "transcript", "text"}` -- what was heard.
+    - `{"type": "speaker", "user_id", "score"}` -- who said it, when voices
+      are enrolled and no X-Siris-User header was sent; the turn then runs
+      as that user (their memories, goals, "my ...").
     - `{"type": "sentence", "text", "audio"}` -- the next sentence of the
       reply, `audio` a base64 MP3 (null when TTS isn't configured or
       `synthesize` is false). Arrives while later sentences are still being
@@ -108,6 +113,11 @@ async def converse(
 
     async def events() -> AsyncIterator[dict[str, Any]]:
         transcript = typed
+        if audio is not None and not (x_siris_user and x_siris_user.strip()):
+            match = await asyncio.to_thread(siris.identify_speaker, audio)
+            if match is not None and match["user_id"]:
+                set_current_user_id(match["user_id"])
+                yield {"type": "speaker", "user_id": match["user_id"], "score": match["score"]}
         if audio is not None:
             try:
                 transcript = (await siris.stt.transcribe(audio, filename=filename, content_type=content_type)).strip()
@@ -129,3 +139,62 @@ async def converse(
             yield json.dumps(event) + "\n"
 
     return StreamingResponse(ndjson(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache"})
+
+
+class VoiceprintInfo(BaseModel):
+    user_id: str
+    samples: int
+    updated_at: str
+
+
+class EnrollResponse(BaseModel):
+    user_id: str
+    samples: int
+
+
+def _require_encoder(siris: SirisAI) -> None:
+    if siris.speaker_encoder() is None:
+        raise HTTPException(
+            status_code=501,
+            detail="Speaker recognition isn't installed (run scripts/fetch_voice_encoder.py; see SIRISAI_SPEAKER_ID_MODEL_PATH).",
+        )
+
+
+@router.get("/voiceprints", response_model=list[VoiceprintInfo])
+def list_voiceprints(siris: SirisAI = Depends(get_siris)) -> list[VoiceprintInfo]:
+    return [VoiceprintInfo(**v) for v in siris.voiceprints.list_voiceprints()]
+
+
+@router.post("/voiceprints/enroll", response_model=EnrollResponse)
+async def enroll_voiceprint(
+    file: UploadFile = File(...), user: str | None = Form(None), siris: SirisAI = Depends(get_siris)
+) -> EnrollResponse:
+    """Add one sample of someone's voice (a few seconds of natural speech,
+    WAV). Enrol three or four samples per person for reliable recognition.
+    `user` defaults to whoever the request is acting as (X-Siris-User)."""
+    _require_encoder(siris)
+    user_id = (user or "").strip() or get_current_user_id()
+    encoder = siris.speaker_encoder()
+    assert encoder is not None
+    embedding = await asyncio.to_thread(encoder.embed, await file.read())
+    if embedding is None:
+        raise HTTPException(status_code=422, detail="Couldn't hear enough speech in that recording (send a few seconds of WAV audio).")
+    return EnrollResponse(**siris.voiceprints.enroll(user_id, embedding))
+
+
+@router.delete("/voiceprints/{user_id}")
+def delete_voiceprint(user_id: str, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    if not siris.voiceprints.delete(user_id):
+        raise HTTPException(status_code=404, detail="No voiceprint for that user.")
+    return {"user_id": user_id, "deleted": True}
+
+
+@router.post("/identify")
+async def identify_speaker(file: UploadFile = File(...), siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Who is speaking in a recording: the matched user (or null) and every
+    enrolled person's similarity score -- for checking enrolment works."""
+    _require_encoder(siris)
+    match = await asyncio.to_thread(siris.identify_speaker, await file.read())
+    if match is None:
+        raise HTTPException(status_code=422, detail="Couldn't hear enough speech in that recording.")
+    return match

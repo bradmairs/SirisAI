@@ -147,6 +147,10 @@
   .md a { color: var(--accent); }
   .md hr { border: 0; border-top: 1px solid var(--border); margin: 0.7rem 0; }
   .tag.bad { color: var(--error); border-color: var(--error); }
+  .voiceid-hint { color: var(--muted, #888); font-size: 0.85rem; margin: 0.2rem 0 0.6rem; }
+  .voiceid-controls { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.6rem; }
+  .voiceid-controls input { flex: 1 1 10rem; min-width: 0; }
+  .voiceid-entry { display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
   #messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .msg { max-width: 70%; padding: 0.55rem 0.8rem; border-radius: 10px; line-height: 1.4; font-size: 0.92rem; white-space: pre-wrap; word-wrap: break-word; }
   .msg.user { align-self: flex-end; background: var(--user-bubble); }
@@ -503,6 +507,17 @@
   <section id="status-view" class="view">
     <button class="action-btn" id="status-refresh">Refresh</button>
     <div id="status-body"></div>
+    <div id="voiceid" hidden>
+      <h3>Voice ID</h3>
+      <p class="voiceid-hint">Record three or four 5-second samples of each person talking naturally, ideally in different rooms. Satellites then recognise who is speaking.</p>
+      <div class="voiceid-controls">
+        <input id="voiceid-user" placeholder="Name, e.g. brad" autocomplete="off">
+        <button class="action-btn" id="voiceid-record">Record sample</button>
+        <button class="action-btn" id="voiceid-test">Who am I?</button>
+        <span id="voiceid-status"></span>
+      </div>
+      <div id="voiceid-list"></div>
+    </div>
   </section>
 </main>
 
@@ -1756,12 +1771,113 @@
 
       statusBody.innerHTML = "";
       statusBody.appendChild(dl);
+      voiceIdBox.hidden = !status.speaker_recognition;
+      if (status.speaker_recognition) loadVoiceprints();
     } catch (err) {
       statusBody.innerHTML = `<p class="empty">${err.message}</p>`;
     }
   }
 
   document.getElementById("status-refresh").addEventListener("click", loadStatus);
+
+  // --- Voice ID: record WAV in the browser (the server decodes WAV natively),
+  // enrol samples, and check who a recording sounds like.
+  const voiceIdBox = document.getElementById("voiceid");
+  const voiceIdStatus = document.getElementById("voiceid-status");
+  const voiceIdList = document.getElementById("voiceid-list");
+
+  async function recordWav(seconds) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = ctx.createMediaStreamSource(stream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    processor.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    source.connect(processor);
+    processor.connect(ctx.destination);
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    processor.disconnect();
+    source.disconnect();
+    stream.getTracks().forEach((t) => t.stop());
+    const rate = ctx.sampleRate;
+    await ctx.close();
+    const length = chunks.reduce((n, c) => n + c.length, 0);
+    const view = new DataView(new ArrayBuffer(44 + length * 2));
+    const writeStr = (offset, s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)); };
+    writeStr(0, "RIFF"); view.setUint32(4, 36 + length * 2, true); writeStr(8, "WAVE");
+    writeStr(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    writeStr(36, "data"); view.setUint32(40, length * 2, true);
+    let offset = 44;
+    for (const chunk of chunks) {
+      for (const sample of chunk) {
+        view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+        offset += 2;
+      }
+    }
+    return new Blob([view], { type: "audio/wav" });
+  }
+
+  async function loadVoiceprints() {
+    try {
+      const prints = await api("/siris/voice/voiceprints");
+      voiceIdList.innerHTML = prints.length ? "" : '<p class="empty">Nobody enrolled yet.</p>';
+      for (const p of prints) {
+        const row = document.createElement("div");
+        row.className = "voiceid-entry";
+        const label = document.createElement("span");
+        label.textContent = `${p.user_id} -- ${p.samples} sample${p.samples === 1 ? "" : "s"}`;
+        const remove = document.createElement("button");
+        remove.className = "action-btn";
+        remove.textContent = "Forget";
+        remove.addEventListener("click", async () => {
+          await api(`/siris/voice/voiceprints/${encodeURIComponent(p.user_id)}`, { method: "DELETE" });
+          loadVoiceprints();
+        });
+        row.appendChild(label);
+        row.appendChild(remove);
+        voiceIdList.appendChild(row);
+      }
+    } catch (err) {
+      voiceIdList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  async function withRecording(label, send) {
+    const buttons = [document.getElementById("voiceid-record"), document.getElementById("voiceid-test")];
+    buttons.forEach((b) => (b.disabled = true));
+    try {
+      voiceIdStatus.textContent = `${label} -- speak now...`;
+      const wav = await recordWav(5);
+      voiceIdStatus.textContent = "Processing...";
+      const form = new FormData();
+      form.append("file", wav, "sample.wav");
+      voiceIdStatus.textContent = await send(form);
+    } catch (err) {
+      voiceIdStatus.textContent = err.message;
+    } finally {
+      buttons.forEach((b) => (b.disabled = false));
+    }
+  }
+
+  document.getElementById("voiceid-record").addEventListener("click", () => {
+    const user = document.getElementById("voiceid-user").value.trim();
+    if (!user) { voiceIdStatus.textContent = "Enter a name first."; return; }
+    withRecording("Recording", async (form) => {
+      form.append("user", user);
+      const result = await api("/siris/voice/voiceprints/enroll", { method: "POST", body: form });
+      loadVoiceprints();
+      return `Saved -- ${result.user_id} now has ${result.samples} sample${result.samples === 1 ? "" : "s"}.`;
+    });
+  });
+
+  document.getElementById("voiceid-test").addEventListener("click", () => {
+    withRecording("Listening", async (form) => {
+      const result = await api("/siris/voice/identify", { method: "POST", body: form });
+      const scores = Object.entries(result.scores).map(([u, s]) => `${u} ${s.toFixed(2)}`).join(", ");
+      return result.user_id ? `You sound like ${result.user_id} (${scores}).` : `Not sure who that is (${scores || "nobody enrolled"}).`;
+    });
+  });
 
   // --- Per-viewer preferences (this browser only, not synced anywhere) ---
   const AUTO_SPEAK_KEY = "sirisai_auto_speak";

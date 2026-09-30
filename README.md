@@ -4620,6 +4620,66 @@ provider for the same capability actually exists to design against.
     the app; saying the wake word 0.9s into a three-sentence reply cut it
     off after the first sentence and recorded the next question.
 
+107. **Done** -- Speaker recognition by voice. Multi-user recognition
+    (milestone 46) scoped memory, goals and "my ..." to whoever sent
+    `X-Siris-User`, but a satellite in a shared room had no way to know who
+    was talking. Now enrolled household members are recognised from the
+    recording itself.
+
+    - Encoder (`app/voice/speaker.py`): Resemblyzer's pretrained
+      speaker-verification network (Apache-2.0; 3-layer LSTM over 40-band
+      mel spectrograms, 256-d embeddings) run in **plain numpy** -- no
+      PyTorch, no sidecar. The same preprocessing as the original: volume
+      normalisation to -30 dBFS, long-silence trimming, librosa-equivalent
+      Slaney mel filterbank, 1.6s partial windows averaged and
+      L2-normalised. ~0.1s per utterance on CPU.
+    - Weights: `scripts/fetch_voice_encoder.py` downloads the Resemblyzer
+      wheel from PyPI (sha256-pinned), and reads its legacy-format
+      `pretrained.pt` with a restricted unpickler that only builds numpy
+      arrays (anything else in the pickle, e.g. `os.system`, is refused).
+      It writes a 5.7MB `.npz`. The Dockerfile runs it at build time
+      into `/app/models` (not the mounted `/app/data`). Speaker recognition
+      is on whenever that file exists (`SIRISAI_SPEAKER_ID_MODEL_PATH`,
+      default `models/voice_encoder.npz`); `numpy` joins requirements.txt.
+    - Voiceprints (`app/voice/voiceprints.py`, `voiceprints` table): each
+      person's print is the running mean of their enrolled samples. A match
+      needs cosine similarity >= `SIRISAI_SPEAKER_ID_THRESHOLD` (0.80) *and*
+      a 0.02 lead over the next-closest person -- an uncertain match stays
+      the default user rather than guessing.
+    - API: `POST /siris/voice/voiceprints/enroll`, `GET
+      /siris/voice/voiceprints`, `DELETE /siris/voice/voiceprints/{user}`,
+      `POST /siris/voice/identify` (all scores, for checking enrolment).
+      `POST /siris/voice/converse` identifies the speaker first (unless an
+      explicit `X-Siris-User` header was sent -- explicit wins), emits a
+      `speaker` event and runs the whole turn as that user. The context
+      engine now tells the model "You are talking with: <user>" for any
+      non-default user. Tools: `list_voiceprints`, `delete_voiceprint`.
+    - Web UI: a Voice ID section in the Status tab (shown when
+      `/siris/status` reports `speaker_recognition`) records 5-second WAV
+      samples in the browser (Web Audio -> PCM WAV, so no ffmpeg is needed
+      server-side), enrols them, lists and forgets voiceprints, and has a
+      "Who am I?" check. Non-WAV uploads are decoded with ffmpeg when it's
+      installed; otherwise they just aren't identified.
+
+    Verified: 14 new tests -- the converter against a legacy checkpoint
+    written by hand (no torch), refusal of a malicious pickle, filterbank
+    and spectrogram shapes, partial windows, silence trimming, embedding
+    normalisation/determinism, threshold + margin + ambiguity in the store,
+    the API round trip, `converse` running as the recognised speaker, an
+    explicit header beating recognition, and the context line. Live, with
+    the *real* converted weights: four synthetic speakers (espeak-ng, two
+    higher and two lower voices) enrolled with three sentences each through
+    the running server; each one's unseen fourth sentence was identified
+    correctly (0.94-0.97 against their own print; the two low male voices
+    were the closest pair, 0.93 vs 0.97). A `converse` call with Carol's
+    unseen sentence produced `{"type": "speaker", "user_id": "carol"}` and
+    the model's context carried "You are talking with: carol". In headless
+    Chromium, with a WAV file as the fake microphone, the Status tab
+    enrolled a sample through the real browser recording path (48kHz ->
+    resampled server-side) and "Who am I?" named alice and dave correctly.
+    Real human voices vary more than synthetic ones; three or four samples
+    per person from different rooms are recommended in the UI.
+
 ## Running locally
 
 ```bash

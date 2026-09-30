@@ -546,3 +546,18 @@ class Reminder(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Voiceprint(Base):
+    """One household member's enrolled voice (app/voice/voiceprints.py): the
+    running mean of their sample embeddings, so a satellite can tell who is
+    speaking and scope memory/goals/"my" to them without a header."""
+
+    __tablename__ = "voiceprints"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    embedding: Mapped[str] = mapped_column(Text)  # JSON list[float]
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

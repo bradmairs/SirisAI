@@ -231,6 +231,9 @@ from app.tautulli.client import TautulliClient
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
+from app.voice.speaker import SpeakerEncoder
+from app.voice.voiceprints import VoiceprintStore
+from app.plugins.builtin.voiceprints import DeleteVoiceprintTool, ListVoiceprintsTool
 from app.weather.client import WeatherClient
 
 # Prefix -> capability category, checked longest-first so "home_assistant_"
@@ -298,6 +301,8 @@ _CATEGORY_NAMES: dict[str, str] = {
     "list_routines": "routines",
     "set_routine_enabled": "routines",
     "speak_in_current_room": "satellites",
+    "list_voiceprints": "voice",
+    "delete_voiceprint": "voice",
 }
 
 
@@ -393,6 +398,7 @@ class SirisAI:
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
     reminders: ReminderStore = field(default_factory=lambda: ReminderStore(SessionLocal))
     scheduler_state: SchedulerStateStore = field(default_factory=lambda: SchedulerStateStore(SessionLocal))
+    voiceprints: VoiceprintStore = field(default_factory=lambda: VoiceprintStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -465,6 +471,8 @@ class SirisAI:
         self._frigate_client: FrigateClient | None = None
         self._synology_client: SynologyClient | None = None
         self.cron_client: CronHostsClient | None = None
+        self._speaker_encoder: SpeakerEncoder | None = None
+        self._speaker_encoder_checked = False
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -513,6 +521,8 @@ class SirisAI:
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
         self.tools.register(DismissCapabilityGapTool(self.capability_gaps))
+        self.tools.register(ListVoiceprintsTool(self.voiceprints))
+        self.tools.register(DeleteVoiceprintTool(self.voiceprints))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
             self._home_assistant_client = HomeAssistantClient(
@@ -863,6 +873,32 @@ class SirisAI:
             registered.append(tool.name)
         return registered
 
+    def speaker_encoder(self) -> SpeakerEncoder | None:
+        """The voiceprint encoder, loaded on first use -- None when its
+        weights aren't installed (SIRISAI_SPEAKER_ID_MODEL_PATH), which just
+        means voices aren't recognised."""
+        if not self._speaker_encoder_checked:
+            self._speaker_encoder_checked = True
+            path = self.settings.speaker_id_model_path
+            if path and os.path.exists(path):
+                try:
+                    self._speaker_encoder = SpeakerEncoder.load(path)
+                except Exception:
+                    logger.exception("Loading the speaker encoder from %s failed", path)
+        return self._speaker_encoder
+
+    def identify_speaker(self, audio: bytes) -> dict[str, Any] | None:
+        """Who is speaking in `audio`, among enrolled voiceprints: {"user_id"
+        (None if no confident match), "score", "scores"}. None when speaker
+        recognition isn't available or the audio has too little speech."""
+        encoder = self.speaker_encoder()
+        if encoder is None:
+            return None
+        embedding = encoder.embed(audio)
+        if embedding is None:
+            return None
+        return self.voiceprints.identify(embedding, self.settings.speaker_id_threshold)
+
     def restricted_tool_names_to_exclude(self) -> set[str]:
         """RESTRICTED-permission tool names not in the allowlist -- these
         shouldn't even be offered to the model (see `available_tool_specs`)."""
@@ -1126,6 +1162,7 @@ class SirisAI:
                 self.restricted_tool_names_to_exclude()
             ),
             "integration_notes": dict(self.integration_notes),
+            "speaker_recognition": self.speaker_encoder() is not None,
         }
 
     async def aclose(self) -> None:
