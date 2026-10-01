@@ -5083,6 +5083,42 @@ provider for the same capability actually exists to design against.
     briefing called out the short sleep, low steps and raised resting
     heart rate, while `jan` saw no data at all.
 
+117. **Done** -- The car and your parcels.
+
+    Car (`app/car/service.py`), through whatever Home Assistant integration
+    it already has (Tesla, Kia/Hyundai, BMW, Polestar, an OBD dongle...):
+    each piece is an optional entity setting -- `SIRISAI_CAR_BATTERY_`,
+    `_RANGE_`, `_CHARGING_`, `_PLUGGED_`, `_LOCATION_`, `_LOCK_`,
+    `_CLIMATE_ENTITY_ID`, plus `SIRISAI_CAR_NAME`.
+    - `car_status` (READ): "The Polestar: 24%, 96 km range, at home,
+      UNLOCKED", with `low_battery` when it's under
+      `SIRISAI_CAR_LOW_BATTERY_PERCENT` (30) and not plugged in.
+    - `car_precondition(on, temperature?)` (SAFE_ACTION): a `climate.*`
+      entity gets turn_on/off + set_temperature; a `switch.*` or
+      `button.*` is turned on/pressed.
+    - The briefing adds the car's line and "It's low and not plugged in --
+      charge it tonight."; the departure heads-up (milestone 113) mentions
+      a low, unplugged car too.
+
+    Parcels (`app/parcels/service.py`, `parcels` table):
+    `parcel_add(tracking_number, label)`, `parcel_list`, `parcel_done`.
+    With `SIRISAI_SEVENTEENTRACK_API_KEY`, numbers are registered with
+    17TRACK (API v2.2, carrier auto-detected) and refreshed every
+    `SIRISAI_PARCEL_REFRESH_MINUTES` (120); a change to out for delivery,
+    delivered, ready for pickup, failed or exception is pushed ("headphones
+    is out for delivery. ...Melbourne"). Without a key it's a list you
+    keep yourself. The briefing lists active parcels with their ETA.
+
+    Verified: 5 tests (car status parsing and the low-battery briefing and
+    departure lines, preconditioning calls, parcel register -> refresh ->
+    push only on a notable change -> briefing -> done, and the manual
+    no-tracker list). Live against a real server with a fake Home
+    Assistant and a fake 17TRACK: car status and the low-battery warning,
+    preconditioning turned the car's climate entity on, the parcel was
+    registered (with the `17token` header) and, once its status changed,
+    the real scheduler's refresh pushed "headphones is out for delivery";
+    the briefing carried both lines.
+
 ## Running locally
 
 ```bash

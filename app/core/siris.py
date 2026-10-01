@@ -255,6 +255,9 @@ from app.skills.builtin.departure import DepartureCheckSkill
 from app.energy.service import DeferredJobStore
 from app.email.client import EmailClient
 from app.health.service import HealthStore
+from app.car import service as car_service
+from app.parcels.service import ParcelStore, SeventeenTrackClient
+from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
 from app.plugins.builtin.health_data import HealthSummaryTool
 from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
@@ -290,6 +293,8 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("cron_", "cron"),
     ("frigate_", "frigate"),
     ("email_", "email"),
+    ("car_", "car"),
+    ("parcel_", "parcels"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -446,6 +451,7 @@ class SirisAI:
     protocols: ProtocolStore = field(default_factory=lambda: ProtocolStore(SessionLocal))
     deferred_jobs: DeferredJobStore = field(default_factory=lambda: DeferredJobStore(SessionLocal))
     health: HealthStore = field(default_factory=lambda: HealthStore(SessionLocal))
+    parcels: ParcelStore = field(default_factory=lambda: ParcelStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -516,6 +522,11 @@ class SirisAI:
         self._cleanuparr_client: CleanuparrClient | None = None
         self._obsidian_client: ObsidianClient | None = None
         self._frigate_client: FrigateClient | None = None
+        self.parcel_tracker: SeventeenTrackClient | None = (
+            SeventeenTrackClient(self.settings.seventeentrack_api_key, base_url=self.settings.seventeentrack_base_url)
+            if self.settings.seventeentrack_api_key
+            else None
+        )
         self.vision: VisionClient | None = None
         if self.settings.vision_model:
             self.vision = VisionClient(
@@ -626,6 +637,10 @@ class SirisAI:
                     GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
                 )
             )
+            if car_service.configured(self.settings):
+                self.tools.register(CarStatusTool(self))
+                if self.settings.car_climate_entity_id:
+                    self.tools.register(CarPreconditionTool(self))
             self.tools.register(SkillTool(HabitSuggestionsSkill(), self))
             self.tools.register(SkillTool(AcceptHabitSuggestionSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
             self.tools.register(DismissHabitSuggestionTool(self))
@@ -895,6 +910,9 @@ class SirisAI:
             self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(SkillTool(DepartureCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(HealthSummaryTool(self))
+        self.tools.register(ParcelAddTool(self))
+        self.tools.register(ParcelListTool(self))
+        self.tools.register(ParcelDoneTool(self))
         self.tools.register(EnergyStatusTool(self))
         self.tools.register(ScheduleForCheapEnergyTool(self))
         self.tools.register(ListDeferredJobsTool(self))
@@ -1300,6 +1318,7 @@ class SirisAI:
             self._synology_client,
             self._embedding_client,
             self.vision,
+            self.parcel_tracker,
         )
         for client in sync_clients:
             if client is not None:

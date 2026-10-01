@@ -107,6 +107,14 @@ class DepartureCheckSkill(Skill):
         left_open = _left_open(siris)
         event = _next_event(siris, now)
         rain = _rain(siris)
+        car_line = None
+        if siris.tools.get("car_status") is not None:
+            try:
+                car = siris.tools.get("car_status").run()  # type: ignore[union-attr]
+                if car.get("low_battery"):
+                    car_line = f"{car['name'][0].upper()}{car['name'][1:]} is at {car['battery']:.0f}% and not plugged in"
+            except Exception:
+                car_line = None
         parts = []
         if left_open:
             parts.append("Before you go: " + "; ".join(left_open) + ".")
@@ -114,8 +122,10 @@ class DepartureCheckSkill(Skill):
             parts.append(f"Coming up: {event}.")
         if rain:
             parts.append(rain[0].upper() + rain[1:] + ".")
+        if car_line:
+            parts.append(car_line + ".")
         summary = " ".join(parts) or "All good -- everything's closed up and nothing's coming up soon."
-        result = {"summary": summary, "left_open": left_open, "next_event": event, "rain": rain, "notified": False}
+        result = {"summary": summary, "left_open": left_open, "next_event": event, "rain": rain, "car": car_line, "notified": False}
 
         if notify and siris.tools.get("notify") is not None:
             actions = None

@@ -183,6 +183,27 @@ def run_habit_check(siris: "SirisAI") -> list[dict]:
     return fresh
 
 
+def run_parcel_refresh(siris: "SirisAI") -> list[dict]:
+    """Refresh tracked parcels from 17TRACK and push the ones that just went
+    out for delivery, arrived, or hit a problem."""
+    if siris.parcel_tracker is None:
+        return []
+    from app.parcels import service as parcels
+
+    try:
+        changed = parcels.refresh(siris.parcels, siris.parcel_tracker)
+    except Exception:
+        logger.exception("Parcel refresh failed")
+        return []
+    for parcel in changed:
+        message = f"{parcel['label']} is {parcel['status_text']}." + (f" {parcel['last_event']}" if parcel.get("last_event") else "")
+        try:
+            _push(siris, message, "SirisAI: parcel", priority="high" if parcel["status"] in ("OutForDelivery", "DeliveryFailure") else "default", category="parcels")
+        except Exception:
+            logger.exception("Parcel notification failed")
+    return changed
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -236,6 +257,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_security = time.monotonic()  # first check one interval after startup, not at boot
     last_scan = time.monotonic()
     last_habits = time.monotonic()
+    last_parcels = 0.0
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -277,6 +299,11 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if habit_interval > 0 and time.monotonic() - last_habits >= habit_interval:
                 await asyncio.to_thread(run_habit_check, siris)
                 last_habits = time.monotonic()
+
+            parcel_interval = siris.settings.parcel_refresh_minutes * 60
+            if parcel_interval > 0 and time.monotonic() - last_parcels >= parcel_interval:
+                await asyncio.to_thread(run_parcel_refresh, siris)
+                last_parcels = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

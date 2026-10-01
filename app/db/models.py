@@ -620,3 +620,20 @@ class HealthSample(Base):
     day: Mapped[str] = mapped_column(Text, index=True)  # YYYY-MM-DD, local
     value: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Parcel(Base):
+    """A tracked delivery (app/parcels/service.py)."""
+
+    __tablename__ = "parcels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tracking_number: Mapped[str] = mapped_column(Text, index=True)
+    label: Mapped[str] = mapped_column(Text, default="")
+    carrier: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(Text, default="Unknown")
+    last_event: Mapped[str | None] = mapped_column(Text, nullable=True)
+    eta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

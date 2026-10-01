@@ -36,7 +36,27 @@ def _health(siris: "SirisAI") -> str | None:
     return ("Health: " + ", ".join(bits) + ".") if bits else None
 
 
-EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health]
+def _car(siris: "SirisAI") -> str | None:
+    if siris.tools.get("car_status") is None:
+        return None
+    status = siris.tools.get("car_status").run()  # type: ignore[union-attr]
+    line = status["summary"] + "."
+    if status.get("low_battery"):
+        line += f" It's low and not plugged in -- charge it tonight."
+    return line
+
+
+def _parcels(siris: "SirisAI") -> str | None:
+    active = siris.parcels.active()
+    if not active:
+        return None
+    return "Parcels: " + "; ".join(
+        f"{p['label']} {p['status_text']}" + (f" (ETA {p['eta'][:10]})" if p.get("eta") and p["status"] not in ("Delivered",) else "")
+        for p in active[:5]
+    ) + "."
+
+
+EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _car, _parcels]
 
 
 def briefing_lines(siris: "SirisAI") -> list[str]:

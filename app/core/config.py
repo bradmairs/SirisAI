@@ -288,6 +288,24 @@ class Settings(BaseSettings):
     # SIRISAI_HOME_ASSISTANT_BASE_URL/TOKEN to be set too.
     power_sensor_entity_id: str = ""
 
+    # The car (app/car/service.py), via its Home Assistant integration --
+    # each entity optional. climate may be a climate.*, switch.* or button.*.
+    car_name: str = "the car"
+    car_battery_entity_id: str = ""
+    car_range_entity_id: str = ""
+    car_charging_entity_id: str = ""
+    car_plugged_entity_id: str = ""
+    car_location_entity_id: str = ""
+    car_lock_entity_id: str = ""
+    car_climate_entity_id: str = ""
+    car_low_battery_percent: float = 30.0
+
+    # Parcels (app/parcels/service.py): with a 17TRACK API key, statuses are
+    # fetched automatically; without one the list is kept by hand.
+    seventeentrack_api_key: str = ""
+    seventeentrack_base_url: str = "https://api.17track.net"
+    parcel_refresh_minutes: float = 120.0
+
     # Energy-aware scheduling (app/energy/service.py): power counts as cheap
     # inside any window in energy_cheap_windows (local "HH:MM-HH:MM", comma-
     # separated, may cross midnight), or when the solar sensor (W or kW) is at
