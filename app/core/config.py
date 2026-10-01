@@ -202,7 +202,7 @@ class Settings(BaseSettings):
     weather_latitude: float | None = None
     weather_longitude: float | None = None
 
-    @field_validator("weather_latitude", "weather_longitude", "briefing_hour_local", mode="before")
+    @field_validator("weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max", mode="before")
     @classmethod
     def _blank_env_string_means_unset(cls, value: Any) -> Any:
         # An unset .env line (SIRISAI_WEATHER_LATITUDE=) arrives here as ""
@@ -274,6 +274,18 @@ class Settings(BaseSettings):
     # runs. Empty (default) = power draw isn't tracked; requires
     # SIRISAI_HOME_ASSISTANT_BASE_URL/TOKEN to be set too.
     power_sensor_entity_id: str = ""
+
+    # Energy-aware scheduling (app/energy/service.py): power counts as cheap
+    # inside any window in energy_cheap_windows (local "HH:MM-HH:MM", comma-
+    # separated, may cross midnight), or when the solar sensor (W or kW) is at
+    # or above energy_solar_min_watts, or the price sensor is at or below
+    # energy_price_max. Jobs deferred with schedule_for_cheap_energy run at
+    # the next such moment.
+    energy_cheap_windows: str = ""
+    energy_solar_entity_id: str = ""
+    energy_solar_min_watts: float = 1500.0
+    energy_price_entity_id: str = ""
+    energy_price_max: float | None = None
 
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own

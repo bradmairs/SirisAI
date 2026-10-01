@@ -16,6 +16,7 @@ from app.core.health import broken_tools
 from app.notify import proactive
 from app.remediation import runner as remediation
 from app.anticipation import habits
+from app.energy import service as energy
 from app.reminders.service import MAX_ATTEMPTS
 
 if TYPE_CHECKING:
@@ -209,8 +210,17 @@ def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> b
     return True
 
 
+def run_deferred_jobs(siris: "SirisAI", now: datetime | None = None) -> list[dict]:
+    try:
+        return energy.run_due(siris, now)
+    except Exception:
+        logger.exception("Running deferred jobs failed")
+        return []
+
+
 def tick(siris: "SirisAI", now: datetime | None = None, run_health: bool = False) -> dict[str, object]:
     result: dict[str, object] = {"reminders_sent": deliver_due_reminders(siris, now)}
+    result["deferred_jobs"] = run_deferred_jobs(siris, now)
     if run_health:
         result["tool_alerts"] = alert_on_broken_tools(siris, now)
     result["briefing_sent"] = maybe_run_daily_briefing(siris, now)

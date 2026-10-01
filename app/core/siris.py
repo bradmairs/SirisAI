@@ -252,6 +252,8 @@ from app.plugins.builtin.protocols import (
 )
 from app.skills.builtin.intruder import IntruderCheckSkill
 from app.skills.builtin.departure import DepartureCheckSkill
+from app.energy.service import DeferredJobStore
+from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
 from app.plugins.builtin.habits import AcceptHabitSuggestionSkill, DismissHabitSuggestionTool, HabitSuggestionsSkill
 from app.skills.builtin.security import BackupCheckSkill, SecurityBriefingSkill, SecurityScanImagesSkill
@@ -327,6 +329,10 @@ _CATEGORY_NAMES: dict[str, str] = {
     "speak_in_current_room": "satellites",
     "list_voiceprints": "voice",
     "remediation_status": "docker",
+    "energy_status": "energy",
+    "schedule_for_cheap_energy": "energy",
+    "list_deferred_jobs": "energy",
+    "cancel_deferred_job": "energy",
     "dismiss_habit_suggestion": "home_assistant",
     "set_guest_mode": "modes",
     "guest_mode_status": "modes",
@@ -432,6 +438,7 @@ class SirisAI:
     voiceprints: VoiceprintStore = field(default_factory=lambda: VoiceprintStore(SessionLocal))
     state: StateStore = field(default_factory=lambda: StateStore(SessionLocal))
     protocols: ProtocolStore = field(default_factory=lambda: ProtocolStore(SessionLocal))
+    deferred_jobs: DeferredJobStore = field(default_factory=lambda: DeferredJobStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -863,6 +870,10 @@ class SirisAI:
         if self._frigate_client is not None:
             self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(SkillTool(DepartureCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
+        self.tools.register(EnergyStatusTool(self))
+        self.tools.register(ScheduleForCheapEnergyTool(self))
+        self.tools.register(ListDeferredJobsTool(self))
+        self.tools.register(CancelDeferredJobTool(self))
         self.tools.register(SkillTool(SecurityBriefingSkill(), self))
         if self._synology_client is not None:
             self.tools.register(SkillTool(BackupCheckSkill(), self))

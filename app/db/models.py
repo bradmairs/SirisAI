@@ -587,3 +587,21 @@ class Protocol(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     steps: Mapped[str] = mapped_column(Text)  # JSON list[dict]
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class DeferredJob(Base):
+    """A tool call waiting for cheap power (app/energy/service.py): run by the
+    scheduler at the next cheap moment, or at its deadline regardless."""
+
+    __tablename__ = "deferred_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tool_name: Mapped[str] = mapped_column(Text)
+    arguments: Mapped[str] = mapped_column(Text)  # JSON
+    reason: Mapped[str] = mapped_column(Text, default="")
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(Text, default="waiting", index=True)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    ran_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(Text, nullable=True)

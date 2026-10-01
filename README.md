@@ -4972,6 +4972,42 @@ provider for the same capability actually exists to design against.
     Away steps and Home Assistant then showed the garage closed and the
     back door locked.
 
+114. **Done** -- Energy-aware scheduling: "run the dishwasher when power's
+    cheap" holds the job until a cheap tariff window, enough solar, or a
+    low price -- then runs it.
+
+    `app/energy/service.py`: power counts as cheap when any configured
+    signal says so -- inside a window in `SIRISAI_ENERGY_CHEAP_WINDOWS`
+    (local `HH:MM-HH:MM`, comma-separated, may cross midnight), a Home
+    Assistant solar sensor (`SIRISAI_ENERGY_SOLAR_ENTITY_ID`, W or kW) at
+    or above `SIRISAI_ENERGY_SOLAR_MIN_WATTS` (1500), or a price sensor
+    (`SIRISAI_ENERGY_PRICE_ENTITY_ID`) at or below `SIRISAI_ENERGY_PRICE_MAX`.
+
+    - `schedule_for_cheap_energy(tool_name, arguments, reason?,
+      deadline_hours?)` stores any tool call as a deferred job (new
+      `deferred_jobs` table). It needs exactly the approval the deferred
+      call would need -- confirming "start the dishwasher later" *is*
+      confirming the dishwasher, and the job runs later with that approval
+      attached; a READ/SAFE call needs none. Protocols and the scheduling
+      tools themselves can't be deferred.
+    - The scheduler checks every tick and runs waiting jobs when power is
+      cheap, or at a job's deadline regardless (nothing waits forever on a
+      cloudy week); each run is audited with why it ran ("solar is
+      producing 2600 W") and a note is queued for the briefing.
+    - `energy_status` (cheap now?, why, solar watts, price, next cheap
+      window, waiting jobs), `list_deferred_jobs`, `cancel_deferred_job`.
+
+    Verified: 6 tests (window parsing incl. midnight crossing; status from
+    window, solar in kW, price, and the next window; a CONFIRM_REQUIRED
+    target needing confirmation to schedule then running with it when
+    cheap; a SAFE target needing none and its deadline forcing a run;
+    cancel and guards; the scheduler tick running due jobs). Live: a real
+    server and scheduler with a fake Home Assistant -- scheduling
+    `switch.dishwasher` on asked for confirmation, then waited while solar
+    read 350 W; when the sensor changed to 2.6 kW the scheduler turned the
+    dishwasher on within seconds, audited as "energy scheduler: deferred
+    job #1 (dishwasher) -- solar is producing 2600 W".
+
 ## Running locally
 
 ```bash
