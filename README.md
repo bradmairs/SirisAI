@@ -5008,6 +5008,51 @@ provider for the same capability actually exists to design against.
     dishwasher on within seconds, audited as "energy scheduler: deferred
     job #1 (dishwasher) -- solar is producing 2600 W".
 
+115. **Done** -- Email triage: what's unread and actually matters, read
+    aloud or summarised, with replies drafted for you (or sent, once you
+    confirm).
+
+    `app/email/client.py` speaks plain IMAP + SMTP (stdlib `imaplib`/
+    `smtplib`), so Gmail/iCloud/Fastmail app passwords, a self-hosted
+    Dovecot or anything else works. Configure `SIRISAI_EMAIL_IMAP_HOST`,
+    `_USERNAME`, `_PASSWORD` (plus `_SMTP_HOST` to send replies; see
+    `app/core/config.py` for ports, TLS and the drafts folder).
+    - "Important" is simple and explainable: mail that looks automated --
+      `List-Unsubscribe`/`List-Id`, `Precedence: bulk`, a no-reply or
+      notifications sender -- isn't; anything else is, and each message
+      says why ("sent to you directly", "mailing list / newsletter").
+    - Tools: `email_list_unread` (READ, never marks anything read; can
+      filter to important), `email_read` (plain text; HTML reduced to its
+      words), `email_draft_reply` (SAFE_ACTION -- appends a proper reply
+      to the Drafts folder with `In-Reply-To`/`References` and "Re:",
+      nothing leaves) and `email_send_reply` (CONFIRM_REQUIRED).
+    - Email content is untrusted: both read tools are external-content
+      tools for the injection guard, and the draft/send tools are free-
+      text writers, so text copied out of an email can't be saved or
+      drafted on its own say-so (tested: an email saying "remember the
+      alarm code..." gets held for confirmation).
+    - The daily briefing gains an "extras" section
+      (`app/skills/builtin/briefing_extras.py`) that personal integrations
+      contribute to -- here "Email: 1 important of 3 unread -- Sam Lee:
+      Dinner on Friday?". Email tools are hidden in guest mode.
+
+    Found live and fixed: sending tried SMTP AUTH whenever a password was
+    set, which a local relay with no AUTH (a homelab Postfix/smarthost)
+    rejects even though it would deliver; it now logs in only when the
+    server offers AUTH.
+
+    Verified: 8 tests (importance rules, plain-over-HTML body extraction,
+    tool permissions and filtering, the injection case through a real
+    planner run, the briefing line, registration only when configured,
+    the no-AUTH relay). Live against a **real Dovecot IMAP server** and a
+    **real SMTP server** (aiosmtpd): of three unread messages, the
+    personal one was marked important and the newsletter and GitHub
+    no-reply weren't; reading returned the real body; the draft landed in
+    Dovecot's Drafts folder as "Re: Dinner on Friday?" with the right
+    In-Reply-To; nothing was marked read; sending needed confirmation,
+    then the SMTP server received the threaded reply; the briefing line
+    read as above.
+
 ## Running locally
 
 ```bash

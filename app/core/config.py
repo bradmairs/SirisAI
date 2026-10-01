@@ -216,6 +216,19 @@ class Settings(BaseSettings):
     # Calendar (app/calendar/, app/plugins/builtin/calendar.py) via
     # CalDAV -- works with Nextcloud, Radicale, Baikal, iCloud, etc. Empty
     # url = calendar tool isn't registered.
+    # Email (app/email/client.py) over IMAP/SMTP; an app password works for
+    # Gmail/iCloud/Fastmail. imap_host + username + password enable it;
+    # smtp_host is only needed to send replies (drafts go over IMAP).
+    email_imap_host: str = ""
+    email_imap_port: int = 993
+    email_username: str = ""
+    email_password: str = ""
+    email_smtp_host: str = ""
+    email_smtp_port: int = 587
+    email_from: str = ""
+    email_drafts_folder: str = "Drafts"
+    email_use_ssl: bool = True
+
     caldav_url: str = ""
     caldav_username: str = ""
     caldav_password: str = ""

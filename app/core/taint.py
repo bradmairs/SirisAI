@@ -42,6 +42,8 @@ FREE_TEXT_WRITERS = frozenset(
         "set_reminder",
         "obsidian_create_or_update_note",
         "home_assistant_add_todo_item",
+        "email_draft_reply",
+        "email_send_reply",
     }
 )
 
@@ -63,6 +65,8 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
     {
         "web_search",
         "web_fetch",
+        "email_list_unread",
+        "email_read",
         "frigate_look_at_camera",
         "frigate_describe_event",
         "obsidian_search",

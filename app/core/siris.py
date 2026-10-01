@@ -253,6 +253,8 @@ from app.plugins.builtin.protocols import (
 from app.skills.builtin.intruder import IntruderCheckSkill
 from app.skills.builtin.departure import DepartureCheckSkill
 from app.energy.service import DeferredJobStore
+from app.email.client import EmailClient
+from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
 from app.plugins.builtin.habits import AcceptHabitSuggestionSkill, DismissHabitSuggestionTool, HabitSuggestionsSkill
@@ -285,6 +287,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("synology_", "synology"),
     ("cron_", "cron"),
     ("frigate_", "frigate"),
+    ("email_", "email"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -706,6 +709,23 @@ class SirisAI:
             self.tools.register(CalendarUpcomingEventsTool(calendar_client))
             self.tools.register(CalendarCheckConflictsTool(calendar_client))
             self.tools.register(CalendarCreateEventTool(calendar_client))
+
+        if self.settings.email_imap_host and self.settings.email_username and self.settings.email_password:
+            email_client = EmailClient(
+                imap_host=self.settings.email_imap_host,
+                imap_port=self.settings.email_imap_port,
+                username=self.settings.email_username,
+                password=self.settings.email_password,
+                smtp_host=self.settings.email_smtp_host,
+                smtp_port=self.settings.email_smtp_port,
+                from_address=self.settings.email_from,
+                drafts_folder=self.settings.email_drafts_folder,
+                use_ssl=self.settings.email_use_ssl,
+            )
+            self.tools.register(EmailListUnreadTool(email_client))
+            self.tools.register(EmailReadTool(email_client))
+            self.tools.register(EmailDraftReplyTool(email_client))
+            self.tools.register(EmailSendReplyTool(email_client))
 
         if self.settings.ntfy_topic:
             self._notify_client = NotifyClient(

@@ -119,6 +119,10 @@ class DailyBriefingSkill(Skill):
             except Exception:
                 pass
 
+        from app.skills.builtin.briefing_extras import briefing_lines
+
+        briefing["extras"] = briefing_lines(siris)
+
         health = siris.run_tool("server_health_check", {})
         event_timing = siris.run_tool("event_timing_check", {})
         briefing["warnings"] = health["warnings"] + event_timing["warnings"]
@@ -176,6 +180,8 @@ class DailyBriefingSkill(Skill):
                 lines.append(f"Recently watched: {watched}.")
             else:
                 lines.append("Nothing recently watched.")
+
+        lines.extend(briefing.get("extras") or [])
 
         warnings = briefing["warnings"]
         lines.append(
