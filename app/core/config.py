@@ -368,6 +368,13 @@ class Settings(BaseSettings):
     # of them (see app/plugins/selector.py). 110 tools cost ~14,200 prompt
     # tokens per turn versus ~1,050 with none. 0 = always offer everything.
     tool_selection_max: int = 32
+    # Also match tools by meaning when an embedding model is configured
+    # (SIRISAI_EMBEDDING_PROVIDER=ollama) -- see app/plugins/selector.py.
+    tool_selection_semantic: bool = True
+    # Run the tool-choice evals (evals/tool_choice.jsonl) against the real
+    # model this often, and push a warning if accuracy drops 10+ points.
+    # 0 = only on request (POST /siris/evals/run).
+    eval_interval_days: float = 7.0
 
     # Background scheduler (app/core/scheduler.py): delivers due reminders and
     # timers and alerts when a tool has been failing. On by default.

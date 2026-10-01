@@ -5163,6 +5163,66 @@ provider for the same capability actually exists to design against.
     errors. Found and fixed on the way: a weather reading with no
     temperature rendered as "0°".
 
+119. **Done** -- Tool choice you can measure, and tool matching by meaning.
+    With 176 tools when everything is configured, the selector (milestone
+    "tool selection", `app/plugins/selector.py`) offers the model ~32 per
+    turn; a tool it doesn't offer can't be called. This makes that
+    measurable and less dependent on exact wording.
+
+    - **Evals** (`evals/tool_choice.jsonl`, `app/evals/tool_choice.py`):
+      71 everyday requests, each with the tool(s) that are a correct first
+      call -- including paraphrases that share no words with the tool
+      ("it's freezing in here", "has anything arrived in the post?", "my
+      mates are coming round, keep my private stuff private"). Two levels:
+      *selection* (deterministic, no model: is a correct tool offered?)
+      and *choice* (the real model, offered those tools: does its first
+      call land on a correct one?). Cases whose tools aren't configured
+      on this server are skipped, not failed. `POST /siris/evals/run`
+      (`?selection_only=true` for the fast half), `GET /siris/evals/history`,
+      `python -m app.evals`; the scheduler runs the full eval every
+      `SIRISAI_EVAL_INTERVAL_DAYS` (7) and pushes a warning if model
+      accuracy drops 10+ points from the previous run -- e.g. after
+      swapping models or adding tools.
+    - **CI** now asserts the selection floor: with every integration
+      configured (176 tools) at the real cap of 32, and on a partly
+      configured server at a cap of 20, every case's tool is offered.
+    - **Hints** for every feature added in milestones 106-118 (protocols,
+      guest mode, email, health, car, parcels, energy, security, habits,
+      autonomy, voiceprints, cameras, "every night at..." routines, felt
+      temperature) -- the hint list predated all of them. Selection on the
+      paraphrase set went from 67/71 to 71/71.
+    - **Matching by meaning**: with an embedding model configured
+      (`SIRISAI_EMBEDDING_PROVIDER=ollama`, the same one semantic memory
+      uses), the tools closest in meaning to the message get a bonus by
+      *rank* (so it behaves the same whichever embedding model you use).
+      Tool descriptions are embedded once, in one batched `/api/embed`
+      call (new `embed_many`), and re-embedded only if they change; if
+      embedding fails, selection quietly falls back to keywords.
+      `SIRISAI_TOOL_SELECTION_SEMANTIC=false` turns it off.
+
+    Found live: on a partly configured server, "who's at the front door?"
+    wasn't offered the camera tools and "every night at 11 turn off the
+    office lights" wasn't offered `create_routine`. The first was
+    structural: "door" points at both Home Assistant (17 tools) and the
+    cameras, and on a score tie the bigger family filled the whole cap.
+    Every family a message points at is now guaranteed its best two tools
+    before the rest fill by score; both cases are in CI. With that, every
+    case is offered its tool even with the cap cut to 16. Not verifiable here: the real model's choice accuracy, and the
+    semantic layer with a real embedding model -- this sandbox can't reach
+    the Ollama or Hugging Face model registries. The harness exists to
+    measure exactly that on your own Ollama (`POST /siris/evals/run`).
+
+    Verified: 9 tests (the selection floor at full configuration and on a
+    partial one, a prompt with no shared words found only by meaning,
+    tool vectors embedded once in a batch, fallback when embedding fails,
+    wiring from settings, choice accuracy + history + the regression push,
+    the routes, skipped-not-failed cases). Live against a real server with
+    a fake Ollama serving `/api/embed` from a synonym-aware stand-in: the
+    tools were embedded in one batch of 104 then one call per prompt; "any
+    boxes sitting on the doorstep?" was offered `parcel_list` purely by
+    meaning while "hello there" wasn't; the eval endpoints ran and
+    recorded history.
+
 ## Running locally
 
 ```bash

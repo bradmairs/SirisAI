@@ -204,6 +204,18 @@ def run_parcel_refresh(siris: "SirisAI") -> list[dict]:
     return changed
 
 
+def run_tool_choice_eval(siris: "SirisAI") -> dict | None:
+    if siris.settings.llm_provider == "none":
+        return None
+    from app.evals import tool_choice
+
+    try:
+        return tool_choice.run_and_record(siris)
+    except Exception:
+        logger.exception("Scheduled tool-choice eval failed")
+        return None
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -258,6 +270,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_scan = time.monotonic()
     last_habits = time.monotonic()
     last_parcels = 0.0
+    last_eval = time.monotonic()
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -304,6 +317,11 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if parcel_interval > 0 and time.monotonic() - last_parcels >= parcel_interval:
                 await asyncio.to_thread(run_parcel_refresh, siris)
                 last_parcels = time.monotonic()
+
+            eval_interval = siris.settings.eval_interval_days * 86400
+            if eval_interval > 0 and time.monotonic() - last_eval >= eval_interval:
+                await asyncio.to_thread(run_tool_choice_eval, siris)
+                last_eval = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

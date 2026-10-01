@@ -509,7 +509,12 @@ class SirisAI:
         self.integration_notes: dict[str, str] = {}
         self._tool_alerts: dict[str, float] = {}
         self._broken_cache: tuple[float, set[str]] = (0.0, set())
-        self.tool_selector = ToolSelector(self.settings.tool_selection_max)
+        self.tool_selector = ToolSelector(
+            self.settings.tool_selection_max,
+            embed=self._embedding_client.embed_many
+            if self._embedding_client is not None and self.settings.tool_selection_semantic
+            else None,
+        )
         self._docker_client: DockerClient | None = None
         self._plex_client: PlexClient | None = None
         self._unifi_client: UniFiClient | None = None
