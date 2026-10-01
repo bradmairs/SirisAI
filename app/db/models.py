@@ -605,3 +605,18 @@ class DeferredJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     ran_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HealthSample(Base):
+    """One day's value of one health metric for one person (app/health/),
+    sent by an iOS Shortcut or similar -- one row per (user, metric, day),
+    later posts for the same day replace it."""
+
+    __tablename__ = "health_samples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    metric: Mapped[str] = mapped_column(Text, index=True)
+    day: Mapped[str] = mapped_column(Text, index=True)  # YYYY-MM-DD, local
+    value: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))

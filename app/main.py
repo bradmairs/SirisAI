@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from app.api.routes import (
     cameras,
     cron,
+    health_data,
     events,
     health,
     integrations,
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(scenes.router)
     app.include_router(cron.router)
     app.include_router(cameras.router)
+    app.include_router(health_data.router)
     app.include_router(satellites.router)
     app.include_router(integrations.router)
     app.include_router(voice.router)

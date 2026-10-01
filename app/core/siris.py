@@ -254,6 +254,8 @@ from app.skills.builtin.intruder import IntruderCheckSkill
 from app.skills.builtin.departure import DepartureCheckSkill
 from app.energy.service import DeferredJobStore
 from app.email.client import EmailClient
+from app.health.service import HealthStore
+from app.plugins.builtin.health_data import HealthSummaryTool
 from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
@@ -332,6 +334,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "speak_in_current_room": "satellites",
     "list_voiceprints": "voice",
     "remediation_status": "docker",
+    "health_summary": "health",
     "energy_status": "energy",
     "schedule_for_cheap_energy": "energy",
     "list_deferred_jobs": "energy",
@@ -442,6 +445,7 @@ class SirisAI:
     state: StateStore = field(default_factory=lambda: StateStore(SessionLocal))
     protocols: ProtocolStore = field(default_factory=lambda: ProtocolStore(SessionLocal))
     deferred_jobs: DeferredJobStore = field(default_factory=lambda: DeferredJobStore(SessionLocal))
+    health: HealthStore = field(default_factory=lambda: HealthStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -890,6 +894,7 @@ class SirisAI:
         if self._frigate_client is not None:
             self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(SkillTool(DepartureCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
+        self.tools.register(HealthSummaryTool(self))
         self.tools.register(EnergyStatusTool(self))
         self.tools.register(ScheduleForCheapEnergyTool(self))
         self.tools.register(ListDeferredJobsTool(self))

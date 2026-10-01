@@ -5053,6 +5053,36 @@ provider for the same capability actually exists to design against.
     then the SMTP server received the threaded reply; the briefing line
     read as above.
 
+116. **Done** -- Health data from your phone: sleep, steps and heart rate
+    feed the briefing ("Health: slept 5.8h -- 1.5h under your usual;
+    resting heart rate 62 bpm -- 7.0 bpm over your usual") and answer "how
+    did I sleep?".
+
+    - `POST /siris/health/metrics` (`app/api/routes/health_data.py`) takes
+      `{"date": "YYYY-MM-DD", "metrics": {...}}` or a flat body -- built
+      for an Apple Shortcuts automation (Find Health Samples -> Get
+      Contents of URL, with the usual `Authorization` and `X-Siris-User`
+      headers), but anything that can POST JSON works. Accepted metrics,
+      with common export aliases: sleep_hours, steps, resting_heart_rate,
+      heart_rate_variability, active_energy_kcal, weight_kg,
+      exercise_minutes; unknown names are reported back, not stored.
+      One value per user, metric and day (re-posting a day replaces it).
+    - `health_summary` (READ) and `GET /siris/health/summary`: latest day,
+      7-day average, and a comparison with *your own* 30-day baseline --
+      only notable, concerning moves are called out (sleep 45+ min short,
+      steps 35% down, resting HR 5+ bpm up, HRV 25% down).
+    - Per user, like memory and goals: the summary is whoever is asking
+      (header or voice recognition). Hidden in guest mode. The daily
+      briefing's extras include a health line when there's data.
+
+    Verified: 5 tests (aliases and unknowns, a Shortcut-style post and
+    same-day replacement, rejected bodies, notes against a personal
+    baseline -- including that a small step dip isn't mentioned, and the
+    per-user tool and briefing line). Live: a week of posts as `brad`
+    through the running server, then a rough night -- the summary and
+    briefing called out the short sleep, low steps and raised resting
+    heart rate, while `jan` saw no data at all.
+
 ## Running locally
 
 ```bash

@@ -21,7 +21,22 @@ def _email(siris: "SirisAI") -> str | None:
     return line + "."
 
 
-EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email]
+def _health(siris: "SirisAI") -> str | None:
+    result = siris.tools.get("health_summary").run()  # type: ignore[union-attr]
+    metrics = result["metrics"]
+    if not metrics:
+        return None
+    if result["notes"]:
+        return "Health: " + "; ".join(result["notes"]) + "."
+    bits = []
+    if "sleep_hours" in metrics:
+        bits.append(f"slept {metrics['sleep_hours']['latest']:.1f}h")
+    if "steps" in metrics:
+        bits.append(f"{metrics['steps']['latest']:,.0f} steps")
+    return ("Health: " + ", ".join(bits) + ".") if bits else None
+
+
+EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health]
 
 
 def briefing_lines(siris: "SirisAI") -> list[str]:
