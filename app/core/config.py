@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     tts_base_url: str = "http://localhost:8082"
     tts_model: str = "tts-1"
     tts_voice: str = "default"
+    # 1.0 = the backend's natural pace (Kokoro accepts roughly 0.5-2.0).
+    tts_speed: float = 1.0
+    # Optional ffmpeg `-af` filter chain run over every spoken clip
+    # (app/voice/effects.py), e.g. a light "electronic" sheen. Empty = off.
+    tts_effect: str = ""
 
     # Spoken confirmation (POST /siris/voice/converse): when a voice turn
     # needs confirmation, SirisAI asks out loud and a following "yes"/"no"

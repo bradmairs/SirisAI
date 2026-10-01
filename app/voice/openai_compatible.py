@@ -32,16 +32,18 @@ class OpenAICompatibleSTTClient(SpeechToTextClient):
 
 
 class OpenAICompatibleTTSClient(TextToSpeechClient):
-    def __init__(self, base_url: str, model: str, voice: str, timeout: float = 60.0) -> None:
+    def __init__(self, base_url: str, model: str, voice: str, speed: float = 1.0, timeout: float = 60.0) -> None:
         self.model = model
         self.voice = voice
+        self.speed = speed
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout)
 
     async def synthesize(self, text: str) -> bytes:
-        response = await self._client.post(
-            "/v1/audio/speech",
-            json={"model": self.model, "voice": self.voice, "input": text, "response_format": "mp3"},
-        )
+        body: dict[str, object] = {"model": self.model, "voice": self.voice, "input": text, "response_format": "mp3"}
+        # Only sent when changed, so backends see exactly the request they did before.
+        if self.speed != 1.0:
+            body["speed"] = self.speed
+        response = await self._client.post("/v1/audio/speech", json=body)
         response.raise_for_status()
         return response.content
 

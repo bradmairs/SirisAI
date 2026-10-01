@@ -5368,6 +5368,14 @@ SIRISAI_TTS_MODEL=speaches-ai/Kokoro-82M-v1.0-ONNX
 SIRISAI_TTS_VOICE=af_heart
 ```
 
+`SIRISAI_TTS_SPEED` sets the speaking pace (sent to the backend only when it
+isn't 1.0), and `SIRISAI_TTS_EFFECT` runs every spoken clip through an
+ffmpeg `-af` filter chain (`app/voice/effects.py`; ffmpeg ships in the
+image) -- see `.env.example` for a light "electronic" chain. The effect is
+applied once, around whichever TTS backend is configured, so the chat page,
+the HUD and satellites all sound the same; if ffmpeg fails, the unprocessed
+audio is used instead.
+
 Two UI toggles next to the API key field control voice/thinking behavior per
 browser (persisted in `localStorage`, default off/on respectively): **Auto-play
 voice replies** speaks every assistant reply automatically instead of needing

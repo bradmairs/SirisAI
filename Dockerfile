@@ -3,9 +3,10 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # ssh client for the cron overview (app/cron/), which reads other machines'
-# crontabs over plain `ssh`.
+# crontabs over plain `ssh`; ffmpeg for the optional TTS effect
+# (SIRISAI_TTS_EFFECT, app/voice/effects.py).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client \
+    && apt-get install -y --no-install-recommends openssh-client ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
