@@ -5207,7 +5207,7 @@ provider for the same capability actually exists to design against.
     cameras, and on a score tie the bigger family filled the whole cap.
     Every family a message points at is now guaranteed its best two tools
     before the rest fill by score; both cases are in CI. With that, every
-    case is offered its tool even with the cap cut to 16. Not verifiable here: the real model's choice accuracy, and the
+    case is offered its tool with the cap at 20 (at 16, one of 71 misses). Not verifiable here: the real model's choice accuracy, and the
     semantic layer with a real embedding model -- this sandbox can't reach
     the Ollama or Hugging Face model registries. The harness exists to
     measure exactly that on your own Ollama (`POST /siris/evals/run`).
