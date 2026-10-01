@@ -4905,6 +4905,42 @@ provider for the same capability actually exists to design against.
     on root@127.0.0.1 in 24h (from 127.0.0.1 (4))". Trivy itself couldn't
     be installed in this sandbox; its output parsing is covered by tests.
 
+112. **Done** -- Habit-based automation suggestions: SirisAI notices what
+    you do by hand at the same time most days and offers to automate it,
+    with one tap.
+
+    `app/anticipation/habits.py`: from the Home Assistant logbook over the
+    last `SIRISAI_HABIT_LOOKBACK_DAYS` (14), every *manual* change to a
+    light, switch, fan, media player, cover, climate or input_boolean
+    (anything HA attributes to an automation or script is ignored, and so
+    is that entity+state entirely -- it's already automated) is grouped by
+    entity, new state and weekday/weekend. The busiest 40-minute window of
+    each group must hold the change on at least 60% of eligible days and
+    at least `SIRISAI_HABIT_MIN_DAYS` (5) of them. The result reads "You
+    turn on Office around 07:10 on weekdays (9 of 10)" and carries a ready
+    automation: time trigger, weekday condition, the same service call.
+    Times are in `SIRISAI_TIMEZONE`.
+
+    - `habit_suggestions` (READ) mines and lists open suggestions;
+      `accept_habit_suggestion` (CONFIRM_REQUIRED, dry-runnable) creates
+      the automation via `home_assistant_create_automation`;
+      `dismiss_habit_suggestion` remembers not to ask again. Suggestions
+      live in `app_state`, so nothing is suggested twice.
+    - Every `SIRISAI_HABIT_CHECK_INTERVAL_DAYS` (7) the scheduler pushes
+      each new suggestion with **Create automation** / **No thanks**
+      buttons (ntfy `http` actions straight to the tool endpoints, as
+      milestone 43's confirmations do; needs `SIRISAI_PUBLIC_BASE_URL`).
+
+    Verified: 4 tests (real habits found and random activity, sensors and
+    automation-driven changes ignored; the time shifting with timezone;
+    suggest -> not re-suggested -> accept needs confirmation -> automation
+    created -> dismiss; the scheduled push and its button payloads). Live:
+    a real server whose real scheduler mined a fake Home Assistant's two-
+    week logbook and pushed "You turn on Kitchen around 06:44 on weekdays
+    (10 of 10). Want me to automate it?" (the automation-driven hall light
+    wasn't suggested); replaying the push's own "Create automation" request
+    created exactly that automation in Home Assistant.
+
 ## Running locally
 
 ```bash

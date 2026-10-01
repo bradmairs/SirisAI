@@ -114,6 +114,16 @@ class Settings(BaseSettings):
     # for the mechanism.
     home_assistant_no_confirm_domains: str = ""
 
+    # Habit suggestions (app/anticipation/habits.py): look back this many
+    # days in the Home Assistant logbook for manual actions repeated at the
+    # same time; a habit needs at least habit_min_days occurrences (and 60%
+    # of eligible days). Checked every habit_check_interval_days; new
+    # suggestions arrive as a push with Create/Dismiss buttons (buttons need
+    # SIRISAI_PUBLIC_BASE_URL). 0 = never check automatically.
+    habit_lookback_days: int = 14
+    habit_min_days: int = 5
+    habit_check_interval_days: float = 7.0
+
     def home_assistant_no_confirm_domain_list(self) -> list[str]:
         return [
             d.strip()

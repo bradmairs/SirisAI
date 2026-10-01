@@ -5,6 +5,7 @@ to need an external cron job. One asyncio task started with the app
 """
 
 import asyncio
+import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from app.core import clock
 from app.core.health import broken_tools
 from app.notify import proactive
 from app.remediation import runner as remediation
+from app.anticipation import habits
 from app.reminders.service import MAX_ATTEMPTS
 
 if TYPE_CHECKING:
@@ -147,6 +149,39 @@ def run_image_scan(siris: "SirisAI") -> None:
         logger.exception("Scheduled image scan failed")
 
 
+def run_habit_check(siris: "SirisAI") -> list[dict]:
+    """Mine habits and push each new suggestion, with one-tap Create/Dismiss
+    buttons when SIRISAI_PUBLIC_BASE_URL is set."""
+    if siris.tools.get("habit_suggestions") is None:
+        return []
+    try:
+        fresh = habits.refresh(siris)
+    except Exception:
+        logger.exception("Scheduled habit check failed")
+        return []
+    for suggestion in fresh:
+        actions = None
+        if siris.settings.public_base_url:
+            headers = {"Content-Type": "application/json"}
+            if siris.settings.api_key:
+                headers["Authorization"] = f"Bearer {siris.settings.api_key}"
+            base = siris.settings.public_base_url.rstrip("/")
+            body = json.dumps({"arguments": {"suggestion_id": suggestion["id"]}, "confirmed": True})
+            actions = [
+                {"action": "http", "label": "Create automation", "url": f"{base}/siris/tools/accept_habit_suggestion/run", "method": "POST", "headers": headers, "body": body},
+                {"action": "http", "label": "No thanks", "url": f"{base}/siris/tools/dismiss_habit_suggestion/run", "method": "POST", "headers": headers, "body": body},
+            ]
+        message = f"{suggestion['description']} Want me to automate it?"
+        try:
+            if siris.tools.get("notify") is not None:
+                siris.run_tool("notify", {"title": "SirisAI: automation idea", "message": message, "actions": actions}, trigger="habit check: automated schedule", evidence=suggestion)
+            else:
+                siris.pending_notifications.queue(message, severity="info", category="habit")
+        except Exception:
+            logger.exception("Sending a habit suggestion failed")
+    return fresh
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -190,6 +225,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_healing = 0.0
     last_security = time.monotonic()  # first check one interval after startup, not at boot
     last_scan = time.monotonic()
+    last_habits = time.monotonic()
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -226,6 +262,11 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if scan_interval > 0 and time.monotonic() - last_scan >= scan_interval:
                 await asyncio.to_thread(run_image_scan, siris)
                 last_scan = time.monotonic()
+
+            habit_interval = siris.settings.habit_check_interval_days * 86400
+            if habit_interval > 0 and time.monotonic() - last_habits >= habit_interval:
+                await asyncio.to_thread(run_habit_check, siris)
+                last_habits = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

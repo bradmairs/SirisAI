@@ -252,6 +252,7 @@ from app.plugins.builtin.protocols import (
 )
 from app.skills.builtin.intruder import IntruderCheckSkill
 from app.plugins.builtin.remediation import RemediationStatusTool
+from app.plugins.builtin.habits import AcceptHabitSuggestionSkill, DismissHabitSuggestionTool, HabitSuggestionsSkill
 from app.skills.builtin.security import BackupCheckSkill, SecurityBriefingSkill, SecurityScanImagesSkill
 from app.voice.voiceprints import VoiceprintStore
 from app.plugins.builtin.voiceprints import DeleteVoiceprintTool, ListVoiceprintsTool
@@ -325,6 +326,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "speak_in_current_room": "satellites",
     "list_voiceprints": "voice",
     "remediation_status": "docker",
+    "dismiss_habit_suggestion": "home_assistant",
     "set_guest_mode": "modes",
     "guest_mode_status": "modes",
     "list_protocols": "protocols",
@@ -609,6 +611,9 @@ class SirisAI:
                     GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
                 )
             )
+            self.tools.register(SkillTool(HabitSuggestionsSkill(), self))
+            self.tools.register(SkillTool(AcceptHabitSuggestionSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
+            self.tools.register(DismissHabitSuggestionTool(self))
             self.tools.register(CreateSceneTool(self.scenes))
             self.tools.register(ListScenesTool(self.scenes))
             self.tools.register(DeleteSceneTool(self.scenes))
