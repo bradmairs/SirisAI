@@ -78,8 +78,22 @@ SIRISAI_SATELLITE_SIRIS_API_KEY=your-sirisai-api-key
 SIRISAI_SATELLITE_WAKE_WORD_MODEL=hey_jarvis
 SIRISAI_SATELLITE_WAKE_WORD_THRESHOLD=0.5
 SIRISAI_SATELLITE_SAMPLE_RATE=16000
-SIRISAI_SATELLITE_SILENCE_TIMEOUT_SECONDS=1.5
+SIRISAI_SATELLITE_SILENCE_TIMEOUT_SECONDS=1.2
 SIRISAI_SATELLITE_MAX_RECORDING_SECONDS=15.0
+SIRISAI_SATELLITE_SPEECH_START_TIMEOUT_SECONDS=5.0
+# Speech detection: "silero" (bundled with openWakeWord; ignores fans/TV hum)
+# or "amplitude" (loudness only). Falls back to amplitude if the Silero model
+# isn't downloaded -- see "Streaming conversation" below.
+SIRISAI_SATELLITE_VAD=silero
+SIRISAI_SATELLITE_VAD_THRESHOLD=0.5
+# Keep listening this long after a reply for a follow-up with no wake word
+# (0 = only when SirisAI asked a question).
+SIRISAI_SATELLITE_FOLLOW_UP_SECONDS=6.0
+# Say the wake word while a reply is playing to cut it off and talk.
+SIRISAI_SATELLITE_BARGE_IN=true
+# Optional fixed identity for this satellite (X-Siris-User). Leave unset to
+# let SirisAI recognise who's speaking by voice (enrolled voiceprints).
+# SIRISAI_SATELLITE_USER=brad
 # SIRISAI_SATELLITE_INPUT_DEVICE=1
 # SIRISAI_SATELLITE_OUTPUT_DEVICE=0
 
@@ -118,6 +132,36 @@ python -m siris_satellite
 It will log each cycle (wake word heard, transcript, reply) and keep
 running until stopped; a single bad cycle (mic error, network blip) is
 caught and logged without killing the process, so it should self-recover.
+
+## Streaming conversation
+
+The satellite talks to `POST /siris/voice/converse`, which streams the reply
+back a sentence at a time (each with its audio), so the first sentence plays
+while SirisAI is still writing the rest. Around that:
+
+- **Barge-in** -- the wake word is still listened for while a reply plays;
+  saying it stops playback immediately (mpg123 is killed) and starts
+  recording what you say next.
+- **Follow-up** -- after a reply, the satellite listens for
+  `FOLLOW_UP_SECONDS` without the wake word. When SirisAI asked something
+  ("Should I go ahead?") it listens for at least 8 seconds even if follow-up
+  is off.
+- **Spoken confirmation** -- an action that needs your OK is asked out loud;
+  "yes"/"go ahead" runs it, "no"/"cancel" drops it. Locks, covers (garage
+  doors) and alarms are never confirmable by voice -- you're told to confirm
+  those in the app (server setting `SIRISAI_VOICE_CONFIRMATION_BLOCKED_DOMAINS`).
+- **Speech detection** -- recording starts when speech is detected (keeping a
+  0.3s pre-roll so the first syllable isn't clipped) and stops after
+  `SILENCE_TIMEOUT_SECONDS` of non-speech. Silero VAD's model is fetched by
+  `python -c "import openwakeword.utils; openwakeword.utils.download_models()"`,
+  the same command that fetches the wake-word models.
+
+No acoustic echo cancellation is attempted: a satellite's own speaker is
+rarely loud enough at the mic to trigger the wake word, but if yours does,
+set `BARGE_IN=false` or raise `WAKE_WORD_THRESHOLD`.
+
+Talking to a SirisAI server older than `/siris/voice/converse`, the satellite
+notices the 404 and falls back to transcribe -> chat -> speak.
 
 ## Running the test suite
 

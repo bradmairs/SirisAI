@@ -546,3 +546,94 @@ class Reminder(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Voiceprint(Base):
+    """One household member's enrolled voice (app/voice/voiceprints.py): the
+    running mean of their sample embeddings, so a satellite can tell who is
+    speaking and scope memory/goals/"my" to them without a header."""
+
+    __tablename__ = "voiceprints"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    embedding: Mapped[str] = mapped_column(Text)  # JSON list[float]
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class AppState(Base):
+    """Small named pieces of persistent state (app/core/state.py) -- guest
+    mode, the intruder check's cursor, the last protocol run's undo steps --
+    each a JSON value under a key, rather than a one-row table apiece."""
+
+    __tablename__ = "app_state"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Protocol(Base):
+    """A user-defined protocol (app/protocols/service.py): a named,
+    cross-system playbook of tool calls with optional conditions and undo.
+    The built-in ones (lockdown, away, guest) live in code, not here."""
+
+    __tablename__ = "protocols"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    steps: Mapped[str] = mapped_column(Text)  # JSON list[dict]
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class DeferredJob(Base):
+    """A tool call waiting for cheap power (app/energy/service.py): run by the
+    scheduler at the next cheap moment, or at its deadline regardless."""
+
+    __tablename__ = "deferred_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tool_name: Mapped[str] = mapped_column(Text)
+    arguments: Mapped[str] = mapped_column(Text)  # JSON
+    reason: Mapped[str] = mapped_column(Text, default="")
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(Text, default="waiting", index=True)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    ran_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class HealthSample(Base):
+    """One day's value of one health metric for one person (app/health/),
+    sent by an iOS Shortcut or similar -- one row per (user, metric, day),
+    later posts for the same day replace it."""
+
+    __tablename__ = "health_samples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    metric: Mapped[str] = mapped_column(Text, index=True)
+    day: Mapped[str] = mapped_column(Text, index=True)  # YYYY-MM-DD, local
+    value: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Parcel(Base):
+    """A tracked delivery (app/parcels/service.py)."""
+
+    __tablename__ = "parcels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tracking_number: Mapped[str] = mapped_column(Text, index=True)
+    label: Mapped[str] = mapped_column(Text, default="")
+    carrier: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(Text, default="Unknown")
+    last_event: Mapped[str | None] = mapped_column(Text, nullable=True)
+    eta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

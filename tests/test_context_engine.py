@@ -10,7 +10,7 @@ from app.main import app
 
 def test_build_includes_system_status_events_and_memories() -> None:
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex  # one long search term; dashed uuid chunks can collide
     siris.events.log_event(f"event {marker}")
     siris.memory.remember(f"memory {marker}")
 
@@ -33,7 +33,7 @@ def test_build_finds_a_memory_from_a_natural_language_question_not_a_literal_sub
     wrongly, from the user's perspective) say it couldn't recall
     something it had, in fact, already been told."""
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex  # one long search term; dashed uuid chunks can collide
     siris.memory.remember(f"User's name is Brad-{marker}")
 
     text = siris.context.build(siris, "What is my name?")

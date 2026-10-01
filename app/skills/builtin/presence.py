@@ -82,4 +82,20 @@ class PresenceSkill(Skill):
             )
             result["scene_activated"] = scene_entity_id
 
+        if not currently_home and siris.tools.get("departure_check") is not None:
+            # Everyone just left: anything open, coming up, or wet?
+            try:
+                result["departure"] = siris.run_tool("departure_check", {"notify": True}, trigger="presence_check: everyone left")
+            except Exception:
+                result["departure"] = None
+
         return result
+
+
+def anyone_home(siris: "SirisAI") -> bool | None:
+    """Whether the last presence check found someone home; None when
+    presence has never been checked (or isn't configured)."""
+    previous = siris.events.recent_events(entity_name=_PRESENCE_ENTITY_NAME, limit=1)
+    if not previous or not previous[0].get("data"):
+        return None
+    return bool(previous[0]["data"].get("home"))

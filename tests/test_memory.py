@@ -9,7 +9,9 @@ from app.main import app
 
 
 def test_remember_then_recall_via_endpoints(client: TestClient) -> None:
-    content = f"favorite homelab distro is Proxmox {uuid.uuid4()}"
+    # One 32-char hex marker: a dashed uuid splits into 4-char search terms
+    # that can match inside another memory's uuid by chance.
+    content = f"favorite homelab distro is Proxmox {uuid.uuid4().hex}"
 
     create_response = client.post("/siris/memory", json={"content": content})
     assert create_response.status_code == 200
@@ -43,7 +45,7 @@ class _FakeRememberingLLMClient:
 
 
 def test_chat_can_write_memory_via_remember_tool(client: TestClient) -> None:
-    content = f"user is building a k3s cluster {uuid.uuid4()}"
+    content = f"user is building a k3s cluster {uuid.uuid4().hex}"
     fake_siris = get_siris()
     fake_siris.llm = _FakeRememberingLLMClient(content)  # type: ignore[assignment]
     app.dependency_overrides[get_siris] = lambda: fake_siris
@@ -69,7 +71,7 @@ def test_chat_can_write_memory_via_remember_tool(client: TestClient) -> None:
 
 def test_recall_matches_on_a_significant_word_from_a_multi_word_query() -> None:
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex  # one long search term; dashed uuid chunks can collide
     siris.memory.remember(f"User's favorite color is teal-{marker}")
 
     results = siris.memory.recall(query="what is my favorite color")
@@ -81,7 +83,7 @@ def test_recall_does_not_require_the_entire_query_to_match() -> None:
     to be a substring of the content, which a real question almost never
     is."""
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex  # one long search term; dashed uuid chunks can collide
     siris.memory.remember(f"User's name is Brad-{marker}")
 
     results = siris.memory.recall(query="what's my name")
@@ -93,7 +95,7 @@ def test_recall_falls_back_to_literal_match_when_every_word_is_a_stopword() -> N
     filtering) falls back to the old literal-substring behavior rather
     than matching everything indiscriminately."""
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex  # one long search term; dashed uuid chunks can collide
     siris.memory.remember(f"unrelated fact {marker}")
 
     results = siris.memory.recall(query="who am i")
@@ -105,7 +107,7 @@ def test_recall_still_matches_a_short_exact_query() -> None:
     query (the common case for a deliberate `recall` tool call) is
     unchanged."""
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex  # one long search term; dashed uuid chunks can collide
     siris.memory.remember(f"favorite homelab distro is Proxmox {marker}")
 
     results = siris.memory.recall(query=marker)
@@ -115,7 +117,7 @@ def test_recall_still_matches_a_short_exact_query() -> None:
 
 
 def test_delete_memory_removes_it(client: TestClient) -> None:
-    content = f"temporary memory to delete {uuid.uuid4()}"
+    content = f"temporary memory to delete {uuid.uuid4().hex}"
     created = client.post("/siris/memory", json={"content": content}).json()
 
     delete_response = client.delete(f"/siris/memory/{created['id']}")
@@ -214,7 +216,7 @@ def test_list_all_includes_positions() -> None:
 
 
 def test_memory_endpoint_exposes_position(client: TestClient) -> None:
-    content = f"position via endpoint {uuid.uuid4()}"
+    content = f"position via endpoint {uuid.uuid4().hex}"
     created = client.post("/siris/memory", json={"content": content}).json()
     assert isinstance(created["position"], int)
 
@@ -255,7 +257,7 @@ def test_delete_memory_tool_appears_in_memory_capabilities_category(client: Test
 
 
 def test_delete_memory_via_tool_removes_it(client: TestClient) -> None:
-    content = f"delete via tool {uuid.uuid4()}"
+    content = f"delete via tool {uuid.uuid4().hex}"
     created = client.post("/siris/memory", json={"content": content}).json()
 
     response = client.post(
@@ -276,7 +278,7 @@ def test_delete_memory_via_tool_fails_for_an_unknown_id(client: TestClient) -> N
 
 
 def test_chat_can_delete_memory_via_delete_memory_tool(client: TestClient) -> None:
-    content = f"forget this via chat {uuid.uuid4()}"
+    content = f"forget this via chat {uuid.uuid4().hex}"
     created = client.post("/siris/memory", json={"content": content}).json()
 
     class _FakeForgettingLLMClient:

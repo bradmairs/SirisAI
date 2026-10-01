@@ -73,6 +73,26 @@ class Settings(BaseSettings):
     tts_model: str = "tts-1"
     tts_voice: str = "default"
 
+    # Spoken confirmation (POST /siris/voice/converse): when a voice turn
+    # needs confirmation, SirisAI asks out loud and a following "yes"/"no"
+    # answers it. Domains listed here are never confirmable by voice -- they
+    # still need a tap in the app (locks, garage doors/covers, alarms).
+    voice_confirmation_enabled: bool = True
+    voice_confirmation_blocked_domains: str = "lock,cover,alarm_control_panel"
+
+    def voice_confirmation_blocked_domain_set(self) -> set[str]:
+        return {d.strip().lower() for d in self.voice_confirmation_blocked_domains.split(",") if d.strip()}
+
+    # Speaker recognition (app/voice/speaker.py, app/voice/voiceprints.py):
+    # enrolled household members are recognised by voice on
+    # POST /siris/voice/converse, so memory/goals/"my ..." follow whoever is
+    # talking. On whenever the encoder weights exist at this path --
+    # `python scripts/fetch_voice_encoder.py models/voice_encoder.npz` (the
+    # Docker image does this at build time). A match needs at least this
+    # cosine similarity and to be clearly ahead of the next-closest person.
+    speaker_id_model_path: str = "models/voice_encoder.npz"
+    speaker_id_threshold: float = 0.80
+
     # Home Assistant (app/home_assistant/, app/plugins/builtin/home_assistant.py).
     # Empty base_url or token = the home_assistant_* tools aren't registered
     # at all -- fill both in via .env to enable, no code changes needed.
@@ -93,6 +113,16 @@ class Settings(BaseSettings):
     # needs_confirmation() and Tool.needs_confirmation()'s base docstring
     # for the mechanism.
     home_assistant_no_confirm_domains: str = ""
+
+    # Habit suggestions (app/anticipation/habits.py): look back this many
+    # days in the Home Assistant logbook for manual actions repeated at the
+    # same time; a habit needs at least habit_min_days occurrences (and 60%
+    # of eligible days). Checked every habit_check_interval_days; new
+    # suggestions arrive as a push with Create/Dismiss buttons (buttons need
+    # SIRISAI_PUBLIC_BASE_URL). 0 = never check automatically.
+    habit_lookback_days: int = 14
+    habit_min_days: int = 5
+    habit_check_interval_days: float = 7.0
 
     def home_assistant_no_confirm_domain_list(self) -> list[str]:
         return [
@@ -133,6 +163,22 @@ class Settings(BaseSettings):
     # docker_* tools aren't registered.
     docker_base_url: str = ""
 
+    # Self-healing (app/remediation/runner.py): containers SirisAI may restart
+    # on its own when they exit, crash-loop or turn unhealthy (comma-separated
+    # names; "*" = every container). Listing one is your standing approval to
+    # restart exactly that container without asking. Capped per container and
+    # in total per hour; past the cap -- or when a restart doesn't fix it -- you
+    # get an urgent push with the last log lines instead. Empty = off.
+    remediation_containers: str = ""
+    remediation_check_interval_minutes: float = 5.0
+    remediation_max_restarts_per_container: int = 2
+    remediation_max_actions_per_hour: int = 4
+    # How long a restarted container must stay up to count as fixed.
+    remediation_settle_seconds: float = 8.0
+
+    def remediation_container_list(self) -> list[str]:
+        return [c.strip() for c in self.remediation_containers.split(",") if c.strip()]
+
     # Plex (app/plex/, app/plugins/builtin/plex.py). Empty base_url or
     # token = plex_* tools aren't registered.
     plex_base_url: str = ""
@@ -156,7 +202,7 @@ class Settings(BaseSettings):
     weather_latitude: float | None = None
     weather_longitude: float | None = None
 
-    @field_validator("weather_latitude", "weather_longitude", "briefing_hour_local", mode="before")
+    @field_validator("weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max", mode="before")
     @classmethod
     def _blank_env_string_means_unset(cls, value: Any) -> Any:
         # An unset .env line (SIRISAI_WEATHER_LATITUDE=) arrives here as ""
@@ -170,6 +216,19 @@ class Settings(BaseSettings):
     # Calendar (app/calendar/, app/plugins/builtin/calendar.py) via
     # CalDAV -- works with Nextcloud, Radicale, Baikal, iCloud, etc. Empty
     # url = calendar tool isn't registered.
+    # Email (app/email/client.py) over IMAP/SMTP; an app password works for
+    # Gmail/iCloud/Fastmail. imap_host + username + password enable it;
+    # smtp_host is only needed to send replies (drafts go over IMAP).
+    email_imap_host: str = ""
+    email_imap_port: int = 993
+    email_username: str = ""
+    email_password: str = ""
+    email_smtp_host: str = ""
+    email_smtp_port: int = 587
+    email_from: str = ""
+    email_drafts_folder: str = "Drafts"
+    email_use_ssl: bool = True
+
     caldav_url: str = ""
     caldav_username: str = ""
     caldav_password: str = ""
@@ -229,6 +288,36 @@ class Settings(BaseSettings):
     # SIRISAI_HOME_ASSISTANT_BASE_URL/TOKEN to be set too.
     power_sensor_entity_id: str = ""
 
+    # The car (app/car/service.py), via its Home Assistant integration --
+    # each entity optional. climate may be a climate.*, switch.* or button.*.
+    car_name: str = "the car"
+    car_battery_entity_id: str = ""
+    car_range_entity_id: str = ""
+    car_charging_entity_id: str = ""
+    car_plugged_entity_id: str = ""
+    car_location_entity_id: str = ""
+    car_lock_entity_id: str = ""
+    car_climate_entity_id: str = ""
+    car_low_battery_percent: float = 30.0
+
+    # Parcels (app/parcels/service.py): with a 17TRACK API key, statuses are
+    # fetched automatically; without one the list is kept by hand.
+    seventeentrack_api_key: str = ""
+    seventeentrack_base_url: str = "https://api.17track.net"
+    parcel_refresh_minutes: float = 120.0
+
+    # Energy-aware scheduling (app/energy/service.py): power counts as cheap
+    # inside any window in energy_cheap_windows (local "HH:MM-HH:MM", comma-
+    # separated, may cross midnight), or when the solar sensor (W or kW) is at
+    # or above energy_solar_min_watts, or the price sensor is at or below
+    # energy_price_max. Jobs deferred with schedule_for_cheap_energy run at
+    # the next such moment.
+    energy_cheap_windows: str = ""
+    energy_solar_entity_id: str = ""
+    energy_solar_min_watts: float = 1500.0
+    energy_price_entity_id: str = ""
+    energy_price_max: float | None = None
+
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own
     # memories, skills, and terminal access, used to delegate Docker/
@@ -279,6 +368,13 @@ class Settings(BaseSettings):
     # of them (see app/plugins/selector.py). 110 tools cost ~14,200 prompt
     # tokens per turn versus ~1,050 with none. 0 = always offer everything.
     tool_selection_max: int = 32
+    # Also match tools by meaning when an embedding model is configured
+    # (SIRISAI_EMBEDDING_PROVIDER=ollama) -- see app/plugins/selector.py.
+    tool_selection_semantic: bool = True
+    # Run the tool-choice evals (evals/tool_choice.jsonl) against the real
+    # model this often, and push a warning if accuracy drops 10+ points.
+    # 0 = only on request (POST /siris/evals/run).
+    eval_interval_days: float = 7.0
 
     # Background scheduler (app/core/scheduler.py): delivers due reminders and
     # timers and alerts when a tool has been failing. On by default.
@@ -314,6 +410,33 @@ class Settings(BaseSettings):
     presence_device_names: str = ""
     presence_home_scene: str = ""
     presence_away_scene: str = ""
+
+    # Protocols (app/protocols/service.py) and guest mode (app/core/guest.py).
+    # "night" for protocol conditions and the intruder check: from
+    # night_start_hour until night_end_hour, local time. guest_wifi_entity_id
+    # is a Home Assistant switch for the guest network (the UniFi integration
+    # creates one per WLAN) that the guest protocols turn on and off.
+    # Departure heads-up (app/skills/builtin/departure.py): how far ahead a
+    # calendar event counts as "coming up" when you leave.
+    departure_event_window_hours: float = 3.0
+    night_start_hour: int = 22
+    night_end_hour: int = 6
+    guest_wifi_entity_id: str = ""
+
+    # Intruder response (app/skills/builtin/intruder.py), with Frigate
+    # configured: a person detected when intruder_alert_when says so --
+    # "away" (nobody home), "night", or "away_or_night" -- raises an urgent
+    # alert. intruder_cameras limits it to some cameras (comma-separated;
+    # empty = all). intruder_auto_lockdown also runs the lockdown protocol
+    # when nobody is home. 0 minutes disables the check.
+    intruder_check_interval_minutes: float = 1.0
+    intruder_alert_when: str = "away_or_night"
+    intruder_cameras: str = ""
+    intruder_cooldown_minutes: float = 10.0
+    intruder_auto_lockdown: bool = False
+
+    def intruder_camera_list(self) -> list[str]:
+        return [c.strip() for c in self.intruder_cameras.split(",") if c.strip()]
 
     def presence_device_name_list(self) -> list[str]:
         return [
@@ -394,6 +517,14 @@ class Settings(BaseSettings):
     frigate_base_url: str = ""
     frigate_api_key: str = ""
 
+    # Image understanding (app/vision/client.py): an Ollama vision model,
+    # e.g. "qwen2.5vl:7b", "llava:7b" or "gemma3:4b" (`ollama pull` it first).
+    # Enables frigate_look_at_camera / frigate_describe_event (with Frigate
+    # configured) and photos attached in chat. Empty = off. vision_base_url
+    # defaults to SIRISAI_OLLAMA_BASE_URL.
+    vision_model: str = ""
+    vision_base_url: str = ""
+
     # Synology NAS (app/synology/, app/plugins/builtin/synology.py) -- DSM
     # Web API for system status, storage health, disk SMART, and backup tasks.
     # Uses session-based auth (SYNO.API.Auth) with a local DSM user account.
@@ -404,6 +535,22 @@ class Settings(BaseSettings):
     synology_username: str = ""
     synology_password: str = ""
     synology_verify_ssl: bool = True
+    # A backup that hasn't succeeded within this many hours counts as stale.
+    backup_max_age_hours: float = 26.0
+
+    # Security briefing (app/skills/builtin/security.py). cert hosts are
+    # "host" or "host:port" (default 443), comma-separated. The scheduler
+    # runs the check every security_check_interval_hours (0 = never) and a
+    # Trivy image scan every security_scan_interval_days when `trivy` is
+    # installed.
+    security_cert_hosts: str = ""
+    security_cert_warn_days: int = 14
+    security_ssh_failed_threshold: int = 25
+    security_check_interval_hours: float = 6.0
+    security_scan_interval_days: float = 7.0
+
+    def security_cert_host_list(self) -> list[str]:
+        return [h.strip() for h in self.security_cert_hosts.split(",") if h.strip()]
 
     # Cron job overview (app/cron/, app/plugins/builtin/cron.py) -- read and
     # toggle crontab entries on other machines on the network (a home Linux

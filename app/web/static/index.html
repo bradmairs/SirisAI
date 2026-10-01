@@ -146,7 +146,13 @@
   .md blockquote { margin: 0 0 0.55rem; padding-left: 0.7rem; border-left: 3px solid var(--border); color: var(--muted); }
   .md a { color: var(--accent); }
   .md hr { border: 0; border-top: 1px solid var(--border); margin: 0.7rem 0; }
+  .nav-link { color: var(--muted); text-decoration: none; padding: 0.4rem 0.7rem; font-size: 0.9rem; align-self: center; }
+  .nav-link:hover { color: var(--text); }
   .tag.bad { color: var(--error); border-color: var(--error); }
+  .voiceid-hint { color: var(--muted, #888); font-size: 0.85rem; margin: 0.2rem 0 0.6rem; }
+  .voiceid-controls { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.6rem; }
+  .voiceid-controls input { flex: 1 1 10rem; min-width: 0; }
+  .voiceid-entry { display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
   #messages { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .msg { max-width: 70%; padding: 0.55rem 0.8rem; border-radius: 10px; line-height: 1.4; font-size: 0.92rem; white-space: pre-wrap; word-wrap: break-word; }
   .msg.user { align-self: flex-end; background: var(--user-bubble); }
@@ -201,6 +207,21 @@
     font-size: 1rem;
     flex-shrink: 0;
   }
+  #attach-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    width: 2.6rem;
+    cursor: pointer;
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+  #attachments { display: flex; gap: 0.4rem; padding: 0.4rem 1rem 0; flex-wrap: wrap; }
+  .attachment { position: relative; }
+  .attachment img, .msg img.attached { max-height: 72px; max-width: 120px; border-radius: 6px; border: 1px solid var(--border); display: block; }
+  .msg img.attached { max-height: 160px; max-width: 240px; margin-top: 0.3rem; }
+  .attachment button { position: absolute; top: -6px; right: -6px; border-radius: 999px; border: none; background: var(--error); color: #1a0d0d; width: 1.2rem; height: 1.2rem; font-size: 0.7rem; cursor: pointer; padding: 0; }
   #mic-btn.recording { background: var(--error); border-color: var(--error); color: #1a0d0d; }
   .speak-btn {
     background: none;
@@ -319,6 +340,19 @@
   .routine-entry.disabled { color: var(--muted); }
   .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
 
+  /* Protocols */
+  #protocols-view { padding: 1rem; overflow-y: auto; }
+  .protocol-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+  .protocol-bar .action-btn { padding: 0.35rem 0.9rem; }
+  .guest-toggle { font-size: 0.9rem; }
+  .protocol-card { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem; }
+  .protocol-card h3 { margin: 0 0 0.2rem; font-size: 1rem; }
+  .protocol-card .protocol-desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.4rem; }
+  .protocol-card ol { margin: 0.3rem 0 0.5rem 1.2rem; padding: 0; font-size: 0.85rem; }
+  .protocol-card li.skip { color: var(--muted); text-decoration: line-through; }
+  .protocol-card .protocol-actions { display: flex; gap: 0.4rem; }
+  .protocol-card .protocol-actions button { padding: 0.3rem 0.8rem; }
+
   /* Cron */
   #cron-view { padding: 1rem; overflow-y: auto; }
   #cron-view button#cron-refresh { margin-bottom: 1rem; }
@@ -403,10 +437,12 @@
     <button data-view="memory">Memory</button>
     <button data-view="goals">Goals</button>
     <button data-view="routines">Routines</button>
+    <button data-view="protocols">Protocols</button>
     <button data-view="cron">Cron</button>
     <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
+    <a class="nav-link" href="/hud" target="_blank" rel="noopener" title="Full-screen dashboard for a wall tablet">HUD</a>
   </nav>
 </header>
 
@@ -426,8 +462,11 @@
   <section id="chat-view" class="view active">
     <div id="chat-toolbar"><select id="history-select" title="Past conversations" aria-label="Past conversations"><option value="">History</option></select><button type="button" id="new-chat-btn">New chat</button></div>
     <div id="messages"></div>
+    <div id="attachments" hidden></div>
     <form id="chat-form">
       <button type="button" id="mic-btn" title="Record a voice message">&#127908;</button>
+      <button type="button" id="attach-btn" title="Attach a photo">&#128206;</button>
+      <input type="file" id="attach-input" accept="image/*" multiple hidden />
       <input id="chat-input" type="text" placeholder="Ask SirisAI..." autocomplete="off" />
       <button type="submit" id="chat-send-btn">Send</button>
     </form>
@@ -477,6 +516,16 @@
     <div id="routines-list"></div>
   </section>
 
+  <section id="protocols-view" class="view">
+    <div class="protocol-bar">
+      <button class="action-btn" id="protocols-refresh">Refresh</button>
+      <button class="action-btn" id="protocols-undo">Undo last protocol</button>
+      <label class="guest-toggle"><input type="checkbox" id="guest-toggle" /> Guest mode</label>
+      <span id="protocols-status"></span>
+    </div>
+    <div id="protocols-list"></div>
+  </section>
+
   <section id="cron-view" class="view">
     <p class="empty" id="cron-unavailable" style="display:none;">
       No cron hosts configured (SIRISAI_CRON_HOSTS) -- see /siris/status.
@@ -503,6 +552,17 @@
   <section id="status-view" class="view">
     <button class="action-btn" id="status-refresh">Refresh</button>
     <div id="status-body"></div>
+    <div id="voiceid" hidden>
+      <h3>Voice ID</h3>
+      <p class="voiceid-hint">Record three or four 5-second samples of each person talking naturally, ideally in different rooms. Satellites then recognise who is speaking.</p>
+      <div class="voiceid-controls">
+        <input id="voiceid-user" placeholder="Name, e.g. brad" autocomplete="off">
+        <button class="action-btn" id="voiceid-record">Record sample</button>
+        <button class="action-btn" id="voiceid-test">Who am I?</button>
+        <span id="voiceid-status"></span>
+      </div>
+      <div id="voiceid-list"></div>
+    </div>
   </section>
 </main>
 
@@ -587,6 +647,7 @@
       if (btn.dataset.view === "goals") loadGoals();
       if (btn.dataset.view === "routines") loadRoutines();
       if (btn.dataset.view === "cron") loadCron();
+      if (btn.dataset.view === "protocols") loadProtocols();
       if (btn.dataset.view === "gaps") loadGaps();
       if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
@@ -629,7 +690,10 @@
     messages.innerHTML = "";
     for (const m of history) {
       if (!m.content) continue;
-      if (m.role === "user") addMessage(m.content, "user");
+      if (m.role === "user") {
+        const hadImage = /\[\[image: [\s\S]*?\]\]/.test(m.content);
+        addMessage(m.content.replace(/\s*\[\[image: [\s\S]*?\]\]/g, "").trim() + (hadImage ? " \u{1F4CE}" : ""), "user");
+      }
       else if (m.role === "assistant") addMessage(m.content, "assistant");
     }
     conversationId = id;
@@ -1064,12 +1128,83 @@
     if (running) { e.preventDefault(); running.abort(); }
   });
 
+  // --- Photo attachments: resized in the browser (max 1280px JPEG) and sent
+  // as base64 with the next message; SIRISAI_VISION_MODEL looks at them.
+  const attachBtn = document.getElementById("attach-btn");
+  const attachInput = document.getElementById("attach-input");
+  const attachmentsBox = document.getElementById("attachments");
+  let pendingImages = [];
+
+  function renderAttachments() {
+    attachmentsBox.innerHTML = "";
+    attachmentsBox.hidden = pendingImages.length === 0;
+    pendingImages.forEach((dataUrl, index) => {
+      const wrap = document.createElement("div");
+      wrap.className = "attachment";
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "x";
+      remove.title = "Remove";
+      remove.addEventListener("click", () => { pendingImages.splice(index, 1); renderAttachments(); });
+      wrap.appendChild(img);
+      wrap.appendChild(remove);
+      attachmentsBox.appendChild(wrap);
+    });
+  }
+
+  function resizeImage(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Couldn't read that image."));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("That file isn't an image the browser can read."));
+        img.onload = () => {
+          const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addImageFiles(files) {
+    for (const file of files) {
+      if (!file.type.startsWith("image/") || pendingImages.length >= 4) continue;
+      try { pendingImages.push(await resizeImage(file)); } catch (err) { addMessage(err.message, "error"); }
+    }
+    renderAttachments();
+  }
+
+  attachBtn.addEventListener("click", () => attachInput.click());
+  attachInput.addEventListener("change", () => { addImageFiles([...attachInput.files]); attachInput.value = ""; });
+  chatInput.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+    if (files.length) { e.preventDefault(); addImageFiles(files); }
+  });
+
   chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (running) return;
-    const prompt = chatInput.value.trim();
+    const images = pendingImages;
+    const prompt = chatInput.value.trim() || (images.length ? "What's in this picture?" : "");
     if (!prompt) return;
-    addMessage(prompt, "user");
+    const userBubble = addMessage(prompt, "user");
+    for (const src of images) {
+      const img = document.createElement("img");
+      img.className = "attached";
+      img.src = src;
+      if (userBubble) userBubble.appendChild(img);
+    }
+    pendingImages = [];
+    renderAttachments();
     chatInput.value = "";
     running = new AbortController();
     chatSendBtn.textContent = "Stop";
@@ -1079,7 +1214,9 @@
       // tool call/result -- that's still in GET /siris/activity for
       // anyone who wants it. "Done." is a rare fallback for the case
       // synthesis didn't produce text at all (see runChatTurn).
-      const result = await runChatTurn("/siris/chat/stream", { prompt, conversation_id: conversationId }, running.signal);
+      const body = { prompt, conversation_id: conversationId };
+      if (images.length) body.images = images;
+      const result = await runChatTurn("/siris/chat/stream", body, running.signal);
       conversationId = result.conversation_id;
       rememberConversation(conversationId);
       if (result.confirmation_required) {
@@ -1756,12 +1893,218 @@
 
       statusBody.innerHTML = "";
       statusBody.appendChild(dl);
+      voiceIdBox.hidden = !status.speaker_recognition;
+      if (status.speaker_recognition) loadVoiceprints();
     } catch (err) {
       statusBody.innerHTML = `<p class="empty">${err.message}</p>`;
     }
   }
 
   document.getElementById("status-refresh").addEventListener("click", loadStatus);
+
+  // --- Protocols: named playbooks (lockdown, away, guest...). "Run" first
+  // previews every step (dry run) and then asks for the one confirmation.
+  const protocolsList = document.getElementById("protocols-list");
+  const protocolsStatus = document.getElementById("protocols-status");
+  const guestToggle = document.getElementById("guest-toggle");
+
+  async function toolResult(name, args, options = {}) {
+    const response = await api(`/siris/tools/${name}/run`, {
+      method: "POST",
+      body: JSON.stringify(Object.assign({ arguments: args || {} }, options)),
+    });
+    return response.tool_call ? response.tool_call.result : null;
+  }
+
+  function describeSteps(steps) {
+    return steps.map((s) => `${s.will_run ? "- " : "- (skipped) "}${s.step}${s.will_run ? "" : ` -- ${s.because}`}`).join("\n");
+  }
+
+  async function loadProtocols() {
+    protocolsList.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const [protocols, guestState] = await Promise.all([toolResult("list_protocols"), toolResult("guest_mode_status")]);
+      guestToggle.checked = !!(guestState && guestState.on);
+      protocolsList.innerHTML = protocols.length ? "" : '<p class="empty">No protocols available.</p>';
+      for (const proto of protocols) {
+        const card = document.createElement("div");
+        card.className = "protocol-card";
+        const title = document.createElement("h3");
+        title.textContent = proto.name.replace(/_/g, " ") + (proto.builtin ? "" : " (custom)");
+        const desc = document.createElement("div");
+        desc.className = "protocol-desc";
+        desc.textContent = proto.description || "";
+        const list = document.createElement("ol");
+        for (const step of proto.steps) {
+          const li = document.createElement("li");
+          li.textContent = step;
+          list.appendChild(li);
+        }
+        const actions = document.createElement("div");
+        actions.className = "protocol-actions";
+        const run = document.createElement("button");
+        run.className = "action-btn";
+        run.textContent = "Run";
+        run.addEventListener("click", async () => {
+          run.disabled = true;
+          try {
+            const preview = await toolResult("run_protocol", { name: proto.name }, { dry_run: true });
+            if (!confirm(`Run the ${proto.name.replace(/_/g, " ")} protocol?\n\n${describeSteps(preview.steps)}`)) return;
+            const result = await toolResult("run_protocol", { name: proto.name }, { confirmed: true });
+            const ok = result.steps.filter((s) => s.status === "ok").length;
+            const failed = result.steps.filter((s) => s.status === "error").map((s) => s.step);
+            protocolsStatus.textContent = `${proto.name}: ${ok} step${ok === 1 ? "" : "s"} done` + (failed.length ? `, failed: ${failed.join(", ")}` : "") + (result.undo_available ? " -- undo available" : "");
+            loadProtocols();
+          } catch (err) {
+            protocolsStatus.textContent = err.message;
+          } finally {
+            run.disabled = false;
+          }
+        });
+        actions.appendChild(run);
+        if (!proto.builtin) {
+          const del = document.createElement("button");
+          del.className = "action-btn";
+          del.textContent = "Delete";
+          del.addEventListener("click", async () => {
+            if (!confirm(`Delete the ${proto.name} protocol?`)) return;
+            await toolResult("delete_protocol", { name: proto.name });
+            loadProtocols();
+          });
+          actions.appendChild(del);
+        }
+        card.appendChild(title);
+        card.appendChild(desc);
+        card.appendChild(list);
+        card.appendChild(actions);
+        protocolsList.appendChild(card);
+      }
+    } catch (err) {
+      protocolsList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("protocols-refresh").addEventListener("click", loadProtocols);
+  document.getElementById("protocols-undo").addEventListener("click", async () => {
+    try {
+      const preview = await toolResult("undo_last_protocol", {}, { dry_run: true });
+      if (!preview.protocol || preview.undone || !preview.would_run.length) { protocolsStatus.textContent = "Nothing to undo."; return; }
+      if (!confirm(`Undo the ${preview.protocol} protocol? (${preview.would_run.length} change${preview.would_run.length === 1 ? "" : "s"} to put back)`)) return;
+      const result = await toolResult("undo_last_protocol", {}, { confirmed: true });
+      protocolsStatus.textContent = result.undone ? `Undid ${result.protocol}.` : result.reason;
+      loadProtocols();
+    } catch (err) {
+      protocolsStatus.textContent = err.message;
+    }
+  });
+  guestToggle.addEventListener("change", async () => {
+    try {
+      await toolResult("set_guest_mode", { on: guestToggle.checked });
+      protocolsStatus.textContent = guestToggle.checked ? "Guest mode on -- personal info stays private." : "Guest mode off.";
+    } catch (err) {
+      protocolsStatus.textContent = err.message;
+      guestToggle.checked = !guestToggle.checked;
+    }
+  });
+
+  // --- Voice ID: record WAV in the browser (the server decodes WAV natively),
+  // enrol samples, and check who a recording sounds like.
+  const voiceIdBox = document.getElementById("voiceid");
+  const voiceIdStatus = document.getElementById("voiceid-status");
+  const voiceIdList = document.getElementById("voiceid-list");
+
+  async function recordWav(seconds) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = ctx.createMediaStreamSource(stream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    processor.onaudioprocess = (e) => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    source.connect(processor);
+    processor.connect(ctx.destination);
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    processor.disconnect();
+    source.disconnect();
+    stream.getTracks().forEach((t) => t.stop());
+    const rate = ctx.sampleRate;
+    await ctx.close();
+    const length = chunks.reduce((n, c) => n + c.length, 0);
+    const view = new DataView(new ArrayBuffer(44 + length * 2));
+    const writeStr = (offset, s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)); };
+    writeStr(0, "RIFF"); view.setUint32(4, 36 + length * 2, true); writeStr(8, "WAVE");
+    writeStr(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    writeStr(36, "data"); view.setUint32(40, length * 2, true);
+    let offset = 44;
+    for (const chunk of chunks) {
+      for (const sample of chunk) {
+        view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+        offset += 2;
+      }
+    }
+    return new Blob([view], { type: "audio/wav" });
+  }
+
+  async function loadVoiceprints() {
+    try {
+      const prints = await api("/siris/voice/voiceprints");
+      voiceIdList.innerHTML = prints.length ? "" : '<p class="empty">Nobody enrolled yet.</p>';
+      for (const p of prints) {
+        const row = document.createElement("div");
+        row.className = "voiceid-entry";
+        const label = document.createElement("span");
+        label.textContent = `${p.user_id} -- ${p.samples} sample${p.samples === 1 ? "" : "s"}`;
+        const remove = document.createElement("button");
+        remove.className = "action-btn";
+        remove.textContent = "Forget";
+        remove.addEventListener("click", async () => {
+          await api(`/siris/voice/voiceprints/${encodeURIComponent(p.user_id)}`, { method: "DELETE" });
+          loadVoiceprints();
+        });
+        row.appendChild(label);
+        row.appendChild(remove);
+        voiceIdList.appendChild(row);
+      }
+    } catch (err) {
+      voiceIdList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  async function withRecording(label, send) {
+    const buttons = [document.getElementById("voiceid-record"), document.getElementById("voiceid-test")];
+    buttons.forEach((b) => (b.disabled = true));
+    try {
+      voiceIdStatus.textContent = `${label} -- speak now...`;
+      const wav = await recordWav(5);
+      voiceIdStatus.textContent = "Processing...";
+      const form = new FormData();
+      form.append("file", wav, "sample.wav");
+      voiceIdStatus.textContent = await send(form);
+    } catch (err) {
+      voiceIdStatus.textContent = err.message;
+    } finally {
+      buttons.forEach((b) => (b.disabled = false));
+    }
+  }
+
+  document.getElementById("voiceid-record").addEventListener("click", () => {
+    const user = document.getElementById("voiceid-user").value.trim();
+    if (!user) { voiceIdStatus.textContent = "Enter a name first."; return; }
+    withRecording("Recording", async (form) => {
+      form.append("user", user);
+      const result = await api("/siris/voice/voiceprints/enroll", { method: "POST", body: form });
+      loadVoiceprints();
+      return `Saved -- ${result.user_id} now has ${result.samples} sample${result.samples === 1 ? "" : "s"}.`;
+    });
+  });
+
+  document.getElementById("voiceid-test").addEventListener("click", () => {
+    withRecording("Listening", async (form) => {
+      const result = await api("/siris/voice/identify", { method: "POST", body: form });
+      const scores = Object.entries(result.scores).map(([u, s]) => `${u} ${s.toFixed(2)}`).join(", ");
+      return result.user_id ? `You sound like ${result.user_id} (${scores}).` : `Not sure who that is (${scores || "nobody enrolled"}).`;
+    });
+  });
 
   // --- Per-viewer preferences (this browser only, not synced anywhere) ---
   const AUTO_SPEAK_KEY = "sirisai_auto_speak";

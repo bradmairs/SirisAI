@@ -139,6 +139,16 @@ class SynologyClient:
                 continue
         return []
 
+    def get_backup_task_status(self, task_id: int | str) -> dict:
+        """One Hyper Backup task's last result and times (SYNO.Backup.Task
+        status) -- {} when the DSM doesn't support it."""
+        try:
+            response = self._request("GET", api="SYNO.Backup.Task", version=1, api_method="status", params={"task_id": task_id})
+            data = response.json()
+        except Exception:
+            return {}
+        return data.get("data", {}) if data.get("success") else {}
+
     def close(self) -> None:
         """Close the underlying HTTP client."""
         try:

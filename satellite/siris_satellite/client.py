@@ -1,10 +1,17 @@
-"""Thin HTTP client for the SirisAI endpoints the satellite needs:
-transcribe, chat, speak. These are the exact same endpoints the built-in
-web UI uses (app/web/static/index.html) -- the satellite is just another
-frontend, nothing on the SirisAI side changes for it to exist.
+"""Thin HTTP client for the SirisAI endpoints the satellite needs. The main
+one is POST /siris/voice/converse -- a whole spoken turn, streamed back a
+sentence at a time. transcribe/chat/speak remain for older servers.
 """
 
+import json
+from collections.abc import Iterator
+from typing import Any
+
 import httpx
+
+
+class ConverseUnsupported(Exception):
+    """The server predates /siris/voice/converse."""
 
 
 class SirisClient:
@@ -15,11 +22,45 @@ class SirisClient:
         room: str = "",
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
+        user: str = "",
     ) -> None:
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        if user:
+            headers["X-Siris-User"] = user
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, headers=headers, transport=transport)
         self._conversation_id: str | None = None
         self._room = room
+
+    def converse(self, audio: bytes) -> Iterator[dict[str, Any]]:
+        """Stream one spoken turn's events (see the server's
+        POST /siris/voice/converse docstring for their shapes). Remembers
+        the conversation id so the next turn continues the same
+        conversation."""
+        data: dict[str, str] = {}
+        if self._conversation_id:
+            data["conversation_id"] = self._conversation_id
+        if self._room:
+            data["room"] = self._room
+        # A slow model can take a while before its first sentence; the read
+        # timeout is the gap allowed between streamed lines, not the total.
+        timeout = httpx.Timeout(30.0, read=120.0)
+        with self._client.stream(
+            "POST",
+            "/siris/voice/converse",
+            data=data,
+            files={"file": ("recording.wav", audio, "audio/wav")},
+            timeout=timeout,
+        ) as response:
+            if response.status_code in (404, 405):
+                raise ConverseUnsupported()
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line.strip():
+                    continue
+                event = json.loads(line)
+                if event.get("type") == "final" and event.get("conversation_id"):
+                    self._conversation_id = event["conversation_id"]
+                yield event
 
     def transcribe(self, audio: bytes) -> str:
         response = self._client.post(

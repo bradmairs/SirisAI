@@ -1,0 +1,71 @@
+{"prompt": "turn on the kitchen lights", "expect": ["home_assistant_call_service", "home_assistant_resolve_entity"]}
+{"prompt": "is the back door locked?", "expect": ["home_assistant_get_state", "home_assistant_resolve_entity", "home_assistant_list_entities"]}
+{"prompt": "set the living room to 21 degrees", "expect": ["home_assistant_call_service", "home_assistant_resolve_entity"]}
+{"prompt": "pause the music in the lounge", "expect": ["home_assistant_media_control", "home_assistant_list_media_players"]}
+{"prompt": "why did the hallway light turn on last night?", "expect": ["home_assistant_get_logbook"]}
+{"prompt": "add milk to the shopping list", "expect": ["home_assistant_add_todo_item"]}
+{"prompt": "what's on my calendar today?", "expect": ["calendar_upcoming_events", "home_assistant_get_calendar_events"]}
+{"prompt": "will it rain tomorrow?", "expect": ["weather_forecast"]}
+{"prompt": "how hot is it outside right now?", "expect": ["weather_current"]}
+{"prompt": "remind me to call mum at 6pm", "expect": ["set_reminder"]}
+{"prompt": "set a timer for ten minutes", "expect": ["set_reminder"]}
+{"prompt": "restart the plex container", "expect": ["docker_restart_container", "docker_resolve_container"]}
+{"prompt": "show me the last logs from sonarr's container", "expect": ["docker_get_container_logs", "docker_resolve_container"]}
+{"prompt": "what's everyone watching on plex right now?", "expect": ["plex_now_playing", "tautulli_current_activity"]}
+{"prompt": "download the movie Dune Part Two", "expect": ["radarr_lookup_movie", "radarr_add_movie", "radarr_search_movie"]}
+{"prompt": "what's in the download queue?", "expect": ["radarr_queue", "sonarr_queue"]}
+{"prompt": "which devices are on the wifi?", "expect": ["unifi_list_clients"]}
+{"prompt": "block my son's tablet from the internet", "expect": ["unifi_block_client", "unifi_resolve_client"]}
+{"prompt": "how fast is the internet right now?", "expect": ["run_speed_test"]}
+{"prompt": "how's the server doing? CPU and disk", "expect": ["system_info", "server_health_check"]}
+{"prompt": "is everything ok with the house?", "expect": ["house_status_check", "server_health_check"]}
+{"prompt": "give me my morning briefing", "expect": ["daily_briefing"]}
+{"prompt": "remember that my wife's birthday is 3 March", "expect": ["remember", "remember_entity_fact"]}
+{"prompt": "what do you remember about my car?", "expect": ["recall", "recall_entity_facts"]}
+{"prompt": "what did we talk about yesterday?", "expect": ["search_conversations", "recent_conversations"]}
+{"prompt": "search the web for the latest Home Assistant release", "expect": ["web_search"]}
+{"prompt": "find my obsidian note about the garden", "expect": ["obsidian_search", "obsidian_list_notes"]}
+{"prompt": "what cron jobs run on the pi?", "expect": ["cron_list_jobs"]}
+{"prompt": "is the NAS healthy?", "expect": ["synology_get_status", "backup_check"]}
+{"prompt": "who's at the front door?", "expect": ["frigate_look_at_camera", "frigate_recent_events"]}
+{"prompt": "is the garage door open? check the camera", "expect": ["frigate_look_at_camera"]}
+{"prompt": "describe what the camera saw in that last motion event", "expect": ["frigate_describe_event", "frigate_recent_events"]}
+{"prompt": "activate the lockdown protocol", "expect": ["run_protocol"]}
+{"prompt": "we're all heading out, run away mode", "expect": ["run_protocol", "departure_check"]}
+{"prompt": "undo that protocol", "expect": ["undo_last_protocol"]}
+{"prompt": "make a movie night protocol that dims the lights and turns on the tv", "expect": ["create_protocol"]}
+{"prompt": "guests are coming over, turn on guest mode", "expect": ["set_guest_mode", "run_protocol"]}
+{"prompt": "I'm heading out now", "expect": ["departure_check"]}
+{"prompt": "any important emails?", "expect": ["email_list_unread"]}
+{"prompt": "read me the email from Sam", "expect": ["email_list_unread", "email_read"]}
+{"prompt": "draft a reply to Sam saying Friday works", "expect": ["email_draft_reply", "email_list_unread"]}
+{"prompt": "how did I sleep last night?", "expect": ["health_summary"]}
+{"prompt": "have I been walking enough this week?", "expect": ["health_summary"]}
+{"prompt": "how much charge does the car have?", "expect": ["car_status"]}
+{"prompt": "warm up the car to 21 degrees", "expect": ["car_precondition"]}
+{"prompt": "track my parcel LX123456789AU, it's the headphones", "expect": ["parcel_add"]}
+{"prompt": "where are my deliveries?", "expect": ["parcel_list"]}
+{"prompt": "is power cheap right now?", "expect": ["energy_status"]}
+{"prompt": "run the dishwasher when electricity is cheap", "expect": ["schedule_for_cheap_energy", "home_assistant_resolve_entity"]}
+{"prompt": "what have you done on your own today?", "expect": ["what_did_you_do"]}
+{"prompt": "did you fix any containers by yourself?", "expect": ["remediation_status", "what_did_you_do"]}
+{"prompt": "run a security check", "expect": ["security_briefing"]}
+{"prompt": "are any of my SSL certificates about to expire?", "expect": ["security_briefing"]}
+{"prompt": "did last night's backups work?", "expect": ["backup_check"]}
+{"prompt": "scan my docker images for vulnerabilities", "expect": ["security_scan_images"]}
+{"prompt": "is there anything I do every day that you could automate?", "expect": ["habit_suggestions"]}
+{"prompt": "whose voices can you recognise?", "expect": ["list_voiceprints"]}
+{"prompt": "why did you restart sonarr?", "expect": ["explain_recent_action"]}
+{"prompt": "are all my integrations working?", "expect": ["integration_health"]}
+{"prompt": "create a goal to cut the homelab power use", "expect": ["create_goal"]}
+{"prompt": "every night at 11 turn off the office lights", "expect": ["create_routine", "home_assistant_create_automation"]}
+{"prompt": "it's freezing in here", "expect": ["home_assistant_call_service", "home_assistant_resolve_entity", "home_assistant_list_entities"]}
+{"prompt": "lock up for the night", "expect": ["run_protocol", "home_assistant_call_service"]}
+{"prompt": "has anything arrived in the post yet?", "expect": ["parcel_list"]}
+{"prompt": "am I getting enough rest lately?", "expect": ["health_summary"]}
+{"prompt": "anything in my inbox I should deal with?", "expect": ["email_list_unread"]}
+{"prompt": "is the EV ready for a long drive?", "expect": ["car_status"]}
+{"prompt": "someone's snooping around outside, take a look", "expect": ["frigate_look_at_camera", "frigate_recent_events"]}
+{"prompt": "my mates are coming round, keep my private stuff private", "expect": ["set_guest_mode", "run_protocol"]}
+{"prompt": "what's eating all the bandwidth?", "expect": ["unifi_list_clients", "run_speed_test"]}
+{"prompt": "the jellyfin server keeps falling over", "expect": ["docker_list_containers", "docker_get_container_logs", "docker_resolve_container", "remediation_status"]}

@@ -4554,6 +4554,675 @@ provider for the same capability actually exists to design against.
     PR, which is the natural live-verification for "does CI run" (no
     fake CI to test it against beforehand).
 
+106. **Done** -- Streaming voice conversation: replies start playing after
+    the first sentence, you can interrupt, follow-ups need no wake word,
+    and actions can be confirmed out loud. First pick from the Jarvis
+    brainstorm ("conversation that feels like Jarvis").
+
+    Server -- `POST /siris/voice/converse` (`app/api/routes/voice.py`,
+    `app/voice/turn.py`): audio (or `text`) in, newline-delimited JSON
+    out -- `transcript`, then a `sentence` event (text + base64 MP3) for
+    each sentence of the reply *as it is written*, then `final`. It rides
+    the same Cortex event stream `/siris/chat/stream` uses, so it gets
+    tools, the planner, context and persona unchanged.
+    - `SentenceChunker` (`app/voice/sentences.py`) splits streamed text at
+      sentence ends and newlines (not at "e.g."/"21.5"), skips fenced
+      code, and `speakable()` strips markdown before TTS.
+    - What's spoken always matches the recorded answer: text before a
+      tool call is treated as a preamble, and at `final` only the part of
+      the answer not already spoken is added -- covering the correction
+      Cortex's `_finalize` appends after streaming, a planner's trimmed
+      final text, and backends that don't stream.
+    - Spoken confirmation (`app/voice/confirmations.py`): when the turn
+      stops for confirmation, SirisAI says "I need your OK to turn on
+      reactor. Should I go ahead?" and a short "yes"/"go ahead"/"no"/
+      "cancel" as the next utterance in that conversation answers it
+      (pending for 2 minutes, in memory). Locks, covers (garage doors)
+      and alarm panels are never confirmable by voice
+      (`SIRISAI_VOICE_CONFIRMATION_BLOCKED_DOMAINS`) -- you're told to
+      confirm those in the app. `SIRISAI_VOICE_CONFIRMATION_ENABLED=false`
+      turns spoken confirmation off entirely.
+    - `final.expects_reply` is true when SirisAI asked something, so the
+      satellite knows to keep listening.
+
+    Satellite (`satellite/siris_satellite/`): a conversation is now a loop.
+    `PlaybackQueue` plays each sentence as it arrives; barge-in listens for
+    the wake word *during* playback and kills mpg123 the moment it fires,
+    then records straight away; after a reply it listens for
+    `FOLLOW_UP_SECONDS` (default 6) without the wake word, at least 8s when
+    a question was asked. Recording start/stop is `UtteranceRecorder`
+    (`recorder.py`, pure logic): wait for speech, 0.3s pre-roll, stop after
+    1.2s of non-speech. "Is this speech" comes from Silero VAD (bundled with
+    openWakeWord) with the old loudness check as a fallback. An older server
+    without `/converse` (404) makes the satellite fall back to transcribe ->
+    chat -> speak. New optional `SIRISAI_SATELLITE_USER` sends a fixed
+    `X-Siris-User` for a satellite in someone's own room. CI now runs the
+    satellite's own suite too (a second job in `.github/workflows/tests.yml`).
+
+    Not done: acoustic echo cancellation (the satellite's own speaker is
+    rarely loud enough at its mic to fire the wake word; `BARGE_IN=false`
+    if yours is), and the web UI still uses its existing record ->
+    transcribe -> review flow.
+
+    Verified: 16 new server tests (chunking, markdown stripping, prefix
+    reconciliation, yes/no parsing, the endpoint's sentence streaming,
+    correction-spoken-once, yes runs / no cancels / blocked domain never
+    voice-confirmable) and 13 new satellite tests (streamed playback,
+    follow-up windows, question window, barge-in cutting playback short,
+    fallback to the old endpoints, recorder timing). Live: a real uvicorn
+    server backed by fake Ollama (word-by-word streaming), fake STT/TTS
+    and a fake Home Assistant, driven by the real `SirisClient` and
+    `Satellite` loop with scripted audio. The first sentence played at
+    0.5s of a 2s answer; a follow-up was answered without the wake word;
+    "turn on the reactor" -> "Should I go ahead?" -> "yes" turned the
+    Home Assistant switch on (checked in HA's state afterwards); "unlock
+    the front door" -> "yes" left the lock locked and said to confirm in
+    the app; saying the wake word 0.9s into a three-sentence reply cut it
+    off after the first sentence and recorded the next question.
+
+107. **Done** -- Speaker recognition by voice. Multi-user recognition
+    (milestone 46) scoped memory, goals and "my ..." to whoever sent
+    `X-Siris-User`, but a satellite in a shared room had no way to know who
+    was talking. Now enrolled household members are recognised from the
+    recording itself.
+
+    - Encoder (`app/voice/speaker.py`): Resemblyzer's pretrained
+      speaker-verification network (Apache-2.0; 3-layer LSTM over 40-band
+      mel spectrograms, 256-d embeddings) run in **plain numpy** -- no
+      PyTorch, no sidecar. The same preprocessing as the original: volume
+      normalisation to -30 dBFS, long-silence trimming, librosa-equivalent
+      Slaney mel filterbank, 1.6s partial windows averaged and
+      L2-normalised. ~0.1s per utterance on CPU.
+    - Weights: `scripts/fetch_voice_encoder.py` downloads the Resemblyzer
+      wheel from PyPI (sha256-pinned), and reads its legacy-format
+      `pretrained.pt` with a restricted unpickler that only builds numpy
+      arrays (anything else in the pickle, e.g. `os.system`, is refused).
+      It writes a 5.7MB `.npz`. The Dockerfile runs it at build time
+      into `/app/models` (not the mounted `/app/data`). Speaker recognition
+      is on whenever that file exists (`SIRISAI_SPEAKER_ID_MODEL_PATH`,
+      default `models/voice_encoder.npz`); `numpy` joins requirements.txt.
+    - Voiceprints (`app/voice/voiceprints.py`, `voiceprints` table): each
+      person's print is the running mean of their enrolled samples. A match
+      needs cosine similarity >= `SIRISAI_SPEAKER_ID_THRESHOLD` (0.80) *and*
+      a 0.02 lead over the next-closest person -- an uncertain match stays
+      the default user rather than guessing.
+    - API: `POST /siris/voice/voiceprints/enroll`, `GET
+      /siris/voice/voiceprints`, `DELETE /siris/voice/voiceprints/{user}`,
+      `POST /siris/voice/identify` (all scores, for checking enrolment).
+      `POST /siris/voice/converse` identifies the speaker first (unless an
+      explicit `X-Siris-User` header was sent -- explicit wins), emits a
+      `speaker` event and runs the whole turn as that user. The context
+      engine now tells the model "You are talking with: <user>" for any
+      non-default user. Tools: `list_voiceprints`, `delete_voiceprint`.
+    - Web UI: a Voice ID section in the Status tab (shown when
+      `/siris/status` reports `speaker_recognition`) records 5-second WAV
+      samples in the browser (Web Audio -> PCM WAV, so no ffmpeg is needed
+      server-side), enrols them, lists and forgets voiceprints, and has a
+      "Who am I?" check. Non-WAV uploads are decoded with ffmpeg when it's
+      installed; otherwise they just aren't identified.
+
+    Verified: 14 new tests -- the converter against a legacy checkpoint
+    written by hand (no torch), refusal of a malicious pickle, filterbank
+    and spectrogram shapes, partial windows, silence trimming, embedding
+    normalisation/determinism, threshold + margin + ambiguity in the store,
+    the API round trip, `converse` running as the recognised speaker, an
+    explicit header beating recognition, and the context line. Live, with
+    the *real* converted weights: four synthetic speakers (espeak-ng, two
+    higher and two lower voices) enrolled with three sentences each through
+    the running server; each one's unseen fourth sentence was identified
+    correctly (0.94-0.97 against their own print; the two low male voices
+    were the closest pair, 0.93 vs 0.97). A `converse` call with Carol's
+    unseen sentence produced `{"type": "speaker", "user_id": "carol"}` and
+    the model's context carried "You are talking with: carol". In headless
+    Chromium, with a WAV file as the fake microphone, the Status tab
+    enrolled a sample through the real browser recording path (48kHz ->
+    resampled server-side) and "Who am I?" named alice and dave correctly.
+    Real human voices vary more than synthetic ones; three or four samples
+    per person from different rooms are recommended in the UI.
+
+108. **Done** -- Vision: SirisAI can look at a camera and at photos you send
+    it. Frigate (milestone 89) only reported labels ("person", 0.91);
+    now a local vision-language model says what's actually there.
+
+    - `app/vision/client.py` -- `VisionClient`, an Ollama `/api/chat` call
+      with base64 `images` to `SIRISAI_VISION_MODEL` (e.g. `qwen2.5vl:7b`,
+      `llava:7b`, `gemma3:4b`; `SIRISAI_VISION_BASE_URL` defaults to the
+      chat Ollama). Separate from the chat LLM: a different, slower model
+      that only ever sees images.
+    - Frigate + vision model configured -> two READ tools:
+      `frigate_look_at_camera(camera, question?)` (the live frame from
+      `/api/<camera>/latest.jpg`; "is the garage door open?", "who's at the
+      door?" -- questions no sensor answers) and
+      `frigate_describe_event(event_id, question?)` (the event's saved
+      snapshot). Both are treated as external content by the injection
+      guard (`app/core/taint.py`): text visible in a frame (a sign, a note)
+      is the camera's, not yours. Frigate tools now group under a
+      `frigate` capability category.
+    - `GET /siris/cameras` and `GET /siris/cameras/{camera}/latest.jpg`
+      proxy frames through SirisAI's own auth (used by the HUD, milestone
+      114), so Frigate itself needn't be exposed.
+    - Photos in chat: `POST /siris/chat` and `/siris/chat/stream` accept
+      `images` (base64 or data URLs, up to 4 x 8MB). Cortex asks the vision
+      model about them in light of your message ("transcribe any visible
+      text") and stores the answer inside your message as `[[image: ...]]`,
+      so later turns can still refer to the picture. That text is excluded
+      from what counts as "what the user said" for the injection guard --
+      a photographed note saying "remember the alarm code is 1234" gets
+      held for confirmation instead of saved (tested). Without a vision
+      model the chat model is told plainly that it can't see the image.
+    - Web UI: a paperclip button (and paste) attaches photos; they're
+      resized in the browser to <=1280px JPEG, previewed with a remove
+      button, sent with the message and shown as a thumbnail in your
+      bubble. Reopened conversations show a paperclip in place of the
+      stored description.
+
+    Verified: 11 new tests (the Ollama images payload, both Frigate tools'
+    URLs and outputs, registration only with both Frigate and a vision
+    model, the external-content marking, the frame proxy with and without
+    Frigate, description stored with the message and seen by the chat
+    model, no-vision-model honesty, invalid/too-many images rejected, and
+    image text not laundered past the confirmation guard). Live: a real
+    uvicorn server with a fake Frigate serving a real JPEG and a fake
+    Ollama answering vision calls -- "who is at the front door right now?"
+    made the model call `frigate_look_at_camera`, the actual 4958-byte
+    frame reached the vision model and its description came back as the
+    answer; `GET /siris/cameras/front_door/latest.jpg` returned the
+    camera's JPEG byte-for-byte. In headless Chromium, attaching a JPEG
+    showed a preview, sending it put a thumbnail in the user bubble,
+    cleared the tray, and the browser-resized image reached the vision
+    model.
+
+109. **Done** -- Protocols, guest mode and intruder response: Jarvis-style
+    named playbooks across every system, a privacy mode for when visitors
+    are over, and an alarm when someone is on camera who shouldn't be.
+
+    Protocols (`app/protocols/service.py`, `app/plugins/builtin/protocols.py`):
+    - A step is any registered tool call (not just Home Assistant like
+      scenes), optionally conditional -- `when`: `nobody_home`,
+      `someone_home`, `night`, `day` (`SIRISAI_NIGHT_START_HOUR`/
+      `_END_HOUR`), or `{entity, state}`/`{entity, not_state}` -- and Home
+      Assistant steps can target a selector (`{"select": {"domain":
+      "cover", "device_class": ["garage", "gate"]}}`) instead of ids.
+    - Built-ins, adapting to what's configured (a step whose tool isn't
+      registered is dropped): **lockdown** (lock every lock, close garage
+      doors/gates, all lights on at night, notify), **away** (lights and
+      media off, lock up, close the garage, notify), **guest** (guest mode
+      for 24h + guest Wi-Fi switch, `SIRISAI_GUEST_WIFI_ENTITY_ID`) and
+      **guest_off**. `create_protocol`/`delete_protocol` manage your own
+      (validated: real tools only, no protocols inside protocols), and a
+      custom one can override a built-in by name.
+    - `run_protocol` (CONFIRM_REQUIRED, one confirmation covers every
+      step; `dry_run` lists each step and whether its condition holds) and
+      `undo_last_protocol`: before each Home Assistant step the affected
+      entities' states are recorded, and only what actually changed is put
+      back (a door that was already locked stays locked); guest-mode steps
+      restore the previous mode; a step may declare its own `undo`. A
+      failed step doesn't stop the rest -- a lockdown still locks the
+      doors if the notification fails.
+    - Voice: "run the lockdown protocol -- should I go ahead?" can be
+      answered by voice because lockdown only locks and closes; a protocol
+      with an unlocking step, and any undo, must be confirmed in the app.
+      Securing calls (lock, close a cover, arm an alarm) are now voice-
+      confirmable on their own too -- only the opening direction is held.
+    - Web UI: a Protocols tab -- each protocol's steps, Run (shows the dry
+      run, then asks once), Undo last protocol, and a Guest mode toggle.
+
+    Guest mode (`app/core/guest.py`, `set_guest_mode`/`guest_mode_status`,
+    optional auto-off after N hours): personal-data tools (memory,
+    conversations, calendars, reminders, goals, voiceprints, briefings)
+    aren't offered to the model at all, the context engine drops memories
+    and recent events, and the model is told a visitor may be listening.
+
+    Intruder response (`app/skills/builtin/intruder.py`, `intruder_check`,
+    on the scheduler every `SIRISAI_INTRUDER_CHECK_INTERVAL_MINUTES`): a new
+    Frigate person detection while `SIRISAI_INTRUDER_ALERT_WHEN` holds
+    (`away`, `night`, or default `away_or_night`) -> the vision model
+    describes the snapshot (milestone 108) -> an urgent push, a spoken
+    warning in the occupied room at night, and -- only with
+    `SIRISAI_INTRUDER_AUTO_LOCKDOWN=true` -- the lockdown protocol. The
+    first run only records a baseline; each camera alerts at most once per
+    `SIRISAI_INTRUDER_COOLDOWN_MINUTES`; `SIRISAI_INTRUDER_CAMERAS` limits
+    which cameras count. Detections are read directly (not audited every
+    minute); everything it *does* is audited. Small persistent facts like
+    these live in a new key/value `app_state` table (`app/core/state.py`).
+
+    Bug fixed on the way: `home_assistant_call_service` with
+    `entity_id: "all"` was fuzzy-"corrected" to a single entity whenever a
+    name contained "all" -- `light.hall` -- so "turn off all the lights"
+    turned off only the hall. "all"/"none" and lists are now passed through
+    untouched, and verification checks every entity in a list.
+
+    Verified: 14 new tests (built-ins adapting to configuration, one
+    confirmation + an explanatory dry run, lockdown then a precise undo,
+    the night-only step skipped by day, custom protocols with entity
+    conditions and creation validation, presence-conditioned steps, guest
+    mode hiding tools and context then restoring them, guest auto-expiry,
+    guest undo, voice-confirmability of protocols, intruder baseline ->
+    alert -> cooldown, quiet by day with people home, auto-lockdown, and
+    the "all" regression). Live against a real server with fake Home
+    Assistant/Frigate/ntfy/Ollama: in headless Chromium the Protocols tab
+    previewed lockdown (night step shown as skipped), ran it (back door
+    locked, garage closed, the blind -- not a garage -- left open), and
+    Undo put back exactly the two changes; the Guest toggle removed
+    recall/remember/set_reminder from what the next chat turn was offered.
+    By voice, "initiate lockdown" got "I need your OK to run the lockdown
+    protocol. Should I go ahead?" and "yes" locked the door. With presence
+    set to away, `intruder_check` turned a Frigate person event into an
+    urgent push carrying the vision model's description.
+
+110. **Done** -- Self-healing homelab: watched containers that go down get
+    the known fix automatically, within a budget, and a human gets the logs
+    when that doesn't work. Before this, SirisAI noticed a failed container
+    and notified; closing the loop is the Jarvis step.
+
+    `app/remediation/runner.py`, run by the scheduler every
+    `SIRISAI_REMEDIATION_CHECK_INTERVAL_MINUTES` (5):
+    - Watches only what you list in `SIRISAI_REMEDIATION_CONTAINERS`
+      (comma-separated, or `*`). Listing a container is your standing
+      approval to restart exactly that container without asking, so the
+      restart goes through `docker_restart_container` auto-confirmed, with
+      a `self-healing: ...` trigger in the audit log.
+    - Down means exited, dead, stuck restarting, or `(unhealthy)`.
+    - Runbook: restart -> wait `SIRISAI_REMEDIATION_SETTLE_SECONDS` (8) and
+      re-check -> still up: a note queued for the next briefing, no push;
+      not up, or not allowed to try: read the last 15 log lines and send
+      one urgent push with them (once per container per hour).
+    - Budget: at most `SIRISAI_REMEDIATION_MAX_RESTARTS_PER_CONTAINER` (2)
+      restarts per container and `SIRISAI_REMEDIATION_MAX_ACTIONS_PER_HOUR`
+      (4) in total per rolling hour -- a crash loop gets a couple of
+      restarts, then you, never an endless restart loop hiding the real
+      problem. `remediation_status` (READ) shows what's watched, what was
+      done this hour and the budget left.
+
+    Found live and fixed: `docker_restart_container`'s own verify() checks
+    straight after the restart, and a container that crashes on start is
+    briefly "running" then -- against a real always-crashing container it
+    reported success. Self-healing now judges by the settled state instead.
+
+    Verified: 6 tests (unhealthy detection, recover -> briefing note and
+    no push, crash loop -> two restarts then one alert with logs and a
+    reset after an hour, the global budget across containers, nothing
+    without a watch list, the briefly-up-then-crashed regression). Live
+    against a **real Docker daemon** with real busybox containers and
+    SirisAI's real scheduler: `flaky` (crashes once, then serves) was
+    restarted once and stayed up, and its recovery note was queued;
+    `broken` (always exits) was restarted twice, recognised as still down
+    each time, and produced one urgent push containing its actual
+    `panic: /config/app.yml missing` log lines, after which it was left
+    alone; an unwatched healthy container was never touched.
+
+111. **Done** -- Security briefing and backup verification: one check-up
+    that answers "is anything about the homelab's security or backups
+    wrong?", run on a schedule and on request.
+
+    `security_briefing` (`app/skills/builtin/security.py`, checks in
+    `app/security/`), every section best-effort (an unreachable source is
+    reported, never fatal):
+    - **Certificates** -- days until expiry for each `host[:port]` in
+      `SIRISAI_SECURITY_CERT_HOSTS`, with verification off on purpose
+      (self-signed homelab certs are the norm; the question is expiry, not
+      trust). Uses `cryptography` when installed, otherwise the stdlib's
+      own certificate decoder -- both paths are tested.
+    - **Failed SSH logins** on the cron hosts (milestone 104's SSH access):
+      "Failed password / Invalid user" counts per source IP over 24h, from
+      the journal if it has any, else `/var/log/auth.log`; warned at
+      `SIRISAI_SECURITY_SSH_FAILED_THRESHOLD` (25).
+    - **UniFi intrusion alerts** from the controller's IPS event log (the
+      classic API -- the Integration API has none; reported as
+      unavailable where the controller doesn't accept the API key there).
+    - **Vulnerable images** -- `security_scan_images` runs Trivy over the
+      images of running containers (HIGH/CRITICAL counts, fixable count,
+      worst examples), weekly on the scheduler when `trivy` is installed;
+      the briefing reads the last result.
+    - **Backups** -- `backup_check` reads each Hyper Backup task's last
+      result *and* last successful time (new `SYNO.Backup.Task status`
+      call): failed runs, tasks that haven't succeeded within
+      `SIRISAI_BACKUP_MAX_AGE_HOURS` (26), and tasks with no success on
+      record are all flagged -- a job that silently stopped running looks
+      fine by its last result alone.
+
+    The scheduler runs it every `SIRISAI_SECURITY_CHECK_INTERVAL_HOURS` (6)
+    and acts only on problems: an urgent push for a failed/stale backup or
+    a certificate inside a week of expiry; everything else is queued for
+    the daily briefing.
+
+    Found live and fixed: the SSH check's first form,
+    `journalctl ... || cat auth.log`, never reached the log file on a host
+    where journalctl exists but holds no sshd entries -- it exits 0 with
+    nothing. It now falls back whenever the journal has no matches.
+
+    Verified: 10 tests (certificate expiry against a real local TLS server
+    with an openssl-generated self-signed cert, with and without
+    `cryptography`; unreachable cert host; SSH output parsing with one host
+    failing; Trivy JSON summarised via a stand-in binary; backup evaluation
+    -- ok, failed, stale, never, running; backup check and briefing through
+    the tools; the scheduled watch pushing the urgent item and queuing the
+    rest; all-clear with nothing configured). Live against a real server:
+    a real `sshd` (logging to a file) that had just rejected real logins
+    for invalid users, reached over real SSH, and a real TLS server whose
+    certificate expires in 5 days -- the briefing reported "The
+    certificate on 127.0.0.1:18443 expires in 5 days; 4 failed SSH logins
+    on root@127.0.0.1 in 24h (from 127.0.0.1 (4))". Trivy itself couldn't
+    be installed in this sandbox; its output parsing is covered by tests.
+
+112. **Done** -- Habit-based automation suggestions: SirisAI notices what
+    you do by hand at the same time most days and offers to automate it,
+    with one tap.
+
+    `app/anticipation/habits.py`: from the Home Assistant logbook over the
+    last `SIRISAI_HABIT_LOOKBACK_DAYS` (14), every *manual* change to a
+    light, switch, fan, media player, cover, climate or input_boolean
+    (anything HA attributes to an automation or script is ignored, and so
+    is that entity+state entirely -- it's already automated) is grouped by
+    entity, new state and weekday/weekend. The busiest 40-minute window of
+    each group must hold the change on at least 60% of eligible days and
+    at least `SIRISAI_HABIT_MIN_DAYS` (5) of them. The result reads "You
+    turn on Office around 07:10 on weekdays (9 of 10)" and carries a ready
+    automation: time trigger, weekday condition, the same service call.
+    Times are in `SIRISAI_TIMEZONE`.
+
+    - `habit_suggestions` (READ) mines and lists open suggestions;
+      `accept_habit_suggestion` (CONFIRM_REQUIRED, dry-runnable) creates
+      the automation via `home_assistant_create_automation`;
+      `dismiss_habit_suggestion` remembers not to ask again. Suggestions
+      live in `app_state`, so nothing is suggested twice.
+    - Every `SIRISAI_HABIT_CHECK_INTERVAL_DAYS` (7) the scheduler pushes
+      each new suggestion with **Create automation** / **No thanks**
+      buttons (ntfy `http` actions straight to the tool endpoints, as
+      milestone 43's confirmations do; needs `SIRISAI_PUBLIC_BASE_URL`).
+
+    Verified: 4 tests (real habits found and random activity, sensors and
+    automation-driven changes ignored; the time shifting with timezone;
+    suggest -> not re-suggested -> accept needs confirmation -> automation
+    created -> dismiss; the scheduled push and its button payloads). Live:
+    a real server whose real scheduler mined a fake Home Assistant's two-
+    week logbook and pushed "You turn on Kitchen around 06:44 on weekdays
+    (10 of 10). Want me to automate it?" (the automation-driven hall light
+    wasn't suggested); replaying the push's own "Create automation" request
+    created exactly that automation in Home Assistant.
+
+113. **Done** -- Heads-up when you leave: "Before you go: garage door is
+    open; back door is unlocked; 1 light on. 'Dentist' at 09:00 starts in
+    40 min. 80% chance of rain today -- take an umbrella." -- in one push,
+    with a button to fix it.
+
+    `departure_check` (`app/skills/builtin/departure.py`, SAFE_ACTION):
+    - Left open (Home Assistant): garage doors/gates/door covers open,
+      locks unlocked, lights on, media playing. Window blinds don't count.
+    - Next timed calendar event within `SIRISAI_DEPARTURE_EVENT_WINDOW_HOURS`
+      (3); all-day events are skipped.
+    - Today's rain chance from the forecast, mentioned at 50%+.
+    - With `notify`, it pushes the summary (high priority when something is
+      open) with a one-tap **Run Away protocol** button (milestone 109)
+      when `SIRISAI_PUBLIC_BASE_URL` is set.
+    - Runs automatically when `presence_check` sees the house go from
+      occupied to empty, and on request -- "I'm heading out" in chat, or an
+      iOS Shortcut hitting `/siris/ask` or the tool endpoint. Hidden in
+      guest mode (it reads the calendar). No travel times: there's no maps
+      integration.
+
+    Verified: 3 tests (open garage/unlocked lock/lights, the next timed
+    event in the window, rain, the push and its Away button; "all good"
+    with nothing open and no button; presence going empty triggering it).
+    Live against a real server with fake Home Assistant, Open-Meteo and
+    ntfy: the push said "Before you go: Garage door is open;
+    lock.back_door is unlocked; 1 light on (Kitchen). 80% chance of rain
+    today (slight rain) -- take an umbrella."; the open blind wasn't
+    listed; replaying the push's "Run Away protocol" request ran all five
+    Away steps and Home Assistant then showed the garage closed and the
+    back door locked.
+
+114. **Done** -- Energy-aware scheduling: "run the dishwasher when power's
+    cheap" holds the job until a cheap tariff window, enough solar, or a
+    low price -- then runs it.
+
+    `app/energy/service.py`: power counts as cheap when any configured
+    signal says so -- inside a window in `SIRISAI_ENERGY_CHEAP_WINDOWS`
+    (local `HH:MM-HH:MM`, comma-separated, may cross midnight), a Home
+    Assistant solar sensor (`SIRISAI_ENERGY_SOLAR_ENTITY_ID`, W or kW) at
+    or above `SIRISAI_ENERGY_SOLAR_MIN_WATTS` (1500), or a price sensor
+    (`SIRISAI_ENERGY_PRICE_ENTITY_ID`) at or below `SIRISAI_ENERGY_PRICE_MAX`.
+
+    - `schedule_for_cheap_energy(tool_name, arguments, reason?,
+      deadline_hours?)` stores any tool call as a deferred job (new
+      `deferred_jobs` table). It needs exactly the approval the deferred
+      call would need -- confirming "start the dishwasher later" *is*
+      confirming the dishwasher, and the job runs later with that approval
+      attached; a READ/SAFE call needs none. Protocols and the scheduling
+      tools themselves can't be deferred.
+    - The scheduler checks every tick and runs waiting jobs when power is
+      cheap, or at a job's deadline regardless (nothing waits forever on a
+      cloudy week); each run is audited with why it ran ("solar is
+      producing 2600 W") and a note is queued for the briefing.
+    - `energy_status` (cheap now?, why, solar watts, price, next cheap
+      window, waiting jobs), `list_deferred_jobs`, `cancel_deferred_job`.
+
+    Verified: 6 tests (window parsing incl. midnight crossing; status from
+    window, solar in kW, price, and the next window; a CONFIRM_REQUIRED
+    target needing confirmation to schedule then running with it when
+    cheap; a SAFE target needing none and its deadline forcing a run;
+    cancel and guards; the scheduler tick running due jobs). Live: a real
+    server and scheduler with a fake Home Assistant -- scheduling
+    `switch.dishwasher` on asked for confirmation, then waited while solar
+    read 350 W; when the sensor changed to 2.6 kW the scheduler turned the
+    dishwasher on within seconds, audited as "energy scheduler: deferred
+    job #1 (dishwasher) -- solar is producing 2600 W".
+
+115. **Done** -- Email triage: what's unread and actually matters, read
+    aloud or summarised, with replies drafted for you (or sent, once you
+    confirm).
+
+    `app/email/client.py` speaks plain IMAP + SMTP (stdlib `imaplib`/
+    `smtplib`), so Gmail/iCloud/Fastmail app passwords, a self-hosted
+    Dovecot or anything else works. Configure `SIRISAI_EMAIL_IMAP_HOST`,
+    `_USERNAME`, `_PASSWORD` (plus `_SMTP_HOST` to send replies; see
+    `app/core/config.py` for ports, TLS and the drafts folder).
+    - "Important" is simple and explainable: mail that looks automated --
+      `List-Unsubscribe`/`List-Id`, `Precedence: bulk`, a no-reply or
+      notifications sender -- isn't; anything else is, and each message
+      says why ("sent to you directly", "mailing list / newsletter").
+    - Tools: `email_list_unread` (READ, never marks anything read; can
+      filter to important), `email_read` (plain text; HTML reduced to its
+      words), `email_draft_reply` (SAFE_ACTION -- appends a proper reply
+      to the Drafts folder with `In-Reply-To`/`References` and "Re:",
+      nothing leaves) and `email_send_reply` (CONFIRM_REQUIRED).
+    - Email content is untrusted: both read tools are external-content
+      tools for the injection guard, and the draft/send tools are free-
+      text writers, so text copied out of an email can't be saved or
+      drafted on its own say-so (tested: an email saying "remember the
+      alarm code..." gets held for confirmation).
+    - The daily briefing gains an "extras" section
+      (`app/skills/builtin/briefing_extras.py`) that personal integrations
+      contribute to -- here "Email: 1 important of 3 unread -- Sam Lee:
+      Dinner on Friday?". Email tools are hidden in guest mode.
+
+    Found live and fixed: sending tried SMTP AUTH whenever a password was
+    set, which a local relay with no AUTH (a homelab Postfix/smarthost)
+    rejects even though it would deliver; it now logs in only when the
+    server offers AUTH.
+
+    Verified: 8 tests (importance rules, plain-over-HTML body extraction,
+    tool permissions and filtering, the injection case through a real
+    planner run, the briefing line, registration only when configured,
+    the no-AUTH relay). Live against a **real Dovecot IMAP server** and a
+    **real SMTP server** (aiosmtpd): of three unread messages, the
+    personal one was marked important and the newsletter and GitHub
+    no-reply weren't; reading returned the real body; the draft landed in
+    Dovecot's Drafts folder as "Re: Dinner on Friday?" with the right
+    In-Reply-To; nothing was marked read; sending needed confirmation,
+    then the SMTP server received the threaded reply; the briefing line
+    read as above.
+
+116. **Done** -- Health data from your phone: sleep, steps and heart rate
+    feed the briefing ("Health: slept 5.8h -- 1.5h under your usual;
+    resting heart rate 62 bpm -- 7.0 bpm over your usual") and answer "how
+    did I sleep?".
+
+    - `POST /siris/health/metrics` (`app/api/routes/health_data.py`) takes
+      `{"date": "YYYY-MM-DD", "metrics": {...}}` or a flat body -- built
+      for an Apple Shortcuts automation (Find Health Samples -> Get
+      Contents of URL, with the usual `Authorization` and `X-Siris-User`
+      headers), but anything that can POST JSON works. Accepted metrics,
+      with common export aliases: sleep_hours, steps, resting_heart_rate,
+      heart_rate_variability, active_energy_kcal, weight_kg,
+      exercise_minutes; unknown names are reported back, not stored.
+      One value per user, metric and day (re-posting a day replaces it).
+    - `health_summary` (READ) and `GET /siris/health/summary`: latest day,
+      7-day average, and a comparison with *your own* 30-day baseline --
+      only notable, concerning moves are called out (sleep 45+ min short,
+      steps 35% down, resting HR 5+ bpm up, HRV 25% down).
+    - Per user, like memory and goals: the summary is whoever is asking
+      (header or voice recognition). Hidden in guest mode. The daily
+      briefing's extras include a health line when there's data.
+
+    Verified: 5 tests (aliases and unknowns, a Shortcut-style post and
+    same-day replacement, rejected bodies, notes against a personal
+    baseline -- including that a small step dip isn't mentioned, and the
+    per-user tool and briefing line). Live: a week of posts as `brad`
+    through the running server, then a rough night -- the summary and
+    briefing called out the short sleep, low steps and raised resting
+    heart rate, while `jan` saw no data at all.
+
+117. **Done** -- The car and your parcels.
+
+    Car (`app/car/service.py`), through whatever Home Assistant integration
+    it already has (Tesla, Kia/Hyundai, BMW, Polestar, an OBD dongle...):
+    each piece is an optional entity setting -- `SIRISAI_CAR_BATTERY_`,
+    `_RANGE_`, `_CHARGING_`, `_PLUGGED_`, `_LOCATION_`, `_LOCK_`,
+    `_CLIMATE_ENTITY_ID`, plus `SIRISAI_CAR_NAME`.
+    - `car_status` (READ): "The Polestar: 24%, 96 km range, at home,
+      UNLOCKED", with `low_battery` when it's under
+      `SIRISAI_CAR_LOW_BATTERY_PERCENT` (30) and not plugged in.
+    - `car_precondition(on, temperature?)` (SAFE_ACTION): a `climate.*`
+      entity gets turn_on/off + set_temperature; a `switch.*` or
+      `button.*` is turned on/pressed.
+    - The briefing adds the car's line and "It's low and not plugged in --
+      charge it tonight."; the departure heads-up (milestone 113) mentions
+      a low, unplugged car too.
+
+    Parcels (`app/parcels/service.py`, `parcels` table):
+    `parcel_add(tracking_number, label)`, `parcel_list`, `parcel_done`.
+    With `SIRISAI_SEVENTEENTRACK_API_KEY`, numbers are registered with
+    17TRACK (API v2.2, carrier auto-detected) and refreshed every
+    `SIRISAI_PARCEL_REFRESH_MINUTES` (120); a change to out for delivery,
+    delivered, ready for pickup, failed or exception is pushed ("headphones
+    is out for delivery. ...Melbourne"). Without a key it's a list you
+    keep yourself. The briefing lists active parcels with their ETA.
+
+    Verified: 5 tests (car status parsing and the low-battery briefing and
+    departure lines, preconditioning calls, parcel register -> refresh ->
+    push only on a notable change -> briefing -> done, and the manual
+    no-tracker list). Live against a real server with a fake Home
+    Assistant and a fake 17TRACK: car status and the low-battery warning,
+    preconditioning turned the car's climate entity on, the parcel was
+    registered (with the `17token` header) and, once its status changed,
+    the real scheduler's refresh pushed "headphones is out for delivery";
+    the briefing carried both lines.
+
+118. **Done** -- HUD and autonomy timeline: a full-screen dashboard for a
+    wall tablet, and "what did you do on your own today?".
+
+    Autonomy timeline (`app/audit/autonomy.py`): the audit log filtered to
+    actions nobody asked for in the moment -- classified by the `trigger`
+    every autonomous path already records (scheduled checks, self-healing,
+    intruder alerts, the energy scheduler, the security watch, habit
+    pushes, presence scenes, routines, memories it chose to keep) --
+    described in plain words ("Restarted plex", "Sent 'SirisAI: person
+    detected': ..."), with why and whether it was verified. Read-only
+    lookups are left out unless asked. `what_did_you_do` (chat) and
+    `GET /siris/autonomy/timeline?hours=`.
+
+    HUD (`GET /hud`, `app/web/static/hud.html`, linked from the web UI's
+    nav): self-contained like the main UI (no external scripts), dark,
+    built for a tablet on the wall.
+    - Clock and date; chips for guest mode, cheap power and a low car
+      battery; CPU/memory/disk rings; outside temperature; the next
+      events; the car; deliveries; live camera tiles (frames fetched
+      through SirisAI's auth via milestone 108's proxy, refreshed every
+      10s); and the autonomy timeline ("On my own today").
+    - A central orb you tap to talk: it records WAV in the browser (with a
+      live circular waveform), stops on a pause, sends it to
+      `/siris/voice/converse` (milestone 106), shows what it heard and
+      plays the streamed reply sentence by sentence while the orb pulses;
+      a recognised speaker (milestone 107) is greeted by name, and a
+      question back ("Should I go ahead?") prompts "Tap to answer".
+    - Everything comes from one `GET /siris/hud/summary`, every section
+      best-effort, refreshed every 15s. Open it once as `/hud?key=...` to
+      store the API key in that browser.
+
+    Verified: 4 tests (autonomous-trigger classification, the timeline
+    keeping only autonomous non-read actions newest first, the tool and
+    both routes, the page and its nav link). Live in headless Chromium
+    against a real server with fake Home Assistant/Frigate/Open-Meteo/
+    Ollama/STT/TTS: the HUD showed the cheap-power chip, 17° partly
+    cloudy, "The Polestar: 64%, 251 km range, plugged in, at home", the
+    tracked parcel, two camera tiles with real frames, and the intruder
+    alert it had sent on its own (with the vision model's description);
+    tapping the orb with a WAV file as the microphone transcribed "what's
+    the weather" and showed and played the streamed reply, with no page
+    errors. Found and fixed on the way: a weather reading with no
+    temperature rendered as "0°".
+
+119. **Done** -- Tool choice you can measure, and tool matching by meaning.
+    With 176 tools when everything is configured, the selector (milestone
+    "tool selection", `app/plugins/selector.py`) offers the model ~32 per
+    turn; a tool it doesn't offer can't be called. This makes that
+    measurable and less dependent on exact wording.
+
+    - **Evals** (`evals/tool_choice.jsonl`, `app/evals/tool_choice.py`):
+      71 everyday requests, each with the tool(s) that are a correct first
+      call -- including paraphrases that share no words with the tool
+      ("it's freezing in here", "has anything arrived in the post?", "my
+      mates are coming round, keep my private stuff private"). Two levels:
+      *selection* (deterministic, no model: is a correct tool offered?)
+      and *choice* (the real model, offered those tools: does its first
+      call land on a correct one?). Cases whose tools aren't configured
+      on this server are skipped, not failed. `POST /siris/evals/run`
+      (`?selection_only=true` for the fast half), `GET /siris/evals/history`,
+      `python -m app.evals`; the scheduler runs the full eval every
+      `SIRISAI_EVAL_INTERVAL_DAYS` (7) and pushes a warning if model
+      accuracy drops 10+ points from the previous run -- e.g. after
+      swapping models or adding tools.
+    - **CI** now asserts the selection floor: with every integration
+      configured (176 tools) at the real cap of 32, and on a partly
+      configured server at a cap of 20, every case's tool is offered.
+    - **Hints** for every feature added in milestones 106-118 (protocols,
+      guest mode, email, health, car, parcels, energy, security, habits,
+      autonomy, voiceprints, cameras, "every night at..." routines, felt
+      temperature) -- the hint list predated all of them. Selection on the
+      paraphrase set went from 67/71 to 71/71.
+    - **Matching by meaning**: with an embedding model configured
+      (`SIRISAI_EMBEDDING_PROVIDER=ollama`, the same one semantic memory
+      uses), the tools closest in meaning to the message get a bonus by
+      *rank* (so it behaves the same whichever embedding model you use).
+      Tool descriptions are embedded once, in one batched `/api/embed`
+      call (new `embed_many`), and re-embedded only if they change; if
+      embedding fails, selection quietly falls back to keywords.
+      `SIRISAI_TOOL_SELECTION_SEMANTIC=false` turns it off.
+
+    Found live: on a partly configured server, "who's at the front door?"
+    wasn't offered the camera tools and "every night at 11 turn off the
+    office lights" wasn't offered `create_routine`. The first was
+    structural: "door" points at both Home Assistant (17 tools) and the
+    cameras, and on a score tie the bigger family filled the whole cap.
+    Every family a message points at is now guaranteed its best two tools
+    before the rest fill by score; both cases are in CI. With that, every
+    case is offered its tool with the cap at 20 (at 16, one of 71 misses). Not verifiable here: the real model's choice accuracy, and the
+    semantic layer with a real embedding model -- this sandbox can't reach
+    the Ollama or Hugging Face model registries. The harness exists to
+    measure exactly that on your own Ollama (`POST /siris/evals/run`).
+
+    Verified: 9 tests (the selection floor at full configuration and on a
+    partial one, a prompt with no shared words found only by meaning,
+    tool vectors embedded once in a batch, fallback when embedding fails,
+    wiring from settings, choice accuracy + history + the regression push,
+    the routes, skipped-not-failed cases). Live against a real server with
+    a fake Ollama serving `/api/embed` from a synonym-aware stand-in: the
+    tools were embedded in one batch of 104 then one call per prompt; "any
+    boxes sitting on the doorstep?" was offered `parcel_list` purely by
+    meaning while "hello there" wasn't; the eval endpoints ran and
+    recorded history.
+
 ## Running locally
 
 ```bash

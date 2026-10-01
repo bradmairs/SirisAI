@@ -16,6 +16,7 @@ from typing import Any
 
 from app.frigate.client import FrigateClient
 from app.plugins.base import Tool, ToolPermission
+from app.vision.client import VisionClient
 
 
 class FrigateListCamerasTool(Tool):
@@ -70,3 +71,54 @@ class FrigateRecentEventsTool(Tool):
         **kwargs: Any,
     ) -> Any:
         return self._client.recent_events(camera=camera, label=label, limit=limit)
+
+
+class FrigateLookAtCameraTool(Tool):
+    name = "frigate_look_at_camera"
+    description = (
+        "Look at what a camera sees right now and describe it, or answer a question about it "
+        "(e.g. 'is the garage door open?', 'is there a car in the driveway?', 'who is at the front door?'). "
+        "Uses a vision model on the camera's live frame -- for questions no sensor answers."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "camera": {"type": "string", "description": "Camera name, from frigate_list_cameras."},
+            "question": {"type": "string", "description": "Optional question to answer about the image."},
+        },
+        "required": ["camera"],
+    }
+
+    def __init__(self, client: FrigateClient, vision: VisionClient) -> None:
+        self._client = client
+        self._vision = vision
+
+    def run(self, camera: str = "", question: str | None = None, **kwargs: Any) -> Any:
+        image = self._client.latest_snapshot(camera)
+        return {"camera": camera, "question": question, "description": self._vision.describe([image], question)}
+
+
+class FrigateDescribeEventTool(Tool):
+    name = "frigate_describe_event"
+    description = (
+        "Describe the snapshot Frigate saved for one detection event (id from frigate_recent_events) -- "
+        "what the person/vehicle/animal was actually doing, not just the detected label."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "event_id": {"type": "string", "description": "The event id, from frigate_recent_events."},
+            "question": {"type": "string", "description": "Optional question to answer about the snapshot."},
+        },
+        "required": ["event_id"],
+    }
+
+    def __init__(self, client: FrigateClient, vision: VisionClient) -> None:
+        self._client = client
+        self._vision = vision
+
+    def run(self, event_id: str = "", question: str | None = None, **kwargs: Any) -> Any:
+        image = self._client.event_snapshot(event_id)
+        return {"event_id": event_id, "description": self._vision.describe([image], question)}

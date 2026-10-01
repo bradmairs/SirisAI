@@ -45,6 +45,8 @@ for how that's reflected in its permission tier and its deliberate lack
 of `verify()`.
 """
 
+import time
+
 import httpx
 
 
@@ -178,6 +180,29 @@ class UniFiClient:
         )
         response.raise_for_status()
         return {"restarted": True, "device_id": device_id}
+
+    def ips_events(self, hours: int = 24) -> list[dict]:
+        """Intrusion detection/prevention alerts from the controller's classic
+        API (the Integration API has none). Works where the controller
+        accepts the API key there too (UniFi OS); raises otherwise, and the
+        security briefing reports it as unavailable."""
+        end = int(time.time() * 1000)
+        response = self._client.post(
+            f"/proxy/network/api/s/{self._site}/stat/ips/event",
+            json={"start": end - hours * 3600 * 1000, "end": end, "_limit": 200},
+        )
+        response.raise_for_status()
+        return [
+            {
+                "time": e.get("datetime") or e.get("timestamp"),
+                "signature": e.get("inner_alert_signature") or e.get("msg"),
+                "category": e.get("inner_alert_category") or e.get("catname"),
+                "source": e.get("src_ip"),
+                "destination": e.get("dest_ip"),
+                "action": e.get("inner_alert_action"),
+            }
+            for e in self._unwrap(response.json())
+        ]
 
     @staticmethod
     def _unwrap(data: object) -> list[dict]:

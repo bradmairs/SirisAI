@@ -12,6 +12,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY scripts ./scripts
+
+# Speaker recognition weights (app/voice/speaker.py), converted to numpy at
+# build time -- under /app/models, not /app/data, which is a mounted volume.
+RUN python scripts/fetch_voice_encoder.py /app/models/voice_encoder.npz
 
 RUN mkdir -p /app/data
 

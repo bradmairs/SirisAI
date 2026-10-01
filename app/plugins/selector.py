@@ -10,17 +10,29 @@ the best `max_tools`, always keeping:
 - any tool already used earlier in this conversation, so a follow-up like
   "now turn it off" still has what it needs.
 
-Scoring is deliberately simple and deterministic (no model call): category
-hints for the things people actually ask about, plus word overlap between the
-message and each tool's name and description, weighted so rare words count
-more. A tool the selector wrongly drops can't be called, so the cap is
-generous and `max_tools=0` turns selection off entirely.
+Scoring: category hints for the things people actually ask about, plus word
+overlap between the message and each tool's name and description, weighted so
+rare words count more. When an embedding model is configured
+(SIRISAI_EMBEDDING_PROVIDER, shared with semantic memory), tools are also
+matched by meaning -- "has anything arrived in the post?" finds parcel_list
+without sharing a word with it: the tools closest to the message's embedding
+get a bonus by rank (rank, not raw similarity, so it behaves the same across
+embedding models). Tool embeddings are computed once, in one batch, and
+reused; if embedding fails, selection quietly falls back to keywords alone.
+A tool the selector wrongly drops can't be called, so the cap is generous and
+`max_tools=0` turns selection off entirely. evals/tool_choice.jsonl measures
+how often the right tool makes the cut (app/evals/tool_choice.py).
 """
 
+import logging
 import math
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+Embedder = Callable[[list[str]], list[list[float]]]
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset(
@@ -61,7 +73,7 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     ),
     (frozenset("note notes obsidian vault".split()), ("obsidian_",)),
     (frozenset("goal goals objective objectives".split()), ("create_goal", "list_goals", "update_goal_status", "add_goal_objective", "complete_goal_objective", "goal_")),
-    (frozenset("routine routines".split()), ("create_routine", "list_routines", "set_routine_enabled")),
+    (frozenset("routine routines every nightly daily weekday weekdays weekend".split()), ("create_routine", "list_routines", "set_routine_enabled")),
     (
         frozenset("remind reminder reminders timer timers alarm minutes hours notify notification push alert".split()),
         ("set_reminder", "list_reminders", "cancel_reminder", "create_geofence_reminder", "list_geofence_reminders", "set_geofence_reminder_enabled", "notify", "list_pending_notifications"),
@@ -84,9 +96,37 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     (frozenset("relationship relationships depends depend affected runs uses".split()), ("remember_entity_relationship", "recall_entity_relationships")),
     (frozenset("who home present presence away".split()), ("home_assistant_list_entities", "home_assistant_get_state", "presence_")),
     (frozenset("integration integrations working broken health status".split()), ("integration_health",)),
+    # Felt temperature: "it's freezing in here" is a heating request.
+    (frozenset("cold freezing chilly warm warmer cooler stuffy heating heat".split()), ("home_assistant_",)),
+    (
+        frozenset("protocol protocols lockdown secure lock away leaving guest guests visitors visitor mates friends private privacy".split()),
+        ("run_protocol", "list_protocols", "create_protocol", "undo_last_protocol", "set_guest_mode", "guest_mode_status", "departure_check"),
+    ),
+    (frozenset("heading going leaving out".split()), ("departure_check",)),
+    (frozenset("email emails mail inbox reply message messages unread".split()), ("email_",)),
+    (frozenset("sleep slept rest tired steps walking walked exercise heart fitness health weight".split()), ("health_summary",)),
+    (frozenset("car ev charge charging battery range drive driving precondition vehicle".split()), ("car_",)),
+    (frozenset("parcel parcels package packages delivery deliveries post courier tracking arrived".split()), ("parcel_",)),
+    (frozenset("energy electricity power solar cheap tariff price dishwasher washing dryer".split()), ("energy_status", "schedule_for_cheap_energy", "list_deferred_jobs", "cancel_deferred_job")),
+    (frozenset("security secure certificate certificates ssl tls cert vulnerability vulnerabilities cve intrusion hacked snooping".split()), ("security_briefing", "security_scan_images")),
+    (frozenset("backup backups".split()), ("backup_check",)),
+    (frozenset("habit habits automate automatically routine suggestion suggestions".split()), ("habit_suggestions", "accept_habit_suggestion")),
+    (frozenset("yourself own autonomously today fixed".split()), ("what_did_you_do", "remediation_status")),
+    (frozenset("voice voices recognise recognize".split()), ("list_voiceprints", "delete_voiceprint")),
+    (frozenset("look see outside snooping intruder somebody someone door doorbell front porch driveway yard".split()), ("frigate_look_at_camera", "frigate_recent_events")),
+    (frozenset("crash crashing falling down keeps restarting".split()), ("docker_", "remediation_status")),
 ]
 
 _HINT_WEIGHT = 4.0
+_PER_GROUP = 2
+_SEMANTIC_TOP = 12
+_SEMANTIC_WEIGHT = 5.0
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na, nb = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(y * y for y in b))
+    return dot / (na * nb) if na and nb else 0.0
 
 
 def _tokens(text: str) -> list[str]:
@@ -104,11 +144,33 @@ def _spec_name(spec: dict[str, Any]) -> str:
 
 
 class ToolSelector:
-    def __init__(self, max_tools: int = 32) -> None:
+    def __init__(self, max_tools: int = 32, embed: Embedder | None = None) -> None:
         self.max_tools = max_tools
+        self.embed = embed
         self._doc_cache: dict[str, set[str]] = {}
         self._idf: dict[str, float] = {}
         self._idf_for: int = -1
+        self._vectors: dict[str, tuple[str, list[float]]] = {}
+
+    def _semantic_bonus(self, prompt: str, specs: list[dict[str, Any]]) -> dict[str, float]:
+        """Rank-based bonus for the tools closest in meaning to `prompt`."""
+        if self.embed is None:
+            return {}
+        try:
+            texts = {
+                _spec_name(s): f"{_spec_name(s).replace('_', ' ')}: {s['function'].get('description') or ''}" for s in specs
+            }
+            missing = [n for n, t in texts.items() if self._vectors.get(n, ("", []))[0] != t]
+            if missing:
+                vectors = self.embed([texts[n] for n in missing])
+                for name, vector in zip(missing, vectors, strict=True):
+                    self._vectors[name] = (texts[name], vector)
+            query = self.embed([prompt])[0]
+        except Exception:
+            logger.warning("Embedding tools for selection failed; using keywords only", exc_info=True)
+            return {}
+        ranked = sorted(texts, key=lambda n: _cosine(query, self._vectors[n][1]), reverse=True)[:_SEMANTIC_TOP]
+        return {name: _SEMANTIC_WEIGHT * (1 - rank / _SEMANTIC_TOP) for rank, name in enumerate(ranked)}
 
     def _prepare(self, specs: list[dict[str, Any]]) -> None:
         if self._idf_for == len(specs):
@@ -138,21 +200,33 @@ class ToolSelector:
         prompt_tokens = set(_tokens(prompt))
         raw_words = set(_WORD_RE.findall(prompt.lower()))
         hinted: list[str] = []
+        groups: list[tuple[str, ...]] = []
         for words, prefixes in _HINTS:
             if raw_words & words or prompt_tokens & words:
                 hinted.extend(prefixes)
+                groups.append(prefixes)
 
+        semantic = self._semantic_bonus(prompt, specs)
         scores: dict[str, float] = {}
         for spec in specs:
             name = _spec_name(spec)
             score = sum(self._idf.get(w, 0.0) for w in prompt_tokens & self._doc_cache.get(name, set()))
             if any(name == h or (h.endswith("_") and name.startswith(h)) for h in hinted):
                 score += _HINT_WEIGHT
-            scores[name] = score
+            scores[name] = score + semantic.get(name, 0.0)
 
         keep: set[str] = {n for n in CORE_TOOLS} | set(recent_tool_names)
         by_name = {_spec_name(s): s for s in specs}
         keep &= set(by_name)
+        # Every family the message points at gets its best couple of tools
+        # first: "who's at the front door?" hints both Home Assistant (17
+        # tools) and the cameras, and on a tie the bigger family used to
+        # fill the whole cap (found by the tool-choice evals).
+        for prefixes in groups:
+            members = [n for n in scores if any(n == h or (h.endswith("_") and n.startswith(h)) for h in prefixes)]
+            for name in sorted(members, key=lambda n: -scores[n])[:_PER_GROUP]:
+                if len(keep) < self.max_tools:
+                    keep.add(name)
         for name, score in sorted(scores.items(), key=lambda kv: -kv[1]):
             if len(keep) >= self.max_tools:
                 break

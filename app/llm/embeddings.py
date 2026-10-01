@@ -50,5 +50,11 @@ class OllamaEmbeddingClient:
         embeddings = response.json()["embeddings"]
         return embeddings[0]
 
+    def embed_many(self, texts: list[str]) -> list[list[float]]:
+        """One request for many texts (Ollama's /api/embed takes a list)."""
+        response = self._client.post("/api/embed", json={"model": self.model, "input": texts})
+        response.raise_for_status()
+        return response.json()["embeddings"]
+
     def close(self) -> None:
         self._client.close()

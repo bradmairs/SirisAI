@@ -19,8 +19,27 @@ class SatelliteSettings(BaseSettings):
     wake_word_threshold: float = 0.5
 
     sample_rate: int = 16000
-    silence_timeout_seconds: float = 1.5
+    silence_timeout_seconds: float = 1.2
     max_recording_seconds: float = 15.0
+    # How long to wait for you to start talking after the wake word.
+    speech_start_timeout_seconds: float = 5.0
+
+    # "silero" (speech detection model bundled with openWakeWord -- ignores
+    # fans, TVs and other steady noise far better) or "amplitude" (loudness
+    # only). Falls back to amplitude if the Silero model isn't downloaded.
+    vad: str = "silero"
+    vad_threshold: float = 0.5
+
+    # After a reply, keep listening this long for a follow-up without the
+    # wake word (0 = only when SirisAI asked a question).
+    follow_up_seconds: float = 6.0
+    # Say the wake word while a reply is playing to cut it off and speak.
+    barge_in: bool = True
+
+    # Optional fixed identity for this satellite's requests (X-Siris-User),
+    # e.g. a satellite in someone's own room. Leave empty to let SirisAI
+    # recognise the speaker by voice when voiceprints are enrolled.
+    user: str = ""
 
     # None = the system default input/output device. Run
     # `python -m sounddevice` to list device indices if you need to pick

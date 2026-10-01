@@ -79,7 +79,13 @@ from app.plugins.builtin.docker import (
     DockerRestartContainerTool,
 )
 from app.plugins.builtin.echo import EchoTool
-from app.plugins.builtin.frigate import FrigateListCamerasTool, FrigateRecentEventsTool
+from app.plugins.builtin.frigate import (
+    FrigateDescribeEventTool,
+    FrigateListCamerasTool,
+    FrigateLookAtCameraTool,
+    FrigateRecentEventsTool,
+)
+from app.vision.client import VisionClient
 from app.plugins.builtin.geofence import (
     CreateGeofenceReminderTool,
     ListGeofenceRemindersTool,
@@ -231,6 +237,36 @@ from app.tautulli.client import TautulliClient
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
+from app.voice.speaker import SpeakerEncoder
+from app.core import guest
+from app.core.state import StateStore
+from app.protocols.service import ProtocolStore
+from app.plugins.builtin.protocols import (
+    CreateProtocolTool,
+    DeleteProtocolTool,
+    GuestModeStatusTool,
+    ListProtocolsTool,
+    RunProtocolSkill,
+    SetGuestModeTool,
+    UndoLastProtocolSkill,
+)
+from app.skills.builtin.intruder import IntruderCheckSkill
+from app.skills.builtin.departure import DepartureCheckSkill
+from app.energy.service import DeferredJobStore
+from app.email.client import EmailClient
+from app.health.service import HealthStore
+from app.car import service as car_service
+from app.parcels.service import ParcelStore, SeventeenTrackClient
+from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
+from app.plugins.builtin.health_data import HealthSummaryTool
+from app.plugins.builtin.autonomy import WhatDidYouDoTool
+from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
+from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
+from app.plugins.builtin.remediation import RemediationStatusTool
+from app.plugins.builtin.habits import AcceptHabitSuggestionSkill, DismissHabitSuggestionTool, HabitSuggestionsSkill
+from app.skills.builtin.security import BackupCheckSkill, SecurityBriefingSkill, SecurityScanImagesSkill
+from app.voice.voiceprints import VoiceprintStore
+from app.plugins.builtin.voiceprints import DeleteVoiceprintTool, ListVoiceprintsTool
 from app.weather.client import WeatherClient
 
 # Prefix -> capability category, checked longest-first so "home_assistant_"
@@ -256,6 +292,10 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("obsidian_", "obsidian"),
     ("synology_", "synology"),
     ("cron_", "cron"),
+    ("frigate_", "frigate"),
+    ("email_", "email"),
+    ("car_", "car"),
+    ("parcel_", "parcels"),
 ]
 _CATEGORY_NAMES: dict[str, str] = {
     "remember": "memory",
@@ -284,6 +324,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "system_info": "system",
     "run_speed_test": "system",
     "explain_recent_action": "audit",
+    "what_did_you_do": "audit",
     "report_capability_gap": "capabilities",
     "list_capability_gaps": "capabilities",
     "dismiss_capability_gap": "capabilities",
@@ -298,6 +339,20 @@ _CATEGORY_NAMES: dict[str, str] = {
     "list_routines": "routines",
     "set_routine_enabled": "routines",
     "speak_in_current_room": "satellites",
+    "list_voiceprints": "voice",
+    "remediation_status": "docker",
+    "health_summary": "health",
+    "energy_status": "energy",
+    "schedule_for_cheap_energy": "energy",
+    "list_deferred_jobs": "energy",
+    "cancel_deferred_job": "energy",
+    "dismiss_habit_suggestion": "home_assistant",
+    "set_guest_mode": "modes",
+    "guest_mode_status": "modes",
+    "list_protocols": "protocols",
+    "create_protocol": "protocols",
+    "delete_protocol": "protocols",
+    "delete_voiceprint": "voice",
 }
 
 
@@ -393,6 +448,12 @@ class SirisAI:
     audit: AuditLogStore = field(default_factory=lambda: AuditLogStore(SessionLocal))
     reminders: ReminderStore = field(default_factory=lambda: ReminderStore(SessionLocal))
     scheduler_state: SchedulerStateStore = field(default_factory=lambda: SchedulerStateStore(SessionLocal))
+    voiceprints: VoiceprintStore = field(default_factory=lambda: VoiceprintStore(SessionLocal))
+    state: StateStore = field(default_factory=lambda: StateStore(SessionLocal))
+    protocols: ProtocolStore = field(default_factory=lambda: ProtocolStore(SessionLocal))
+    deferred_jobs: DeferredJobStore = field(default_factory=lambda: DeferredJobStore(SessionLocal))
+    health: HealthStore = field(default_factory=lambda: HealthStore(SessionLocal))
+    parcels: ParcelStore = field(default_factory=lambda: ParcelStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -448,7 +509,12 @@ class SirisAI:
         self.integration_notes: dict[str, str] = {}
         self._tool_alerts: dict[str, float] = {}
         self._broken_cache: tuple[float, set[str]] = (0.0, set())
-        self.tool_selector = ToolSelector(self.settings.tool_selection_max)
+        self.tool_selector = ToolSelector(
+            self.settings.tool_selection_max,
+            embed=self._embedding_client.embed_many
+            if self._embedding_client is not None and self.settings.tool_selection_semantic
+            else None,
+        )
         self._docker_client: DockerClient | None = None
         self._plex_client: PlexClient | None = None
         self._unifi_client: UniFiClient | None = None
@@ -463,8 +529,21 @@ class SirisAI:
         self._cleanuparr_client: CleanuparrClient | None = None
         self._obsidian_client: ObsidianClient | None = None
         self._frigate_client: FrigateClient | None = None
+        self.parcel_tracker: SeventeenTrackClient | None = (
+            SeventeenTrackClient(self.settings.seventeentrack_api_key, base_url=self.settings.seventeentrack_base_url)
+            if self.settings.seventeentrack_api_key
+            else None
+        )
+        self.vision: VisionClient | None = None
+        if self.settings.vision_model:
+            self.vision = VisionClient(
+                base_url=self.settings.vision_base_url or self.settings.ollama_base_url,
+                model=self.settings.vision_model,
+            )
         self._synology_client: SynologyClient | None = None
         self.cron_client: CronHostsClient | None = None
+        self._speaker_encoder: SpeakerEncoder | None = None
+        self._speaker_encoder_checked = False
         self._openapi_http_clients: list[httpx.Client] = []
         self._register_builtin_tools()
 
@@ -510,9 +589,14 @@ class SirisAI:
         self.tools.register(ListPendingNotificationsTool(self.pending_notifications))
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(TrustLedgerTool(self.audit))
+        self.tools.register(WhatDidYouDoTool(self))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
         self.tools.register(DismissCapabilityGapTool(self.capability_gaps))
+        self.tools.register(SetGuestModeTool(self))
+        self.tools.register(GuestModeStatusTool(self))
+        self.tools.register(ListVoiceprintsTool(self.voiceprints))
+        self.tools.register(DeleteVoiceprintTool(self.voiceprints))
 
         if self.settings.home_assistant_base_url and self.settings.home_assistant_token:
             self._home_assistant_client = HomeAssistantClient(
@@ -561,6 +645,13 @@ class SirisAI:
                     GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
                 )
             )
+            if car_service.configured(self.settings):
+                self.tools.register(CarStatusTool(self))
+                if self.settings.car_climate_entity_id:
+                    self.tools.register(CarPreconditionTool(self))
+            self.tools.register(SkillTool(HabitSuggestionsSkill(), self))
+            self.tools.register(SkillTool(AcceptHabitSuggestionSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
+            self.tools.register(DismissHabitSuggestionTool(self))
             self.tools.register(CreateSceneTool(self.scenes))
             self.tools.register(ListScenesTool(self.scenes))
             self.tools.register(DeleteSceneTool(self.scenes))
@@ -595,6 +686,7 @@ class SirisAI:
             self.tools.register(DockerListContainersTool(self._docker_client))
             self.tools.register(DockerResolveContainerTool(self._docker_client))
             self.tools.register(DockerGetContainerLogsTool(self._docker_client))
+            self.tools.register(RemediationStatusTool(self))
             self.tools.register(
                 DockerRestartContainerTool(
                     self._docker_client, self.entities, self._plex_client
@@ -644,6 +736,23 @@ class SirisAI:
             self.tools.register(CalendarUpcomingEventsTool(calendar_client))
             self.tools.register(CalendarCheckConflictsTool(calendar_client))
             self.tools.register(CalendarCreateEventTool(calendar_client))
+
+        if self.settings.email_imap_host and self.settings.email_username and self.settings.email_password:
+            email_client = EmailClient(
+                imap_host=self.settings.email_imap_host,
+                imap_port=self.settings.email_imap_port,
+                username=self.settings.email_username,
+                password=self.settings.email_password,
+                smtp_host=self.settings.email_smtp_host,
+                smtp_port=self.settings.email_smtp_port,
+                from_address=self.settings.email_from,
+                drafts_folder=self.settings.email_drafts_folder,
+                use_ssl=self.settings.email_use_ssl,
+            )
+            self.tools.register(EmailListUnreadTool(email_client))
+            self.tools.register(EmailReadTool(email_client))
+            self.tools.register(EmailDraftReplyTool(email_client))
+            self.tools.register(EmailSendReplyTool(email_client))
 
         if self.settings.ntfy_topic:
             self._notify_client = NotifyClient(
@@ -757,6 +866,9 @@ class SirisAI:
             )
             self.tools.register(FrigateListCamerasTool(self._frigate_client))
             self.tools.register(FrigateRecentEventsTool(self._frigate_client))
+            if self.vision is not None:
+                self.tools.register(FrigateLookAtCameraTool(self._frigate_client, self.vision))
+                self.tools.register(FrigateDescribeEventTool(self._frigate_client, self.vision))
 
         if (
             self.settings.synology_base_url
@@ -795,6 +907,29 @@ class SirisAI:
         self._register_discovered_integrations()
 
     def _register_builtin_skills(self) -> None:
+        # Protocols last among tools: their built-ins adapt to whichever
+        # tools (notify, Home Assistant...) are registered by now.
+        self.tools.register(ListProtocolsTool(self))
+        self.tools.register(CreateProtocolTool(self))
+        self.tools.register(DeleteProtocolTool(self))
+        self.tools.register(SkillTool(RunProtocolSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
+        self.tools.register(SkillTool(UndoLastProtocolSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
+        if self._frigate_client is not None:
+            self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
+        self.tools.register(SkillTool(DepartureCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
+        self.tools.register(HealthSummaryTool(self))
+        self.tools.register(ParcelAddTool(self))
+        self.tools.register(ParcelListTool(self))
+        self.tools.register(ParcelDoneTool(self))
+        self.tools.register(EnergyStatusTool(self))
+        self.tools.register(ScheduleForCheapEnergyTool(self))
+        self.tools.register(ListDeferredJobsTool(self))
+        self.tools.register(CancelDeferredJobTool(self))
+        self.tools.register(SkillTool(SecurityBriefingSkill(), self))
+        if self._synology_client is not None:
+            self.tools.register(SkillTool(BackupCheckSkill(), self))
+        if self._docker_client is not None:
+            self.tools.register(SkillTool(SecurityScanImagesSkill(), self))
         self.tools.register(SkillTool(ServerHealthSkill(), self))
         self.tools.register(SkillTool(SelfMaintenanceSkill(), self))
         self.tools.register(SkillTool(EventTimingSkill(), self))
@@ -863,6 +998,32 @@ class SirisAI:
             registered.append(tool.name)
         return registered
 
+    def speaker_encoder(self) -> SpeakerEncoder | None:
+        """The voiceprint encoder, loaded on first use -- None when its
+        weights aren't installed (SIRISAI_SPEAKER_ID_MODEL_PATH), which just
+        means voices aren't recognised."""
+        if not self._speaker_encoder_checked:
+            self._speaker_encoder_checked = True
+            path = self.settings.speaker_id_model_path
+            if path and os.path.exists(path):
+                try:
+                    self._speaker_encoder = SpeakerEncoder.load(path)
+                except Exception:
+                    logger.exception("Loading the speaker encoder from %s failed", path)
+        return self._speaker_encoder
+
+    def identify_speaker(self, audio: bytes) -> dict[str, Any] | None:
+        """Who is speaking in `audio`, among enrolled voiceprints: {"user_id"
+        (None if no confident match), "score", "scores"}. None when speaker
+        recognition isn't available or the audio has too little speech."""
+        encoder = self.speaker_encoder()
+        if encoder is None:
+            return None
+        embedding = encoder.embed(audio)
+        if embedding is None:
+            return None
+        return self.voiceprints.identify(embedding, self.settings.speaker_id_threshold)
+
     def restricted_tool_names_to_exclude(self) -> set[str]:
         """RESTRICTED-permission tool names not in the allowlist -- these
         shouldn't even be offered to the model (see `available_tool_specs`)."""
@@ -885,8 +1046,14 @@ class SirisAI:
             return self.tools.specs(exclude=exclude)
         # Tools whose backing service is down are left out for a while so
         # they stop steering the model into a wall (app/core/health.py).
-        specs = self.tools.specs(exclude=exclude | self._paused_tools())
+        specs = self.tools.specs(exclude=exclude | self._paused_tools() | self._guest_hidden_tools())
         return self.tool_selector.select(prompt, specs, recent_tool_names)
+
+    def _guest_hidden_tools(self) -> set[str]:
+        """Personal-data tools, while guest mode is on (app/core/guest.py)."""
+        if not guest.is_on(self):
+            return set()
+        return {tool.name for tool in self.tools.list() if guest.is_personal_tool(tool.name, _categorize_tool(tool))}
 
     def _paused_tools(self) -> set[str]:
         stamp, cached = self._broken_cache
@@ -1126,6 +1293,7 @@ class SirisAI:
                 self.restricted_tool_names_to_exclude()
             ),
             "integration_notes": dict(self.integration_notes),
+            "speaker_recognition": self.speaker_encoder() is not None,
         }
 
     async def aclose(self) -> None:
@@ -1157,6 +1325,8 @@ class SirisAI:
             self._frigate_client,
             self._synology_client,
             self._embedding_client,
+            self.vision,
+            self.parcel_tracker,
         )
         for client in sync_clients:
             if client is not None:

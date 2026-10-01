@@ -5,6 +5,7 @@ to need an external cron job. One asyncio task started with the app
 """
 
 import asyncio
+import json
 import logging
 import time
 from datetime import UTC, datetime
@@ -13,6 +14,9 @@ from typing import TYPE_CHECKING
 from app.core import clock
 from app.core.health import broken_tools
 from app.notify import proactive
+from app.remediation import runner as remediation
+from app.anticipation import habits
+from app.energy import service as energy
 from app.reminders.service import MAX_ATTEMPTS
 
 if TYPE_CHECKING:
@@ -95,6 +99,123 @@ def run_presence_and_geofence_checks(siris: "SirisAI") -> None:
             logger.exception("Scheduled %s check failed", label)
 
 
+def run_intruder_check(siris: "SirisAI") -> None:
+    """intruder_check (app/skills/builtin/intruder.py), when Frigate is configured."""
+    if siris.tools.get("intruder_check") is None:
+        return
+    try:
+        siris.tools.get("intruder_check").run()  # type: ignore[union-attr]
+    except Exception:
+        logger.exception("Scheduled intruder check failed")
+
+
+def run_self_healing(siris: "SirisAI") -> None:
+    """Self-healing (app/remediation/runner.py), when containers are watched."""
+    if siris._docker_client is None or not siris.settings.remediation_container_list():
+        return
+    try:
+        remediation.run(siris)
+    except Exception:
+        logger.exception("Scheduled self-healing check failed")
+
+
+def run_security_watch(siris: "SirisAI") -> dict | None:
+    """security_briefing on a schedule, acting only on problems: an urgent
+    push for failed/stale backups or a certificate about to expire, a note
+    for the daily briefing for everything else."""
+    try:
+        report = siris.tools.get("security_briefing").run()  # type: ignore[union-attr]
+    except Exception:
+        logger.exception("Scheduled security check failed")
+        return None
+    trigger = "security watch: automated schedule"
+    if report["urgent"]:
+        if siris.tools.get("notify") is not None:
+            siris.run_tool("notify", {"title": "SirisAI: security", "message": "; ".join(report["urgent"]), "priority": "urgent"}, trigger=trigger, evidence=report["urgent"])
+        else:
+            for line in report["urgent"]:
+                siris.pending_notifications.queue(line, severity="urgent", category="security")
+    for line in report["warnings"]:
+        siris.pending_notifications.queue(line, severity="warning", category="security")
+    return report
+
+
+def run_image_scan(siris: "SirisAI") -> None:
+    tool = siris.tools.get("security_scan_images")
+    if tool is None:
+        return
+    try:
+        tool.run()
+    except Exception:
+        logger.exception("Scheduled image scan failed")
+
+
+def run_habit_check(siris: "SirisAI") -> list[dict]:
+    """Mine habits and push each new suggestion, with one-tap Create/Dismiss
+    buttons when SIRISAI_PUBLIC_BASE_URL is set."""
+    if siris.tools.get("habit_suggestions") is None:
+        return []
+    try:
+        fresh = habits.refresh(siris)
+    except Exception:
+        logger.exception("Scheduled habit check failed")
+        return []
+    for suggestion in fresh:
+        actions = None
+        if siris.settings.public_base_url:
+            headers = {"Content-Type": "application/json"}
+            if siris.settings.api_key:
+                headers["Authorization"] = f"Bearer {siris.settings.api_key}"
+            base = siris.settings.public_base_url.rstrip("/")
+            body = json.dumps({"arguments": {"suggestion_id": suggestion["id"]}, "confirmed": True})
+            actions = [
+                {"action": "http", "label": "Create automation", "url": f"{base}/siris/tools/accept_habit_suggestion/run", "method": "POST", "headers": headers, "body": body},
+                {"action": "http", "label": "No thanks", "url": f"{base}/siris/tools/dismiss_habit_suggestion/run", "method": "POST", "headers": headers, "body": body},
+            ]
+        message = f"{suggestion['description']} Want me to automate it?"
+        try:
+            if siris.tools.get("notify") is not None:
+                siris.run_tool("notify", {"title": "SirisAI: automation idea", "message": message, "actions": actions}, trigger="habit check: automated schedule", evidence=suggestion)
+            else:
+                siris.pending_notifications.queue(message, severity="info", category="habit")
+        except Exception:
+            logger.exception("Sending a habit suggestion failed")
+    return fresh
+
+
+def run_parcel_refresh(siris: "SirisAI") -> list[dict]:
+    """Refresh tracked parcels from 17TRACK and push the ones that just went
+    out for delivery, arrived, or hit a problem."""
+    if siris.parcel_tracker is None:
+        return []
+    from app.parcels import service as parcels
+
+    try:
+        changed = parcels.refresh(siris.parcels, siris.parcel_tracker)
+    except Exception:
+        logger.exception("Parcel refresh failed")
+        return []
+    for parcel in changed:
+        message = f"{parcel['label']} is {parcel['status_text']}." + (f" {parcel['last_event']}" if parcel.get("last_event") else "")
+        try:
+            _push(siris, message, "SirisAI: parcel", priority="high" if parcel["status"] in ("OutForDelivery", "DeliveryFailure") else "default", category="parcels")
+        except Exception:
+            logger.exception("Parcel notification failed")
+    return changed
+
+
+def run_tool_choice_eval(siris: "SirisAI") -> dict | None:
+    if siris.settings.llm_provider == "none":
+        return None
+    from app.evals import tool_choice
+
+    try:
+        return tool_choice.run_and_record(siris)
+    except Exception:
+        logger.exception("Scheduled tool-choice eval failed")
+        return None
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -122,8 +243,17 @@ def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> b
     return True
 
 
+def run_deferred_jobs(siris: "SirisAI", now: datetime | None = None) -> list[dict]:
+    try:
+        return energy.run_due(siris, now)
+    except Exception:
+        logger.exception("Running deferred jobs failed")
+        return []
+
+
 def tick(siris: "SirisAI", now: datetime | None = None, run_health: bool = False) -> dict[str, object]:
     result: dict[str, object] = {"reminders_sent": deliver_due_reminders(siris, now)}
+    result["deferred_jobs"] = run_deferred_jobs(siris, now)
     if run_health:
         result["tool_alerts"] = alert_on_broken_tools(siris, now)
     result["briefing_sent"] = maybe_run_daily_briefing(siris, now)
@@ -134,6 +264,13 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_health = 0.0
     last_proactive = 0.0
     last_presence = 0.0
+    last_intruder = 0.0
+    last_healing = 0.0
+    last_security = time.monotonic()  # first check one interval after startup, not at boot
+    last_scan = time.monotonic()
+    last_habits = time.monotonic()
+    last_parcels = 0.0
+    last_eval = time.monotonic()
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -150,6 +287,41 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if presence_interval > 0 and time.monotonic() - last_presence >= presence_interval:
                 await asyncio.to_thread(run_presence_and_geofence_checks, siris)
                 last_presence = time.monotonic()
+
+            intruder_interval = siris.settings.intruder_check_interval_minutes * 60
+            if intruder_interval > 0 and time.monotonic() - last_intruder >= intruder_interval:
+                await asyncio.to_thread(run_intruder_check, siris)
+                last_intruder = time.monotonic()
+
+            healing_interval = siris.settings.remediation_check_interval_minutes * 60
+            if healing_interval > 0 and time.monotonic() - last_healing >= healing_interval:
+                await asyncio.to_thread(run_self_healing, siris)
+                last_healing = time.monotonic()
+
+            security_interval = siris.settings.security_check_interval_hours * 3600
+            if security_interval > 0 and time.monotonic() - last_security >= security_interval:
+                await asyncio.to_thread(run_security_watch, siris)
+                last_security = time.monotonic()
+
+            scan_interval = siris.settings.security_scan_interval_days * 86400
+            if scan_interval > 0 and time.monotonic() - last_scan >= scan_interval:
+                await asyncio.to_thread(run_image_scan, siris)
+                last_scan = time.monotonic()
+
+            habit_interval = siris.settings.habit_check_interval_days * 86400
+            if habit_interval > 0 and time.monotonic() - last_habits >= habit_interval:
+                await asyncio.to_thread(run_habit_check, siris)
+                last_habits = time.monotonic()
+
+            parcel_interval = siris.settings.parcel_refresh_minutes * 60
+            if parcel_interval > 0 and time.monotonic() - last_parcels >= parcel_interval:
+                await asyncio.to_thread(run_parcel_refresh, siris)
+                last_parcels = time.monotonic()
+
+            eval_interval = siris.settings.eval_interval_days * 86400
+            if eval_interval > 0 and time.monotonic() - last_eval >= eval_interval:
+                await asyncio.to_thread(run_tool_choice_eval, siris)
+                last_eval = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

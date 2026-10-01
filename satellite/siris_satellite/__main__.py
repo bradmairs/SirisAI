@@ -25,10 +25,15 @@ def main() -> None:
         sample_rate=settings.sample_rate,
         silence_timeout_seconds=settings.silence_timeout_seconds,
         max_recording_seconds=settings.max_recording_seconds,
+        speech_start_timeout_seconds=settings.speech_start_timeout_seconds,
+        vad=settings.vad,
+        vad_threshold=settings.vad_threshold,
         device=settings.input_device,
     )
     audio_output = SpeakerOutput(device=settings.output_device)
-    siris = SirisClient(base_url=settings.siris_base_url, api_key=settings.siris_api_key, room=settings.room)
+    siris = SirisClient(
+        base_url=settings.siris_base_url, api_key=settings.siris_api_key, room=settings.room, user=settings.user
+    )
 
     # Room/presence-aware routing (milestone 48) -- both room and
     # callback_url are opt-in (empty by default): without them, this
@@ -45,7 +50,13 @@ def main() -> None:
             logger.exception("Registering with SirisAI failed -- continuing without room-push")
 
     try:
-        Satellite(audio_input=audio_input, audio_output=audio_output, siris=siris).run_forever()
+        Satellite(
+            audio_input=audio_input,
+            audio_output=audio_output,
+            siris=siris,
+            follow_up_seconds=settings.follow_up_seconds,
+            barge_in=settings.barge_in,
+        ).run_forever()
     finally:
         if inbound is not None:
             inbound.stop()
