@@ -4732,6 +4732,84 @@ provider for the same capability actually exists to design against.
     cleared the tray, and the browser-resized image reached the vision
     model.
 
+109. **Done** -- Protocols, guest mode and intruder response: Jarvis-style
+    named playbooks across every system, a privacy mode for when visitors
+    are over, and an alarm when someone is on camera who shouldn't be.
+
+    Protocols (`app/protocols/service.py`, `app/plugins/builtin/protocols.py`):
+    - A step is any registered tool call (not just Home Assistant like
+      scenes), optionally conditional -- `when`: `nobody_home`,
+      `someone_home`, `night`, `day` (`SIRISAI_NIGHT_START_HOUR`/
+      `_END_HOUR`), or `{entity, state}`/`{entity, not_state}` -- and Home
+      Assistant steps can target a selector (`{"select": {"domain":
+      "cover", "device_class": ["garage", "gate"]}}`) instead of ids.
+    - Built-ins, adapting to what's configured (a step whose tool isn't
+      registered is dropped): **lockdown** (lock every lock, close garage
+      doors/gates, all lights on at night, notify), **away** (lights and
+      media off, lock up, close the garage, notify), **guest** (guest mode
+      for 24h + guest Wi-Fi switch, `SIRISAI_GUEST_WIFI_ENTITY_ID`) and
+      **guest_off**. `create_protocol`/`delete_protocol` manage your own
+      (validated: real tools only, no protocols inside protocols), and a
+      custom one can override a built-in by name.
+    - `run_protocol` (CONFIRM_REQUIRED, one confirmation covers every
+      step; `dry_run` lists each step and whether its condition holds) and
+      `undo_last_protocol`: before each Home Assistant step the affected
+      entities' states are recorded, and only what actually changed is put
+      back (a door that was already locked stays locked); guest-mode steps
+      restore the previous mode; a step may declare its own `undo`. A
+      failed step doesn't stop the rest -- a lockdown still locks the
+      doors if the notification fails.
+    - Voice: "run the lockdown protocol -- should I go ahead?" can be
+      answered by voice because lockdown only locks and closes; a protocol
+      with an unlocking step, and any undo, must be confirmed in the app.
+      Securing calls (lock, close a cover, arm an alarm) are now voice-
+      confirmable on their own too -- only the opening direction is held.
+    - Web UI: a Protocols tab -- each protocol's steps, Run (shows the dry
+      run, then asks once), Undo last protocol, and a Guest mode toggle.
+
+    Guest mode (`app/core/guest.py`, `set_guest_mode`/`guest_mode_status`,
+    optional auto-off after N hours): personal-data tools (memory,
+    conversations, calendars, reminders, goals, voiceprints, briefings)
+    aren't offered to the model at all, the context engine drops memories
+    and recent events, and the model is told a visitor may be listening.
+
+    Intruder response (`app/skills/builtin/intruder.py`, `intruder_check`,
+    on the scheduler every `SIRISAI_INTRUDER_CHECK_INTERVAL_MINUTES`): a new
+    Frigate person detection while `SIRISAI_INTRUDER_ALERT_WHEN` holds
+    (`away`, `night`, or default `away_or_night`) -> the vision model
+    describes the snapshot (milestone 108) -> an urgent push, a spoken
+    warning in the occupied room at night, and -- only with
+    `SIRISAI_INTRUDER_AUTO_LOCKDOWN=true` -- the lockdown protocol. The
+    first run only records a baseline; each camera alerts at most once per
+    `SIRISAI_INTRUDER_COOLDOWN_MINUTES`; `SIRISAI_INTRUDER_CAMERAS` limits
+    which cameras count. Detections are read directly (not audited every
+    minute); everything it *does* is audited. Small persistent facts like
+    these live in a new key/value `app_state` table (`app/core/state.py`).
+
+    Bug fixed on the way: `home_assistant_call_service` with
+    `entity_id: "all"` was fuzzy-"corrected" to a single entity whenever a
+    name contained "all" -- `light.hall` -- so "turn off all the lights"
+    turned off only the hall. "all"/"none" and lists are now passed through
+    untouched, and verification checks every entity in a list.
+
+    Verified: 14 new tests (built-ins adapting to configuration, one
+    confirmation + an explanatory dry run, lockdown then a precise undo,
+    the night-only step skipped by day, custom protocols with entity
+    conditions and creation validation, presence-conditioned steps, guest
+    mode hiding tools and context then restoring them, guest auto-expiry,
+    guest undo, voice-confirmability of protocols, intruder baseline ->
+    alert -> cooldown, quiet by day with people home, auto-lockdown, and
+    the "all" regression). Live against a real server with fake Home
+    Assistant/Frigate/ntfy/Ollama: in headless Chromium the Protocols tab
+    previewed lockdown (night step shown as skipped), ran it (back door
+    locked, garage closed, the blind -- not a garage -- left open), and
+    Undo put back exactly the two changes; the Guest toggle removed
+    recall/remember/set_reminder from what the next chat turn was offered.
+    By voice, "initiate lockdown" got "I need your OK to run the lockdown
+    protocol. Should I go ahead?" and "yes" locked the door. With presence
+    set to away, `intruder_check` turned a Frigate person event into an
+    urgent push carrying the vision model's description.
+
 ## Running locally
 
 ```bash

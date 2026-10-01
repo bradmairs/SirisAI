@@ -335,6 +335,30 @@ class Settings(BaseSettings):
     presence_home_scene: str = ""
     presence_away_scene: str = ""
 
+    # Protocols (app/protocols/service.py) and guest mode (app/core/guest.py).
+    # "night" for protocol conditions and the intruder check: from
+    # night_start_hour until night_end_hour, local time. guest_wifi_entity_id
+    # is a Home Assistant switch for the guest network (the UniFi integration
+    # creates one per WLAN) that the guest protocols turn on and off.
+    night_start_hour: int = 22
+    night_end_hour: int = 6
+    guest_wifi_entity_id: str = ""
+
+    # Intruder response (app/skills/builtin/intruder.py), with Frigate
+    # configured: a person detected when intruder_alert_when says so --
+    # "away" (nobody home), "night", or "away_or_night" -- raises an urgent
+    # alert. intruder_cameras limits it to some cameras (comma-separated;
+    # empty = all). intruder_auto_lockdown also runs the lockdown protocol
+    # when nobody is home. 0 minutes disables the check.
+    intruder_check_interval_minutes: float = 1.0
+    intruder_alert_when: str = "away_or_night"
+    intruder_cameras: str = ""
+    intruder_cooldown_minutes: float = 10.0
+    intruder_auto_lockdown: bool = False
+
+    def intruder_camera_list(self) -> list[str]:
+        return [c.strip() for c in self.intruder_cameras.split(",") if c.strip()]
+
     def presence_device_name_list(self) -> list[str]:
         return [
             name.strip()

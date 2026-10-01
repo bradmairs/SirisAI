@@ -238,6 +238,19 @@ from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
 from app.voice.speaker import SpeakerEncoder
+from app.core import guest
+from app.core.state import StateStore
+from app.protocols.service import ProtocolStore
+from app.plugins.builtin.protocols import (
+    CreateProtocolTool,
+    DeleteProtocolTool,
+    GuestModeStatusTool,
+    ListProtocolsTool,
+    RunProtocolSkill,
+    SetGuestModeTool,
+    UndoLastProtocolSkill,
+)
+from app.skills.builtin.intruder import IntruderCheckSkill
 from app.voice.voiceprints import VoiceprintStore
 from app.plugins.builtin.voiceprints import DeleteVoiceprintTool, ListVoiceprintsTool
 from app.weather.client import WeatherClient
@@ -309,6 +322,11 @@ _CATEGORY_NAMES: dict[str, str] = {
     "set_routine_enabled": "routines",
     "speak_in_current_room": "satellites",
     "list_voiceprints": "voice",
+    "set_guest_mode": "modes",
+    "guest_mode_status": "modes",
+    "list_protocols": "protocols",
+    "create_protocol": "protocols",
+    "delete_protocol": "protocols",
     "delete_voiceprint": "voice",
 }
 
@@ -406,6 +424,8 @@ class SirisAI:
     reminders: ReminderStore = field(default_factory=lambda: ReminderStore(SessionLocal))
     scheduler_state: SchedulerStateStore = field(default_factory=lambda: SchedulerStateStore(SessionLocal))
     voiceprints: VoiceprintStore = field(default_factory=lambda: VoiceprintStore(SessionLocal))
+    state: StateStore = field(default_factory=lambda: StateStore(SessionLocal))
+    protocols: ProtocolStore = field(default_factory=lambda: ProtocolStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -534,6 +554,8 @@ class SirisAI:
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
         self.tools.register(DismissCapabilityGapTool(self.capability_gaps))
+        self.tools.register(SetGuestModeTool(self))
+        self.tools.register(GuestModeStatusTool(self))
         self.tools.register(ListVoiceprintsTool(self.voiceprints))
         self.tools.register(DeleteVoiceprintTool(self.voiceprints))
 
@@ -821,6 +843,15 @@ class SirisAI:
         self._register_discovered_integrations()
 
     def _register_builtin_skills(self) -> None:
+        # Protocols last among tools: their built-ins adapt to whichever
+        # tools (notify, Home Assistant...) are registered by now.
+        self.tools.register(ListProtocolsTool(self))
+        self.tools.register(CreateProtocolTool(self))
+        self.tools.register(DeleteProtocolTool(self))
+        self.tools.register(SkillTool(RunProtocolSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
+        self.tools.register(SkillTool(UndoLastProtocolSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
+        if self._frigate_client is not None:
+            self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(SkillTool(ServerHealthSkill(), self))
         self.tools.register(SkillTool(SelfMaintenanceSkill(), self))
         self.tools.register(SkillTool(EventTimingSkill(), self))
@@ -937,8 +968,14 @@ class SirisAI:
             return self.tools.specs(exclude=exclude)
         # Tools whose backing service is down are left out for a while so
         # they stop steering the model into a wall (app/core/health.py).
-        specs = self.tools.specs(exclude=exclude | self._paused_tools())
+        specs = self.tools.specs(exclude=exclude | self._paused_tools() | self._guest_hidden_tools())
         return self.tool_selector.select(prompt, specs, recent_tool_names)
+
+    def _guest_hidden_tools(self) -> set[str]:
+        """Personal-data tools, while guest mode is on (app/core/guest.py)."""
+        if not guest.is_on(self):
+            return set()
+        return {tool.name for tool in self.tools.list() if guest.is_personal_tool(tool.name, _categorize_tool(tool))}
 
     def _paused_tools(self) -> set[str]:
         stamp, cached = self._broken_cache

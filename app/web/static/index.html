@@ -338,6 +338,19 @@
   .routine-entry.disabled { color: var(--muted); }
   .meta { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
 
+  /* Protocols */
+  #protocols-view { padding: 1rem; overflow-y: auto; }
+  .protocol-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+  .protocol-bar .action-btn { padding: 0.35rem 0.9rem; }
+  .guest-toggle { font-size: 0.9rem; }
+  .protocol-card { border: 1px solid var(--border); background: var(--panel); border-radius: 8px; padding: 0.7rem 0.9rem; margin-bottom: 0.6rem; }
+  .protocol-card h3 { margin: 0 0 0.2rem; font-size: 1rem; }
+  .protocol-card .protocol-desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.4rem; }
+  .protocol-card ol { margin: 0.3rem 0 0.5rem 1.2rem; padding: 0; font-size: 0.85rem; }
+  .protocol-card li.skip { color: var(--muted); text-decoration: line-through; }
+  .protocol-card .protocol-actions { display: flex; gap: 0.4rem; }
+  .protocol-card .protocol-actions button { padding: 0.3rem 0.8rem; }
+
   /* Cron */
   #cron-view { padding: 1rem; overflow-y: auto; }
   #cron-view button#cron-refresh { margin-bottom: 1rem; }
@@ -422,6 +435,7 @@
     <button data-view="memory">Memory</button>
     <button data-view="goals">Goals</button>
     <button data-view="routines">Routines</button>
+    <button data-view="protocols">Protocols</button>
     <button data-view="cron">Cron</button>
     <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
@@ -497,6 +511,16 @@
       <button class="action-btn" id="routines-run-due">Run due now</button>
     </div>
     <div id="routines-list"></div>
+  </section>
+
+  <section id="protocols-view" class="view">
+    <div class="protocol-bar">
+      <button class="action-btn" id="protocols-refresh">Refresh</button>
+      <button class="action-btn" id="protocols-undo">Undo last protocol</button>
+      <label class="guest-toggle"><input type="checkbox" id="guest-toggle" /> Guest mode</label>
+      <span id="protocols-status"></span>
+    </div>
+    <div id="protocols-list"></div>
   </section>
 
   <section id="cron-view" class="view">
@@ -620,6 +644,7 @@
       if (btn.dataset.view === "goals") loadGoals();
       if (btn.dataset.view === "routines") loadRoutines();
       if (btn.dataset.view === "cron") loadCron();
+      if (btn.dataset.view === "protocols") loadProtocols();
       if (btn.dataset.view === "gaps") loadGaps();
       if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
@@ -1873,6 +1898,111 @@
   }
 
   document.getElementById("status-refresh").addEventListener("click", loadStatus);
+
+  // --- Protocols: named playbooks (lockdown, away, guest...). "Run" first
+  // previews every step (dry run) and then asks for the one confirmation.
+  const protocolsList = document.getElementById("protocols-list");
+  const protocolsStatus = document.getElementById("protocols-status");
+  const guestToggle = document.getElementById("guest-toggle");
+
+  async function toolResult(name, args, options = {}) {
+    const response = await api(`/siris/tools/${name}/run`, {
+      method: "POST",
+      body: JSON.stringify(Object.assign({ arguments: args || {} }, options)),
+    });
+    return response.tool_call ? response.tool_call.result : null;
+  }
+
+  function describeSteps(steps) {
+    return steps.map((s) => `${s.will_run ? "- " : "- (skipped) "}${s.step}${s.will_run ? "" : ` -- ${s.because}`}`).join("\n");
+  }
+
+  async function loadProtocols() {
+    protocolsList.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      const [protocols, guestState] = await Promise.all([toolResult("list_protocols"), toolResult("guest_mode_status")]);
+      guestToggle.checked = !!(guestState && guestState.on);
+      protocolsList.innerHTML = protocols.length ? "" : '<p class="empty">No protocols available.</p>';
+      for (const proto of protocols) {
+        const card = document.createElement("div");
+        card.className = "protocol-card";
+        const title = document.createElement("h3");
+        title.textContent = proto.name.replace(/_/g, " ") + (proto.builtin ? "" : " (custom)");
+        const desc = document.createElement("div");
+        desc.className = "protocol-desc";
+        desc.textContent = proto.description || "";
+        const list = document.createElement("ol");
+        for (const step of proto.steps) {
+          const li = document.createElement("li");
+          li.textContent = step;
+          list.appendChild(li);
+        }
+        const actions = document.createElement("div");
+        actions.className = "protocol-actions";
+        const run = document.createElement("button");
+        run.className = "action-btn";
+        run.textContent = "Run";
+        run.addEventListener("click", async () => {
+          run.disabled = true;
+          try {
+            const preview = await toolResult("run_protocol", { name: proto.name }, { dry_run: true });
+            if (!confirm(`Run the ${proto.name.replace(/_/g, " ")} protocol?\n\n${describeSteps(preview.steps)}`)) return;
+            const result = await toolResult("run_protocol", { name: proto.name }, { confirmed: true });
+            const ok = result.steps.filter((s) => s.status === "ok").length;
+            const failed = result.steps.filter((s) => s.status === "error").map((s) => s.step);
+            protocolsStatus.textContent = `${proto.name}: ${ok} step${ok === 1 ? "" : "s"} done` + (failed.length ? `, failed: ${failed.join(", ")}` : "") + (result.undo_available ? " -- undo available" : "");
+            loadProtocols();
+          } catch (err) {
+            protocolsStatus.textContent = err.message;
+          } finally {
+            run.disabled = false;
+          }
+        });
+        actions.appendChild(run);
+        if (!proto.builtin) {
+          const del = document.createElement("button");
+          del.className = "action-btn";
+          del.textContent = "Delete";
+          del.addEventListener("click", async () => {
+            if (!confirm(`Delete the ${proto.name} protocol?`)) return;
+            await toolResult("delete_protocol", { name: proto.name });
+            loadProtocols();
+          });
+          actions.appendChild(del);
+        }
+        card.appendChild(title);
+        card.appendChild(desc);
+        card.appendChild(list);
+        card.appendChild(actions);
+        protocolsList.appendChild(card);
+      }
+    } catch (err) {
+      protocolsList.innerHTML = `<p class="empty">${err.message}</p>`;
+    }
+  }
+
+  document.getElementById("protocols-refresh").addEventListener("click", loadProtocols);
+  document.getElementById("protocols-undo").addEventListener("click", async () => {
+    try {
+      const preview = await toolResult("undo_last_protocol", {}, { dry_run: true });
+      if (!preview.protocol || preview.undone || !preview.would_run.length) { protocolsStatus.textContent = "Nothing to undo."; return; }
+      if (!confirm(`Undo the ${preview.protocol} protocol? (${preview.would_run.length} change${preview.would_run.length === 1 ? "" : "s"} to put back)`)) return;
+      const result = await toolResult("undo_last_protocol", {}, { confirmed: true });
+      protocolsStatus.textContent = result.undone ? `Undid ${result.protocol}.` : result.reason;
+      loadProtocols();
+    } catch (err) {
+      protocolsStatus.textContent = err.message;
+    }
+  });
+  guestToggle.addEventListener("change", async () => {
+    try {
+      await toolResult("set_guest_mode", { on: guestToggle.checked });
+      protocolsStatus.textContent = guestToggle.checked ? "Guest mode on -- personal info stays private." : "Guest mode off.";
+    } catch (err) {
+      protocolsStatus.textContent = err.message;
+      guestToggle.checked = !guestToggle.checked;
+    }
+  });
 
   // --- Voice ID: record WAV in the browser (the server decodes WAV natively),
   // enrol samples, and check who a recording sounds like.

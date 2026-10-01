@@ -95,6 +95,16 @@ def run_presence_and_geofence_checks(siris: "SirisAI") -> None:
             logger.exception("Scheduled %s check failed", label)
 
 
+def run_intruder_check(siris: "SirisAI") -> None:
+    """intruder_check (app/skills/builtin/intruder.py), when Frigate is configured."""
+    if siris.tools.get("intruder_check") is None:
+        return
+    try:
+        siris.tools.get("intruder_check").run()  # type: ignore[union-attr]
+    except Exception:
+        logger.exception("Scheduled intruder check failed")
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -134,6 +144,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_health = 0.0
     last_proactive = 0.0
     last_presence = 0.0
+    last_intruder = 0.0
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -150,6 +161,11 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if presence_interval > 0 and time.monotonic() - last_presence >= presence_interval:
                 await asyncio.to_thread(run_presence_and_geofence_checks, siris)
                 last_presence = time.monotonic()
+
+            intruder_interval = siris.settings.intruder_check_interval_minutes * 60
+            if intruder_interval > 0 and time.monotonic() - last_intruder >= intruder_interval:
+                await asyncio.to_thread(run_intruder_check, siris)
+                last_intruder = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

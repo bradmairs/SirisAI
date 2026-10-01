@@ -17,6 +17,9 @@ from typing import Any
 
 _PENDING_TTL_SECONDS = 120.0
 
+# Lock, close, arm: fine to confirm by voice even in a blocked domain.
+SECURING_SERVICES = {"lock", "close_cover", "alarm_arm_away", "alarm_arm_home", "alarm_arm_night"}
+
 _YES_RE = re.compile(
     r"^\s*(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|do it|go ahead|please do|affirmative|"
     r"that's right|correct|proceed)\b",
@@ -49,6 +52,8 @@ def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:
         target = str(target).split(".", 1)[-1].replace("_", " ")
         return f"{service} {target}".strip()
     words = tool_name.replace("_", " ")
+    if tool_name == "run_protocol" and arguments.get("name"):
+        return f"run the {str(arguments['name']).replace('_', ' ')} protocol"
     for key in ("name", "container", "title", "entity_id", "protocol"):
         if arguments.get(key):
             return f"{words}: {str(arguments[key]).replace('_', ' ')}"
@@ -60,6 +65,8 @@ def voice_confirmable(tool_name: str, arguments: dict[str, Any], blocked_domains
         domain = str(arguments.get("domain", "")).lower()
         entity = str(arguments.get("entity_id") or "").lower()
         entity_domain = entity.split(".", 1)[0] if "." in entity else ""
+        if str(arguments.get("service", "")) in SECURING_SERVICES:
+            return True  # locking or closing only makes things safer
         return domain not in blocked_domains and entity_domain not in blocked_domains
     return tool_name not in blocked_domains
 

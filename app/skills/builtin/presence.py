@@ -83,3 +83,12 @@ class PresenceSkill(Skill):
             result["scene_activated"] = scene_entity_id
 
         return result
+
+
+def anyone_home(siris: "SirisAI") -> bool | None:
+    """Whether the last presence check found someone home; None when
+    presence has never been checked (or isn't configured)."""
+    previous = siris.events.recent_events(entity_name=_PRESENCE_ENTITY_NAME, limit=1)
+    if not previous or not previous[0].get("data"):
+        return None
+    return bool(previous[0]["data"].get("home"))

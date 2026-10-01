@@ -46,6 +46,13 @@ class ContextEngine:
             except Exception:
                 pass
 
+        from app.core import guest
+
+        if guest.is_on(siris):
+            # Nothing personal in the background either -- see app/core/guest.py.
+            lines.append(guest.GUEST_NOTE)
+            return "\n".join(lines)
+
         # Everything below is recorded text that something other than the
         # user may have written (a device name, a web page, a tool result),
         # so it's labelled as data and instruction-like text is withheld --

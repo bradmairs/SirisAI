@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from app.cortex.orchestrator import Cortex, CortexResult
+from app.protocols.service import voice_confirmable as protocol_voice_confirmable
 from app.voice.base import NullTextToSpeechClient
 from app.voice.confirmations import (
     PendingVoiceConfirmation,
@@ -151,7 +152,12 @@ class VoiceTurn:
             confirmation = {"name": name, "arguments": arguments}
             blocked = self.siris.settings.voice_confirmation_blocked_domain_set()
             description = describe_call(name, arguments)
-            if self.siris.settings.voice_confirmation_enabled and voice_confirmable(name, arguments, blocked):
+            if name in ("run_protocol", "undo_last_protocol"):
+                # An undo can unlock doors; a protocol only if one of its steps would be blocked by voice alone.
+                confirmable = name == "run_protocol" and protocol_voice_confirmable(self.siris, str(arguments.get("name", "")), blocked)
+            else:
+                confirmable = voice_confirmable(name, arguments, blocked)
+            if self.siris.settings.voice_confirmation_enabled and confirmable:
                 pending_voice_confirmations.put(
                     self.conversation_id,
                     PendingVoiceConfirmation(tool_name=name, arguments=arguments, used_planner=result.used_planner),

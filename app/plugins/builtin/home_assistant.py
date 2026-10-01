@@ -92,6 +92,9 @@ _VERIFY_POLL_SECONDS = 1.0
 _ALWAYS_CONFIRM_DOMAINS = {"lock", "cover"}
 
 
+_TARGET_KEYWORDS = {"all", "none"}
+
+
 class HomeAssistantListEntitiesTool(Tool):
     name = "home_assistant_list_entities"
     description = (
@@ -229,7 +232,7 @@ class HomeAssistantCallServiceTool(Tool):
             },
             "entity_id": {
                 "type": "string",
-                "description": "The entity to target, e.g. 'light.living_room'.",
+                "description": "The entity to target, e.g. 'light.living_room', or 'all' for every entity in the domain.",
             },
             "service_data": {
                 "type": "object",
@@ -268,7 +271,7 @@ class HomeAssistantCallServiceTool(Tool):
         self,
         domain: str = "",
         service: str = "",
-        entity_id: str | None = None,
+        entity_id: str | list[str] | None = None,
         service_data: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
@@ -284,7 +287,12 @@ class HomeAssistantCallServiceTool(Tool):
         # (still-wrong) entity_id, same "let it fail/no-op rather than
         # guess among several" caution home_assistant_resolve_entity's
         # own `ambiguous` flag already uses.
-        if entity_id and self._client.get_state_or_none(entity_id) is None:
+        # "all"/"none" are Home Assistant keywords and a list is explicit --
+        # only a single entity id can be a misspelling worth resolving (found
+        # while building protocols: "all" fuzzy-matched light.hall, so "turn
+        # off all lights" would have turned off just the hall).
+        single = isinstance(entity_id, str) and entity_id.lower() not in _TARGET_KEYWORDS
+        if single and entity_id and self._client.get_state_or_none(entity_id) is None:
             target_entity_id, resolution_note = self._resolve_fallback(domain, entity_id)
 
         result = self._client.call_service(
@@ -301,7 +309,7 @@ class HomeAssistantCallServiceTool(Tool):
         # event_timing_check already does the rest once this exists.
         self._events.log_event(
             f"{domain}.{service}",
-            entity_name=target_entity_id,
+            entity_name=", ".join(target_entity_id) if isinstance(target_entity_id, list) else target_entity_id,
             source="home_assistant_call_service",
         )
         if resolution_note:
@@ -356,9 +364,16 @@ class HomeAssistantCallServiceTool(Tool):
             else arguments.get("entity_id")
         )
         expected_state = _EXPECTED_STATE_BY_SERVICE.get(arguments.get("service", ""))
-        if entity_id is None or expected_state is None:
+        if entity_id is None or expected_state is None or (isinstance(entity_id, str) and entity_id.lower() in _TARGET_KEYWORDS):
             raise NotImplementedError(
                 f"{self.name} does not support verify for this domain/service"
+            )
+        if isinstance(entity_id, list):
+            checks = [self.verify({**arguments, "entity_id": one}, None) for one in entity_id]
+            failed = [c.detail for c in checks if not c.verified]
+            return ToolVerification(
+                verified=not failed,
+                detail="; ".join(failed) if failed else f"All {len(checks)} entities are now '{expected_state}', as expected.",
             )
 
         actual_state = None

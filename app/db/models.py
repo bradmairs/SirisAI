@@ -561,3 +561,29 @@ class Voiceprint(Base):
     sample_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class AppState(Base):
+    """Small named pieces of persistent state (app/core/state.py) -- guest
+    mode, the intruder check's cursor, the last protocol run's undo steps --
+    each a JSON value under a key, rather than a one-row table apiece."""
+
+    __tablename__ = "app_state"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class Protocol(Base):
+    """A user-defined protocol (app/protocols/service.py): a named,
+    cross-system playbook of tool calls with optional conditions and undo.
+    The built-in ones (lockdown, away, guest) live in code, not here."""
+
+    __tablename__ = "protocols"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    steps: Mapped[str] = mapped_column(Text)  # JSON list[dict]
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
