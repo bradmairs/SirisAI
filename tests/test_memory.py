@@ -9,7 +9,9 @@ from app.main import app
 
 
 def test_remember_then_recall_via_endpoints(client: TestClient) -> None:
-    content = f"favorite homelab distro is Proxmox {uuid.uuid4()}"
+    # One 32-char hex marker: a dashed uuid splits into 4-char search terms
+    # that can match inside another memory's uuid by chance.
+    content = f"favorite homelab distro is Proxmox {uuid.uuid4().hex}"
 
     create_response = client.post("/siris/memory", json={"content": content})
     assert create_response.status_code == 200

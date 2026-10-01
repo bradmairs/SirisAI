@@ -259,6 +259,7 @@ from app.car import service as car_service
 from app.parcels.service import ParcelStore, SeventeenTrackClient
 from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
 from app.plugins.builtin.health_data import HealthSummaryTool
+from app.plugins.builtin.autonomy import WhatDidYouDoTool
 from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
@@ -323,6 +324,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "system_info": "system",
     "run_speed_test": "system",
     "explain_recent_action": "audit",
+    "what_did_you_do": "audit",
     "report_capability_gap": "capabilities",
     "list_capability_gaps": "capabilities",
     "dismiss_capability_gap": "capabilities",
@@ -582,6 +584,7 @@ class SirisAI:
         self.tools.register(ListPendingNotificationsTool(self.pending_notifications))
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(TrustLedgerTool(self.audit))
+        self.tools.register(WhatDidYouDoTool(self))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
         self.tools.register(DismissCapabilityGapTool(self.capability_gaps))

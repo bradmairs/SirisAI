@@ -41,6 +41,13 @@ def index() -> str:
     return _INDEX_HTML_PATH.read_text()
 
 
+@router.get("/hud", response_class=HTMLResponse)
+def hud() -> str:
+    """Full-screen wall-tablet dashboard (app/web/static/hud.html). Open once
+    as /hud?key=YOUR_API_KEY to store the key in that browser."""
+    return (_STATIC / "hud.html").read_text()
+
+
 @router.get("/manifest.webmanifest")
 def manifest() -> JSONResponse:
     return JSONResponse(_MANIFEST, media_type="application/manifest+json")

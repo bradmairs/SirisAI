@@ -5119,6 +5119,50 @@ provider for the same capability actually exists to design against.
     the real scheduler's refresh pushed "headphones is out for delivery";
     the briefing carried both lines.
 
+118. **Done** -- HUD and autonomy timeline: a full-screen dashboard for a
+    wall tablet, and "what did you do on your own today?".
+
+    Autonomy timeline (`app/audit/autonomy.py`): the audit log filtered to
+    actions nobody asked for in the moment -- classified by the `trigger`
+    every autonomous path already records (scheduled checks, self-healing,
+    intruder alerts, the energy scheduler, the security watch, habit
+    pushes, presence scenes, routines, memories it chose to keep) --
+    described in plain words ("Restarted plex", "Sent 'SirisAI: person
+    detected': ..."), with why and whether it was verified. Read-only
+    lookups are left out unless asked. `what_did_you_do` (chat) and
+    `GET /siris/autonomy/timeline?hours=`.
+
+    HUD (`GET /hud`, `app/web/static/hud.html`, linked from the web UI's
+    nav): self-contained like the main UI (no external scripts), dark,
+    built for a tablet on the wall.
+    - Clock and date; chips for guest mode, cheap power and a low car
+      battery; CPU/memory/disk rings; outside temperature; the next
+      events; the car; deliveries; live camera tiles (frames fetched
+      through SirisAI's auth via milestone 108's proxy, refreshed every
+      10s); and the autonomy timeline ("On my own today").
+    - A central orb you tap to talk: it records WAV in the browser (with a
+      live circular waveform), stops on a pause, sends it to
+      `/siris/voice/converse` (milestone 106), shows what it heard and
+      plays the streamed reply sentence by sentence while the orb pulses;
+      a recognised speaker (milestone 107) is greeted by name, and a
+      question back ("Should I go ahead?") prompts "Tap to answer".
+    - Everything comes from one `GET /siris/hud/summary`, every section
+      best-effort, refreshed every 15s. Open it once as `/hud?key=...` to
+      store the API key in that browser.
+
+    Verified: 4 tests (autonomous-trigger classification, the timeline
+    keeping only autonomous non-read actions newest first, the tool and
+    both routes, the page and its nav link). Live in headless Chromium
+    against a real server with fake Home Assistant/Frigate/Open-Meteo/
+    Ollama/STT/TTS: the HUD showed the cheap-power chip, 17° partly
+    cloudy, "The Polestar: 64%, 251 km range, plugged in, at home", the
+    tracked parcel, two camera tiles with real frames, and the intruder
+    alert it had sent on its own (with the vision model's description);
+    tapping the orb with a WAV file as the microphone transcribed "what's
+    the weather" and showed and played the streamed reply, with no page
+    errors. Found and fixed on the way: a weather reading with no
+    temperature rendered as "0°".
+
 ## Running locally
 
 ```bash

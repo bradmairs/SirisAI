@@ -146,6 +146,8 @@
   .md blockquote { margin: 0 0 0.55rem; padding-left: 0.7rem; border-left: 3px solid var(--border); color: var(--muted); }
   .md a { color: var(--accent); }
   .md hr { border: 0; border-top: 1px solid var(--border); margin: 0.7rem 0; }
+  .nav-link { color: var(--muted); text-decoration: none; padding: 0.4rem 0.7rem; font-size: 0.9rem; align-self: center; }
+  .nav-link:hover { color: var(--text); }
   .tag.bad { color: var(--error); border-color: var(--error); }
   .voiceid-hint { color: var(--muted, #888); font-size: 0.85rem; margin: 0.2rem 0 0.6rem; }
   .voiceid-controls { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.6rem; }
@@ -440,6 +442,7 @@
     <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
+    <a class="nav-link" href="/hud" target="_blank" rel="noopener" title="Full-screen dashboard for a wall tablet">HUD</a>
   </nav>
 </header>
 

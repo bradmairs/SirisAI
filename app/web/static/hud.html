@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#05080d" />
+<title>SirisAI HUD</title>
+<style>
+  :root {
+    --bg: #05080d;
+    --panel: rgba(16, 28, 40, 0.72);
+    --line: rgba(96, 200, 255, 0.22);
+    --accent: #5fd3ff;
+    --accent-2: #8af5c8;
+    --warn: #ffb547;
+    --bad: #ff6b6b;
+    --text: #dceefa;
+    --muted: #7c93a6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: radial-gradient(ellipse at 50% 40%, #0b1824 0%, var(--bg) 70%); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  body { display: grid; grid-template-rows: auto 1fr; padding: 1.2rem 1.4rem; gap: 1rem; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 0.6rem; }
+  #clock { font-size: clamp(2.6rem, 7vw, 5rem); font-weight: 200; letter-spacing: 0.04em; line-height: 1; }
+  #date { color: var(--muted); font-size: 1rem; margin-top: 0.3rem; }
+  .chips { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 0.25rem 0.75rem; font-size: 0.8rem; color: var(--muted); background: var(--panel); }
+  .chip.on { color: var(--accent-2); border-color: var(--accent-2); }
+  .chip.warn { color: var(--warn); border-color: var(--warn); }
+  .chip.bad { color: var(--bad); border-color: var(--bad); }
+  main { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.3fr) minmax(260px, 1.2fr); gap: 1rem; min-height: 0; }
+  .col { display: flex; flex-direction: column; gap: 1rem; min-height: 0; overflow-y: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 0.9rem 1rem; backdrop-filter: blur(6px); }
+  .panel h2 { margin: 0 0 0.6rem; font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .rings { display: flex; justify-content: space-around; gap: 0.5rem; }
+  .ring { text-align: center; font-size: 0.75rem; color: var(--muted); }
+  .ring svg { width: 78px; height: 78px; display: block; margin: 0 auto 0.2rem; }
+  .ring .value { font-size: 1rem; fill: var(--text); }
+  .big { font-size: 1.8rem; font-weight: 300; }
+  .muted { color: var(--muted); font-size: 0.85rem; }
+  ul.list { list-style: none; margin: 0; padding: 0; font-size: 0.88rem; }
+  ul.list li { padding: 0.35rem 0; border-bottom: 1px solid rgba(96, 200, 255, 0.08); }
+  ul.list li:last-child { border-bottom: none; }
+  ul.list .t { color: var(--accent); font-variant-numeric: tabular-nums; margin-right: 0.5rem; }
+  .center { align-items: center; justify-content: flex-start; }
+  #orb-wrap { position: relative; width: min(340px, 70vw); aspect-ratio: 1; margin-top: 0.5rem; }
+  #orb { position: absolute; inset: 14%; border-radius: 50%; border: none; cursor: pointer; background: radial-gradient(circle at 50% 50%, #c9f4ff 0%, #5fd3ff 18%, #0d3550 55%, #06131d 72%); box-shadow: 0 0 40px rgba(95, 211, 255, 0.45), inset 0 0 30px rgba(95, 211, 255, 0.5); transition: transform 0.2s ease, box-shadow 0.2s ease; }
+  #orb:active { transform: scale(0.97); }
+  #orb.listening { box-shadow: 0 0 70px rgba(138, 245, 200, 0.75), inset 0 0 40px rgba(138, 245, 200, 0.7); }
+  #orb.speaking { animation: pulse 1.2s ease-in-out infinite; }
+  #orb.thinking { animation: spin 2.4s linear infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 90px rgba(95, 211, 255, 0.85), inset 0 0 50px rgba(95, 211, 255, 0.9); } }
+  @keyframes spin { to { filter: hue-rotate(360deg); } }
+  #wave { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #orb-hint { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 0.4rem; }
+  #transcript { min-height: 1.4em; text-align: center; color: var(--accent-2); margin-top: 0.8rem; font-size: 1rem; }
+  #reply { text-align: center; font-size: 1.05rem; line-height: 1.45; max-width: 36rem; margin-top: 0.4rem; }
+  .cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
+  .cam { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); aspect-ratio: 16 / 10; background: #000; }
+  .cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam span { position: absolute; left: 0.4rem; bottom: 0.3rem; font-size: 0.7rem; color: #fff; text-shadow: 0 1px 3px #000; text-transform: capitalize; }
+  #error { position: fixed; bottom: 0.8rem; left: 50%; transform: translateX(-50%); color: var(--bad); font-size: 0.85rem; }
+  @media (max-width: 900px) {
+    body { overflow-y: auto; height: auto; }
+    main { grid-template-columns: 1fr; }
+    .col { overflow: visible; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <div id="clock">--:--</div>
+    <div id="date"></div>
+  </div>
+  <div class="chips" id="chips"></div>
+</header>
+<main>
+  <section class="col">
+    <div class="panel">
+      <h2>Systems</h2>
+      <div class="rings" id="rings"></div>
+    </div>
+    <div class="panel" id="weather-panel" hidden>
+      <h2>Outside</h2>
+      <div class="big" id="weather-temp"></div>
+      <div class="muted" id="weather-text"></div>
+    </div>
+    <div class="panel" id="events-panel" hidden>
+      <h2>Coming up</h2>
+      <ul class="list" id="events"></ul>
+    </div>
+    <div class="panel" id="car-panel" hidden>
+      <h2>Car</h2>
+      <div id="car"></div>
+    </div>
+    <div class="panel" id="parcels-panel" hidden>
+      <h2>Deliveries</h2>
+      <ul class="list" id="parcels"></ul>
+    </div>
+  </section>
+
+  <section class="col center">
+    <div id="orb-wrap">
+      <canvas id="wave" width="680" height="680"></canvas>
+      <button id="orb" aria-label="Talk to SirisAI"></button>
+    </div>
+    <div id="orb-hint">Tap to talk</div>
+    <div id="transcript"></div>
+    <div id="reply"></div>
+  </section>
+
+  <section class="col">
+    <div class="panel" id="cams-panel" hidden>
+      <h2>Cameras</h2>
+      <div class="cams" id="cams"></div>
+    </div>
+    <div class="panel">
+      <h2>On my own today</h2>
+      <ul class="list" id="autonomy"><li class="muted">Nothing yet.</li></ul>
+    </div>
+  </section>
+</main>
+<div id="error"></div>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get("key")) localStorage.setItem("sirisai_api_key", params.get("key"));
+  const key = () => localStorage.getItem("sirisai_api_key") || "";
+  const authHeaders = (extra = {}) => Object.assign(key() ? { Authorization: `Bearer ${key()}` } : {}, extra);
+  const $ = (id) => document.getElementById(id);
+  const errorBox = $("error");
+
+  async function getJSON(path) {
+    const response = await fetch(path, { headers: authHeaders() });
+    if (!response.ok) throw new Error(response.status === 401 ? "Unauthorized -- open the HUD as /hud?key=YOUR_API_KEY once" : `${path}: ${response.status}`);
+    return response.json();
+  }
+
+  // --- clock
+  function tick() {
+    const now = new Date();
+    $("clock").textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("date").textContent = now.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  }
+  tick();
+  setInterval(tick, 1000);
+
+  // --- rings
+  function ring(label, percent) {
+    const r = 32, c = 2 * Math.PI * r, p = Math.max(0, Math.min(100, percent || 0));
+    const color = p > 90 ? "var(--bad)" : p > 75 ? "var(--warn)" : "var(--accent)";
+    return `<div class="ring"><svg viewBox="0 0 78 78"><circle cx="39" cy="39" r="${r}" fill="none" stroke="rgba(96,200,255,0.12)" stroke-width="6"/>` +
+      `<circle cx="39" cy="39" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p / 100)}" transform="rotate(-90 39 39)"/>` +
+      `<text x="39" y="44" text-anchor="middle" class="value">${Math.round(p)}%</text></svg>${label}</div>`;
+  }
+
+  function text(node, value) { node.textContent = value; return node; }
+  function li(time, body) {
+    const item = document.createElement("li");
+    if (time) { const t = document.createElement("span"); t.className = "t"; t.textContent = time; item.appendChild(t); }
+    item.appendChild(document.createTextNode(body));
+    return item;
+  }
+
+  async function refresh() {
+    try {
+      const s = await getJSON("/siris/hud/summary");
+      errorBox.textContent = "";
+      if (s.system) {
+        const disk = Object.values(s.system.disk || {})[0];
+        $("rings").innerHTML = ring("CPU", s.system.cpu_percent) + ring("Memory", s.system.memory.percent_used) + (disk ? ring("Disk", disk.percent_used) : "");
+      }
+      const chips = [];
+      if (s.guest_mode && s.guest_mode.on) chips.push('<span class="chip warn">Guest mode</span>');
+      if (s.energy && s.energy.configured) chips.push(`<span class="chip ${s.energy.cheap_now ? "on" : ""}">${s.energy.cheap_now ? "Cheap power now" : "Power: normal rate"}</span>`);
+      if (s.car && s.car.low_battery) chips.push(`<span class="chip warn">Car ${Math.round(s.car.battery)}%</span>`);
+      chips.push('<span class="chip on">Online</span>');
+      $("chips").innerHTML = chips.join("");
+
+      const weatherOk = s.weather && s.weather.temperature_c != null;
+      $("weather-panel").hidden = !weatherOk;
+      if (weatherOk) { text($("weather-temp"), `${Math.round(s.weather.temperature_c)}°`); text($("weather-text"), s.weather.conditions); }
+
+      const events = s.next_events || [];
+      $("events-panel").hidden = !events.length;
+      $("events").replaceChildren(...events.map((e) => li(e.start && e.start.includes("T") ? new Date(e.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "", e.summary)));
+
+      $("car-panel").hidden = !s.car;
+      if (s.car) text($("car"), s.car.summary);
+
+      const parcels = s.parcels || [];
+      $("parcels-panel").hidden = !parcels.length;
+      $("parcels").replaceChildren(...parcels.map((p) => li("", `${p.label} -- ${p.status_text}`)));
+
+      const autonomy = s.autonomy || [];
+      $("autonomy").replaceChildren(...(autonomy.length ? autonomy.map((a) => li(a.local_time, a.what)) : [li("", "Nothing yet.")]));
+
+      setCameras(s.cameras || []);
+    } catch (err) {
+      errorBox.textContent = err.message;
+    }
+  }
+
+  // --- cameras: fetched with auth, shown as blob URLs
+  let cameraNames = [];
+  function setCameras(cameras) {
+    const names = cameras.filter((c) => c.enabled !== false).map((c) => c.name).slice(0, 4);
+    $("cams-panel").hidden = !names.length;
+    if (names.join() === cameraNames.join()) return;
+    cameraNames = names;
+    $("cams").replaceChildren(...names.map((name) => {
+      const tile = document.createElement("div");
+      tile.className = "cam";
+      tile.innerHTML = `<img alt=""><span></span>`;
+      tile.querySelector("span").textContent = name.replace(/_/g, " ");
+      tile.dataset.camera = name;
+      return tile;
+    }));
+    refreshCameras();
+  }
+  async function refreshCameras() {
+    for (const tile of document.querySelectorAll(".cam")) {
+      try {
+        const response = await fetch(`/siris/cameras/${encodeURIComponent(tile.dataset.camera)}/latest.jpg?height=360`, { headers: authHeaders() });
+        if (!response.ok) continue;
+        const img = tile.querySelector("img");
+        const old = img.src;
+        img.src = URL.createObjectURL(await response.blob());
+        if (old.startsWith("blob:")) URL.revokeObjectURL(old);
+      } catch (err) { /* a dead camera keeps its last frame */ }
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 15000);
+  setInterval(refreshCameras, 10000);
+
+  // --- voice: tap the orb, speak, tap again (or pause) -- streamed reply plays sentence by sentence
+  const orb = $("orb");
+  const hint = $("orb-hint");
+  const canvas = $("wave");
+  const ctx2d = canvas.getContext("2d");
+  let recording = null;
+  let audioQueue = Promise.resolve();
+  let conversationId = null;
+
+  function drawWave(analyser) {
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const draw = () => {
+      if (!recording) { ctx2d.clearRect(0, 0, canvas.width, canvas.height); return; }
+      analyser.getByteTimeDomainData(data);
+      ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+      ctx2d.strokeStyle = "rgba(138,245,200,0.9)";
+      ctx2d.lineWidth = 3;
+      ctx2d.beginPath();
+      const cx = canvas.width / 2, cy = canvas.height / 2, base = canvas.width * 0.39;
+      for (let i = 0; i <= data.length; i++) {
+        const v = (data[i % data.length] - 128) / 128;
+        const angle = (i / data.length) * Math.PI * 2;
+        const radius = base + v * 60;
+        const x = cx + Math.cos(angle) * radius, y = cy + Math.sin(angle) * radius;
+        if (i === 0) ctx2d.moveTo(x, y); else ctx2d.lineTo(x, y);
+      }
+      ctx2d.stroke();
+      requestAnimationFrame(draw);
+    };
+    draw();
+  }
+
+  function encodeWav(chunks, rate) {
+    const length = chunks.reduce((n, c) => n + c.length, 0);
+    const view = new DataView(new ArrayBuffer(44 + length * 2));
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+    str(0, "RIFF"); view.setUint32(4, 36 + length * 2, true); str(8, "WAVE"); str(12, "fmt ");
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    str(36, "data"); view.setUint32(40, length * 2, true);
+    let o = 44;
+    for (const c of chunks) for (const s of c) { view.setInt16(o, Math.max(-1, Math.min(1, s)) * 0x7fff, true); o += 2; }
+    return new Blob([view], { type: "audio/wav" });
+  }
+
+  async function startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks = [];
+    let silentFor = 0, heard = false;
+    processor.onaudioprocess = (e) => {
+      const samples = new Float32Array(e.inputBuffer.getChannelData(0));
+      chunks.push(samples);
+      const rms = Math.sqrt(samples.reduce((a, s) => a + s * s, 0) / samples.length);
+      if (rms > 0.02) { heard = true; silentFor = 0; } else if (heard) { silentFor += samples.length / ctx.sampleRate; }
+      if (heard && silentFor > 1.2) stopRecording();
+    };
+    source.connect(analyser);
+    source.connect(processor);
+    processor.connect(ctx.destination);
+    recording = { stream, ctx, processor, source, chunks, timer: setTimeout(stopRecording, 12000) };
+    orb.className = "listening";
+    hint.textContent = "Listening...";
+    drawWave(analyser);
+  }
+
+  async function stopRecording() {
+    if (!recording) return;
+    const { stream, ctx, processor, source, chunks, timer } = recording;
+    recording = null;
+    clearTimeout(timer);
+    processor.disconnect(); source.disconnect();
+    stream.getTracks().forEach((t) => t.stop());
+    const rate = ctx.sampleRate;
+    await ctx.close();
+    converse(encodeWav(chunks, rate));
+  }
+
+  function play(base64) {
+    audioQueue = audioQueue.then(() => new Promise((resolve) => {
+      const audio = new Audio(`data:audio/mpeg;base64,${base64}`);
+      orb.className = "speaking";
+      audio.onended = audio.onerror = () => resolve();
+      audio.play().catch(() => resolve());
+    }));
+    return audioQueue;
+  }
+
+  async function converse(wav) {
+    orb.className = "thinking";
+    hint.textContent = "Thinking...";
+    $("transcript").textContent = "";
+    $("reply").textContent = "";
+    const form = new FormData();
+    form.append("file", wav, "hud.wav");
+    if (conversationId) form.append("conversation_id", conversationId);
+    let expectsReply = false;
+    try {
+      const response = await fetch("/siris/voice/converse", { method: "POST", body: form, headers: authHeaders() });
+      if (!response.ok) throw new Error(`Voice: ${response.status}`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline;
+        while ((newline = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (!line) continue;
+          const event = JSON.parse(line);
+          if (event.type === "transcript") $("transcript").textContent = event.text ? `"${event.text}"` : "";
+          if (event.type === "speaker" && event.user_id) hint.textContent = `Hello, ${event.user_id}`;
+          if (event.type === "sentence") {
+            $("reply").textContent += ($("reply").textContent ? " " : "") + event.text;
+            if (event.audio) play(event.audio);
+          }
+          if (event.type === "final") { conversationId = event.conversation_id || conversationId; expectsReply = !!event.expects_reply; }
+          if (event.type === "error") $("reply").textContent = event.detail;
+        }
+      }
+    } catch (err) {
+      $("reply").textContent = err.message;
+    }
+    await audioQueue;
+    orb.className = "";
+    hint.textContent = expectsReply ? "Tap to answer" : "Tap to talk";
+    refresh();
+  }
+
+  orb.addEventListener("click", () => {
+    if (recording) { stopRecording(); return; }
+    startRecording().catch((err) => { hint.textContent = `Microphone unavailable: ${err.message}`; });
+  });
+})();
+</script>
+</body>
+</html>

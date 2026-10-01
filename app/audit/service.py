@@ -92,6 +92,18 @@ class AuditLogStore:
             )
             return [self._serialize(row) for row in session.scalars(stmt).all()]
 
+    def since(self, since: datetime, limit: int = 500) -> list[dict[str, Any]]:
+        """Entries recorded at or after `since` (UTC), oldest first."""
+        cutoff = since.astimezone(UTC).replace(tzinfo=None) if since.tzinfo else since
+        with self._session_factory() as session:
+            stmt = (
+                select(ToolExecution)
+                .where(ToolExecution.created_at >= cutoff)
+                .order_by(ToolExecution.created_at, ToolExecution.id)
+                .limit(limit)
+            )
+            return [self._serialize(row) for row in session.scalars(stmt).all()]
+
     def find_recent(self, tool_name: str, argument_contains: str | None = None, limit: int = 5) -> list[dict[str, Any]]:
         """The most recent entries for one tool, most recent first --
         optionally narrowed to ones whose arguments mention
