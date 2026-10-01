@@ -4851,6 +4851,60 @@ provider for the same capability actually exists to design against.
     `panic: /config/app.yml missing` log lines, after which it was left
     alone; an unwatched healthy container was never touched.
 
+111. **Done** -- Security briefing and backup verification: one check-up
+    that answers "is anything about the homelab's security or backups
+    wrong?", run on a schedule and on request.
+
+    `security_briefing` (`app/skills/builtin/security.py`, checks in
+    `app/security/`), every section best-effort (an unreachable source is
+    reported, never fatal):
+    - **Certificates** -- days until expiry for each `host[:port]` in
+      `SIRISAI_SECURITY_CERT_HOSTS`, with verification off on purpose
+      (self-signed homelab certs are the norm; the question is expiry, not
+      trust). Uses `cryptography` when installed, otherwise the stdlib's
+      own certificate decoder -- both paths are tested.
+    - **Failed SSH logins** on the cron hosts (milestone 104's SSH access):
+      "Failed password / Invalid user" counts per source IP over 24h, from
+      the journal if it has any, else `/var/log/auth.log`; warned at
+      `SIRISAI_SECURITY_SSH_FAILED_THRESHOLD` (25).
+    - **UniFi intrusion alerts** from the controller's IPS event log (the
+      classic API -- the Integration API has none; reported as
+      unavailable where the controller doesn't accept the API key there).
+    - **Vulnerable images** -- `security_scan_images` runs Trivy over the
+      images of running containers (HIGH/CRITICAL counts, fixable count,
+      worst examples), weekly on the scheduler when `trivy` is installed;
+      the briefing reads the last result.
+    - **Backups** -- `backup_check` reads each Hyper Backup task's last
+      result *and* last successful time (new `SYNO.Backup.Task status`
+      call): failed runs, tasks that haven't succeeded within
+      `SIRISAI_BACKUP_MAX_AGE_HOURS` (26), and tasks with no success on
+      record are all flagged -- a job that silently stopped running looks
+      fine by its last result alone.
+
+    The scheduler runs it every `SIRISAI_SECURITY_CHECK_INTERVAL_HOURS` (6)
+    and acts only on problems: an urgent push for a failed/stale backup or
+    a certificate inside a week of expiry; everything else is queued for
+    the daily briefing.
+
+    Found live and fixed: the SSH check's first form,
+    `journalctl ... || cat auth.log`, never reached the log file on a host
+    where journalctl exists but holds no sshd entries -- it exits 0 with
+    nothing. It now falls back whenever the journal has no matches.
+
+    Verified: 10 tests (certificate expiry against a real local TLS server
+    with an openssl-generated self-signed cert, with and without
+    `cryptography`; unreachable cert host; SSH output parsing with one host
+    failing; Trivy JSON summarised via a stand-in binary; backup evaluation
+    -- ok, failed, stale, never, running; backup check and briefing through
+    the tools; the scheduled watch pushing the urgent item and queuing the
+    rest; all-clear with nothing configured). Live against a real server:
+    a real `sshd` (logging to a file) that had just rejected real logins
+    for invalid users, reached over real SSH, and a real TLS server whose
+    certificate expires in 5 days -- the briefing reported "The
+    certificate on 127.0.0.1:18443 expires in 5 days; 4 failed SSH logins
+    on root@127.0.0.1 in 24h (from 127.0.0.1 (4))". Trivy itself couldn't
+    be installed in this sandbox; its output parsing is covered by tests.
+
 ## Running locally
 
 ```bash

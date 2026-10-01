@@ -472,6 +472,22 @@ class Settings(BaseSettings):
     synology_username: str = ""
     synology_password: str = ""
     synology_verify_ssl: bool = True
+    # A backup that hasn't succeeded within this many hours counts as stale.
+    backup_max_age_hours: float = 26.0
+
+    # Security briefing (app/skills/builtin/security.py). cert hosts are
+    # "host" or "host:port" (default 443), comma-separated. The scheduler
+    # runs the check every security_check_interval_hours (0 = never) and a
+    # Trivy image scan every security_scan_interval_days when `trivy` is
+    # installed.
+    security_cert_hosts: str = ""
+    security_cert_warn_days: int = 14
+    security_ssh_failed_threshold: int = 25
+    security_check_interval_hours: float = 6.0
+    security_scan_interval_days: float = 7.0
+
+    def security_cert_host_list(self) -> list[str]:
+        return [h.strip() for h in self.security_cert_hosts.split(",") if h.strip()]
 
     # Cron job overview (app/cron/, app/plugins/builtin/cron.py) -- read and
     # toggle crontab entries on other machines on the network (a home Linux

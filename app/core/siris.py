@@ -252,6 +252,7 @@ from app.plugins.builtin.protocols import (
 )
 from app.skills.builtin.intruder import IntruderCheckSkill
 from app.plugins.builtin.remediation import RemediationStatusTool
+from app.skills.builtin.security import BackupCheckSkill, SecurityBriefingSkill, SecurityScanImagesSkill
 from app.voice.voiceprints import VoiceprintStore
 from app.plugins.builtin.voiceprints import DeleteVoiceprintTool, ListVoiceprintsTool
 from app.weather.client import WeatherClient
@@ -855,6 +856,11 @@ class SirisAI:
         self.tools.register(SkillTool(UndoLastProtocolSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
         if self._frigate_client is not None:
             self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
+        self.tools.register(SkillTool(SecurityBriefingSkill(), self))
+        if self._synology_client is not None:
+            self.tools.register(SkillTool(BackupCheckSkill(), self))
+        if self._docker_client is not None:
+            self.tools.register(SkillTool(SecurityScanImagesSkill(), self))
         self.tools.register(SkillTool(ServerHealthSkill(), self))
         self.tools.register(SkillTool(SelfMaintenanceSkill(), self))
         self.tools.register(SkillTool(EventTimingSkill(), self))

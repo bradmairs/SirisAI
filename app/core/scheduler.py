@@ -116,6 +116,37 @@ def run_self_healing(siris: "SirisAI") -> None:
         logger.exception("Scheduled self-healing check failed")
 
 
+def run_security_watch(siris: "SirisAI") -> dict | None:
+    """security_briefing on a schedule, acting only on problems: an urgent
+    push for failed/stale backups or a certificate about to expire, a note
+    for the daily briefing for everything else."""
+    try:
+        report = siris.tools.get("security_briefing").run()  # type: ignore[union-attr]
+    except Exception:
+        logger.exception("Scheduled security check failed")
+        return None
+    trigger = "security watch: automated schedule"
+    if report["urgent"]:
+        if siris.tools.get("notify") is not None:
+            siris.run_tool("notify", {"title": "SirisAI: security", "message": "; ".join(report["urgent"]), "priority": "urgent"}, trigger=trigger, evidence=report["urgent"])
+        else:
+            for line in report["urgent"]:
+                siris.pending_notifications.queue(line, severity="urgent", category="security")
+    for line in report["warnings"]:
+        siris.pending_notifications.queue(line, severity="warning", category="security")
+    return report
+
+
+def run_image_scan(siris: "SirisAI") -> None:
+    tool = siris.tools.get("security_scan_images")
+    if tool is None:
+        return
+    try:
+        tool.run()
+    except Exception:
+        logger.exception("Scheduled image scan failed")
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -157,6 +188,8 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_presence = 0.0
     last_intruder = 0.0
     last_healing = 0.0
+    last_security = time.monotonic()  # first check one interval after startup, not at boot
+    last_scan = time.monotonic()
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -183,6 +216,16 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if healing_interval > 0 and time.monotonic() - last_healing >= healing_interval:
                 await asyncio.to_thread(run_self_healing, siris)
                 last_healing = time.monotonic()
+
+            security_interval = siris.settings.security_check_interval_hours * 3600
+            if security_interval > 0 and time.monotonic() - last_security >= security_interval:
+                await asyncio.to_thread(run_security_watch, siris)
+                last_security = time.monotonic()
+
+            scan_interval = siris.settings.security_scan_interval_days * 86400
+            if scan_interval > 0 and time.monotonic() - last_scan >= scan_interval:
+                await asyncio.to_thread(run_image_scan, siris)
+                last_scan = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:
