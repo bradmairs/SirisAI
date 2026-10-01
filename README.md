@@ -4810,6 +4810,47 @@ provider for the same capability actually exists to design against.
     set to away, `intruder_check` turned a Frigate person event into an
     urgent push carrying the vision model's description.
 
+110. **Done** -- Self-healing homelab: watched containers that go down get
+    the known fix automatically, within a budget, and a human gets the logs
+    when that doesn't work. Before this, SirisAI noticed a failed container
+    and notified; closing the loop is the Jarvis step.
+
+    `app/remediation/runner.py`, run by the scheduler every
+    `SIRISAI_REMEDIATION_CHECK_INTERVAL_MINUTES` (5):
+    - Watches only what you list in `SIRISAI_REMEDIATION_CONTAINERS`
+      (comma-separated, or `*`). Listing a container is your standing
+      approval to restart exactly that container without asking, so the
+      restart goes through `docker_restart_container` auto-confirmed, with
+      a `self-healing: ...` trigger in the audit log.
+    - Down means exited, dead, stuck restarting, or `(unhealthy)`.
+    - Runbook: restart -> wait `SIRISAI_REMEDIATION_SETTLE_SECONDS` (8) and
+      re-check -> still up: a note queued for the next briefing, no push;
+      not up, or not allowed to try: read the last 15 log lines and send
+      one urgent push with them (once per container per hour).
+    - Budget: at most `SIRISAI_REMEDIATION_MAX_RESTARTS_PER_CONTAINER` (2)
+      restarts per container and `SIRISAI_REMEDIATION_MAX_ACTIONS_PER_HOUR`
+      (4) in total per rolling hour -- a crash loop gets a couple of
+      restarts, then you, never an endless restart loop hiding the real
+      problem. `remediation_status` (READ) shows what's watched, what was
+      done this hour and the budget left.
+
+    Found live and fixed: `docker_restart_container`'s own verify() checks
+    straight after the restart, and a container that crashes on start is
+    briefly "running" then -- against a real always-crashing container it
+    reported success. Self-healing now judges by the settled state instead.
+
+    Verified: 6 tests (unhealthy detection, recover -> briefing note and
+    no push, crash loop -> two restarts then one alert with logs and a
+    reset after an hour, the global budget across containers, nothing
+    without a watch list, the briefly-up-then-crashed regression). Live
+    against a **real Docker daemon** with real busybox containers and
+    SirisAI's real scheduler: `flaky` (crashes once, then serves) was
+    restarted once and stayed up, and its recovery note was queued;
+    `broken` (always exits) was restarted twice, recognised as still down
+    each time, and produced one urgent push containing its actual
+    `panic: /config/app.yml missing` log lines, after which it was left
+    alone; an unwatched healthy container was never touched.
+
 ## Running locally
 
 ```bash

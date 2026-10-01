@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from app.core import clock
 from app.core.health import broken_tools
 from app.notify import proactive
+from app.remediation import runner as remediation
 from app.reminders.service import MAX_ATTEMPTS
 
 if TYPE_CHECKING:
@@ -105,6 +106,16 @@ def run_intruder_check(siris: "SirisAI") -> None:
         logger.exception("Scheduled intruder check failed")
 
 
+def run_self_healing(siris: "SirisAI") -> None:
+    """Self-healing (app/remediation/runner.py), when containers are watched."""
+    if siris._docker_client is None or not siris.settings.remediation_container_list():
+        return
+    try:
+        remediation.run(siris)
+    except Exception:
+        logger.exception("Scheduled self-healing check failed")
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -145,6 +156,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_proactive = 0.0
     last_presence = 0.0
     last_intruder = 0.0
+    last_healing = 0.0
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -166,6 +178,11 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if intruder_interval > 0 and time.monotonic() - last_intruder >= intruder_interval:
                 await asyncio.to_thread(run_intruder_check, siris)
                 last_intruder = time.monotonic()
+
+            healing_interval = siris.settings.remediation_check_interval_minutes * 60
+            if healing_interval > 0 and time.monotonic() - last_healing >= healing_interval:
+                await asyncio.to_thread(run_self_healing, siris)
+                last_healing = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

@@ -153,6 +153,22 @@ class Settings(BaseSettings):
     # docker_* tools aren't registered.
     docker_base_url: str = ""
 
+    # Self-healing (app/remediation/runner.py): containers SirisAI may restart
+    # on its own when they exit, crash-loop or turn unhealthy (comma-separated
+    # names; "*" = every container). Listing one is your standing approval to
+    # restart exactly that container without asking. Capped per container and
+    # in total per hour; past the cap -- or when a restart doesn't fix it -- you
+    # get an urgent push with the last log lines instead. Empty = off.
+    remediation_containers: str = ""
+    remediation_check_interval_minutes: float = 5.0
+    remediation_max_restarts_per_container: int = 2
+    remediation_max_actions_per_hour: int = 4
+    # How long a restarted container must stay up to count as fixed.
+    remediation_settle_seconds: float = 8.0
+
+    def remediation_container_list(self) -> list[str]:
+        return [c.strip() for c in self.remediation_containers.split(",") if c.strip()]
+
     # Plex (app/plex/, app/plugins/builtin/plex.py). Empty base_url or
     # token = plex_* tools aren't registered.
     plex_base_url: str = ""

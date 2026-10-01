@@ -251,6 +251,7 @@ from app.plugins.builtin.protocols import (
     UndoLastProtocolSkill,
 )
 from app.skills.builtin.intruder import IntruderCheckSkill
+from app.plugins.builtin.remediation import RemediationStatusTool
 from app.voice.voiceprints import VoiceprintStore
 from app.plugins.builtin.voiceprints import DeleteVoiceprintTool, ListVoiceprintsTool
 from app.weather.client import WeatherClient
@@ -322,6 +323,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "set_routine_enabled": "routines",
     "speak_in_current_room": "satellites",
     "list_voiceprints": "voice",
+    "remediation_status": "docker",
     "set_guest_mode": "modes",
     "guest_mode_status": "modes",
     "list_protocols": "protocols",
@@ -640,6 +642,7 @@ class SirisAI:
             self.tools.register(DockerListContainersTool(self._docker_client))
             self.tools.register(DockerResolveContainerTool(self._docker_client))
             self.tools.register(DockerGetContainerLogsTool(self._docker_client))
+            self.tools.register(RemediationStatusTool(self))
             self.tools.register(
                 DockerRestartContainerTool(
                     self._docker_client, self.entities, self._plex_client
