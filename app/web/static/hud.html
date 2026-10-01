@@ -246,6 +246,22 @@
   let audioQueue = Promise.resolve();
   let conversationId = null;
 
+  // iOS Safari only allows HTMLMediaElement.play() when it's called
+  // synchronously inside a user-gesture handler, or on an element that was
+  // already "unlocked" by such a call earlier -- the reply's play() here
+  // happens many seconds later, deep inside the converse() streaming
+  // response, which Safari silently blocks (no error, just no sound).
+  // Reusing one element that gets unlocked on the orb tap keeps the actual
+  // reply playback working.
+  const playbackAudio = new Audio();
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    playbackAudio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+    playbackAudio.play().then(() => playbackAudio.pause()).catch(() => {});
+  }
+
   function drawWave(analyser) {
     const data = new Uint8Array(analyser.frequencyBinCount);
     const draw = () => {
@@ -321,10 +337,10 @@
 
   function play(base64) {
     audioQueue = audioQueue.then(() => new Promise((resolve) => {
-      const audio = new Audio(`data:audio/mpeg;base64,${base64}`);
+      playbackAudio.src = `data:audio/mpeg;base64,${base64}`;
       orb.className = "speaking";
-      audio.onended = audio.onerror = () => resolve();
-      audio.play().catch(() => resolve());
+      playbackAudio.onended = playbackAudio.onerror = () => resolve();
+      playbackAudio.play().catch(() => resolve());
     }));
     return audioQueue;
   }
@@ -374,6 +390,7 @@
   }
 
   orb.addEventListener("click", () => {
+    unlockAudio();
     if (recording) { stopRecording(); return; }
     startRecording().catch((err) => { hint.textContent = `Microphone unavailable: ${err.message}`; });
   });

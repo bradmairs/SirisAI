@@ -806,6 +806,22 @@
   let autoSpeakEnabled = false;
   let autoShowThinking = true;
 
+  // iOS Safari only allows HTMLMediaElement.play() when it's called
+  // synchronously inside a user-gesture handler, or on an element that was
+  // already "unlocked" by such a call earlier -- a `new Audio().play()`
+  // several awaits deep inside a streamed response (exactly what auto-play
+  // does) is silently blocked there with no error surfaced. Reusing one
+  // element that gets unlocked on the Send-button/Enter gesture keeps every
+  // later programmatic play() (manual speaker click or auto-play) working.
+  const playbackAudio = new Audio();
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    playbackAudio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+    playbackAudio.play().then(() => playbackAudio.pause()).catch(() => {});
+  }
+
   function addMessage(text, cls) {
     const div = document.createElement("div");
     div.className = `msg ${cls}`;
@@ -1016,6 +1032,7 @@
     noBtn.textContent = "Cancel";
 
     yesBtn.addEventListener("click", async () => {
+      unlockAudio();
       yesBtn.disabled = true;
       noBtn.disabled = true;
       try {
@@ -1057,8 +1074,8 @@
         raw: true,
       });
       const blob = await response.blob();
-      const audio = new Audio(URL.createObjectURL(blob));
-      await audio.play();
+      playbackAudio.src = URL.createObjectURL(blob);
+      await playbackAudio.play();
     } catch (err) {
       // Autoplay can be blocked by the browser until the user has
       // interacted with the page at all -- not worth an error bubble for
@@ -1192,6 +1209,7 @@
 
   chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
+    unlockAudio();
     if (running) return;
     const images = pendingImages;
     const prompt = chatInput.value.trim() || (images.length ? "What's in this picture?" : "");
