@@ -34,6 +34,7 @@ _PERSONAL_TOOLS = {
     "meeting_prep",
     "daily_briefing",
     "bedtime_check",
+    "departure_check",
 }
 
 

@@ -82,6 +82,13 @@ class PresenceSkill(Skill):
             )
             result["scene_activated"] = scene_entity_id
 
+        if not currently_home and siris.tools.get("departure_check") is not None:
+            # Everyone just left: anything open, coming up, or wet?
+            try:
+                result["departure"] = siris.run_tool("departure_check", {"notify": True}, trigger="presence_check: everyone left")
+            except Exception:
+                result["departure"] = None
+
         return result
 
 

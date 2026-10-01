@@ -366,6 +366,9 @@ class Settings(BaseSettings):
     # night_start_hour until night_end_hour, local time. guest_wifi_entity_id
     # is a Home Assistant switch for the guest network (the UniFi integration
     # creates one per WLAN) that the guest protocols turn on and off.
+    # Departure heads-up (app/skills/builtin/departure.py): how far ahead a
+    # calendar event counts as "coming up" when you leave.
+    departure_event_window_hours: float = 3.0
     night_start_hour: int = 22
     night_end_hour: int = 6
     guest_wifi_entity_id: str = ""

@@ -4941,6 +4941,37 @@ provider for the same capability actually exists to design against.
     wasn't suggested); replaying the push's own "Create automation" request
     created exactly that automation in Home Assistant.
 
+113. **Done** -- Heads-up when you leave: "Before you go: garage door is
+    open; back door is unlocked; 1 light on. 'Dentist' at 09:00 starts in
+    40 min. 80% chance of rain today -- take an umbrella." -- in one push,
+    with a button to fix it.
+
+    `departure_check` (`app/skills/builtin/departure.py`, SAFE_ACTION):
+    - Left open (Home Assistant): garage doors/gates/door covers open,
+      locks unlocked, lights on, media playing. Window blinds don't count.
+    - Next timed calendar event within `SIRISAI_DEPARTURE_EVENT_WINDOW_HOURS`
+      (3); all-day events are skipped.
+    - Today's rain chance from the forecast, mentioned at 50%+.
+    - With `notify`, it pushes the summary (high priority when something is
+      open) with a one-tap **Run Away protocol** button (milestone 109)
+      when `SIRISAI_PUBLIC_BASE_URL` is set.
+    - Runs automatically when `presence_check` sees the house go from
+      occupied to empty, and on request -- "I'm heading out" in chat, or an
+      iOS Shortcut hitting `/siris/ask` or the tool endpoint. Hidden in
+      guest mode (it reads the calendar). No travel times: there's no maps
+      integration.
+
+    Verified: 3 tests (open garage/unlocked lock/lights, the next timed
+    event in the window, rain, the push and its Away button; "all good"
+    with nothing open and no button; presence going empty triggering it).
+    Live against a real server with fake Home Assistant, Open-Meteo and
+    ntfy: the push said "Before you go: Garage door is open;
+    lock.back_door is unlocked; 1 light on (Kitchen). 80% chance of rain
+    today (slight rain) -- take an umbrella."; the open blind wasn't
+    listed; replaying the push's "Run Away protocol" request ran all five
+    Away steps and Home Assistant then showed the garage closed and the
+    back door locked.
+
 ## Running locally
 
 ```bash

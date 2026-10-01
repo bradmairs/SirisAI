@@ -251,6 +251,7 @@ from app.plugins.builtin.protocols import (
     UndoLastProtocolSkill,
 )
 from app.skills.builtin.intruder import IntruderCheckSkill
+from app.skills.builtin.departure import DepartureCheckSkill
 from app.plugins.builtin.remediation import RemediationStatusTool
 from app.plugins.builtin.habits import AcceptHabitSuggestionSkill, DismissHabitSuggestionTool, HabitSuggestionsSkill
 from app.skills.builtin.security import BackupCheckSkill, SecurityBriefingSkill, SecurityScanImagesSkill
@@ -861,6 +862,7 @@ class SirisAI:
         self.tools.register(SkillTool(UndoLastProtocolSkill(), self, permission=ToolPermission.CONFIRM_REQUIRED))
         if self._frigate_client is not None:
             self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
+        self.tools.register(SkillTool(DepartureCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(SkillTool(SecurityBriefingSkill(), self))
         if self._synology_client is not None:
             self.tools.register(SkillTool(BackupCheckSkill(), self))
