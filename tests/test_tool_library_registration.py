@@ -39,6 +39,9 @@ def test_optional_tool_libraries_not_registered_by_default() -> None:
         "obsidian_get_note",
         "obsidian_search",
         "obsidian_create_or_update_note",
+        "brain_search",
+        "brain_get_note",
+        "brain_learn",
         "frigate_list_cameras",
         "frigate_recent_events",
     }

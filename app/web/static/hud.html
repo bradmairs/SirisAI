@@ -98,6 +98,10 @@
       <h2>Deliveries</h2>
       <ul class="list" id="parcels"></ul>
     </div>
+    <div class="panel" id="brain-panel" hidden>
+      <h2>Learned today</h2>
+      <ul class="list" id="brain"></ul>
+    </div>
   </section>
 
   <section class="col center">
@@ -193,6 +197,10 @@
       const parcels = s.parcels || [];
       $("parcels-panel").hidden = !parcels.length;
       $("parcels").replaceChildren(...parcels.map((p) => li("", `${p.label} -- ${p.status_text}`)));
+
+      const brain = s.brain || [];
+      $("brain-panel").hidden = !brain.length;
+      $("brain").replaceChildren(...brain.map((b) => li(b.action === "learned" ? "new" : "updated", b.title)));
 
       const autonomy = s.autonomy || [];
       $("autonomy").replaceChildren(...(autonomy.length ? autonomy.map((a) => li(a.local_time, a.what)) : [li("", "Nothing yet.")]));

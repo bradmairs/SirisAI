@@ -18,6 +18,7 @@ from app.remediation import runner as remediation
 from app.anticipation import habits
 from app.energy import service as energy
 from app.reminders.service import MAX_ATTEMPTS
+from app.second_brain import jobs as brain_jobs
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -322,6 +323,10 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if eval_interval > 0 and time.monotonic() - last_eval >= eval_interval:
                 await asyncio.to_thread(run_tool_choice_eval, siris)
                 last_eval = time.monotonic()
+
+            # Second brain growth jobs: each decides for itself whether it's due today.
+            if siris.second_brain is not None:
+                await brain_jobs.run_due(siris)
         except asyncio.CancelledError:
             raise
         except Exception:

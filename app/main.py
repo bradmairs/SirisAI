@@ -9,6 +9,7 @@ import psutil
 from fastapi import FastAPI
 
 from app.api.routes import (
+    brain,
     cameras,
     cron,
     evals,
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(satellites.router)
     app.include_router(integrations.router)
     app.include_router(voice.router)
+    app.include_router(brain.router)
     app.include_router(web.router)
 
     return app

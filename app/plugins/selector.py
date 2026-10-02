@@ -72,6 +72,7 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
         ("system_info", "server_health_check", "self_maintenance_check", "hermes_", "rebuild_and_restart"),
     ),
     (frozenset("note notes obsidian vault".split()), ("obsidian_",)),
+    (frozenset("brain knowledge learned learn note notes vault".split()), ("brain_",)),
     (frozenset("goal goals objective objectives".split()), ("create_goal", "list_goals", "update_goal_status", "add_goal_objective", "complete_goal_objective", "goal_")),
     (frozenset("routine routines every nightly daily weekday weekdays weekend".split()), ("create_routine", "list_routines", "set_routine_enabled")),
     (

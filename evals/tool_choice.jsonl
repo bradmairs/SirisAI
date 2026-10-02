@@ -69,3 +69,6 @@
 {"prompt": "my mates are coming round, keep my private stuff private", "expect": ["set_guest_mode", "run_protocol"]}
 {"prompt": "what's eating all the bandwidth?", "expect": ["unifi_list_clients", "run_speed_test"]}
 {"prompt": "the jellyfin server keeps falling over", "expect": ["docker_list_containers", "docker_get_container_logs", "docker_resolve_container", "remediation_status"]}
+{"prompt": "what does my second brain say about the marathon?", "expect": ["brain_search", "brain_get_note"]}
+{"prompt": "add to my brain that the GVW office is in Shepparton", "expect": ["brain_learn"]}
+{"prompt": "check my knowledge notes on the home server", "expect": ["brain_search", "brain_get_note", "obsidian_search"]}

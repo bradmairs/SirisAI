@@ -47,6 +47,7 @@ def _summary(siris: SirisAI) -> dict[str, Any]:
         "car": _try(lambda: tool("car_status")),
         "cameras": _try(lambda: siris._frigate_client.list_cameras() if siris._frigate_client else []),
         "autonomy": _try(lambda: timeline(siris, hours=24)["items"][:8]),
+        "brain": _try(lambda: siris.second_brain.learned_today(now.date().isoformat())[:8] if siris.second_brain else None),
         "recent": _try(lambda: [
             {"tool": a["tool_name"], "time": a["created_at"], "error": bool(a["error"])} for a in siris.audit.list_recent(limit=6)
         ]),

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Siris Brain Map</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #04050c; color: #8a93b8; font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  main { height: 100%; display: grid; place-items: center; text-align: center; padding: 0 16px; }
+  b { color: #7df9ff; font-weight: 500; }
+</style>
+</head>
+<body>
+<main><p id="status">Loading the brain…</p></main>
+<script>
+  // The map embeds every note, so it's fetched with the API key rather than served openly.
+  // Open once as /brain?key=YOUR_API_KEY to store the key in this browser (same as /hud).
+  const params = new URLSearchParams(location.search);
+  if (params.get("key")) localStorage.setItem("sirisai_api_key", params.get("key"));
+  const key = localStorage.getItem("sirisai_api_key") || "";
+  fetch("/siris/brain/map.html", { headers: key ? { Authorization: `Bearer ${key}` } : {} })
+    .then(async (r) => {
+      if (r.status === 401) throw new Error("Unauthorized: open this page once as <b>/brain?key=YOUR_API_KEY</b>.");
+      if (r.status === 404) throw new Error("No second brain is configured. Set <b>SIRISAI_BRAIN_PATH</b> and restart.");
+      if (!r.ok) throw new Error(`The map couldn't be drawn (${r.status}).`);
+      const html = await r.text();
+      document.open(); document.write(html); document.close();
+    })
+    .catch((e) => { document.getElementById("status").innerHTML = e.message; });
+</script>
+</body>
+</html>

@@ -28,6 +28,15 @@ needed a delete action of its own regardless. SAFE_ACTION, same tier as
 `delete_scene`: a memory (like a scene) is low-stakes to lose --
 deleting it doesn't touch any device -- even though, unlike a scene,
 there's no undo once it's gone.
+
+With a second brain configured (SIRISAI_BRAIN_PATH), `remember` and
+`remember_entity_fact` also copy each new fact into it via
+`mirror_to_brain()` (app/plugins/builtin/second_brain.py) after their own
+store succeeds: an entity fact becomes an update on that entity's note
+("Dom" lands on "Dom Mairs"), a free-text memory goes to the vault's
+memory inbox. Duplicates the store already caught aren't copied again.
+The copy's outcome is reported under `second_brain` and never fails the
+memory itself.
 """
 
 from typing import Any
@@ -37,6 +46,8 @@ from app.memory.entities import EntityMemoryStore
 from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
 from app.plugins.base import Tool, ToolPermission
+from app.plugins.builtin.second_brain import MEMORY_INBOX_TITLE, mirror_to_brain
+from app.second_brain.client import SecondBrainClient
 
 
 class RememberTool(Tool):
@@ -56,11 +67,16 @@ class RememberTool(Tool):
         "required": ["content"],
     }
 
-    def __init__(self, memory: MemoryStore) -> None:
+    def __init__(self, memory: MemoryStore, brain: SecondBrainClient | None = None) -> None:
         self._memory = memory
+        self._brain = brain
 
     def run(self, content: str = "", **kwargs: Any) -> Any:
-        return self._memory.remember(content)
+        result = self._memory.remember(content)
+        # The store returns an earlier memory instead when this one is a near-duplicate.
+        if self._brain is not None and isinstance(result, dict) and result.get("content") == content:
+            result = {**result, "second_brain": mirror_to_brain(self._brain, MEMORY_INBOX_TITLE, content, type="capture")}
+        return result
 
 
 class RecallTool(Tool):
@@ -129,11 +145,15 @@ class RememberEntityFactTool(Tool):
         "required": ["entity_name", "fact"],
     }
 
-    def __init__(self, entities: EntityMemoryStore) -> None:
+    def __init__(self, entities: EntityMemoryStore, brain: SecondBrainClient | None = None) -> None:
         self._entities = entities
+        self._brain = brain
 
     def run(self, entity_name: str = "", fact: str = "", **kwargs: Any) -> Any:
-        return self._entities.remember_fact(entity_name, fact)
+        result = self._entities.remember_fact(entity_name, fact)
+        if self._brain is not None and isinstance(result, dict) and not result.get("duplicate"):
+            result = {**result, "second_brain": mirror_to_brain(self._brain, entity_name, fact)}
+        return result
 
 
 class RecallEntityFactsTool(Tool):

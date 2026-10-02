@@ -207,7 +207,11 @@ class Settings(BaseSettings):
     weather_latitude: float | None = None
     weather_longitude: float | None = None
 
-    @field_validator("weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max", mode="before")
+    @field_validator(
+        "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
+        "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
+        mode="before",
+    )
     @classmethod
     def _blank_env_string_means_unset(cls, value: Any) -> Any:
         # An unset .env line (SIRISAI_WEATHER_LATITUDE=) arrives here as ""
@@ -512,6 +516,34 @@ class Settings(BaseSettings):
     obsidian_base_url: str = "https://127.0.0.1:27124"
     obsidian_api_key: str = ""
     obsidian_verify_ssl: bool = False
+
+    # Second brain (app/second_brain/, app/plugins/builtin/second_brain.py)
+    # -- a local checkout of Brad's Siris-Second-Brain vault, e.g. cloned
+    # into ./data/second-brain so it's already inside the mounted volume
+    # (/app/data/second-brain). Setting brain_path registers brain_search/
+    # brain_get_note/brain_learn. brain_git_sync pulls before reads (at most
+    # every brain_pull_interval_seconds) and commits + pushes after writes;
+    # it needs a push-capable git remote, e.g. a deploy key with write
+    # access in ./data/ssh. brain_mirror_memory copies `remember` and
+    # `remember_entity_fact` facts into the vault too.
+    brain_path: str = ""
+    brain_git_sync: bool = False
+    brain_pull_interval_seconds: float = 60.0
+    brain_mirror_memory: bool = True
+    # How many matching notes the context engine adds to each chat turn
+    # (0 turns it off). Only reasonably strong matches are used.
+    brain_context_notes: int = 3
+    # Growth jobs (app/second_brain/jobs.py), all in local time (timezone).
+    # An hour of None turns that job off. meeting_calendars limits meeting
+    # notes to those calendar names (comma-separated; empty = all calendars).
+    # weekly_day is 0=Monday ... 6=Sunday; gap_questions is how many gaps to
+    # ask about each week (0 = off).
+    brain_meeting_notes_hour_local: int | None = 6
+    brain_meeting_calendars: str = ""
+    brain_dream_hour_local: int | None = 23
+    brain_weekly_day: int = 6
+    brain_weekly_hour_local: int | None = 18
+    brain_gap_questions: int = 3
 
     # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
     # NVR with local object detection; SirisAI's first vision integration.
