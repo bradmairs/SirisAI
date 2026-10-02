@@ -27,7 +27,7 @@ class IntegrationHealthTool(Tool):
 
         s = self._siris
         hosts = s.cron_client.hosts if s.cron_client is not None and hasattr(s.cron_client, "hosts") else []
-        checks = check_integrations(s.settings, cron_hosts=hosts)
+        checks = check_integrations(s.settings, cron_hosts=hosts, second_brain=s.second_brain)
         return {
             "integrations": checks,
             "down": [c["name"] for c in checks if not c["ok"]],

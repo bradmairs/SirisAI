@@ -138,6 +138,7 @@ from app.plugins.builtin.obsidian import (
     ObsidianListNotesTool,
     ObsidianSearchTool,
 )
+from app.plugins.builtin.second_brain import BrainGetNoteTool, BrainLearnTool, BrainSearchTool
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import (
     PlexLibrarySectionsTool,
@@ -213,6 +214,7 @@ from app.obsidian.client import ObsidianClient
 from app.radarr.client import RadarrClient
 from app.routines.service import RoutineStore
 from app.satellites.service import SatelliteStore
+from app.second_brain.client import SecondBrainClient
 from app.scenes.service import SceneStore
 from app.skills.base import SkillTool
 from app.skills.builtin.daily_briefing import DailyBriefingSkill
@@ -290,6 +292,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("listenarr_", "listenarr"),
     ("cleanuparr_", "cleanuparr"),
     ("obsidian_", "obsidian"),
+    ("brain_", "second_brain"),
     ("synology_", "synology"),
     ("cron_", "cron"),
     ("frigate_", "frigate"),
@@ -545,14 +548,25 @@ class SirisAI:
         self._speaker_encoder: SpeakerEncoder | None = None
         self._speaker_encoder_checked = False
         self._openapi_http_clients: list[httpx.Client] = []
+        # Before tool registration: the memory tools mirror into it.
+        self.second_brain: SecondBrainClient | None = (
+            SecondBrainClient(
+                self.settings.brain_path,
+                git_sync=self.settings.brain_git_sync,
+                pull_interval=self.settings.brain_pull_interval_seconds,
+            )
+            if self.settings.brain_path
+            else None
+        )
         self._register_builtin_tools()
 
     def _register_builtin_tools(self) -> None:
         self.tools.register(EchoTool())
-        self.tools.register(RememberTool(self.memory))
+        mirror = self.second_brain if self.settings.brain_mirror_memory else None
+        self.tools.register(RememberTool(self.memory, brain=mirror))
         self.tools.register(RecallTool(self.memory))
         self.tools.register(DeleteMemoryTool(self.memory))
-        self.tools.register(RememberEntityFactTool(self.entities))
+        self.tools.register(RememberEntityFactTool(self.entities, brain=mirror))
         self.tools.register(RecallEntityFactsTool(self.entities))
         self.tools.register(RememberEntityRelationshipTool(self.entities))
         self.tools.register(RecallEntityRelationshipsTool(self.entities))
@@ -858,6 +872,11 @@ class SirisAI:
             self.tools.register(ObsidianGetNoteTool(self._obsidian_client))
             self.tools.register(ObsidianSearchTool(self._obsidian_client))
             self.tools.register(ObsidianCreateOrUpdateNoteTool(self._obsidian_client))
+
+        if self.second_brain is not None:
+            self.tools.register(BrainSearchTool(self.second_brain))
+            self.tools.register(BrainGetNoteTool(self.second_brain))
+            self.tools.register(BrainLearnTool(self.second_brain))
 
         if self.settings.frigate_base_url:
             self._frigate_client = FrigateClient(
@@ -1322,6 +1341,7 @@ class SirisAI:
             self._listenarr_client,
             self._cleanuparr_client,
             self._obsidian_client,
+            self.second_brain,
             self._frigate_client,
             self._synology_client,
             self._embedding_client,

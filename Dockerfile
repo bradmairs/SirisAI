@@ -4,9 +4,10 @@ WORKDIR /app
 
 # ssh client for the cron overview (app/cron/), which reads other machines'
 # crontabs over plain `ssh`; ffmpeg for the optional TTS effect
-# (SIRISAI_TTS_EFFECT, app/voice/effects.py).
+# (SIRISAI_TTS_EFFECT, app/voice/effects.py); git for the second brain's
+# optional sync (SIRISAI_BRAIN_GIT_SYNC, app/second_brain/).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client ffmpeg \
+    && apt-get install -y --no-install-recommends openssh-client ffmpeg git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

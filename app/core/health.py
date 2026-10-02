@@ -72,7 +72,12 @@ def _integration_targets(settings: "Settings") -> list[tuple[str, str]]:
     return [(name, url) for name, url in candidates if url]
 
 
-def check_integrations(settings: "Settings", cron_hosts: list[Any] | None = None, timeout: float = 4.0) -> list[dict[str, Any]]:
+def check_integrations(
+    settings: "Settings",
+    cron_hosts: list[Any] | None = None,
+    timeout: float = 4.0,
+    second_brain: Any = None,
+) -> list[dict[str, Any]]:
     """Reachability of every configured integration: any HTTP response (even
     401/404) means the service is up; a connection error means it's down."""
     results: list[dict[str, Any]] = []
@@ -90,6 +95,16 @@ def check_integrations(settings: "Settings", cron_hosts: list[Any] | None = None
 
         ok = os.path.exists(docker_url.removeprefix("unix://"))
         results.append({"name": "Docker", "ok": ok, "detail": "socket present" if ok else "socket not mounted in this container", "ms": None})
+
+    if settings.brain_path:
+        from pathlib import Path
+
+        ok = (Path(settings.brain_path) / "tools" / "brain.py").exists()
+        detail = "vault present" if ok else f"no tools/brain.py under {settings.brain_path}"
+        sync_error = getattr(second_brain, "last_sync_error", None)
+        if ok and sync_error:
+            ok, detail = False, sync_error
+        results.append({"name": "Second Brain", "ok": ok, "detail": detail, "ms": None})
 
     for host in cron_hosts or []:
         started = time.perf_counter()

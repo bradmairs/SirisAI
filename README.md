@@ -5223,6 +5223,49 @@ provider for the same capability actually exists to design against.
     meaning while "hello there" wasn't; the eval endpoints ran and
     recorded history.
 
+120. **Done** -- Second brain: SirisAI reads and grows Brad's knowledge
+    vault, [Siris-Second-Brain](https://github.com/bradmairs/Siris-Second-Brain)
+    -- Obsidian-compatible Markdown notes about his life, people, work,
+    projects and home lab, with their own linking engine (`tools/brain.py`)
+    and mind map.
+
+    - **Tools** (`app/plugins/builtin/second_brain.py`, client in
+      `app/second_brain/client.py`): `brain_search` and `brain_get_note`
+      (READ; a note comes back with its links and backlinks, found by
+      title or alias, so "Dom" finds "Dom Mairs"), and `brain_learn`
+      (SAFE_ACTION). Unlike `obsidian_create_or_update_note`'s full
+      replace, learning only ever adds: a new title becomes a linked note,
+      and an existing one gets a dated update. The engine links mentions
+      of existing notes, adds backlinks, and logs the change in the day's
+      daily note. `verify()` re-reads the note; `dry_run()` says whether
+      it would create or update, and which note.
+    - **The engine stays in the vault.** The client runs
+      `python tools/brain.py search|show|learn --output json` from the
+      checkout instead of re-implementing it, so the linking rules live in
+      one place, and SirisAI never writes a note file itself.
+    - **Memory flows in automatically.** With `SIRISAI_BRAIN_MIRROR_MEMORY`
+      (default on), `remember_entity_fact` copies each new fact onto that
+      entity's note, and `remember` copies free-text memories into a
+      `Siris Memory Inbox` note, which the vault's inbox workflow files
+      later. This happens whichever tool the model picks. Duplicates the
+      stores already caught aren't copied, and a vault problem is
+      reported under `second_brain` without failing the memory.
+    - **Git sync** (`SIRISAI_BRAIN_GIT_SYNC`, off by default): reads and
+      writes always use the local checkout straight away. Pulls (at most
+      every `SIRISAI_BRAIN_PULL_INTERVAL_SECONDS`) and the push after each
+      learn's commit run on background threads, so a reply never waits on
+      the network. A push rebases once if another device pushed first. Failures leave the local
+      checkout usable and show in `integration_health` as "Second Brain".
+      The image now includes `git`.
+    - **Setup:** `git clone git@github.com:bradmairs/Siris-Second-Brain.git
+      data/second-brain` (already inside the mounted volume), then set
+      `SIRISAI_BRAIN_PATH=/app/data/second-brain`. For sync, add
+      `data/ssh/id_ed25519.pub` as a deploy key with write access and set
+      `SIRISAI_BRAIN_GIT_SYNC=true`.
+    - Selector hint and three tool-choice eval cases. 23 tests, including
+      git sync against a real local remote, a background pull, a push that
+      has to rebase, and a sync failure that must not fail the write.
+
 ## Running locally
 
 ```bash

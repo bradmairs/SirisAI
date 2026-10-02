@@ -513,6 +513,20 @@ class Settings(BaseSettings):
     obsidian_api_key: str = ""
     obsidian_verify_ssl: bool = False
 
+    # Second brain (app/second_brain/, app/plugins/builtin/second_brain.py)
+    # -- a local checkout of Brad's Siris-Second-Brain vault, e.g. cloned
+    # into ./data/second-brain so it's already inside the mounted volume
+    # (/app/data/second-brain). Setting brain_path registers brain_search/
+    # brain_get_note/brain_learn. brain_git_sync pulls before reads (at most
+    # every brain_pull_interval_seconds) and commits + pushes after writes;
+    # it needs a push-capable git remote, e.g. a deploy key with write
+    # access in ./data/ssh. brain_mirror_memory copies `remember` and
+    # `remember_entity_fact` facts into the vault too.
+    brain_path: str = ""
+    brain_git_sync: bool = False
+    brain_pull_interval_seconds: float = 60.0
+    brain_mirror_memory: bool = True
+
     # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
     # NVR with local object detection; SirisAI's first vision integration.
     # api_key is optional and unused unless set -- a typical self-hosted
