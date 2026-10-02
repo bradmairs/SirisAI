@@ -1,7 +1,13 @@
-"""Optional post-processing of synthesized speech: an ffmpeg `-af` filter
-chain (SIRISAI_TTS_EFFECT) run over every clip, whichever TTS backend made
-it -- so chat, the HUD, satellites and speak_in_current_room all sound the
-same.
+"""Post-processing of synthesized speech: an ffmpeg `-af` filter chain
+(SIRISAI_TTS_EFFECT) run over every clip, whichever TTS backend made it --
+so chat, the HUD, satellites and speak_in_current_room all sound the same.
+
+Clips always leave as constant-bitrate MP3 with no per-file length header
+(ffmpeg doesn't write the Xing header to a pipe). The HUD joins sentence
+clips into one to play them without gaps, and Safari stops a joined file
+at the length the first clip's header claims -- so even with no effect
+configured, clips pass through here with a no-op filter when ffmpeg is
+available (app/voice/factory.py).
 """
 
 import asyncio
@@ -44,7 +50,7 @@ async def apply_audio_filter(mp3: bytes, audio_filter: str, *, ffmpeg: str = "ff
         ffmpeg, "-hide_banner", "-loglevel", "error",
         "-f", "mp3", "-i", "pipe:0",
         "-af", audio_filter,
-        "-c:a", "libmp3lame", "-q:a", "4", "-f", "mp3", "pipe:1",
+        "-c:a", "libmp3lame", "-b:a", "64k", "-f", "mp3", "pipe:1",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

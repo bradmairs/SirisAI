@@ -40,15 +40,26 @@ def test_default_speed_leaves_the_request_unchanged() -> None:
     assert "speed" not in bodies[0]
 
 
-def test_factory_wraps_only_when_an_effect_is_set() -> None:
-    plain = build_tts_client(Settings(tts_provider="openai_compatible"))
-    assert isinstance(plain, OpenAICompatibleTTSClient)
-
+def test_factory_applies_the_configured_effect(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.voice.factory.shutil.which", lambda name: "/usr/bin/ffmpeg")
     wrapped = build_tts_client(Settings(tts_provider="openai_compatible", tts_effect="volume=3dB", tts_speed=1.1))
     assert isinstance(wrapped, EffectTTSClient)
     assert wrapped.audio_filter == "volume=3dB"
     assert isinstance(wrapped.inner, OpenAICompatibleTTSClient)
     assert wrapped.inner.speed == 1.1
+
+
+def test_factory_still_re_encodes_without_an_effect_when_ffmpeg_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+    """So the HUD can join sentence clips -- see app/voice/effects.py."""
+    monkeypatch.setattr("app.voice.factory.shutil.which", lambda name: "/usr/bin/ffmpeg")
+    wrapped = build_tts_client(Settings(tts_provider="openai_compatible"))
+    assert isinstance(wrapped, EffectTTSClient)
+    assert wrapped.audio_filter == "anull"
+
+
+def test_factory_leaves_the_client_alone_without_ffmpeg_or_an_effect(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.voice.factory.shutil.which", lambda name: None)
+    assert isinstance(build_tts_client(Settings(tts_provider="openai_compatible")), OpenAICompatibleTTSClient)
 
 
 class _FakeTTS(TextToSpeechClient):
@@ -72,6 +83,32 @@ def test_the_filter_really_runs_through_ffmpeg() -> None:
     processed = asyncio.run(apply_audio_filter(tone, "aecho=0.8:0.8:6:0.4,volume=-6dB"))
 
     assert processed and processed != tone
+
+
+def _decoded_seconds(mp3: bytes) -> float:
+    pcm = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-f", "mp3", "-i", "pipe:0", "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1"],
+        input=mp3, capture_output=True, check=True,
+    ).stdout
+    return len(pcm) / 2 / 8000
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+def test_clips_have_no_length_header_and_join_without_losing_audio() -> None:
+    def tone(seconds: float) -> bytes:
+        # libmp3lame writing to a seekable file would add a Xing header; piped output can't.
+        return subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
+             "-c:a", "libmp3lame", "-f", "mp3", "pipe:1"],
+            capture_output=True, check=True,
+        ).stdout
+
+    first = asyncio.run(apply_audio_filter(tone(1.0), "anull"))
+    second = asyncio.run(apply_audio_filter(tone(2.0), "anull"))
+
+    for clip in (first, second):
+        assert b"Xing" not in clip[:512] and b"Info" not in clip[:512]
+    assert _decoded_seconds(first + second) == pytest.approx(3.0, abs=0.15)
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")

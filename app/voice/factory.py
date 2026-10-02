@@ -1,5 +1,7 @@
 """Picks the configured STT/TTS backends. Mirrors app/llm/factory.py."""
 
+import shutil
+
 from app.core.config import Settings
 from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient, SpeechToTextClient, TextToSpeechClient
 from app.voice.effects import EffectTTSClient
@@ -19,5 +21,8 @@ def build_tts_client(settings: Settings) -> TextToSpeechClient:
         )
         if settings.tts_effect:
             client = EffectTTSClient(client, settings.tts_effect)
+        elif shutil.which("ffmpeg"):
+            # No effect, but still re-encode so clips can be joined (see app/voice/effects.py).
+            client = EffectTTSClient(client, "anull")
         return client
     return NullTextToSpeechClient()

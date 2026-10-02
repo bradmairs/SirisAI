@@ -243,7 +243,6 @@
   const canvas = $("wave");
   const ctx2d = canvas.getContext("2d");
   let recording = null;
-  let audioQueue = Promise.resolve();
   let conversationId = null;
 
   // iOS Safari only allows HTMLMediaElement.play() when it's called
@@ -335,14 +334,44 @@
     converse(encodeWav(chunks, rate));
   }
 
+  // Each sentence arrives as its own MP3 clip, but starting every clip
+  // separately leaves an audible pause between sentences on iPhone. So
+  // whatever has arrived by the time the previous playback ends is joined
+  // into one clip -- MP3 frames concatenate cleanly, and the server sends
+  // clips without per-file length headers (app/voice/effects.py), which
+  // would otherwise make Safari stop after the first one.
+  const pendingClips = [];
+  const idleWaiters = [];
+  let speaking = false;
+
   function play(base64) {
-    audioQueue = audioQueue.then(() => new Promise((resolve) => {
-      playbackAudio.src = `data:audio/mpeg;base64,${base64}`;
-      orb.className = "speaking";
-      playbackAudio.onended = playbackAudio.onerror = () => resolve();
-      playbackAudio.play().catch(() => resolve());
-    }));
-    return audioQueue;
+    pendingClips.push(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
+    if (!speaking) playPending();
+  }
+
+  function playPending() {
+    if (!pendingClips.length) {
+      speaking = false;
+      idleWaiters.splice(0).forEach((resolve) => resolve());
+      return;
+    }
+    speaking = true;
+    orb.className = "speaking";
+    const url = URL.createObjectURL(new Blob(pendingClips.splice(0), { type: "audio/mpeg" }));
+    let done = false;
+    const next = () => {
+      if (done) return;
+      done = true;
+      URL.revokeObjectURL(url);
+      playPending();
+    };
+    playbackAudio.onended = playbackAudio.onerror = next;
+    playbackAudio.src = url;
+    playbackAudio.play().catch(next);
+  }
+
+  function speechFinished() {
+    return speaking ? new Promise((resolve) => idleWaiters.push(resolve)) : Promise.resolve();
   }
 
   async function converse(wav) {
@@ -383,7 +412,7 @@
     } catch (err) {
       $("reply").textContent = err.message;
     }
-    await audioQueue;
+    await speechFinished();
     orb.className = "";
     hint.textContent = expectsReply ? "Tap to answer" : "Tap to talk";
     refresh();
