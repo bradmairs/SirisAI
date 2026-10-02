@@ -5266,6 +5266,48 @@ provider for the same capability actually exists to design against.
       git sync against a real local remote, a background pull, a push that
       has to rebase, and a sync failure that must not fail the write.
 
+121. **Done** -- The second brain everywhere, and growing by itself.
+
+    - **Chat context:** the context engine adds the top second-brain matches
+      for each message (`SIRISAI_BRAIN_CONTEXT_NOTES`, default 3, strong
+      matches only) as labelled background data. Questions about Brad's own
+      world get answered from his notes without the model having to think
+      of searching. The vault's search now handles whole questions, and
+      ranks by meaning when embeddings are on.
+    - **Linking by meaning:** with `SIRISAI_EMBEDDING_PROVIDER=ollama`, the
+      vault engine gets the same Ollama and embedding model, so new notes
+      link to related ones by meaning instead of shared words.
+      `SIRISAI_TIMEZONE` is passed through too, so daily notes are dated
+      in local time rather than the container's UTC.
+    - **Capture from anywhere:** `POST /siris/brain/capture` with
+      `{"text", "url", "title", "tags"}` puts a note in the vault's inbox,
+      for an iOS Shortcut, the share sheet or a Home Assistant automation.
+      `GET /siris/brain/search?q=` and `GET /siris/brain/today` are also
+      available.
+    - **The mind map:** `/brain` (open once as `/brain?key=...`, like the
+      HUD) shows the vault's interactive mind map, drawn fresh from the
+      notes. It works full screen or in a Home Assistant webpage card. The
+      HUD gets a "Learned today" tile.
+    - **Growth jobs** (`app/second_brain/jobs.py`, on the scheduler, once
+      per local day and remembered across restarts):
+      - *Meeting notes* at `SIRISAI_BRAIN_MEETING_NOTES_HOUR_LOCAL` (6):
+        a note per timed calendar event today, optionally limited to
+        `SIRISAI_BRAIN_MEETING_CALENDARS`.
+      - *Dream* at `SIRISAI_BRAIN_DREAM_HOUR_LOCAL` (23): the general model
+        reads the day's conversations and memory-inbox entries and writes
+        what's worth keeping as atomic notes, reusing existing titles. It
+        sees user and assistant turns only, never raw tool output, and is
+        told to treat them as data.
+      - *Weekly* on `SIRISAI_BRAIN_WEEKLY_DAY` (6 = Sunday) at
+        `SIRISAI_BRAIN_WEEKLY_HOUR_LOCAL` (18): push
+        `SIRISAI_BRAIN_GAP_QUESTIONS` (3) questions about the vault's gaps,
+        never-asked first, so answering in chat fills them. Also a health
+        snapshot onto the Health note and the week's home lab actions,
+        errors and paused tools onto the Home Lab note.
+    - 26 more tests: context, capture, map and today routes, every job and
+      its scheduling (once per day, the weekly day only, failures marked
+      and not retried), and strict parsing of the model's notes.
+
 ## Running locally
 
 ```bash

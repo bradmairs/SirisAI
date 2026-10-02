@@ -207,7 +207,11 @@ class Settings(BaseSettings):
     weather_latitude: float | None = None
     weather_longitude: float | None = None
 
-    @field_validator("weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max", mode="before")
+    @field_validator(
+        "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
+        "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
+        mode="before",
+    )
     @classmethod
     def _blank_env_string_means_unset(cls, value: Any) -> Any:
         # An unset .env line (SIRISAI_WEATHER_LATITUDE=) arrives here as ""
@@ -526,6 +530,20 @@ class Settings(BaseSettings):
     brain_git_sync: bool = False
     brain_pull_interval_seconds: float = 60.0
     brain_mirror_memory: bool = True
+    # How many matching notes the context engine adds to each chat turn
+    # (0 turns it off). Only reasonably strong matches are used.
+    brain_context_notes: int = 3
+    # Growth jobs (app/second_brain/jobs.py), all in local time (timezone).
+    # An hour of None turns that job off. meeting_calendars limits meeting
+    # notes to those calendar names (comma-separated; empty = all calendars).
+    # weekly_day is 0=Monday ... 6=Sunday; gap_questions is how many gaps to
+    # ask about each week (0 = off).
+    brain_meeting_notes_hour_local: int | None = 6
+    brain_meeting_calendars: str = ""
+    brain_dream_hour_local: int | None = 23
+    brain_weekly_day: int = 6
+    brain_weekly_hour_local: int | None = 18
+    brain_gap_questions: int = 3
 
     # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
     # NVR with local object detection; SirisAI's first vision integration.

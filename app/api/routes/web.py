@@ -41,6 +41,13 @@ def index() -> str:
     return _INDEX_HTML_PATH.read_text()
 
 
+@router.get("/brain", response_class=HTMLResponse)
+def brain_map() -> str:
+    """The second brain's mind map (app/web/static/brain.html), for a browser
+    or a Home Assistant webpage card. Open once as /brain?key=YOUR_API_KEY."""
+    return (_STATIC / "brain.html").read_text()
+
+
 @router.get("/hud", response_class=HTMLResponse)
 def hud() -> str:
     """Full-screen wall-tablet dashboard (app/web/static/hud.html). Open once

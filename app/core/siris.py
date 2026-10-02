@@ -554,6 +554,14 @@ class SirisAI:
                 self.settings.brain_path,
                 git_sync=self.settings.brain_git_sync,
                 pull_interval=self.settings.brain_pull_interval_seconds,
+                engine_env={
+                    "BRAIN_TZ": self.settings.timezone,
+                    **(
+                        {"BRAIN_EMBED_URL": self.settings.ollama_base_url, "BRAIN_EMBED_MODEL": self.settings.embedding_model}
+                        if self.settings.embedding_provider == "ollama"
+                        else {}
+                    ),
+                },
             )
             if self.settings.brain_path
             else None

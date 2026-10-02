@@ -42,6 +42,11 @@ FAKE_ENGINE = textwrap.dedent(
         return next((t for t in notes if t.lower() == title.lower()), None)
 
     cmd = args[0]
+    if cmd == "graph":
+        (root / "_site").mkdir(exist_ok=True)
+        (root / "_site" / "index.html").write_text("<html>map of " + str(len(notes)) + " notes</html>")
+        print("Mind map -> _site/index.html")
+        sys.exit(0)
     if cmd == "fail":
         sys.exit("engine exploded")
     if cmd == "search":
@@ -333,3 +338,133 @@ def test_reads_pull_in_the_background(tmp_path: Path) -> None:
     client.flush()
     assert [h["title"] for h in client.search("10 km")] == ["Running"]
     assert client.last_sync_error is None
+
+
+# ---------- chat context ----------
+
+
+class _FakeBrain:
+    def __init__(self, hits=None, fail=False):
+        self.hits, self.fail, self.queries = hits or [], fail, []
+
+    def search(self, query, limit=10):
+        self.queries.append((query, limit))
+        if self.fail:
+            raise SecondBrainError("vault gone")
+        return self.hits[:limit]
+
+
+@needs_db
+def test_context_includes_strong_brain_matches_only() -> None:
+    siris = SirisAI(settings=Settings())
+    siris.second_brain = _FakeBrain([
+        {"title": "Melbourne Marathon 2026 10 km", "score": 6, "excerpts": ["Target under 1:10:00"]},
+        {"title": "Home", "score": 1, "excerpts": ["one weak word"]},
+    ])
+    text = siris.context.build(siris, "how's my 10 km prep going?")
+    assert "second brain" in text
+    assert "[Melbourne Marathon 2026 10 km] Target under 1:10:00" in text
+    assert "[Home]" not in text
+    assert siris.second_brain.queries == [("how's my 10 km prep going?", 3)]
+
+
+@needs_db
+def test_context_brain_notes_can_be_turned_off() -> None:
+    siris = SirisAI(settings=Settings(brain_context_notes=0))
+    siris.second_brain = _FakeBrain([{"title": "X", "score": 9, "excerpts": ["y"]}])
+    assert "second brain" not in siris.context.build(siris, "anything")
+    assert siris.second_brain.queries == []
+
+
+@needs_db
+def test_a_broken_vault_never_breaks_chat_context() -> None:
+    siris = SirisAI(settings=Settings())
+    siris.second_brain = _FakeBrain(fail=True)
+    text = siris.context.build(siris, "hello")
+    assert text is not None and "second brain" not in text
+
+
+def test_engine_env_reaches_the_engine(tmp_path: Path) -> None:
+    vault = _vault(tmp_path, {})
+    (vault / "tools" / "brain.py").write_text(
+        "import json, os\nprint(json.dumps([{'title': os.environ.get('BRAIN_EMBED_MODEL', ''), 'path': '', 'type': '', 'tags': [], 'score': 1, 'excerpts': []}]))\n"
+    )
+    client = SecondBrainClient(str(vault), engine_env={"BRAIN_EMBED_MODEL": "nomic-embed-text"})
+    assert client.search("x")[0]["title"] == "nomic-embed-text"
+
+
+# ---------- HTTP: capture, map, today ----------
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.api.routes.brain import capture_title  # noqa: E402
+from app.core.siris import get_siris  # noqa: E402
+
+
+@pytest.fixture
+def brain_api(client: TestClient, tmp_path: Path):
+    siris = get_siris()
+    vault = _vault(tmp_path / "vault", {
+        "2026-10-02": "## Log\n- 🧠 Learned [[Plex]]\n- 🧠 Updated [[Dom Mairs]]\n- 🧠 Updated [[Plex]]",
+    })
+    previous = siris.second_brain
+    siris.second_brain = SecondBrainClient(str(vault))
+    try:
+        yield client, vault
+    finally:
+        siris.second_brain = previous
+
+
+def test_capture_lands_in_the_inbox(brain_api) -> None:
+    client, vault = brain_api
+    r = client.post("/siris/brain/capture", json={"text": "Look into Frigate for the driveway camera. Maybe on the Pi?", "tags": ["Idea"]})
+    assert r.status_code == 200 and r.json()["saved"] is True
+    sent = json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert sent["type"] == "capture" and sent["tags"] == ["capture", "idea"]
+    assert sent["title"] == "Look into Frigate for the driveway camera. Maybe…"
+
+
+def test_capture_a_link_keeps_it_as_the_source(brain_api) -> None:
+    client, vault = brain_api
+    client.post("/siris/brain/capture", json={"url": "https://www.home-assistant.io/integrations/frigate/"})
+    sent = json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert sent["source"] == "https://www.home-assistant.io/integrations/frigate/"
+    assert sent["title"] == "home-assistant.io – integrations – frigate"
+
+
+def test_capture_needs_something(brain_api) -> None:
+    client, _ = brain_api
+    assert client.post("/siris/brain/capture", json={}).status_code == 422
+
+
+def test_capture_title() -> None:
+    assert capture_title("# Big idea\nmore", "") == "Big idea"
+    assert capture_title("", "") == "Capture"
+
+
+def test_map_and_today(brain_api) -> None:
+    client, _ = brain_api
+    assert client.get("/siris/brain/map.html").text == "<html>map of 1 notes</html>"
+    siris = get_siris()
+    assert siris.second_brain.learned_today("2026-10-02") == [
+        {"title": "Plex", "action": "learned"}, {"title": "Dom Mairs", "action": "updated"},
+    ]
+    assert siris.second_brain.learned_today("2026-10-03") == []
+    assert client.get("/siris/brain/today").json()["items"] == siris.second_brain.learned_today(
+        client.get("/siris/brain/today").json()["date"]
+    )
+
+
+def test_routes_404_without_a_brain(client: TestClient) -> None:
+    siris = get_siris()
+    previous, siris.second_brain = siris.second_brain, None
+    try:
+        assert client.get("/siris/brain/today").status_code == 404
+        assert client.post("/siris/brain/capture", json={"text": "x"}).status_code == 404
+    finally:
+        siris.second_brain = previous
+
+
+def test_brain_page_is_served(client: TestClient) -> None:
+    r = client.get("/brain")
+    assert r.status_code == 200 and "/siris/brain/map.html" in r.text
