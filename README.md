@@ -5232,7 +5232,8 @@ provider for the same capability actually exists to design against.
     - **Tools** (`app/plugins/builtin/second_brain.py`, client in
       `app/second_brain/client.py`): `brain_search` and `brain_get_note`
       (READ; a note comes back with its links and backlinks, found by
-      title or alias, so "Dom" finds "Dom Mairs"), and `brain_learn`
+      title or alias, so "Dom" finds "Dom Mairs"), `brain_insights` (READ;
+      see below), and `brain_learn`
       (SAFE_ACTION). Unlike `obsidian_create_or_update_note`'s full
       replace, learning only ever adds: a new title becomes a linked note,
       and an existing one gets a dated update. The engine links mentions
@@ -5284,6 +5285,13 @@ provider for the same capability actually exists to design against.
       for an iOS Shortcut, the share sheet or a Home Assistant automation.
       `GET /siris/brain/search?q=` and `GET /siris/brain/today` are also
       available.
+    - **Insights:** `GET /siris/brain/insights?days=30` (and the
+      `brain_insights` tool) returns what the vault can tell about itself,
+      worked out by the engine's `brain.py insights` with no LLM:
+      ready-made `highlights` sentences, this week against last, daily
+      activity, growing topics, the most connected notes, upcoming
+      deadlines, overdue tasks, projects idle for three weeks or more, the
+      inbox's age, gap counts, and notes that read alike but aren't linked.
     - **The mind map:** `/brain` (open once as `/brain?key=...`, like the
       HUD) shows the vault's interactive mind map, drawn fresh from the
       notes. It works full screen or in a Home Assistant webpage card. The

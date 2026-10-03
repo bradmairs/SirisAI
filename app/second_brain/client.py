@@ -136,6 +136,15 @@ class SecondBrainClient:
         self._maybe_pull()
         return self._engine_call(["gaps", "--output", "json"])
 
+    def insights(self, days: int = 30) -> dict:
+        """What the vault can tell about itself, worked out by the engine
+        without an LLM: `highlights` (ready-made sentences), `summary`
+        counts, daily `activity`, growing `topics`, `hubs`, `deadlines`,
+        `overdue_tasks`, `stale_projects`, `inbox`, `gaps` and
+        `suggested_links` (notes that read alike but aren't linked)."""
+        self._maybe_pull()
+        return self._engine_call(["insights", "--days", str(days), "--output", "json"])
+
     def render_map(self) -> str:
         """The vault's interactive mind map as one self-contained HTML page,
         drawn fresh from the notes as they are now."""

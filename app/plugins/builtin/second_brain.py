@@ -1,8 +1,9 @@
 """Second Brain tools, via app/second_brain/client.py. Registered only when
 SIRISAI_BRAIN_PATH points at a checkout of Siris-Second-Brain.
 
-brain_search/brain_get_note are READ. brain_learn is SAFE_ACTION, not
-CONFIRM_REQUIRED like obsidian_create_or_update_note: the vault's engine
+brain_search/brain_get_note/brain_insights are READ. brain_learn is
+SAFE_ACTION, not CONFIRM_REQUIRED like obsidian_create_or_update_note: the
+vault's engine
 only ever adds (a new note, or a dated update appended to an existing
 one) and never replaces content, and with git sync every write is a
 commit -- routine and reversible, the same tier as `remember`.
@@ -103,6 +104,30 @@ class BrainGetNoteTool(Tool):
         if note is None:
             return {"found": False, "title": title, "hint": "Try brain_search to find the right title."}
         return {"found": True, **note}
+
+
+class BrainInsightsTool(Tool):
+    name = "brain_insights"
+    description = (
+        "What Brad's second brain can tell about itself right now: how much it grew this week against "
+        "last, growing topics, upcoming project deadlines, overdue tasks, projects nobody has touched in "
+        "weeks, how old the inbox is, and notes that look related but aren't linked yet. Use it for "
+        "\"what's going on in my brain?\", \"what am I neglecting?\", or to plan a weekly review. "
+        "`highlights` are ready-made sentences; the other fields hold the detail."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "days": {"type": "integer", "description": "How many days of activity to look at. Defaults to 30."},
+        },
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, days: int = 30, **kwargs: Any) -> Any:
+        return self._client.insights(days=max(7, min(int(days or 30), 365)))
 
 
 class BrainLearnTool(Tool):

@@ -15,6 +15,7 @@ from app.plugins.builtin.memory import RememberEntityFactTool
 from app.plugins.builtin.second_brain import (
     MEMORY_INBOX_TITLE,
     BrainGetNoteTool,
+    BrainInsightsTool,
     BrainLearnTool,
     BrainSearchTool,
     mirror_to_brain,
@@ -46,6 +47,11 @@ FAKE_ENGINE = textwrap.dedent(
         (root / "_site").mkdir(exist_ok=True)
         (root / "_site" / "index.html").write_text("<html>map of " + str(len(notes)) + " notes</html>")
         print("Mind map -> _site/index.html")
+        sys.exit(0)
+    if cmd == "insights":
+        days = int(args[args.index("--days") + 1])
+        print(json.dumps({"date": "2026-10-03", "highlights": [f"{len(notes)} notes"], "summary": {"notes": len(notes)},
+                          "activity": [{"date": "2026-10-03", "notes": 1}] * days}))
         sys.exit(0)
     if cmd == "fail":
         sys.exit("engine exploded")
@@ -246,7 +252,7 @@ def test_mirror_without_a_brain_is_a_no_op() -> None:
 def test_brain_tools_registered_only_when_configured(tmp_path: Path) -> None:
     assert SirisAI(settings=Settings()).tools.get("brain_search") is None
     siris = SirisAI(settings=Settings(brain_path=str(tmp_path)))
-    assert {"brain_search", "brain_get_note", "brain_learn"} <= {t.name for t in siris.tools.list()}
+    assert {"brain_search", "brain_get_note", "brain_insights", "brain_learn"} <= {t.name for t in siris.tools.list()}
 
 
 def test_health_reports_the_vault(tmp_path: Path) -> None:
@@ -455,11 +461,22 @@ def test_map_and_today(brain_api) -> None:
     )
 
 
+def test_insights_route_and_tool(brain_api) -> None:
+    client, vault = brain_api
+    got = client.get("/siris/brain/insights", params={"days": 14}).json()
+    assert got["highlights"] == ["1 notes"] and len(got["activity"]) == 14
+    assert _calls(vault)[-1]["args"] == ["insights", "--days", "14", "--output", "json"]
+    assert client.get("/siris/brain/insights", params={"days": 3}).status_code == 422
+    tool = BrainInsightsTool(get_siris().second_brain)
+    assert len(tool.run(days=1000)["activity"]) == 365  # clamped
+
+
 def test_routes_404_without_a_brain(client: TestClient) -> None:
     siris = get_siris()
     previous, siris.second_brain = siris.second_brain, None
     try:
         assert client.get("/siris/brain/today").status_code == 404
+        assert client.get("/siris/brain/insights").status_code == 404
         assert client.post("/siris/brain/capture", json={"text": "x"}).status_code == 404
     finally:
         siris.second_brain = previous

@@ -1,6 +1,7 @@
 """The second brain over HTTP (app/second_brain/): quick capture from
 anywhere -- an iOS Shortcut, the share sheet, a Home Assistant automation
--- plus the interactive mind map, what was learned today, and search.
+-- plus the interactive mind map, what was learned today, insights, and
+search.
 
 Capture lands in the vault's inbox (`type: capture`, 00-Inbox/) through the
 same engine as every other write, so it's linked straight away and filed
@@ -12,7 +13,7 @@ every note.
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -84,3 +85,10 @@ def learned_today(siris: SirisAI = Depends(get_siris)) -> dict:
 @router.get("/search")
 def search(q: str, limit: int = 8, siris: SirisAI = Depends(get_siris)) -> list[dict]:
     return _brain(siris).search(q, limit=limit)
+
+
+@router.get("/insights")
+def insights(days: int = Query(30, ge=7, le=365), siris: SirisAI = Depends(get_siris)) -> dict:
+    """How the brain is growing and what needs attention (deadlines,
+    overdue tasks, idle projects, an old inbox, links worth making)."""
+    return _brain(siris).insights(days=days)

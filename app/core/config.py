@@ -527,7 +527,7 @@ class Settings(BaseSettings):
     # -- a local checkout of Brad's Siris-Second-Brain vault, e.g. cloned
     # into ./data/second-brain so it's already inside the mounted volume
     # (/app/data/second-brain). Setting brain_path registers brain_search/
-    # brain_get_note/brain_learn. brain_git_sync pulls before reads (at most
+    # brain_get_note/brain_insights/brain_learn. brain_git_sync pulls before reads (at most
     # every brain_pull_interval_seconds) and commits + pushes after writes;
     # it needs a push-capable git remote, e.g. a deploy key with write
     # access in ./data/ssh. brain_mirror_memory copies `remember` and
