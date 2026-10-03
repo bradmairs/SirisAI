@@ -12,8 +12,10 @@ Not registered under `include_in_schema` since it's not part of the API.
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+
+from app.core.config import Settings, get_settings
 
 router = APIRouter(tags=["web"], include_in_schema=False)
 
@@ -36,23 +38,33 @@ _MANIFEST: dict[str, Any] = {
 }
 
 
+def _page(request: Request, settings: Settings, html: Path) -> Response:
+    """A web page -- or a redirect to the HTTPS front end (SIRISAI_HTTPS_REDIRECT_URL)
+    when it's set and this request didn't already come through it."""
+    target = settings.https_redirect_url.rstrip("/")
+    if target and request.headers.get("x-forwarded-proto") != "https":
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(f"{target}{request.url.path}{query}", status_code=302)
+    return HTMLResponse(html.read_text())
+
+
 @router.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return _INDEX_HTML_PATH.read_text()
+def index(request: Request, settings: Settings = Depends(get_settings)) -> Response:
+    return _page(request, settings, _INDEX_HTML_PATH)
 
 
 @router.get("/brain", response_class=HTMLResponse)
-def brain_map() -> str:
+def brain_map(request: Request, settings: Settings = Depends(get_settings)) -> Response:
     """The second brain's mind map (app/web/static/brain.html), for a browser
     or a Home Assistant webpage card. Open once as /brain?key=YOUR_API_KEY."""
-    return (_STATIC / "brain.html").read_text()
+    return _page(request, settings, _STATIC / "brain.html")
 
 
 @router.get("/hud", response_class=HTMLResponse)
-def hud() -> str:
+def hud(request: Request, settings: Settings = Depends(get_settings)) -> Response:
     """Full-screen wall-tablet dashboard (app/web/static/hud.html). Open once
     as /hud?key=YOUR_API_KEY to store the key in that browser."""
-    return (_STATIC / "hud.html").read_text()
+    return _page(request, settings, _STATIC / "hud.html")
 
 
 @router.get("/manifest.webmanifest")

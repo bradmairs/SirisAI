@@ -23,7 +23,18 @@
 	default_sni 192.168.0.100
 }
 
+# To stop the warning for good, a device can trust Caddy's root certificate,
+# served at /sirisai-root-ca.crt (see README). Never delete the caddy_data
+# volume or /data/caddy/pki: a new root would have to be trusted again.
 192.168.0.100:8443, localhost:8443 {
 	tls internal
-	reverse_proxy sirisai:8000
+	handle /sirisai-root-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		file_server
+	}
+	handle {
+		reverse_proxy sirisai:8000
+	}
 }

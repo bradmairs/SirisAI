@@ -272,6 +272,12 @@ class Settings(BaseSettings):
     # action button; everything else about notifications is unaffected.
     public_base_url: str = ""
 
+    # The HTTPS front end's address (e.g. https://192.168.0.100:8443, see
+    # caddy/Caddyfile). When set, opening the web pages (/, /hud, /brain)
+    # over plain http redirects there, because browsers only allow the
+    # microphone on https. The API stays on http. Empty = no redirect.
+    https_redirect_url: str = ""
+
     # Persona/voice consistency layer (milestone 45, app/cortex/orchestrator.py).
     # A free-text system message applied consistently to every chat turn
     # Cortex handles (process(), confirm(), and the planner loop both

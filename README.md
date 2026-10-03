@@ -5491,6 +5491,28 @@ First visit shows a self-signed-certificate warning (Caddy's root CA isn't in
 any device's trust store) -- click through once ("Advanced" -> "Proceed");
 browsers remember that per origin.
 
+To make HTTPS invisible:
+
+- **Redirect the pages.** Set `SIRISAI_HTTPS_REDIRECT_URL=https://<lan-ip>:8443`
+  and opening `/`, `/hud` or `/brain` over plain http redirects there (query
+  string included, so `/hud?key=...` still works). Only those pages move: the
+  API, satellites, ntfy action buttons and icons stay on `http://<lan-ip>:8000`.
+  Requests arriving through Caddy carry `X-Forwarded-Proto: https`, so there's
+  no redirect loop.
+- **Trust the root certificate once per device**, and the warning goes away.
+  It's served at `https://<lan-ip>:8443/sirisai-root-ca.crt` (click through the
+  warning one last time to download it).
+  - iPhone/iPad: open that link in Safari -> Allow -> Settings -> "Profile
+    Downloaded" -> Install. Then Settings -> General -> About -> Certificate
+    Trust Settings -> turn on full trust for "Caddy Local Authority".
+  - Mac: open the file -> Keychain Access -> double-click "Caddy Local
+    Authority" -> Trust -> "Always Trust".
+
+  A device that trusts this root accepts any certificate signed with its key,
+  and that key lives in the `caddy_data` volume on the server. Don't delete that
+  volume or `/data/caddy/pki`: Caddy would generate a new root, and every device
+  would need to trust it again.
+
 ## Optional: Obsidian relay
 
 The Obsidian Local REST API plugin only listens on 127.0.0.1 inside its own
