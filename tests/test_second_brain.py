@@ -57,6 +57,22 @@ FAKE_ENGINE = textwrap.dedent(
         sys.exit(0)
     if cmd == "fail":
         sys.exit("engine exploded")
+    if cmd == "inbox":
+        print(json.dumps({"memory": [{"id": "a1", "date": "2026-10-03", "text": "x", "plain": "x"}], "notes": []}))
+        sys.exit(0)
+    if cmd == "file":
+        t = args[args.index("--") + 1]
+        (root / "Notes").mkdir(exist_ok=True)
+        (root / "Notes" / f"{t}.md").write_text("filed")
+        print(json.dumps({"action": "filed", "title": t, "type": args[args.index("--type") + 1]}))
+        sys.exit(0)
+    if cmd == "clear-memory-inbox":
+        (root / "archive.md").write_text(stdin)
+        print(json.dumps({"archived": len(json.loads(stdin))}))
+        sys.exit(0)
+    if cmd == "relink":
+        print("Notes/A.md: + B\\nAdded 3 links.")
+        sys.exit(0)
     if cmd == "search":
         q = args[args.index("--") + 1].lower()
         hits = [{"title": t, "path": f"Notes/{t}.md", "type": "note", "tags": [], "score": 5, "excerpts": [b[:80]]}
@@ -315,6 +331,27 @@ def test_learn_commits_and_pushes(tmp_path: Path) -> None:
     client.flush()
     assert _git(remote, "log", "-1", "--format=%s", "main") == "siris: learned Plex"
     assert client.last_sync_error is None
+
+
+def test_inbox_file_clear_and_relink(tmp_path: Path) -> None:
+    vault = _vault(tmp_path)
+    client = SecondBrainClient(str(vault))
+    assert client.inbox()["memory"][0]["id"] == "a1"
+    assert client.file_note("-odd title", type="project") == {"action": "filed", "title": "-odd title", "type": "project"}
+    assert client.clear_memory_inbox([{"id": "a1", "filed_to": "Dom Mairs"}]) == {"archived": 1}
+    assert client.relink() == 3
+    calls = _calls(vault)
+    assert calls[1]["args"][-2:] == ["--", "-odd title"]   # a title starting with "-" is never read as a flag
+    assert json.loads(calls[2]["stdin"]) == [{"id": "a1", "filed_to": "Dom Mairs"}]
+
+
+@needs_git
+def test_upkeep_writes_are_committed(tmp_path: Path) -> None:
+    remote, clone = _synced_pair(tmp_path)
+    client = SecondBrainClient(str(clone), git_sync=True)
+    client.file_note("Knee Soreness")
+    client.flush()
+    assert _git(remote, "log", "-1", "--format=%s", "main") == "siris: filed Knee Soreness"
 
 
 @needs_git

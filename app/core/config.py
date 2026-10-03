@@ -210,6 +210,7 @@ class Settings(BaseSettings):
     @field_validator(
         "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
+        "brain_upkeep_hour_local",
         mode="before",
     )
     @classmethod
@@ -550,6 +551,14 @@ class Settings(BaseSettings):
     brain_weekly_day: int = 6
     brain_weekly_hour_local: int | None = 18
     brain_gap_questions: int = 3
+    # Nightly upkeep (jobs.upkeep), with the general model (local Ollama):
+    # file the inbox, add GitHub activity to project notes, relink. The
+    # GitHub step needs a read-only token (contents, pull requests,
+    # metadata) for brain_github_owner's repos; empty skips it. On
+    # brain_weekly_day the weekly review note is written too.
+    brain_upkeep_hour_local: int | None = 2
+    brain_github_token: str = ""
+    brain_github_owner: str = "bradmairs"
 
     # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
     # NVR with local object detection; SirisAI's first vision integration.

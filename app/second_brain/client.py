@@ -14,6 +14,10 @@ writes a note file itself:
   appended. Nothing is ever overwritten, which is why the tool wrapping it
   can be SAFE_ACTION where obsidian_create_or_update_note (a full PUT
   replace) is CONFIRM_REQUIRED.
+- `file_note`/`clear_memory_inbox`/`relink` are the nightly upkeep's
+  writes (app/second_brain/jobs.py): they move inbox captures to where
+  the router says they belong and archive filed memory entries, never
+  deleting anything.
 
 Optional git sync (`git_sync=True`): reads and writes always use the
 local checkout straight away. At most every `pull_interval` seconds, one of
@@ -116,14 +120,46 @@ class SecondBrainClient:
         """Add knowledge: each item is {title, content, tags?, source?,
         type?, links?, aliases?}. Returns what the engine did per item
         (`action` created/updated, `title`, `path`, `links`)."""
+        results = self._write(["learn", "--json", "-", "--output", "json"], stdin=json.dumps(items),
+                              message=lambda r: "siris: learned " + (", ".join(dict.fromkeys(x["title"] for x in r)) or "notes"))
+        return results
+
+    def _write(self, args: list[str], message: Callable[[Any], str], stdin: str | None = None, raw: bool = False) -> Any:
+        """Run an engine command that changes the vault, then commit and push it."""
         self._maybe_pull()
         with self._lock:
-            results = self._engine_call(["learn", "--json", "-", "--output", "json"], stdin=json.dumps(items))
+            result = self._engine_call(args, stdin=stdin, raw=raw)
             if self.git_sync:
-                self._commit(results)
+                self._commit(message(result))
         if self.git_sync:
             self._schedule_push()
-        return results
+        return result
+
+    def inbox(self) -> dict:
+        """What's waiting in 00-Inbox: `memory` (the memory inbox's entries: `id`,
+        `date`, `text`, `plain`) and `notes` (other captures: `title`, `path`, `type`,
+        `created`, `source`, `routing`, `text`)."""
+        self._maybe_pull()
+        return self._engine_call(["inbox", "--output", "json"])
+
+    def file_note(self, title: str, type: str = "auto") -> dict:
+        """File one inbox capture where the router says it belongs. `action` is
+        filed (moved), merged (added to the note it's about; the capture is
+        archived), left (still unsure, with `reasons`) or missing."""
+        return self._write(["file", "--type", type, "--output", "json", "--", title],
+                           message=lambda r: f"siris: filed {r.get('title', title)}")
+
+    def clear_memory_inbox(self, filed: list[dict[str, str]]) -> dict:
+        """Archive memory-inbox entries ({"id", "filed_to"}) once they're filed.
+        They move to 04-Archive/Inbox; nothing is deleted."""
+        return self._write(["clear-memory-inbox", "--json", "-", "--output", "json"], stdin=json.dumps(filed),
+                           message=lambda r: f"siris: filed {r.get('archived', 0)} memory inbox entries")
+
+    def relink(self) -> int:
+        """Link plain mentions of note titles across the vault; returns how many links were added."""
+        out = self._write(["relink"], raw=True, message=lambda r: "siris: relink")
+        match = re.search(r"Added (\d+) links", out or "")
+        return int(match.group(1)) if match else 0
 
     def route(self, title: str, content: str, type: str = "auto") -> dict:
         """Where the vault's router would file this, without writing:
@@ -206,10 +242,9 @@ class SecondBrainClient:
         if proc.returncode != 0:
             self._sync_failed("pull", proc)
 
-    def _commit(self, results: list[dict]) -> None:
+    def _commit(self, message: str) -> None:
         self._git("add", "-A")
-        titles = ", ".join(dict.fromkeys(r["title"] for r in results)) or "notes"
-        proc = self._git("commit", "--quiet", "-m", f"siris: learned {titles}"[:200])
+        proc = self._git("commit", "--quiet", "-m", message[:200])
         if proc.returncode != 0 and "nothing to commit" not in (proc.stdout + proc.stderr):
             self._sync_failed("commit", proc)
 
