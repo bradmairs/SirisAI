@@ -66,7 +66,8 @@ Reply with JSON only, no prose: {"notes": [{"title": "...", "content": "...", "t
 - If a fact belongs to an existing note, use that note's exact title from the list given (it will be added as a \
 dated update, never overwritten).
 - content: plain words, 1-4 sentences, naming related notes by their titles.
-- type: note, person, project, resource or area. tags: lowercase. links: existing titles to link explicitly."""
+- type: leave it out and the brain decides (person, project, resource, note); give one only if you're sure.
+- tags: lowercase. links: existing titles to link explicitly."""
 
 
 # ---------- scheduling ----------
@@ -205,7 +206,8 @@ def parse_notes(text: str | None) -> list[dict[str, Any]]:
         if not title or not content or len(title) > 120:
             continue
         item: dict[str, Any] = {"title": title, "content": content[:2000]}
-        item["type"] = n.get("type") if n.get("type") in _NOTE_TYPES else "note"
+        if n.get("type") in _NOTE_TYPES:
+            item["type"] = n["type"]   # otherwise the vault's router decides
         item["tags"] = [str(t).strip().lower() for t in (n.get("tags") or []) if str(t).strip()][:8]
         links = [str(link).strip() for link in (n.get("links") or []) if str(link).strip()][:8]
         if links:

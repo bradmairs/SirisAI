@@ -5316,6 +5316,23 @@ provider for the same capability actually exists to design against.
       its scheduling (once per day, the weekly day only, failures marked
       and not retried), and strict parsing of the model's notes.
 
+122. **Done** -- The second brain files things itself. Every write now
+    goes through the vault's router (`brain.py route`, in the vault). It
+    decides whether a memory updates a note Siris already knows or starts
+    a new person, project, resource or note, and which folder it goes in
+    (work knowledge lands in the matching `Work/` subfolder). It also
+    decides which life areas it belongs to (Career, Relationships, Health,
+    Finances, Home & Life Admin, Learning, Creativity) and links the note
+    from those area hubs.
+
+    - `remember` sends free-text memories untitled. One that opens by
+      naming something known ("Dom wants to...") lands on that note;
+      anything else still goes to the memory inbox.
+    - `brain_learn` defaults to `type: auto`, and its `dry_run()` shows
+      the router's real decision: folder, type, areas and why.
+    - The nightly dream no longer forces every note to be a plain "note".
+    - Mirrored results include the areas chosen.
+
 ## Running locally
 
 ```bash

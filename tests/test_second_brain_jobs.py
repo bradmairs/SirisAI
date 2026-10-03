@@ -152,10 +152,11 @@ def test_meeting_notes_need_a_calendar() -> None:
 def test_parse_notes_is_strict() -> None:
     text = 'Sure!\n```json\n{"notes": [{"title": "Home Server", "content": "Has 32 GB RAM.", "tags": ["Hardware"]},' \
            ' {"title": "", "content": "no title"}, {"title": "X", "content": "y", "type": "spaceship"}, "junk"]}\n```'
-    assert jobs.parse_notes(text) == [
-        {"title": "Home Server", "content": "Has 32 GB RAM.", "type": "note", "tags": ["hardware"]},
-        {"title": "X", "content": "y", "type": "note", "tags": []},
+    assert jobs.parse_notes(text) == [   # no type given (or an unknown one): the vault's router decides
+        {"title": "Home Server", "content": "Has 32 GB RAM.", "tags": ["hardware"]},
+        {"title": "X", "content": "y", "tags": []},
     ]
+    assert jobs.parse_notes('{"notes": [{"title": "Will", "content": "A friend.", "type": "person"}]}')[0]["type"] == "person"
     assert jobs.parse_notes("not json") == []
     assert jobs.parse_notes(None) == []
     many = '{"notes": [' + ",".join('{"title": "T%d", "content": "c"}' % i for i in range(20)) + "]}"

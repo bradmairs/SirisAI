@@ -125,6 +125,13 @@ class SecondBrainClient:
             self._schedule_push()
         return results
 
+    def route(self, title: str, content: str, type: str = "auto") -> dict:
+        """Where the vault's router would file this, without writing:
+        `action` (create/update), `title`, `type`, `folder`, `areas`,
+        `confidence` and `reasons`."""
+        self._maybe_pull()
+        return self._engine_call(["route", "--type", type, "--output", "json", "-c", content, "--", title])
+
     def list_notes(self) -> list[dict]:
         """Every note's `title`, `type`, `aliases` and `path`."""
         self._maybe_pull()
