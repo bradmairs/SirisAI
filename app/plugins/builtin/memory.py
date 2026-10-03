@@ -33,7 +33,8 @@ With a second brain configured (SIRISAI_BRAIN_PATH), `remember` and
 `remember_entity_fact` also copy each new fact into it via
 `mirror_to_brain()` (app/plugins/builtin/second_brain.py) after their own
 store succeeds: an entity fact becomes an update on that entity's note
-("Dom" lands on "Dom Mairs"), a free-text memory goes to the vault's
+("Dom" lands on "Dom Mairs"), and a free-text memory is sent untitled so
+the vault's router files it: on the note it opens by naming, or in the
 memory inbox. Duplicates the store already caught aren't copied again.
 The copy's outcome is reported under `second_brain` and never fails the
 memory itself.
@@ -46,7 +47,7 @@ from app.memory.entities import EntityMemoryStore
 from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
 from app.plugins.base import Tool, ToolPermission
-from app.plugins.builtin.second_brain import MEMORY_INBOX_TITLE, mirror_to_brain
+from app.plugins.builtin.second_brain import mirror_to_brain
 from app.second_brain.client import SecondBrainClient
 
 
@@ -75,7 +76,9 @@ class RememberTool(Tool):
         result = self._memory.remember(content)
         # The store returns an earlier memory instead when this one is a near-duplicate.
         if self._brain is not None and isinstance(result, dict) and result.get("content") == content:
-            result = {**result, "second_brain": mirror_to_brain(self._brain, MEMORY_INBOX_TITLE, content, type="capture")}
+            # No title: the vault's router files it on the note it opens by naming ("Dom loves...")
+            # or, failing that, in its memory inbox.
+            result = {**result, "second_brain": mirror_to_brain(self._brain, "", content)}
         return result
 
 

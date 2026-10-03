@@ -39,6 +39,8 @@ FAKE_ENGINE = textwrap.dedent(
     aliases = {"dom": "Dom Mairs"}
 
     def find(title):
+        if not title:
+            return "Siris Memory Inbox" if "Siris Memory Inbox" in notes else None
         title = aliases.get(title.lower(), title)
         return next((t for t in notes if t.lower() == title.lower()), None)
 
@@ -55,6 +57,22 @@ FAKE_ENGINE = textwrap.dedent(
         sys.exit(0)
     if cmd == "fail":
         sys.exit("engine exploded")
+    if cmd == "inbox":
+        print(json.dumps({"memory": [{"id": "a1", "date": "2026-10-03", "text": "x", "plain": "x"}], "notes": []}))
+        sys.exit(0)
+    if cmd == "file":
+        t = args[args.index("--") + 1]
+        (root / "Notes").mkdir(exist_ok=True)
+        (root / "Notes" / f"{t}.md").write_text("filed")
+        print(json.dumps({"action": "filed", "title": t, "type": args[args.index("--type") + 1]}))
+        sys.exit(0)
+    if cmd == "clear-memory-inbox":
+        (root / "archive.md").write_text(stdin)
+        print(json.dumps({"archived": len(json.loads(stdin))}))
+        sys.exit(0)
+    if cmd == "relink":
+        print("Notes/A.md: + B\\nAdded 3 links.")
+        sys.exit(0)
     if cmd == "search":
         q = args[args.index("--") + 1].lower()
         hits = [{"title": t, "path": f"Notes/{t}.md", "type": "note", "tags": [], "score": 5, "excerpts": [b[:80]]}
@@ -64,20 +82,25 @@ FAKE_ENGINE = textwrap.dedent(
         t = find(args[args.index("--") + 1])
         print(json.dumps(None if t is None else {"title": t, "path": f"Notes/{t}.md", "meta": {}, "aliases": [],
                                                   "tags": [], "body": notes[t], "links": [], "backlinks": []}))
+    elif cmd == "route":
+        t = find(args[args.index("--") + 1])
+        print(json.dumps({"action": "update" if t else "create", "title": t or args[args.index("--") + 1],
+                          "type": "person" if t == "Dom Mairs" else "note", "folder": "People" if t == "Dom Mairs" else "Notes",
+                          "areas": [] if t else ["Health"], "confidence": 0.9, "reasons": ["fake"]}))
     elif cmd == "learn":
         results = []
         for item in json.loads(stdin):
-            t = find(item["title"])
-            if t:
+            t = find(item["title"]) or (item["title"] or "Siris Memory Inbox")
+            if t in notes:
                 notes[t] += "\\n\\n### update\\n" + item["content"]
                 action = "updated"
             else:
-                t = item["title"]
                 notes[t] = f"# {t}\\n\\n" + item["content"].replace("Plex", "[[Plex]]")
                 action = "learned"
             (root / "Notes").mkdir(exist_ok=True)
             (root / "Notes" / f"{t}.md").write_text(notes[t])
-            results.append({"action": action, "title": t, "path": f"Notes/{t}.md", "links": [], "mentioned_in": 0})
+            results.append({"action": action, "title": t, "path": f"Notes/{t}.md", "links": [], "mentioned_in": 0,
+                            "areas": ["Relationships"] if t == "Dom Mairs" else []})
         store.write_text(json.dumps(notes))
         print(json.dumps(results))
     '''
@@ -165,13 +188,22 @@ def test_learn_tool_needs_title_and_content(tmp_path: Path) -> None:
     assert _calls(tmp_path) == []
 
 
-def test_learn_dry_run_says_create_or_update(tmp_path: Path) -> None:
-    tool = BrainLearnTool(SecondBrainClient(str(_vault(tmp_path, {"Dom Mairs": "Brad's wife."}))))
+def test_learn_dry_run_shows_the_routers_decision(tmp_path: Path) -> None:
+    vault = _vault(tmp_path, {"Dom Mairs": "Brad's wife."})
+    tool = BrainLearnTool(SecondBrainClient(str(vault)))
     assert tool.dry_run(title="Dom", content="x") == {
-        "title": "Dom", "would_create": False, "would_update": True,
-        "existing_title": "Dom Mairs", "path": "Notes/Dom Mairs.md",
+        "title": "Dom", "would_create": False, "would_update": True, "existing_title": "Dom Mairs",
+        "path": "People/Dom Mairs.md", "type": "person", "areas": [], "reasons": ["fake"],
     }
-    assert tool.dry_run(title="New Idea", content="x")["would_create"] is True
+    new = tool.dry_run(title="Knee Soreness", content="sore after runs")
+    assert new["would_create"] is True and new["areas"] == ["Health"]
+    assert _calls(vault)[-1]["args"] == ["route", "--type", "auto", "--output", "json", "-c", "sore after runs", "--", "Knee Soreness"]
+
+
+def test_learn_tool_leaves_the_type_to_the_router_by_default(tmp_path: Path) -> None:
+    vault = _vault(tmp_path, {})
+    BrainLearnTool(SecondBrainClient(str(vault))).run(title="Knee Soreness", content="sore after runs")
+    assert "type" not in json.loads(_calls(vault)[-1]["stdin"])[0]
 
 
 def test_learn_tool_only_passes_known_types(tmp_path: Path) -> None:
@@ -197,7 +229,8 @@ def test_entity_fact_is_mirrored_onto_the_entity_note(tmp_path: Path) -> None:
     vault = _vault(tmp_path / "vault", {"Dom Mairs": "Brad's wife."})
     tool = RememberEntityFactTool(_entities(), brain=SecondBrainClient(str(vault)))
     result = tool.run(entity_name="Dom", fact=f"Loves trail running {uuid.uuid4().hex}.")
-    assert result["second_brain"] == {"saved": True, "action": "updated", "title": "Dom Mairs", "path": "Notes/Dom Mairs.md"}
+    assert result["second_brain"] == {"saved": True, "action": "updated", "title": "Dom Mairs", "path": "Notes/Dom Mairs.md",
+                                      "areas": ["Relationships"]}
     sent = json.loads(_calls(vault)[-1]["stdin"])[0]
     assert sent["tags"] == ["siris-memory"]
 
@@ -230,7 +263,8 @@ def test_free_text_memory_goes_to_the_inbox(tmp_path: Path) -> None:
     siris = SirisAI(settings=Settings(brain_path=str(vault)))
     result = siris.tools.get("remember").run(content=f"Brad prefers flat whites {uuid.uuid4().hex}.")
     assert result["second_brain"]["title"] == MEMORY_INBOX_TITLE
-    assert json.loads(_calls(vault)[-1]["stdin"])[0]["type"] == "capture"
+    sent = json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert sent["title"] == "" and "type" not in sent   # the vault's router decides where it goes
 
 
 @needs_db
@@ -297,6 +331,27 @@ def test_learn_commits_and_pushes(tmp_path: Path) -> None:
     client.flush()
     assert _git(remote, "log", "-1", "--format=%s", "main") == "siris: learned Plex"
     assert client.last_sync_error is None
+
+
+def test_inbox_file_clear_and_relink(tmp_path: Path) -> None:
+    vault = _vault(tmp_path)
+    client = SecondBrainClient(str(vault))
+    assert client.inbox()["memory"][0]["id"] == "a1"
+    assert client.file_note("-odd title", type="project") == {"action": "filed", "title": "-odd title", "type": "project"}
+    assert client.clear_memory_inbox([{"id": "a1", "filed_to": "Dom Mairs"}]) == {"archived": 1}
+    assert client.relink() == 3
+    calls = _calls(vault)
+    assert calls[1]["args"][-2:] == ["--", "-odd title"]   # a title starting with "-" is never read as a flag
+    assert json.loads(calls[2]["stdin"]) == [{"id": "a1", "filed_to": "Dom Mairs"}]
+
+
+@needs_git
+def test_upkeep_writes_are_committed(tmp_path: Path) -> None:
+    remote, clone = _synced_pair(tmp_path)
+    client = SecondBrainClient(str(clone), git_sync=True)
+    client.file_note("Knee Soreness")
+    client.flush()
+    assert _git(remote, "log", "-1", "--format=%s", "main") == "siris: filed Knee Soreness"
 
 
 @needs_git

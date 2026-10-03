@@ -5316,6 +5316,43 @@ provider for the same capability actually exists to design against.
       its scheduling (once per day, the weekly day only, failures marked
       and not retried), and strict parsing of the model's notes.
 
+122. **Done** -- The second brain files things itself. Every write now
+    goes through the vault's router (`brain.py route`, in the vault). It
+    decides whether a memory updates a note Siris already knows or starts
+    a new person, project, resource or note, and which folder it goes in
+    (work knowledge lands in the matching `Work/` subfolder). It also
+    decides which life areas it belongs to (Career, Relationships, Health,
+    Finances, Home & Life Admin, Learning, Creativity) and links the note
+    from those area hubs.
+
+    - `remember` sends free-text memories untitled. One that opens by
+      naming something known ("Dom wants to...") lands on that note;
+      anything else still goes to the memory inbox.
+    - `brain_learn` defaults to `type: auto`, and its `dry_run()` shows
+      the router's real decision: folder, type, areas and why.
+    - The nightly dream no longer forces every note to be a plain "note".
+    - Mirrored results include the areas chosen.
+123. **Done** -- SirisAI runs the second brain's nightly upkeep itself, on
+    the local model, replacing the Claude Code routine (which couldn't
+    reach the vault from the cloud). At `SIRISAI_BRAIN_UPKEEP_HOUR_LOCAL`
+    (default 2:00) the `upkeep` job in `app/second_brain/jobs.py`:
+
+    - files the memory inbox: entries that name a known note go there
+      via the vault's router, the general model titles the rest, and
+      filed entries move to an archive note (`brain.py inbox` /
+      `clear-memory-inbox`). Entries nobody can place stay for Brad.
+    - files the other inbox captures with `brain.py file`.
+    - turns each repo's merged PRs and commits since the last sweep into
+      a dated update on its project note, summarised by the model
+      (`app/second_brain/github.py`; read-only
+      `SIRISAI_BRAIN_GITHUB_TOKEN`, empty skips it). A repo with real
+      work and no note yet gets a project note.
+    - relinks the vault, and pushes one summary line if anything changed.
+
+    On `SIRISAI_BRAIN_WEEKLY_DAY` the new `review` job writes the week's
+    review note from the vault's insights. The dream no longer reads the
+    memory inbox, so entries aren't filed twice.
+
 ## Running locally
 
 ```bash

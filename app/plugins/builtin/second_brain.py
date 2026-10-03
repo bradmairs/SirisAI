@@ -30,6 +30,8 @@ MEMORY_INBOX_TITLE = "Siris Memory Inbox"
 MEMORY_TAG = "siris-memory"
 
 _NOTE_TYPES = ["note", "person", "resource", "project", "area", "capture"]
+# "auto" (the default) lets the vault's router decide the type, folder and life areas.
+_TYPE_CHOICES = ["auto", *_NOTE_TYPES]
 _WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]")
 
 
@@ -50,7 +52,8 @@ def mirror_to_brain(brain: SecondBrainClient | None, title: str, content: str, *
     try:
         tags = sorted({MEMORY_TAG, *fields.pop("tags", [])})
         result = brain.learn([{"title": title, "content": content, "tags": tags, **fields}])[0]
-        return {"saved": True, "action": result["action"], "title": result["title"], "path": result["path"]}
+        return {"saved": True, "action": result["action"], "title": result["title"], "path": result["path"],
+                "areas": result.get("areas", [])}
     except Exception as exc:  # noqa: BLE001 - any vault failure is reported, not raised
         logger.warning("Could not mirror memory to the second brain: %s", exc)
         return {"saved": False, "error": f"{type(exc).__name__}: {exc}"[:200]}
@@ -154,8 +157,9 @@ class BrainLearnTool(Tool):
             "source": {"type": "string", "description": "Optional: where this came from (a URL, 'Brad said', ...)."},
             "type": {
                 "type": "string",
-                "enum": _NOTE_TYPES,
-                "description": "Optional: note (default), person, resource, project, area, or capture (inbox).",
+                "enum": _TYPE_CHOICES,
+                "description": "Optional. Leave as auto and the brain decides where it belongs (person, project, "
+                "resource, note or inbox) and which life areas it's part of; set it only to override.",
             },
             "links": {
                 "type": "array",
@@ -185,7 +189,7 @@ class BrainLearnTool(Tool):
         content: str = "",
         tags: list[str] | None = None,
         source: str = "",
-        type: str = "note",
+        type: str = "auto",
         links: list[str] | None = None,
         **kwargs: Any,
     ) -> Any:
@@ -194,13 +198,21 @@ class BrainLearnTool(Tool):
         result = self._client.learn([self._item(title, content, tags, source, type, links)])[0]
         return {"saved": True, **result}
 
-    def dry_run(self, title: str = "", content: str = "", **kwargs: Any) -> Any:
-        """Whether this would start a new note or add to an existing one
-        (and which: an alias can land on a differently-titled note)."""
-        existing = self._client.get_note(title)
-        if existing is None:
-            return {"title": title, "would_create": True, "would_update": False}
-        return {"title": title, "would_create": False, "would_update": True, "existing_title": existing["title"], "path": existing["path"]}
+    def dry_run(self, title: str = "", content: str = "", type: str = "auto", **kwargs: Any) -> Any:
+        """The router's decision, without writing: whether it creates or
+        updates (an alias can land on a differently-titled note), where,
+        as what type, in which life areas, and why."""
+        decision = self._client.route(title, content, type=type if type in _TYPE_CHOICES else "auto")
+        return {
+            "title": title,
+            "would_create": decision["action"] == "create",
+            "would_update": decision["action"] == "update",
+            "existing_title": decision["title"] if decision["action"] == "update" else None,
+            "path": f"{decision['folder']}/{decision['title']}.md",
+            "type": decision["type"],
+            "areas": decision["areas"],
+            "reasons": decision["reasons"],
+        }
 
     def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
         """Re-reads the note and checks the written content is in it,
