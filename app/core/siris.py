@@ -138,7 +138,7 @@ from app.plugins.builtin.obsidian import (
     ObsidianListNotesTool,
     ObsidianSearchTool,
 )
-from app.plugins.builtin.second_brain import BrainGetNoteTool, BrainLearnTool, BrainSearchTool
+from app.plugins.builtin.second_brain import BrainGetNoteTool, BrainInsightsTool, BrainLearnTool, BrainSearchTool
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import (
     PlexLibrarySectionsTool,
@@ -884,6 +884,7 @@ class SirisAI:
         if self.second_brain is not None:
             self.tools.register(BrainSearchTool(self.second_brain))
             self.tools.register(BrainGetNoteTool(self.second_brain))
+            self.tools.register(BrainInsightsTool(self.second_brain))
             self.tools.register(BrainLearnTool(self.second_brain))
 
         if self.settings.frigate_base_url:
