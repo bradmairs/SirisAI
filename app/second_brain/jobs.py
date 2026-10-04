@@ -566,6 +566,9 @@ def _upkeep_message(out: dict[str, Any]) -> str | None:
     moved = (inbox.get("filed") or []) + (inbox.get("merged") or [])
     if moved:
         parts.append(f"Filed {len(moved)} inbox notes ({', '.join(moved[:4])}).")
+    linked = (out.get("autolink") or {}).get("linked") or []
+    if linked:
+        parts.append(f"Linked {len(linked)} pair{'s' if len(linked) != 1 else ''} of notes it was sure about.")
     if github.get("updated"):
         parts.append("Project updates from GitHub: " + ", ".join(github["updated"][:6]) + ".")
     waiting = (memory.get("left") or 0) + len(inbox.get("left") or [])
@@ -588,6 +591,8 @@ async def upkeep(siris: "SirisAI", now: datetime) -> dict[str, Any]:
         ("inbox", lambda: asyncio.to_thread(file_inbox_notes, siris)),
         ("github", lambda: github_activity(siris, now)),
         ("relink", lambda: asyncio.to_thread(siris.second_brain.relink)),
+        # Confident links are made for Brad; unsure ones wait in insights' suggestions.
+        ("autolink", lambda: asyncio.to_thread(siris.second_brain.autolink)),
     ):
         try:
             out[name] = await step()

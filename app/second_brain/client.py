@@ -167,6 +167,21 @@ class SecondBrainClient:
         return self._write(["unrelate", "--output", "json", "--", a, b],
                            message=lambda r: f"siris: {r.get('a', a)} and {r.get('b', b)} aren't related")
 
+    def autolink(self) -> dict:
+        """Link every pair of notes the engine is confident about (a calibrated
+        similarity threshold, 80% by default); unsure pairs stay as insights'
+        suggestions. Returns `linked` [{a, b, confidence, why}], `deferred` and
+        `thresholds`."""
+        return self._write(["autolink", "--output", "json"],
+                           message=lambda r: f"siris: auto-linked {len(r.get('linked') or [])} note pairs")
+
+    def unlink(self, a: str, b: str) -> dict:
+        """Disconnect two notes both ways (connection bullets removed, inline links
+        turned back into plain words) and remember they're not related, so nothing
+        automatic links them again. `action` is unlinked or not-linked."""
+        return self._write(["unlink", "--output", "json", "--", a, b],
+                           message=lambda r: f"siris: unlinked {r.get('a', a)} and {r.get('b', b)}")
+
     def relink(self) -> int:
         """Link plain mentions of note titles across the vault; returns how many links were added."""
         out = self._write(["relink"], raw=True, message=lambda r: "siris: relink")

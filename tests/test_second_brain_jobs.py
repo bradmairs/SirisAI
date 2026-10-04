@@ -54,6 +54,11 @@ class FakeBrain:
         self.relinked += 1
         return 2
 
+    auto_linked: list[dict] = []
+
+    def autolink(self) -> dict:
+        return {"linked": list(self.auto_linked), "deferred": 0, "thresholds": {"auto_min": 0.8}}
+
     def insights(self, days: int = 30) -> dict:
         return {"highlights": ["You added 5 notes this week."], "deadlines": [], "overdue_tasks": [],
                 "stale_projects": [], "inbox": {}}
@@ -501,3 +506,15 @@ def test_github_client_reads_pushed_repos_merged_prs_and_commits() -> None:
     assert a["commits"] == [{"sha": "abcdef1", "message": "Add upkeep", "url": "c1"}]
     assert [p["number"] for p in a["merged_prs"]] == [62]
     client.close()
+
+
+def test_upkeep_auto_links_confident_pairs_and_says_so() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain()
+    brain.auto_linked = [{"a": "Pump Stations", "b": "Wet Wells", "confidence": 91},
+                         {"a": "Valves", "b": "Rising Mains", "confidence": 84}]
+    siris.llm = None
+    siris._notify_client = FakeNotify()
+    out = asyncio.run(jobs.upkeep(siris, _at(2)))
+    assert len(out["autolink"]["linked"]) == 2
+    assert "Linked 2 pairs of notes it was sure about." in siris._notify_client.sent[0][1]

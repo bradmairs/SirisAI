@@ -109,6 +109,33 @@ def link(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
+@router.post("/unlink")
+def unlink(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Disconnect two linked notes; they're never linked automatically again."""
+    try:
+        return _brain(siris).unlink(request.a, request.b)
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.post("/autolink")
+def autolink(siris: SirisAI = Depends(get_siris)) -> dict:
+    """Link the pairs the engine is confident about now, rather than waiting for the nightly upkeep."""
+    try:
+        return _brain(siris).autolink()
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.get("/note")
+def note(title: str = Query(min_length=1, max_length=200), siris: SirisAI = Depends(get_siris)) -> dict:
+    """One note with its links and backlinks (e.g. to review or unlink its connections)."""
+    found = _brain(siris).get_note(title)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"No note called {title!r}.")
+    return found
+
+
 @router.post("/not-related")
 def not_related(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
     """Dismiss a "could be linked" suggestion so it isn't suggested again."""
