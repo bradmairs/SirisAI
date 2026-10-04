@@ -70,6 +70,18 @@ FAKE_ENGINE = textwrap.dedent(
         (root / "archive.md").write_text(stdin)
         print(json.dumps({"archived": len(json.loads(stdin))}))
         sys.exit(0)
+    if cmd in ("link", "unrelate"):
+        a, b = (find(x) for x in args[args.index("--") + 1:])
+        if a is None or b is None:
+            sys.exit("No note called " + repr(args[-2] if a is None else args[-1]))
+        if cmd == "link":
+            notes[a] += f"\\n- [[{b}]]"
+            notes[b] += f"\\n- [[{a}]]"
+            store.write_text(json.dumps(notes))
+        else:
+            (root / ".not-related.json").write_text(json.dumps([sorted((a, b))]))
+        print(json.dumps({"action": "linked" if cmd == "link" else "dismissed", "a": a, "b": b, "changed": [a, b]}))
+        sys.exit(0)
     if cmd == "relink":
         print("Notes/A.md: + B\\nAdded 3 links.")
         sys.exit(0)
@@ -540,3 +552,34 @@ def test_routes_404_without_a_brain(client: TestClient) -> None:
 def test_brain_page_is_served(client: TestClient) -> None:
     r = client.get("/brain")
     assert r.status_code == 200 and "/siris/brain/map.html" in r.text
+
+
+def test_link_and_not_related_routes(brain_api) -> None:
+    client, vault = brain_api
+    client.post("/siris/brain/capture", json={"title": "Pump Stations", "text": "Wet wells"})
+    client.post("/siris/brain/capture", json={"title": "Rising Mains", "text": "Pressure sewers"})
+
+    r = client.post("/siris/brain/link", json={"a": "pump stations", "b": "Rising Mains"})
+    assert r.status_code == 200 and r.json()["action"] == "linked"
+    assert _calls(vault)[-1]["args"] == ["link", "--output", "json", "--", "pump stations", "Rising Mains"]
+    assert "[[Rising Mains]]" in json.loads((vault / "notes.json").read_text())["Pump Stations"]
+
+    r = client.post("/siris/brain/not-related", json={"a": "Pump Stations", "b": "Rising Mains"})
+    assert r.json() == {"action": "dismissed", "a": "Pump Stations", "b": "Rising Mains", "changed": ["Pump Stations", "Rising Mains"]}
+    assert _calls(vault)[-1]["args"][:4] == ["unrelate", "--output", "json", "--"]
+
+    r = client.post("/siris/brain/link", json={"a": "Pump Stations", "b": "Nope"})
+    assert r.status_code == 422 and "No note called 'Nope'" in r.json()["detail"]
+    assert client.post("/siris/brain/link", json={"a": "", "b": "x"}).status_code == 422
+
+
+def test_link_commits_when_syncing(tmp_path: Path) -> None:
+    vault = _vault(tmp_path, {"A Note": "a", "B Note": "b"})
+    seen = []
+    client = SecondBrainClient(str(vault), git_sync=True)
+    client._commit = seen.append  # type: ignore[method-assign]
+    client._schedule_push = lambda: None  # type: ignore[method-assign]
+    client._maybe_pull = lambda: None  # type: ignore[method-assign]
+    client.link("A Note", "B Note")
+    client.unrelate("A Note", "B Note")
+    assert seen == ["siris: linked A Note and B Note", "siris: A Note and B Note aren't related"]

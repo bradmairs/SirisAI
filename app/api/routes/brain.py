@@ -1,7 +1,8 @@
 """The second brain over HTTP (app/second_brain/): quick capture from
 anywhere -- an iOS Shortcut, the share sheet, a Home Assistant automation
 -- plus the interactive mind map, what was learned today, insights, and
-search.
+search, and acting on insights' "could be linked" suggestions (link the two
+notes, or mark them not related).
 
 Capture lands in the vault's inbox (`type: capture`, 00-Inbox/) through the
 same engine as every other write, so it's linked straight away and filed
@@ -21,7 +22,7 @@ from app.core import clock
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
-from app.second_brain.client import SecondBrainClient
+from app.second_brain.client import SecondBrainClient, SecondBrainError
 
 router = APIRouter(
     prefix="/siris/brain", tags=["second_brain"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)]
@@ -92,3 +93,26 @@ def insights(days: int = Query(30, ge=7, le=365), siris: SirisAI = Depends(get_s
     """How the brain is growing and what needs attention (deadlines,
     overdue tasks, idle projects, an old inbox, links worth making)."""
     return _brain(siris).insights(days=days)
+
+
+class PairRequest(BaseModel):
+    a: str = Field(min_length=1, max_length=200)
+    b: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/link")
+def link(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Link two notes both ways (a "could be linked" suggestion, accepted)."""
+    try:
+        return _brain(siris).link(request.a, request.b)
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.post("/not-related")
+def not_related(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Dismiss a "could be linked" suggestion so it isn't suggested again."""
+    try:
+        return _brain(siris).unrelate(request.a, request.b)
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
