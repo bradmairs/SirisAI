@@ -25,6 +25,10 @@ week), remembered in the state store, so a restart never repeats one:
   add the week's health snapshot to the Health note; and add the week's
   home lab activity (restarts, errors, paused tools) to the Home Lab note.
   **review**, at the same time, writes the week's review note.
+- **vaults** (nightly, SIRISAI_BRAIN_VAULTS_HOUR_LOCAL, only when
+  SIRISAI_BRAIN_VAULTS is set): new and changed notes in Brad's own
+  Obsidian vaults become atomic notes, read-only on the vaults' side
+  (app/second_brain/vaults.py).
 
 Everything goes through `SecondBrainClient.learn()`: additive, linked, and
 synced like any other write. A failing job is logged and marked done for
@@ -41,6 +45,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.core import clock
 from app.plugins.builtin.second_brain import MEMORY_INBOX_TITLE
+from app.second_brain import vaults
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -105,6 +110,8 @@ async def run_due(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
         jobs.append(("meetings", lambda: asyncio.to_thread(write_meeting_notes, siris, today)))
     if due("dream", s.brain_dream_hour_local):
         jobs.append(("dream", lambda: dream(siris, today)))
+    if s.brain_vaults.strip() and due("vaults", s.brain_vaults_hour_local):
+        jobs.append(("vaults", lambda: vaults.learn_from_vaults(siris)))
     if due("upkeep", s.brain_upkeep_hour_local):
         jobs.append(("upkeep", lambda: upkeep(siris, now or datetime.now(UTC))))
     if local_now.weekday() == s.brain_weekly_day and due("weekly", s.brain_weekly_hour_local):

@@ -5352,6 +5352,26 @@ provider for the same capability actually exists to design against.
     On `SIRISAI_BRAIN_WEEKLY_DAY` the new `review` job writes the week's
     review note from the vault's insights. The dream no longer reads the
     memory inbox, so entries aren't filed twice.
+124. **Done** -- The second brain learns from Brad's own Obsidian vaults
+    (Home and Work), with no Claude involved. Set `SIRISAI_BRAIN_VAULTS`
+    to the vaults' paths inside the container (mounted `:ro`, optionally
+    named, e.g. `Work=/vaults/Work`). Nightly at
+    `SIRISAI_BRAIN_VAULTS_HOUR_LOCAL` (default 1:00, before upkeep relinks)
+    the `vaults` job (`app/second_brain/vaults.py`):
+
+    - finds notes that are new or changed since the last run, skipping
+      `.obsidian`, `.trash`, `Templates`, `Attachments`, Synology `@eaDir`
+      and sync-conflict copies. A changed note sends only its added lines.
+    - has the general model turn each into atomic notes, reusing existing
+      titles like the dream does, tagged `obsidian` and `vault-<name>`
+      with the source note's path. Secrets in a note are never kept.
+    - reads at most `SIRISAI_BRAIN_VAULTS_MAX_NOTES` (30) a night, most
+      recently edited first, so the first run catches up over a few
+      nights. A snapshot of what was read is kept under
+      `data/brain-vaults`; a note is marked read only after the model has
+      answered for it.
+
+    The vaults are never written to.
 
 ## Running locally
 

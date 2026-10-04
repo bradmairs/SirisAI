@@ -210,7 +210,7 @@ class Settings(BaseSettings):
     @field_validator(
         "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
-        "brain_upkeep_hour_local",
+        "brain_upkeep_hour_local", "brain_vaults_hour_local",
         mode="before",
     )
     @classmethod
@@ -559,6 +559,16 @@ class Settings(BaseSettings):
     brain_upkeep_hour_local: int | None = 2
     brain_github_token: str = ""
     brain_github_owner: str = "bradmairs"
+    # Brad's own Obsidian vaults (app/second_brain/vaults.py), mounted
+    # read-only: comma-separated paths, optionally named ("Work=/vaults/Work";
+    # a bare path is named after its folder). Nightly at vaults_hour_local the
+    # general model turns new and changed notes into atomic notes, at most
+    # vaults_max_notes a night (the first run catches up over a few nights).
+    # cache_path keeps what was last read of each note. Empty brain_vaults = off.
+    brain_vaults: str = ""
+    brain_vaults_hour_local: int | None = 1
+    brain_vaults_max_notes: int = 30
+    brain_vaults_cache_path: str = "data/brain-vaults"
 
     # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
     # NVR with local object detection; SirisAI's first vision integration.
