@@ -82,6 +82,16 @@ FAKE_ENGINE = textwrap.dedent(
             (root / ".not-related.json").write_text(json.dumps([sorted((a, b))]))
         print(json.dumps({"action": "linked" if cmd == "link" else "dismissed", "a": a, "b": b, "changed": [a, b]}))
         sys.exit(0)
+    if cmd == "autolink":
+        print(json.dumps({"linked": [{"a": "Pump Stations", "b": "Rising Mains", "confidence": 88, "why": "88% similar"}],
+                          "deferred": 0, "thresholds": {"auto_min": 0.8, "basis": "default"}}))
+        sys.exit(0)
+    if cmd == "unlink":
+        a, b = (find(x) for x in args[args.index("--") + 1:])
+        if a is None or b is None:
+            sys.exit("No note called " + repr(args[-2] if a is None else args[-1]))
+        print(json.dumps({"action": "unlinked", "a": a, "b": b, "changed": [a, b]}))
+        sys.exit(0)
     if cmd == "relink":
         print("Notes/A.md: + B\\nAdded 3 links.")
         sys.exit(0)
@@ -571,6 +581,24 @@ def test_link_and_not_related_routes(brain_api) -> None:
     r = client.post("/siris/brain/link", json={"a": "Pump Stations", "b": "Nope"})
     assert r.status_code == 422 and "No note called 'Nope'" in r.json()["detail"]
     assert client.post("/siris/brain/link", json={"a": "", "b": "x"}).status_code == 422
+
+
+def test_unlink_autolink_and_note_routes(brain_api) -> None:
+    client, vault = brain_api
+    client.post("/siris/brain/capture", json={"title": "Pump Stations", "text": "Wet wells"})
+    client.post("/siris/brain/capture", json={"title": "Rising Mains", "text": "Pressure sewers"})
+    r = client.post("/siris/brain/unlink", json={"a": "pump stations", "b": "Rising Mains"})
+    assert r.status_code == 200 and r.json()["action"] == "unlinked"
+    assert _calls(vault)[-1]["args"] == ["unlink", "--output", "json", "--", "pump stations", "Rising Mains"]
+    assert client.post("/siris/brain/unlink", json={"a": "Pump Stations", "b": "Nope"}).status_code == 422
+
+    r = client.post("/siris/brain/autolink")
+    assert r.status_code == 200 and r.json()["linked"][0]["confidence"] == 88
+    assert _calls(vault)[-1]["args"] == ["autolink", "--output", "json"]
+
+    note = client.get("/siris/brain/note", params={"title": "Pump Stations"})
+    assert note.status_code == 200 and note.json()["title"] == "Pump Stations" and "backlinks" in note.json()
+    assert client.get("/siris/brain/note", params={"title": "Nope"}).status_code == 404
 
 
 def test_link_commits_when_syncing(tmp_path: Path) -> None:

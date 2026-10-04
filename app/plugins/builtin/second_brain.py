@@ -20,7 +20,7 @@ import re
 from typing import Any
 
 from app.plugins.base import Tool, ToolPermission, ToolVerification
-from app.second_brain.client import SecondBrainClient
+from app.second_brain.client import SecondBrainClient, SecondBrainError
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,52 @@ class BrainInsightsTool(Tool):
 
     def run(self, days: int = 30, **kwargs: Any) -> Any:
         return self._client.insights(days=max(7, min(int(days or 30), 365)))
+
+
+class BrainLinkNotesTool(Tool):
+    name = "brain_link_notes"
+    description = (
+        "Link two notes in Brad's second brain both ways, when he asks to connect them (\"link Pump "
+        "Stations to Rising Mains\"). Linking by hand also overrides an earlier 'not related'."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "a": {"type": "string", "description": "One note's title."},
+            "b": {"type": "string", "description": "The other note's title."},
+        },
+        "required": ["a", "b"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, a: str = "", b: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.link(a, b)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
+class BrainUnlinkNotesTool(Tool):
+    name = "brain_unlink_notes"
+    description = (
+        "Disconnect two notes in Brad's second brain, when he says they shouldn't be linked (\"unlink X and "
+        "Y\", \"those aren't related\"). Removes the link both ways (his words stay, just not as a link) and "
+        "stops anything automatic from linking them again."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = BrainLinkNotesTool.parameters
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, a: str = "", b: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.unlink(a, b)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
 
 
 class BrainLearnTool(Tool):
