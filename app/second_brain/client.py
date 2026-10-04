@@ -155,6 +155,18 @@ class SecondBrainClient:
         return self._write(["clear-memory-inbox", "--json", "-", "--output", "json"], stdin=json.dumps(filed),
                            message=lambda r: f"siris: filed {r.get('archived', 0)} memory inbox entries")
 
+    def link(self, a: str, b: str) -> dict:
+        """Connect two notes both ways, acting on an insights "could be linked"
+        suggestion. `action` is linked or already-linked; an unknown note raises."""
+        return self._write(["link", "--output", "json", "--", a, b],
+                           message=lambda r: f"siris: linked {r.get('a', a)} and {r.get('b', b)}")
+
+    def unrelate(self, a: str, b: str) -> dict:
+        """Dismiss a "could be linked" suggestion: the pair is remembered in the
+        vault and never suggested again. Neither note changes."""
+        return self._write(["unrelate", "--output", "json", "--", a, b],
+                           message=lambda r: f"siris: {r.get('a', a)} and {r.get('b', b)} aren't related")
+
     def relink(self) -> int:
         """Link plain mentions of note titles across the vault; returns how many links were added."""
         out = self._write(["relink"], raw=True, message=lambda r: "siris: relink")
