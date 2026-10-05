@@ -224,13 +224,20 @@ class SecondBrainClient:
             return (self.path / "_site" / "index.html").read_text(encoding="utf-8")
 
     def learned_today(self, date: str) -> list[dict[str, str]]:
-        """What the brain learned or updated on `date` (YYYY-MM-DD), read from
-        that day's daily note log ("🧠 Learned [[X]]" lines the engine writes)."""
-        note = self.get_note(date)
-        if note is None or note.get("title") != date:
-            return []
+        """What the brain learned or updated on `date` (YYYY-MM-DD), from the
+        "🧠 Learned [[X]]" lines in the vault's activity log (`brain.py log`).
+        A vault from before the activity log kept them in that day's daily
+        note instead, so that's read when the engine has no `log` command."""
+        self._maybe_pull()
+        try:
+            text = "\n".join(e.get("line", "") for e in self._engine_call(["log", "--date", date, "--output", "json"]))
+        except SecondBrainError:
+            note = self.get_note(date)
+            if note is None or note.get("title") != date:
+                return []
+            text = note.get("body", "")
         seen: dict[str, str] = {}
-        for action, title in re.findall(r"🧠 (Learned|Updated) \[\[([^\]|#]+)", note.get("body", "")):
+        for action, title in re.findall(r"🧠 (Learned|Updated) \[\[([^\]|#]+)", text):
             seen.setdefault(title, action.lower())
         return [{"title": t, "action": a} for t, a in seen.items()]
 

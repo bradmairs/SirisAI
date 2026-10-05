@@ -464,7 +464,7 @@ def test_weekly_review_note() -> None:
     siris.llm = FakeLLM("## This week\n- Upgraded the server.")
     assert asyncio.run(jobs.weekly_review(siris, DAY)) == {"written": "2026-W41-review"}
     item = brain.learned[0]
-    assert item["folder"] == "Daily" and item["tags"] == ["weekly-review"] and "Upgraded" in item["content"]
+    assert item["folder"] == "03-Resources/Weekly Reviews" and item["tags"] == ["weekly-review"] and "Upgraded" in item["content"]
     assert "Home Server" in siris.llm.messages[1]["content"]
     brain.notes["2026-W41-review"] = "done"
     assert asyncio.run(jobs.weekly_review(siris, DAY)) == {"skipped": "already written"}

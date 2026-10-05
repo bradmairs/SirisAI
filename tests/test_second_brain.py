@@ -92,6 +92,13 @@ FAKE_ENGINE = textwrap.dedent(
             sys.exit("No note called " + repr(args[-2] if a is None else args[-1]))
         print(json.dumps({"action": "unlinked", "a": a, "b": b, "changed": [a, b]}))
         sys.exit(0)
+    if cmd == "log":
+        log = root / "activity.json"
+        if not log.exists():
+            sys.exit("invalid choice: 'log'")   # an older vault, from before the activity log
+        date = args[args.index("--date") + 1]
+        print(json.dumps([e for e in json.loads(log.read_text()) if e["date"] == date]))
+        sys.exit(0)
     if cmd == "relink":
         print("Notes/A.md: + B\\nAdded 3 links.")
         sys.exit(0)
@@ -523,6 +530,19 @@ def test_capture_needs_something(brain_api) -> None:
 def test_capture_title() -> None:
     assert capture_title("# Big idea\nmore", "") == "Big idea"
     assert capture_title("", "") == "Capture"
+
+
+def test_learned_today_reads_the_activity_log(tmp_path: Path) -> None:
+    vault = _vault(tmp_path, {"2026-10-02": "- 🧠 Learned [[Old Way]]"})
+    (vault / "activity.json").write_text(json.dumps([
+        {"date": "2026-10-02", "line": "🧠 Learned [[Plex]]"},
+        {"date": "2026-10-02", "line": "🔗 Linked [[Plex]] ↔ [[Home Server]]"},
+        {"date": "2026-10-02", "line": "🧠 Updated [[Plex]]"},
+        {"date": "2026-10-03", "line": "🧠 Updated [[Dom Mairs]]"},
+    ]))
+    client = SecondBrainClient(str(vault))
+    assert client.learned_today("2026-10-02") == [{"title": "Plex", "action": "learned"}]
+    assert client.learned_today("2026-10-04") == []
 
 
 def test_map_and_today(brain_api) -> None:
