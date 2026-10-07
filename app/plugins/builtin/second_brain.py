@@ -186,8 +186,9 @@ class BrainLearnTool(Tool):
         "you learned, e.g. a fact, preference, decision, plan, how something works, or a person. Use one "
         "call per idea and title it as the idea or the thing it's about ('Melbourne Marathon 2026 10 km', "
         "'Home Server'). If a note with that title or alias exists, this appends a dated update instead of "
-        "duplicating it; it never overwrites. Name related things in the content: existing notes get "
-        "linked automatically."
+        "duplicating it; it never overwrites. Anything new waits in the brain's inbox (still searchable) "
+        "until the nightly sort files it as a new note or merges it into a note on the same topic. Name "
+        "related things in the content: existing notes get linked automatically."
     )
     permission = ToolPermission.SAFE_ACTION
     parameters = {
@@ -220,7 +221,9 @@ class BrainLearnTool(Tool):
         self._client = client
 
     def _item(self, title: str, content: str, tags: list[str] | None, source: str, type: str, links: list[str] | None) -> dict[str, Any]:
-        item: dict[str, Any] = {"title": title, "content": content, "tags": list(tags or [])}
+        # Something new waits in the inbox, where the nightly sort can merge it into a note on the
+        # same topic; adding to a note that already has this title goes straight in.
+        item: dict[str, Any] = {"title": title, "content": content, "tags": list(tags or []), "inbox_if_new": True}
         if source:
             item["source"] = source
         if type in _NOTE_TYPES:
@@ -254,7 +257,9 @@ class BrainLearnTool(Tool):
             "would_create": decision["action"] == "create",
             "would_update": decision["action"] == "update",
             "existing_title": decision["title"] if decision["action"] == "update" else None,
-            "path": f"{decision['folder']}/{decision['title']}.md",
+            # New notes wait in the inbox for the nightly sort; `suggested_path` is the router's guess.
+            "path": f"{decision['folder']}/{decision['title']}.md" if decision["action"] == "update" else f"00-Inbox/{title}.md",
+            "suggested_path": f"{decision['folder']}/{decision['title']}.md",
             "type": decision["type"],
             "areas": decision["areas"],
             "reasons": decision["reasons"],

@@ -5352,6 +5352,14 @@ provider for the same capability actually exists to design against.
     On `SIRISAI_BRAIN_WEEKLY_DAY` the new `review` job writes the week's
     review note from the vault's insights. The dream no longer reads the
     memory inbox, so entries aren't filed twice.
+124. **Done** -- Everything new goes through the brain's inbox. New notes from
+    chat (`brain_learn`) and the nightly dream now wait in `00-Inbox/` (still
+    searchable), as do new notes from the Obsidian vaults (vault side). Adding
+    to a note that already has that exact title still goes straight in. The
+    upkeep's sort then shows the general model each inbox note with the
+    existing notes a search finds for it, and the model picks: merge into one
+    of those notes (`brain.py file --into`), file as a new note of a given
+    type, or leave it for Brad. Without a model, the router files it as before.
 
 ## Running locally
 

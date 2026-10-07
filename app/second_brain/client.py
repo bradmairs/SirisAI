@@ -142,11 +142,13 @@ class SecondBrainClient:
         self._maybe_pull()
         return self._engine_call(["inbox", "--output", "json"])
 
-    def file_note(self, title: str, type: str = "auto") -> dict:
-        """File one inbox capture where the router says it belongs. `action` is
-        filed (moved), merged (added to the note it's about; the capture is
-        archived), left (still unsure, with `reasons`) or missing."""
-        return self._write(["file", "--type", type, "--output", "json", "--", title],
+    def file_note(self, title: str, type: str = "auto", into: str = "") -> dict:
+        """File one inbox capture where the router says it belongs, or merge it
+        into the existing note `into`. `action` is filed (moved), merged (added
+        to that note; the capture is archived), left (unsure, with `reasons`)
+        or missing."""
+        args = ["file", "--type", type, "--output", "json"] + (["--into", into] if into else [])
+        return self._write([*args, "--", title],
                            message=lambda r: f"siris: filed {r.get('title', title)}")
 
     def clear_memory_inbox(self, filed: list[dict[str, str]]) -> dict:
