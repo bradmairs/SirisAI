@@ -222,10 +222,13 @@ def test_learn_dry_run_shows_the_routers_decision(tmp_path: Path) -> None:
     tool = BrainLearnTool(SecondBrainClient(str(vault)))
     assert tool.dry_run(title="Dom", content="x") == {
         "title": "Dom", "would_create": False, "would_update": True, "existing_title": "Dom Mairs",
-        "path": "People/Dom Mairs.md", "type": "person", "areas": [], "reasons": ["fake"],
+        "path": "People/Dom Mairs.md", "suggested_path": "People/Dom Mairs.md", "type": "person", "areas": [],
+        "reasons": ["fake"],
     }
     new = tool.dry_run(title="Knee Soreness", content="sore after runs")
     assert new["would_create"] is True and new["areas"] == ["Health"]
+    # Something new waits in the inbox for the nightly sort; the router's guess is the suggestion.
+    assert (new["path"], new["suggested_path"]) == ("00-Inbox/Knee Soreness.md", "Notes/Knee Soreness.md")
     assert _calls(vault)[-1]["args"] == ["route", "--type", "auto", "--output", "json", "-c", "sore after runs", "--", "Knee Soreness"]
 
 
@@ -233,12 +236,14 @@ def test_learn_tool_leaves_the_type_to_the_router_by_default(tmp_path: Path) -> 
     vault = _vault(tmp_path, {})
     BrainLearnTool(SecondBrainClient(str(vault))).run(title="Knee Soreness", content="sore after runs")
     assert "type" not in json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert json.loads(_calls(vault)[-1]["stdin"])[0]["inbox_if_new"] is True
 
 
 def test_learn_tool_only_passes_known_types(tmp_path: Path) -> None:
     vault = _vault(tmp_path, {})
     BrainLearnTool(SecondBrainClient(str(vault))).run(title="X", content="y", type="spaceship")
     assert "type" not in json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert json.loads(_calls(vault)[-1]["stdin"])[0]["inbox_if_new"] is True
 
 
 # ---------- memory mirroring ----------

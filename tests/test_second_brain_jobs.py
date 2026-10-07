@@ -26,6 +26,8 @@ class FakeBrain:
         self.inbox_notes = inbox_notes or []
         self.known = known or {}            # words the fake router recognises → the note they file to
         self.cleared: list[dict] = []
+        self.file_calls: list[tuple[str, str, str]] = []
+        self.search_results: list[dict] = []
         self.filed: list[str] = []
         self.relinked = 0
         self.sources: dict[str, str] = {}
@@ -44,11 +46,17 @@ class FakeBrain:
         self.cleared += filed
         return {"archived": len(filed)}
 
-    def file_note(self, title: str, type: str = "auto") -> dict:
+    def file_note(self, title: str, type: str = "auto", into: str = "") -> dict:
         self.filed.append(title)
+        self.file_calls.append((title, type, into))
+        if into:
+            return {"action": "merged", "title": title, "into": into}
         if title == "Dom":
             return {"action": "merged", "title": title, "into": "Dom Mairs"}
         return {"action": "left" if title == "Hmm" else "filed", "title": title}
+
+    def search(self, query: str, limit: int = 10) -> list[dict]:
+        return self.search_results[:limit]
 
     def relink(self) -> int:
         self.relinked += 1
@@ -225,6 +233,7 @@ def test_dream_turns_the_day_into_tagged_notes(monkeypatch: pytest.MonkeyPatch) 
     assert result == {"learned": ["Home Server"]}
     assert brain.learned[0]["tags"] == ["siris-dream"]
     assert brain.learned[0]["source"] == "SirisAI conversations, 2026-10-06"
+    assert brain.learned[0]["inbox_if_new"] is True   # new notes are sorted by the upkeep
     assert "Existing note titles: Home Server" in siris.llm.messages[1]["content"]
 
 
@@ -343,11 +352,50 @@ def test_without_a_model_only_the_routers_picks_are_filed() -> None:
     assert [c["id"] for c in brain.cleared] == ["a1"]
 
 
-def test_inbox_notes_are_filed_by_the_router() -> None:
+def test_without_a_model_inbox_notes_are_filed_by_the_router() -> None:
     siris = _siris()
+    siris.llm = None
     brain = siris.second_brain = FakeBrain(inbox_notes=[{"title": t} for t in ("Knee Soreness", "Dom", "Hmm")])
-    assert jobs.file_inbox_notes(siris) == {"filed": ["Knee Soreness"], "merged": ["Dom Mairs"], "left": ["Hmm"]}
+    assert asyncio.run(jobs.file_inbox_notes(siris)) == {"filed": ["Knee Soreness"], "merged": ["Dom Mairs"], "left": ["Hmm"]}
     assert brain.filed == ["Knee Soreness", "Dom", "Hmm"]
+
+
+def _sort(reply: str, title: str = "SirisHome Business") -> tuple[FakeBrain, dict, FakeLLM]:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain(inbox_notes=[{"title": title, "text": "Offer local AI installs to homeowners."}])
+    brain.search_results = [
+        {"title": title, "type": "capture", "path": f"00-Inbox/{title}.md", "excerpts": ["itself"]},
+        {"title": "SirisHome", "type": "note", "path": "Notes/SirisHome.md", "excerpts": ["The smart home business."]},
+        {"title": "Health", "type": "area", "path": "02-Areas/Health.md", "excerpts": ["hub"]},
+        {"title": "Old Capture", "type": "note", "path": "04-Archive/Inbox/Old Capture.md", "excerpts": ["x"]},
+    ]
+    siris.llm = FakeLLM(reply)
+    return brain, asyncio.run(jobs.file_inbox_notes(siris)), siris.llm
+
+
+def test_the_model_merges_an_inbox_note_into_a_note_on_the_same_topic() -> None:
+    brain, out, llm = _sort('{"action": "merge", "into": "SirisHome"}')
+    assert out == {"filed": [], "merged": ["SirisHome"], "left": []}
+    assert brain.file_calls == [("SirisHome Business", "auto", "SirisHome")]
+    prompt = llm.messages[1]["content"]
+    assert "- SirisHome (note): The smart home business." in prompt
+    assert "Health" not in prompt and "Old Capture" not in prompt and "(capture)" not in prompt   # not merge targets
+
+
+def test_the_model_can_only_merge_into_a_note_the_search_found() -> None:
+    brain, out, _ = _sort('{"action": "merge", "into": "Health"}')
+    assert brain.file_calls == [("SirisHome Business", "auto", "")]   # back to the router
+
+
+def test_the_model_files_new_topics_with_a_type_or_leaves_them() -> None:
+    brain, out, _ = _sort('{"action": "new", "type": "project"}')
+    assert brain.file_calls == [("SirisHome Business", "project", "")] and out["filed"] == ["SirisHome Business"]
+    brain, out, _ = _sort('{"action": "new", "type": "spaceship"}')
+    assert brain.file_calls == [("SirisHome Business", "auto", "")]
+    brain, out, _ = _sort('{"action": "leave"}')
+    assert brain.file_calls == [] and out["left"] == ["SirisHome Business"]
+    brain, out, _ = _sort("no idea")
+    assert brain.file_calls == [("SirisHome Business", "auto", "")]
 
 
 def test_repos_map_to_their_project_notes() -> None:
