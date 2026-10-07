@@ -606,7 +606,7 @@ async def upkeep(siris: "SirisAI", now: datetime) -> dict[str, Any]:
 
 
 async def weekly_review(siris: "SirisAI", day: date) -> dict[str, Any]:
-    """The week's review note (Daily/<YYYY>-W<week>-review), from the vault's own
+    """The week's review note (03-Resources/Weekly Reviews/<YYYY>-W<week>-review), from the vault's own
     insights and what it learned this week; written by the model when there is one,
     otherwise just the insights' highlights."""
     brain = siris.second_brain
@@ -625,7 +625,7 @@ async def weekly_review(siris: "SirisAI", day: date) -> dict[str, Any]:
     reply = await _generate(siris, "second brain weekly review", REVIEW_PROMPT, json.dumps(facts, default=str)[:_MAX_MATERIAL_CHARS])
     body = (reply or "").strip() or "## This week\n" + "\n".join(f"- {h}" for h in found.get("highlights") or ["A quiet week."])
     await asyncio.to_thread(brain.learn, [{
-        "title": title, "content": body[:4000], "type": "note", "folder": "Daily",
+        "title": title, "content": body[:4000], "type": "note", "folder": "03-Resources/Weekly Reviews",
         "tags": ["weekly-review"], "source": "SirisAI weekly review",
     }])
     return {"written": title}
