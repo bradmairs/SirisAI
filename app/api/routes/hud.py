@@ -36,18 +36,26 @@ def _summary(siris: SirisAI) -> dict[str, Any]:
         return found.run(**args) if found is not None else None
 
     now = clock.now_local(siris.settings.timezone)
+    # Guest mode: a wall tablet may be in front of visitors, so the personal
+    # tiles (calendar, parcels, car, what the brain learned) are left out
+    # without even being read -- as the hub contract's brief does.
+    private = guest.is_on(siris)
+
+    def personal(fn: Callable[[], Any]) -> Any:
+        return None if private else _try(fn)
+
     return {
         "time": now.isoformat(),
         "system": _try(lambda: tool("system_info")),
         "weather": _try(lambda: tool("weather_current")),
-        "next_events": _try(lambda: (tool("calendar_upcoming_events", days_ahead=1) or [])[:3]),
+        "next_events": personal(lambda: (tool("calendar_upcoming_events", days_ahead=1) or [])[:3]),
         "guest_mode": _try(lambda: guest.status(siris)),
         "energy": _try(lambda: energy_status(siris)),
-        "parcels": _try(lambda: siris.parcels.active()),
-        "car": _try(lambda: tool("car_status")),
+        "parcels": personal(lambda: siris.parcels.active()),
+        "car": personal(lambda: tool("car_status")),
         "cameras": _try(lambda: siris._frigate_client.list_cameras() if siris._frigate_client else []),
         "autonomy": _try(lambda: timeline(siris, hours=24)["items"][:8]),
-        "brain": _try(lambda: siris.second_brain.learned_today(now.date().isoformat())[:8] if siris.second_brain else None),
+        "brain": personal(lambda: siris.second_brain.learned_today(now.date().isoformat())[:8] if siris.second_brain else None),
         "recent": _try(lambda: [
             {"tool": a["tool_name"], "time": a["created_at"], "error": bool(a["error"])} for a in siris.audit.list_recent(limit=6)
         ]),

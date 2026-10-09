@@ -269,3 +269,16 @@ def test_search_finds_chats_and_memories(use) -> None:
     chat = next(h for h in body["hits"] if h["kind"] == "chat")
     assert chat["ref"] == conv and chat["snippet"] == "You said"
     assert body["unavailable"] == []
+
+
+def test_hud_summary_leaves_personal_tiles_out_in_guest_mode(use) -> None:
+    siris = full_siris()
+    siris.tools._tools["calendar_upcoming_events"].calls.clear()
+    client = use(siris)
+    assert client.get("/siris/hud/summary").json()["car"]["name"] == "the car"
+    guest.set_mode(siris, True)
+    calls_before = len(siris.tools.get("calendar_upcoming_events").calls)
+    body = client.get("/siris/hud/summary").json()
+    assert body["next_events"] is None and body["car"] is None and body["parcels"] is None and body["brain"] is None
+    assert body["weather"]["temperature_c"] == 17.4 and body["guest_mode"]["on"] is True
+    assert len(siris.tools.get("calendar_upcoming_events").calls) == calls_before  # never even read

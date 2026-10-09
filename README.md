@@ -5458,6 +5458,39 @@ provider for the same capability actually exists to design against.
     eval cases cover them. SirisOS accepts the service key only on these
     read/compute routes, never for changing its data.
 
+128. **Done** -- SirisAI and SirisOS, verified together. The SirisOS side
+    (its ADR 110) builds on milestones 125-127: the daily brief and search
+    each come from one `/siris/hub/v1` call (falling back to the old calls
+    on a 404); an inbox merges the attention feed with SirisOS's own items
+    (apps down, overdue tasks, the Archive queue), live; Home runs
+    protocols with preview, confirm and undo, shows cameras with "What's
+    there?", the car, power and parcels; the calculators run server-side
+    with 50 parity cases shared by its TypeScript and Python suites; and
+    SirisHydro's synthesis comes through `/siris/hub/v1/llm/complete`.
+    - **Guest mode now covers the HUD too:** `/siris/hud/summary` leaves the
+      calendar, parcels, car and what the brain learned out (unread) while
+      it's on, since SirisOS's Home and the wall-tablet HUD both show it.
+    - **Live check** (both apps on uvicorn, fakes for Ollama, Home
+      Assistant, Frigate, ntfy and Open-Meteo, a real PDF standard
+      indexed by SirisOS):
+      - A chat about a 450 mm pipe ran `engineering_calculate`, and SirisOS
+        answered 0.202 m³/s with the service key.
+      - "What does AS3500 say..." ran `sirishydro_ask`. SirisOS found the
+        page and asked SirisAI's `/llm/complete` (audited as "hub: sirishydro
+        asked for a completion"), and the cited answer came back.
+      - The service key got a 403 when it tried to create a project.
+      - A routine's held `undo_last_protocol` arrived on SirisOS's inbox
+        stream within a second. Approving it, from the API and from the PWA
+        in Chromium, undid the lockdown in Home Assistant, under the
+        trigger "attention feed: the user chose 'approve' ... in SirisOS".
+      - Lockdown from SirisOS was refused without confirmation (409), then
+        locked the door and closed the garage.
+      - Camera frames and descriptions came through. Guest mode hid the
+        personal widgets, HUD tiles and brief sections.
+      - The PWA had no horizontal scroll at phone width and no page errors.
+        The browser run caught one bug: a sheet opened from a glass card
+        rendered inside the card. SirisOS sheets now render in a portal.
+
 ## Running locally
 
 ```bash
