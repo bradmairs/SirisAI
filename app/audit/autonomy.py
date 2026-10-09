@@ -31,6 +31,13 @@ _AUTONOMOUS_PREFIXES = (
     "geofence",
     "event_reaction",
 )
+
+# Scheduled watchers that run every few minutes and usually find nothing.
+# What they *do* when something happens (a reminder sent, a scene turned on,
+# a departure heads-up) is audited separately under its own trigger, so the
+# check itself is left out -- otherwise "Geofence reminder check" filled the
+# timeline every three minutes.
+_WATCHERS = frozenset({"geofence_reminder_check", "presence_check"})
 _LABELS = {
     "notify": "sent a notification",
     "docker_restart_container": "restarted a container",
@@ -69,7 +76,7 @@ def timeline(siris: "SirisAI", hours: float = 24, include_reads: bool = False, n
     entries = siris.audit.since(now - timedelta(hours=hours))
     items = []
     for entry in entries:
-        if not is_autonomous(entry.get("trigger")):
+        if not is_autonomous(entry.get("trigger")) or entry["tool_name"] in _WATCHERS:
             continue
         tool = siris.tools.get(entry["tool_name"])
         if not include_reads and tool is not None and tool.permission is ToolPermission.READ:

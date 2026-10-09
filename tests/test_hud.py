@@ -57,3 +57,17 @@ def test_hud_page_is_served(client: TestClient) -> None:
     assert response.status_code == 200
     assert "SirisAI HUD" in response.text and "/siris/voice/converse" in response.text
     assert 'href="/hud"' in client.get("/").text
+
+
+def test_timeline_leaves_out_the_routine_watchers_but_keeps_what_they_did(client: TestClient) -> None:
+    """geofence_reminder_check and presence_check run every few minutes and
+    usually find nothing; the reminder they send is what belongs here."""
+    siris = SirisAI(settings=Settings(timezone="UTC"))
+    start = datetime.now(UTC)
+    for _ in range(5):
+        siris.audit.record("geofence_reminder_check", {}, result={"checked": True, "fired": []}, duration_ms=1, trigger="proactive check: automated schedule (geofence)")
+        siris.audit.record("presence_check", {}, result={"changed": False}, duration_ms=1, trigger="proactive check: automated schedule (presence)")
+    siris.audit.record("notify", {"title": "SirisAI: reminder", "message": "Take the bins out"}, result=None, duration_ms=1, trigger="geofence_reminder_check: person.brad entered zone 'home'")
+    whats = [i["what"] for i in timeline(siris, hours=1, now=start + timedelta(seconds=30))["items"]]
+    assert "Sent 'SirisAI: reminder': Take the bins out" in whats
+    assert not any("eofence reminder check" in w or "resence check" in w for w in whats)

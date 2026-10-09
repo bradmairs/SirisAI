@@ -151,10 +151,25 @@ def test_run_presence_and_geofence_checks_attempts_both_even_if_the_first_fails(
 
     monkeypatch.setattr("app.core.scheduler.proactive.run_presence_check", fake_presence)
     monkeypatch.setattr("app.core.scheduler.proactive.run_geofence_check", fake_geofence)
+    monkeypatch.setattr(scheduler, "_has_geofence_reminders", lambda s: True)
 
     scheduler.run_presence_and_geofence_checks(_siris())  # must not raise
 
     assert calls == ["presence", "geofence"]
+
+
+def test_the_geofence_check_is_skipped_with_no_reminders(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing to watch it isn't run -- and so isn't logged -- every few minutes."""
+    calls = []
+    monkeypatch.setattr("app.core.scheduler.proactive.run_presence_check", lambda s, trigger: calls.append("presence"))
+    monkeypatch.setattr("app.core.scheduler.proactive.run_geofence_check", lambda s, trigger: calls.append("geofence"))
+    siris = _siris()
+    monkeypatch.setattr(siris.geofence, "list_all", lambda enabled_only=False, **k: [])
+    scheduler.run_presence_and_geofence_checks(siris)
+    assert calls == ["presence"]
+    monkeypatch.setattr(siris.geofence, "list_all", lambda enabled_only=False, **k: [{"id": 1}])
+    scheduler.run_presence_and_geofence_checks(siris)
+    assert calls == ["presence", "presence", "geofence"]
 
 
 def test_presence_and_geofence_are_genuine_no_ops_when_not_configured() -> None:

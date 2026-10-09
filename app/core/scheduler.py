@@ -85,6 +85,13 @@ def run_proactive_check(siris: "SirisAI", now: datetime | None = None) -> None:
         logger.exception("Scheduled proactive check failed")
 
 
+def _has_geofence_reminders(siris: "SirisAI") -> bool:
+    try:
+        return bool(siris.geofence.list_all(enabled_only=True))
+    except Exception:  # a stand-in SirisAI, or the store unavailable: let the check decide
+        return True
+
+
 def run_presence_and_geofence_checks(siris: "SirisAI") -> None:
     """presence_check and geofence_reminder_check, on
     SIRISAI_PRESENCE_CHECK_INTERVAL_MINUTES -- both "did a zone transition
@@ -94,6 +101,8 @@ def run_presence_and_geofence_checks(siris: "SirisAI") -> None:
         (proactive.run_presence_check, "presence"),
         (proactive.run_geofence_check, "geofence"),
     ):
+        if label == "geofence" and not _has_geofence_reminders(siris):
+            continue  # nothing to watch: don't run (and log) a check every few minutes
         try:
             run_check(siris, f"proactive check: automated schedule ({label})")
         except Exception:
