@@ -5428,6 +5428,36 @@ provider for the same capability actually exists to design against.
       thread made it (the scheduler, a chat, another device), with a
       keepalive every 15 s. `?max_events=N` ends it early for a peek.
 
+127. **Done** -- SirisAI can use what SirisOS owns. SirisAI is the only
+    assistant, but the engineering library lives in SirisOS, so until now
+    you couldn't ask Siris about it. With `SIRISAI_SIRISOS_URL` and a
+    service key shared with SirisOS (`SIRISAI_SIRISOS_SERVICE_KEY` here,
+    `SIRISOS_SERVICE_KEY` there), six READ tools
+    (`app/plugins/builtin/sirisos.py`, client in `app/sirisos/client.py`):
+    - `engineering_standards_search` -- pages from the private standards
+      library with citations ("what does AS3500 say about...").
+    - `sirishydro_ask` -- SirisHydro's cited answer from that library, or
+      its plain "the library doesn't establish this". SirisHydro's
+      synthesis itself now runs on SirisAI's model router through
+      `/siris/hub/v1/llm/complete` (SirisOS side), so there's one model
+      connection, audited, instead of two.
+    - `engineering_calculators` / `engineering_calculate` -- the
+      deterministic civil/water calculators (Manning, Rational Method,
+      Hazen-Williams, Darcy-Weisbach, weirs, orifices, buoyancy...) run by
+      SirisOS from the same code its Calculators screen uses, so a spoken
+      answer matches the screen and the model never does hydraulics
+      arithmetic itself.
+    - `engineering_projects` -- the project list (hidden in guest mode:
+      client names).
+    - `sirisos_apps_status` -- the state of every app SirisOS monitors.
+      SirisAI no longer needs to check those apps again: `integration_health`
+      includes them, the morning briefing says "Apps needing a look: APD PM
+      is down (Timed out)", and SirisOS itself is an integration target.
+    Standards text is untrusted content (the taint guard applies), selector
+    hints route engineering prompts to these tools, and six tool-choice
+    eval cases cover them. SirisOS accepts the service key only on these
+    read/compute routes, never for changing its data.
+
 ## Running locally
 
 ```bash

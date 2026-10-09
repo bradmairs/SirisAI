@@ -251,6 +251,8 @@ def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) ->
     """Every push notification also lands in the feed -- except a
     confirmation request (notify_confirmation_needed), which
     raise_confirmation() already put there with working Approve/Decline."""
+    if getattr(siris, "attention", None) is None:  # a stand-in SirisAI without a feed
+        return
     if arguments.get("actions") or (trigger or "").endswith(": action needed confirmation"):
         return
     title = str(arguments.get("title") or "SirisAI")
@@ -273,6 +275,8 @@ def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) ->
 
 
 def raise_confirmation(siris: "SirisAI", context: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    if getattr(siris, "attention", None) is None:  # a stand-in SirisAI without a feed
+        return None
     description = tool_name
     try:
         from app.voice.confirmations import describe_call

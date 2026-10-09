@@ -18,7 +18,7 @@ FULLY_CONFIGURED: dict[str, Any] = dict(
     synology_username="u", synology_password="p", cron_hosts="root@pi.invalid", tts_provider="openai_compatible",
     email_imap_host="imap.invalid", email_username="u", email_password="p", car_battery_entity_id="sensor.car_battery",
     car_climate_entity_id="climate.car", seventeentrack_api_key="k", energy_cheap_windows="00:00-06:00",
-    brain_path="/brain.invalid",
+    brain_path="/brain.invalid", sirisos_url="http://sirisos.invalid", sirisos_service_key="k",
 )
 
 

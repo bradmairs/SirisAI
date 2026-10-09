@@ -35,6 +35,7 @@ _PERSONAL_TOOLS = {
     "daily_briefing",
     "bedtime_check",
     "departure_check",
+    "engineering_projects",  # client project names
 }
 
 

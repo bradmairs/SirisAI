@@ -116,6 +116,18 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     (frozenset("voice voices recognise recognize".split()), ("list_voiceprints", "delete_voiceprint")),
     (frozenset("look see outside snooping intruder somebody someone door doorbell front porch driveway yard".split()), ("frigate_look_at_camera", "frigate_recent_events")),
     (frozenset("crash crashing falling down keeps restarting".split()), ("docker_", "remediation_status")),
+    (
+        frozenset("standard standards clause as3500 as/nzs guideline guidelines authority code engineering civil hydraulic hydraulics "
+                  "stormwater sewer sewerage drainage culvert pit pits".split()),
+        ("engineering_standards_search", "sirishydro_ask"),
+    ),
+    (
+        frozenset("calculate calculation calculator manning pipe pipes flow capacity grade slope velocity headloss head weir orifice "
+                  "detention rational catchment runoff hazen-williams darcy pump buoyancy channel".split()),
+        ("engineering_calculate", "engineering_calculators"),
+    ),
+    (frozenset("project projects job jobs".split()), ("engineering_projects",)),
+    (frozenset("sirisos apd reviewer archive gvw timesheet timesheets sirisdrone apps app tile tiles".split()), ("sirisos_apps_status",)),
 ]
 
 _HINT_WEIGHT = 4.0

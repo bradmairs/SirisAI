@@ -56,7 +56,19 @@ def _parcels(siris: "SirisAI") -> str | None:
     ) + "."
 
 
-EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _car, _parcels]
+def _sirisos_apps(siris: "SirisAI") -> str | None:
+    """Apps SirisOS reports down or degraded -- it already watches them all,
+    so SirisAI asks it rather than checking each one again."""
+    tool = siris.tools.get("sirisos_apps_status")
+    if tool is None:
+        return None
+    apps = [a for a in tool.run()["apps"] if a["state"] in ("down", "degraded")]
+    if not apps:
+        return None
+    return "Apps needing a look: " + "; ".join(f"{a['name']} is {a['state']}" + (f" ({a['detail']})" if a.get("detail") else "") for a in apps[:5]) + "."
+
+
+EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _car, _parcels, _sirisos_apps]
 
 
 def briefing_lines(siris: "SirisAI") -> list[str]:

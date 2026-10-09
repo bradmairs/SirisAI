@@ -193,7 +193,13 @@ def test_run_calls_each_job_on_its_own_cadence(monkeypatch: pytest.MonkeyPatch) 
 
     async def go() -> None:
         task = asyncio.create_task(scheduler.run(siris, interval_seconds=0.01))
-        await asyncio.sleep(0.05)
+        # Wait for the presence job (due on every loop) rather than a fixed
+        # 50 ms: on a loaded CI box the first loop can take longer than that.
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if "presence" in calls:
+                break
+        await asyncio.sleep(0.03)
         task.cancel()
         try:
             await task
@@ -218,7 +224,13 @@ def test_run_skips_a_job_whose_interval_is_zero(monkeypatch: pytest.MonkeyPatch)
 
     async def go() -> None:
         task = asyncio.create_task(scheduler.run(siris, interval_seconds=0.01))
-        await asyncio.sleep(0.05)
+        # Wait for the presence job (due on every loop) rather than a fixed
+        # 50 ms: on a loaded CI box the first loop can take longer than that.
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if "presence" in calls:
+                break
+        await asyncio.sleep(0.03)
         task.cancel()
         try:
             await task
