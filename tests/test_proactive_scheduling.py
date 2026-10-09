@@ -151,10 +151,25 @@ def test_run_presence_and_geofence_checks_attempts_both_even_if_the_first_fails(
 
     monkeypatch.setattr("app.core.scheduler.proactive.run_presence_check", fake_presence)
     monkeypatch.setattr("app.core.scheduler.proactive.run_geofence_check", fake_geofence)
+    monkeypatch.setattr(scheduler, "_has_geofence_reminders", lambda s: True)
 
     scheduler.run_presence_and_geofence_checks(_siris())  # must not raise
 
     assert calls == ["presence", "geofence"]
+
+
+def test_the_geofence_check_is_skipped_with_no_reminders(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing to watch it isn't run -- and so isn't logged -- every few minutes."""
+    calls = []
+    monkeypatch.setattr("app.core.scheduler.proactive.run_presence_check", lambda s, trigger: calls.append("presence"))
+    monkeypatch.setattr("app.core.scheduler.proactive.run_geofence_check", lambda s, trigger: calls.append("geofence"))
+    siris = _siris()
+    monkeypatch.setattr(siris.geofence, "list_all", lambda enabled_only=False, **k: [])
+    scheduler.run_presence_and_geofence_checks(siris)
+    assert calls == ["presence"]
+    monkeypatch.setattr(siris.geofence, "list_all", lambda enabled_only=False, **k: [{"id": 1}])
+    scheduler.run_presence_and_geofence_checks(siris)
+    assert calls == ["presence", "presence", "geofence"]
 
 
 def test_presence_and_geofence_are_genuine_no_ops_when_not_configured() -> None:
@@ -193,7 +208,13 @@ def test_run_calls_each_job_on_its_own_cadence(monkeypatch: pytest.MonkeyPatch) 
 
     async def go() -> None:
         task = asyncio.create_task(scheduler.run(siris, interval_seconds=0.01))
-        await asyncio.sleep(0.05)
+        # Wait for the presence job (due on every loop) rather than a fixed
+        # 50 ms: on a loaded CI box the first loop can take longer than that.
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if "presence" in calls:
+                break
+        await asyncio.sleep(0.03)
         task.cancel()
         try:
             await task
@@ -218,7 +239,13 @@ def test_run_skips_a_job_whose_interval_is_zero(monkeypatch: pytest.MonkeyPatch)
 
     async def go() -> None:
         task = asyncio.create_task(scheduler.run(siris, interval_seconds=0.01))
-        await asyncio.sleep(0.05)
+        # Wait for the presence job (due on every loop) rather than a fixed
+        # 50 ms: on a loaded CI box the first loop can take longer than that.
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if "presence" in calls:
+                break
+        await asyncio.sleep(0.03)
         task.cancel()
         try:
             await task

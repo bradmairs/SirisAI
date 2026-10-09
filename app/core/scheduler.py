@@ -85,6 +85,13 @@ def run_proactive_check(siris: "SirisAI", now: datetime | None = None) -> None:
         logger.exception("Scheduled proactive check failed")
 
 
+def _has_geofence_reminders(siris: "SirisAI") -> bool:
+    try:
+        return bool(siris.geofence.list_all(enabled_only=True))
+    except Exception:  # a stand-in SirisAI, or the store unavailable: let the check decide
+        return True
+
+
 def run_presence_and_geofence_checks(siris: "SirisAI") -> None:
     """presence_check and geofence_reminder_check, on
     SIRISAI_PRESENCE_CHECK_INTERVAL_MINUTES -- both "did a zone transition
@@ -94,6 +101,8 @@ def run_presence_and_geofence_checks(siris: "SirisAI") -> None:
         (proactive.run_presence_check, "presence"),
         (proactive.run_geofence_check, "geofence"),
     ):
+        if label == "geofence" and not _has_geofence_reminders(siris):
+            continue  # nothing to watch: don't run (and log) a check every few minutes
         try:
             run_check(siris, f"proactive check: automated schedule ({label})")
         except Exception:
@@ -184,6 +193,17 @@ def run_habit_check(siris: "SirisAI") -> list[dict]:
     return fresh
 
 
+def run_attention_sync(siris: "SirisAI") -> None:
+    """Bring the attention feed's synced sources (habit suggestions, waiting
+    jobs, queued notices, second-brain reviews) up to date."""
+    from app.hub.attention import sync_all
+
+    try:
+        sync_all(siris)
+    except Exception:
+        logger.exception("Attention sync failed")
+
+
 def run_parcel_refresh(siris: "SirisAI") -> list[dict]:
     """Refresh tracked parcels from 17TRACK and push the ones that just went
     out for delivery, arrived, or hit a problem."""
@@ -272,6 +292,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_habits = time.monotonic()
     last_parcels = 0.0
     last_eval = time.monotonic()
+    last_attention = time.monotonic()  # the feed syncs itself when asked; no need to at boot
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -323,6 +344,11 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if eval_interval > 0 and time.monotonic() - last_eval >= eval_interval:
                 await asyncio.to_thread(run_tool_choice_eval, siris)
                 last_eval = time.monotonic()
+
+            attention_interval = siris.settings.attention_sync_minutes * 60
+            if attention_interval > 0 and time.monotonic() - last_attention >= attention_interval:
+                await asyncio.to_thread(run_attention_sync, siris)
+                last_attention = time.monotonic()
 
             # Second brain growth jobs: each decides for itself whether it's due today.
             if siris.second_brain is not None:

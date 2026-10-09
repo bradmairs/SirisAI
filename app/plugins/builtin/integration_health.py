@@ -28,9 +28,18 @@ class IntegrationHealthTool(Tool):
         s = self._siris
         hosts = s.cron_client.hosts if s.cron_client is not None and hasattr(s.cron_client, "hosts") else []
         checks = check_integrations(s.settings, cron_hosts=hosts, second_brain=s.second_brain)
-        return {
+        result = {
             "integrations": checks,
             "down": [c["name"] for c in checks if not c["ok"]],
             "paused_tools": sorted(broken_tools(s)),
             "notes": dict(s.integration_notes),
         }
+        apps_tool = s.tools.get("sirisos_apps_status")
+        if apps_tool is not None:
+            # The apps SirisOS monitors (APD PM, the Reviewer, the Archive...),
+            # from SirisOS itself rather than a second round of checks.
+            try:
+                result["sirisos_apps"] = apps_tool.run()
+            except Exception as exc:  # noqa: BLE001 - SirisOS being down is already in `down`
+                result["sirisos_apps"] = {"error": str(exc)[:200]}
+        return result

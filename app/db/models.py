@@ -637,3 +637,28 @@ class Parcel(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class AttentionItem(Base):
+    """One thing in the attention feed (app/hub/attention.py): an alert, an
+    action waiting for approval, a suggestion, a review, a waiting job. `key`
+    identifies the underlying thing so it is raised once and resolved when
+    it goes away; `payload` holds what an action needs (never sent out)."""
+
+    __tablename__ = "attention_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(Text, index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(Text, default="attention")
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(Text, index=True)
+    link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actions: Mapped[str] = mapped_column(Text, default="[]")  # JSON
+    payload: Mapped[str] = mapped_column(Text, default="{}")  # JSON, internal
+    status: Mapped[str] = mapped_column(Text, default="open", index=True)
+    outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

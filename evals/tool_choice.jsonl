@@ -72,3 +72,9 @@
 {"prompt": "what does my second brain say about the marathon?", "expect": ["brain_search", "brain_get_note"]}
 {"prompt": "add to my brain that the GVW office is in Shepparton", "expect": ["brain_learn"]}
 {"prompt": "check my knowledge notes on the home server", "expect": ["brain_search", "brain_get_note", "obsidian_search"]}
+{"prompt": "what's the capacity of a 450 mm pipe at half a percent grade?", "expect": ["engineering_calculate", "engineering_calculators"]}
+{"prompt": "peak flow for a 2 hectare catchment, C of 0.8, 120 mm/h", "expect": ["engineering_calculate", "engineering_calculators"]}
+{"prompt": "what does AS3500 say about the minimum grade for a 100 mm sewer drain?", "expect": ["sirishydro_ask", "engineering_standards_search"]}
+{"prompt": "find the clause on minimum cover over stormwater pipes in the standards", "expect": ["engineering_standards_search", "sirishydro_ask"]}
+{"prompt": "is APD PM up?", "expect": ["sirisos_apps_status"]}
+{"prompt": "which engineering projects are active?", "expect": ["engineering_projects"]}

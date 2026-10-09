@@ -1,0 +1,17 @@
+# Live-edit mode (make dev): both apps run from your checkouts and reload when
+# you save a Python file -- no rebuild. Frontend (SirisOS's PWA) changes still
+# need `make rebuild`, or run its Vite dev server on your machine:
+#   cd ../../SirisOS/apps/web && SIRISOS_API_URL=http://<server>:8094 npm run dev
+# Back to normal: make up
+services:
+  sirisai:
+    volumes:
+      - ../app:/app/app
+      - ../scripts:/app/scripts
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
+
+  sirisos:
+    volumes:
+      - ${SIRISOS_SRC:-../../SirisOS}/apps/backend/app:/app/app
+    # nginx serves the built PWA and proxies /api; uvicorn reloads on save.
+    command: ["sh", "-c", "nginx && exec uvicorn app.entrypoint:app --host 127.0.0.1 --port 8000 --reload --reload-dir /app/app"]

@@ -68,6 +68,7 @@ def _integration_targets(settings: "Settings") -> list[tuple[str, str]]:
         ("Synology", settings.synology_base_url),
         ("Listenarr", settings.listenarr_base_url),
         ("Cleanuparr", settings.cleanuparr_base_url),
+        ("SirisOS", f"{settings.sirisos_url.rstrip('/')}/health" if settings.sirisos_url else ""),
     ]
     return [(name, url) for name, url in candidates if url]
 

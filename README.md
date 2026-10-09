@@ -5361,6 +5361,136 @@ provider for the same capability actually exists to design against.
     of those notes (`brain.py file --into`), file as a new note of a given
     type, or leave it for Brad. Without a model, the router files it as before.
 
+125. **Done** -- A contract SirisOS can rely on: `/siris/hub/v1`. SirisOS
+    used to run SirisAI tools by name and read their raw results, so renaming
+    a tool or reshaping a result quietly emptied part of its daily brief and
+    no test in either repo noticed. Now (`app/hub/`, `app/api/routes/hub.py`):
+    - `GET /siris/hub/v1` -- who the request acts as (`X-Siris-User`), guest
+      mode, which integrations are configured, which sections are personal.
+    - `GET /siris/hub/v1/brief` -- the day as data, no LLM: weather now and
+      today, calendar, to-dos, unread and important email, health against
+      your baseline, the car, parcels, cheap power, the second brain's
+      overdue tasks/deadlines/inbox/links, and attention counts. Each
+      section fails alone: not configured -> `null`; configured but failed
+      -> `null` and named in `unavailable`.
+    - `GET /siris/hub/v1/widgets` -- car, parcels, energy, protocols and the
+      last run (with undo), cameras, the autonomy timeline.
+    - `GET /siris/hub/v1/search?q=` -- second-brain notes, past chats and
+      memories in one list, each with a `ref` to deep-link with.
+    - Protocols (`GET .../protocols/{name}` shows what would run now; `POST
+      .../run` and `.../protocols/undo` need `{"confirmed": true}`), `POST
+      .../cameras/{camera}/look` (the vision model describes a frame) and
+      `POST .../llm/complete` (one plain completion through the model
+      router, audited under the caller's task name -- so SirisOS needn't
+      keep its own model connection).
+    - **The contract is checked on both sides.** Every response is built as
+      a pydantic model that forbids unknown fields
+      (`app/hub/contract.py`); `contracts/hub-v1/schema.json` is generated
+      from them (`python -m app.hub.contract`, a test fails when it drifts);
+      `contracts/hub-v1/examples/` holds one real payload per endpoint,
+      produced by `tests/test_hub_examples.py` from a faked SirisAI, which
+      fails when an example goes stale. SirisOS's tests parse the same
+      files. Adding an optional field stays v1; removing or retyping one is
+      a v2.
+    - **Guest mode** leaves the personal sections (calendar, to-dos, email,
+      health, car, parcels, brain) out of the brief and widgets -- they're
+      never even read -- and search returns nothing, so a wall tablet
+      showing SirisOS is safe with visitors over.
+    - Requests carry `X-Siris-User` like the rest of the API, so per-user
+      health, memories and chats follow whoever is signed in to SirisOS;
+      `X-Siris-Client` names the app in audit triggers ("... in SirisOS").
+
+126. **Done** -- The attention feed: one inbox for everything that needs you
+    (`app/hub/attention.py`; `GET /siris/hub/v1/attention`, live at
+    `.../attention/stream` as Server-Sent Events, `POST
+    .../attention/{id}/act` and `.../dismiss`).
+    - **Raised as it happens:** every push notification becomes an alert,
+      whoever sent it -- self-healing failures and intruders are urgent, and
+      an intruder alert offers "Lock down" (which runs the lockdown
+      protocol) next to "It's fine". The same alert again updates the open
+      item instead of adding another. An unattended action that needs
+      confirmation (a routine, a chat nobody is watching) becomes an
+      approval: **Approve** runs the held call with `confirmed=True`,
+      **Decline** drops it. This works even without ntfy.
+    - **Synced from what SirisAI already keeps** (on request, and every
+      `SIRISAI_ATTENTION_SYNC_MINUTES`, default 5): open habit suggestions
+      (Create automation / No thanks), jobs waiting for cheap power
+      (Cancel), notices queued for the briefing, and second-brain links and
+      inbox notes to review. What you dismissed stays dismissed; items close
+      themselves when the underlying thing goes away (accepted in chat, run,
+      delivered in the briefing).
+    - Acting does the real thing under a trigger naming the feed and the
+      client ("attention feed: the user chose 'approve' on ... in SirisOS"),
+      so the audit log and autonomy timeline show where the decision came
+      from. An item can be acted on once; a second tap is a 404, not a
+      second run. Dismissals are server-side, so phone and desktop agree.
+    - The stream sends a snapshot first, then each change from whichever
+      thread made it (the scheduler, a chat, another device), with a
+      keepalive every 15 s. `?max_events=N` ends it early for a peek.
+
+127. **Done** -- SirisAI can use what SirisOS owns. SirisAI is the only
+    assistant, but the engineering library lives in SirisOS, so until now
+    you couldn't ask Siris about it. With `SIRISAI_SIRISOS_URL` and a
+    service key shared with SirisOS (`SIRISAI_SIRISOS_SERVICE_KEY` here,
+    `SIRISOS_SERVICE_KEY` there), six READ tools
+    (`app/plugins/builtin/sirisos.py`, client in `app/sirisos/client.py`):
+    - `engineering_standards_search` -- pages from the private standards
+      library with citations ("what does AS3500 say about...").
+    - `sirishydro_ask` -- SirisHydro's cited answer from that library, or
+      its plain "the library doesn't establish this". SirisHydro's
+      synthesis itself now runs on SirisAI's model router through
+      `/siris/hub/v1/llm/complete` (SirisOS side), so there's one model
+      connection, audited, instead of two.
+    - `engineering_calculators` / `engineering_calculate` -- the
+      deterministic civil/water calculators (Manning, Rational Method,
+      Hazen-Williams, Darcy-Weisbach, weirs, orifices, buoyancy...) run by
+      SirisOS from the same code its Calculators screen uses, so a spoken
+      answer matches the screen and the model never does hydraulics
+      arithmetic itself.
+    - `engineering_projects` -- the project list (hidden in guest mode:
+      client names).
+    - `sirisos_apps_status` -- the state of every app SirisOS monitors.
+      SirisAI no longer needs to check those apps again: `integration_health`
+      includes them, the morning briefing says "Apps needing a look: APD PM
+      is down (Timed out)", and SirisOS itself is an integration target.
+    Standards text is untrusted content (the taint guard applies), selector
+    hints route engineering prompts to these tools, and six tool-choice
+    eval cases cover them. SirisOS accepts the service key only on these
+    read/compute routes, never for changing its data.
+
+128. **Done** -- SirisAI and SirisOS, verified together. The SirisOS side
+    (its ADR 110) builds on milestones 125-127: the daily brief and search
+    each come from one `/siris/hub/v1` call (falling back to the old calls
+    on a 404); an inbox merges the attention feed with SirisOS's own items
+    (apps down, overdue tasks, the Archive queue), live; Home runs
+    protocols with preview, confirm and undo, shows cameras with "What's
+    there?", the car, power and parcels; the calculators run server-side
+    with 50 parity cases shared by its TypeScript and Python suites; and
+    SirisHydro's synthesis comes through `/siris/hub/v1/llm/complete`.
+    - **Guest mode now covers the HUD too:** `/siris/hud/summary` leaves the
+      calendar, parcels, car and what the brain learned out (unread) while
+      it's on, since SirisOS's Home and the wall-tablet HUD both show it.
+    - **Live check** (both apps on uvicorn, fakes for Ollama, Home
+      Assistant, Frigate, ntfy and Open-Meteo, a real PDF standard
+      indexed by SirisOS):
+      - A chat about a 450 mm pipe ran `engineering_calculate`, and SirisOS
+        answered 0.202 m³/s with the service key.
+      - "What does AS3500 say..." ran `sirishydro_ask`. SirisOS found the
+        page and asked SirisAI's `/llm/complete` (audited as "hub: sirishydro
+        asked for a completion"), and the cited answer came back.
+      - The service key got a 403 when it tried to create a project.
+      - A routine's held `undo_last_protocol` arrived on SirisOS's inbox
+        stream within a second. Approving it, from the API and from the PWA
+        in Chromium, undid the lockdown in Home Assistant, under the
+        trigger "attention feed: the user chose 'approve' ... in SirisOS".
+      - Lockdown from SirisOS was refused without confirmation (409), then
+        locked the door and closed the garage.
+      - Camera frames and descriptions came through. Guest mode hid the
+        personal widgets, HUD tiles and brief sections.
+      - The PWA had no horizontal scroll at phone width and no page errors.
+        The browser run caught one bug: a sheet opened from a glass card
+        rendered inside the card. SirisOS sheets now render in a portal.
+
 ## Running locally
 
 ```bash
@@ -5575,6 +5705,13 @@ survives restarts (recreate the sidecar if the Obsidian container is recreated).
 Set `SIRISAI_OBSIDIAN_BASE_URL=https://<server>:27123`.
 
 ## Running with Docker
+
+**SirisAI and SirisOS together** (recommended for a home server): see
+[`deploy/README.md`](deploy/README.md). `cd deploy && ./setup.sh && make up`
+runs both, wired to each other, with one `.env` for the stack and one
+settings file per app.
+
+SirisAI on its own:
 
 Two ways to get a container running, same `.env` and `./data` bind mount
 either way:

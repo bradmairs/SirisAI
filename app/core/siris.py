@@ -266,6 +266,16 @@ from app.email.client import EmailClient
 from app.health.service import HealthStore
 from app.car import service as car_service
 from app.parcels.service import ParcelStore, SeventeenTrackClient
+from app.hub.attention import AttentionFeed
+from app.plugins.builtin.sirisos import (
+    EngineeringCalculateTool,
+    EngineeringCalculatorsTool,
+    EngineeringProjectsTool,
+    EngineeringStandardsSearchTool,
+    SirisHydroAskTool,
+    SirisOSAppsStatusTool,
+)
+from app.sirisos.client import SirisOSClient
 from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
 from app.plugins.builtin.health_data import HealthSummaryTool
 from app.plugins.builtin.autonomy import WhatDidYouDoTool
@@ -464,6 +474,7 @@ class SirisAI:
     deferred_jobs: DeferredJobStore = field(default_factory=lambda: DeferredJobStore(SessionLocal))
     health: HealthStore = field(default_factory=lambda: HealthStore(SessionLocal))
     parcels: ParcelStore = field(default_factory=lambda: ParcelStore(SessionLocal))
+    attention: AttentionFeed = field(default_factory=lambda: AttentionFeed(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -539,6 +550,7 @@ class SirisAI:
         self._cleanuparr_client: CleanuparrClient | None = None
         self._obsidian_client: ObsidianClient | None = None
         self._frigate_client: FrigateClient | None = None
+        self._sirisos_client: SirisOSClient | None = None
         self.parcel_tracker: SeventeenTrackClient | None = (
             SeventeenTrackClient(self.settings.seventeentrack_api_key, base_url=self.settings.seventeentrack_base_url)
             if self.settings.seventeentrack_api_key
@@ -895,6 +907,15 @@ class SirisAI:
             self.tools.register(BrainLinkNotesTool(self.second_brain))
             self.tools.register(BrainUnlinkNotesTool(self.second_brain))
             self.tools.register(BrainLearnTool(self.second_brain))
+
+        if self.settings.sirisos_url:
+            self._sirisos_client = SirisOSClient(self.settings.sirisos_url, self.settings.sirisos_service_key)
+            self.tools.register(SirisOSAppsStatusTool(self._sirisos_client))
+            self.tools.register(EngineeringStandardsSearchTool(self._sirisos_client))
+            self.tools.register(EngineeringCalculatorsTool(self._sirisos_client))
+            self.tools.register(EngineeringCalculateTool(self._sirisos_client))
+            self.tools.register(EngineeringProjectsTool(self._sirisos_client))
+            self.tools.register(SirisHydroAskTool(self._sirisos_client))
 
         if self.settings.frigate_base_url:
             self._frigate_client = FrigateClient(
@@ -1313,6 +1334,14 @@ class SirisAI:
             if verification is not None
             else None,
         )
+        if name == "notify":
+            # Every push also lands in the attention feed (app/hub/attention.py).
+            try:
+                from app.hub.attention import on_push
+
+                on_push(self, arguments, trigger)
+            except Exception:
+                logger.exception("Adding a push to the attention feed failed")
         return result
 
     def status(self) -> dict[str, object]:

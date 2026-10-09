@@ -1,0 +1,7 @@
+# Secrets and per-server settings
+.env
+sirisai.env
+sirisos.env
+# Data and backups
+data/
+backups/

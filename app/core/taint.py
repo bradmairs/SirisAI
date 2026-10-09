@@ -77,6 +77,9 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         "home_assistant_get_todo_items",
         "plex_search",
         "plex_now_playing",
+        # Text from uploaded standards PDFs, and a model's answer built from it.
+        "engineering_standards_search",
+        "sirishydro_ask",
     }
 )
 
