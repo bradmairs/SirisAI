@@ -64,7 +64,8 @@ app/
   weather/
     client.py     # Thin sync client for Open-Meteo
   calendar/
-    client.py     # CalDAV client (wraps the `caldav` library)
+    client.py     # CalDAV client (wraps the `caldav` library) + CalendarSet (every calendar as one)
+    ics.py        # Read-only .ics feeds (Google Calendar's secret address)
   web/static/
     index.html    # Built-in web UI: chat, memory, status. No build step.
 
@@ -241,7 +242,9 @@ Deliberately tiny, each one a working state:
       rather than hand-rolled protocol code -- recurrence expansion and
       PROPFIND/REPORT XML are exactly the kind of thing worth trusting to
       a maintained library, the same reasoning behind using SQLAlchemy and
-      httpx elsewhere. `calendar_upcoming_events`, `READ`.
+      httpx elsewhere. `calendar_upcoming_events`, `READ`. Read-only
+      `.ics` feeds (`app/calendar/ics.py`, for Google Calendar) are merged
+      in alongside it; see "Connecting your calendars".
 
     None of the five external integrations above could be tested against
     a live service in development (no reachable Docker daemon, Plex
@@ -5490,6 +5493,51 @@ provider for the same capability actually exists to design against.
       - The PWA had no horizontal scroll at phone width and no page errors.
         The browser run caught one bug: a sheet opened from a glass card
         rendered inside the card. SirisOS sheets now render in a portal.
+
+## Connecting your calendars (Gmail and iCloud)
+
+SirisAI merges every calendar you connect into one. That one calendar
+answers "what's on today" in chat, fills the HUD's next events and the
+briefings, and feeds SirisOS's daily brief and home screen.
+
+**iCloud** connects over CalDAV:
+
+1. At [account.apple.com](https://account.apple.com), go to **Sign-In and
+   Security**, then **App-Specific Passwords**, and create one called
+   "SirisAI".
+2. Set `SIRISAI_CALDAV_URL=https://caldav.icloud.com`.
+3. Set `SIRISAI_CALDAV_USERNAME` to your Apple ID email.
+4. Set `SIRISAI_CALDAV_PASSWORD` to the app-specific password.
+
+Every iCloud calendar is included. New events created by SirisAI go here.
+
+**Gmail / Google Calendar** connects through each calendar's secret
+address. Google's CalDAV needs OAuth, but every Google calendar has a
+private, read-only iCal address.
+
+1. In [Google Calendar](https://calendar.google.com), open **Settings**,
+   pick the calendar under "Settings for my calendars", then go to
+   **Integrate calendar**.
+2. Copy **Secret address in iCal format**.
+3. Add it as `SIRISAI_CALENDAR_ICS_URLS=Gmail|https://calendar.google.com/calendar/ical/.../basic.ics`.
+   For more calendars, add one per line or separate them with commas, each
+   as `Label|URL`.
+
+Anyone with that address can read the calendar, so keep it secret. If it
+leaks, reset it on the same page. Feeds are cached for 5 minutes.
+
+**What's left out:**
+
+- Calendars named in `SIRISAI_CALENDAR_EXCLUDE`, for example `Birthdays`.
+- Home Assistant calendars whose id or name contains
+  `SIRISAI_HOME_ASSISTANT_CALENDAR_EXCLUDE` (by default Sonarr, Radarr,
+  Lidarr and Readarr). Those are media schedules, not your day. "What's on
+  TV this week" still works through the `sonarr_`/`radarr_calendar`
+  tools.
+
+The HUD, the briefings (morning, bedtime, departure) and SirisOS all use your
+connected calendars, and only fall back to Home Assistant's calendars when
+none is connected.
 
 ## Running locally
 

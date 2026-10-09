@@ -1,12 +1,13 @@
-"""Calendar tools via CalDAV (app/calendar/client.py). Registered only when
-SIRISAI_CALDAV_URL is set. Works with Nextcloud, Radicale, Baikal, iCloud,
-or any other CalDAV server.
+"""Calendar tools over every connected calendar (app/calendar/client.py
+CalendarSet): a CalDAV account such as iCloud (SIRISAI_CALDAV_URL) and
+read-only .ics feeds such as Google Calendar's secret address
+(SIRISAI_CALENDAR_ICS_URLS). Registered when either is set.
 """
 
 from datetime import datetime
 from typing import Any
 
-from app.calendar.client import CalendarClient
+from app.calendar.client import CalendarSet
 from app.plugins.base import Tool, ToolPermission, ToolVerification
 
 _TIME_PARAMETER = {
@@ -30,7 +31,7 @@ class CalendarUpcomingEventsTool(Tool):
         "required": [],
     }
 
-    def __init__(self, client: CalendarClient) -> None:
+    def __init__(self, client: CalendarSet) -> None:
         self._client = client
 
     def run(self, days_ahead: int = 7, **kwargs: Any) -> Any:
@@ -50,7 +51,7 @@ class CalendarCheckConflictsTool(Tool):
         "required": ["start", "end"],
     }
 
-    def __init__(self, client: CalendarClient) -> None:
+    def __init__(self, client: CalendarSet) -> None:
         self._client = client
 
     def run(self, start: str = "", end: str = "", **kwargs: Any) -> Any:
@@ -87,7 +88,7 @@ class CalendarCreateEventTool(Tool):
         "required": ["summary", "start", "end"],
     }
 
-    def __init__(self, client: CalendarClient) -> None:
+    def __init__(self, client: CalendarSet) -> None:
         self._client = client
 
     def run(

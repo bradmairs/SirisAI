@@ -242,6 +242,19 @@ class Settings(BaseSettings):
     caldav_url: str = ""
     caldav_username: str = ""
     caldav_password: str = ""
+    # Read-only .ics feeds, one per line or comma, each "Label|URL". For
+    # Google Calendar use each calendar's "Secret address in iCal format"
+    # (Google's CalDAV needs OAuth; the secret address doesn't). Works
+    # alongside caldav_url: events from both are merged.
+    calendar_ics_urls: str = ""
+    # Calendar names to leave out everywhere (comma-separated, any case),
+    # e.g. "Birthdays,Holidays in Australia".
+    calendar_exclude: str = ""
+    # Home Assistant calendars whose id or name contains any of these are
+    # skipped by home_assistant_get_calendar_events unless asked for by
+    # name: media schedules (Sonarr/Radarr) aren't your day. Their episodes
+    # and films stay available through the sonarr_/radarr_calendar tools.
+    home_assistant_calendar_exclude: str = "sonarr,radarr,lidarr,readarr"
 
     # Model router (app/llm/router.py). The default ("general") model is
     # still configured via llm_provider/ollama_* above -- this adds an

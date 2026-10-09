@@ -96,9 +96,18 @@ class BedtimeCheckSkill(Skill):
         zone = get_zone(siris.settings.timezone)
         tomorrow = (datetime.now(zone) + timedelta(days=1)).date()
 
-        if siris.tools.get("home_assistant_get_calendar_events") is not None:
+        # Your connected calendars (Gmail, iCloud) first; Home Assistant's only without them.
+        source = None
+        if siris.tools.get("calendar_upcoming_events") is not None:
+            source = ("calendar_upcoming_events", {"days_ahead": 2})
+        elif siris.tools.get("home_assistant_get_calendar_events") is not None:
+            source = ("home_assistant_get_calendar_events", {"days": 2})
+        if source is not None:
             try:
-                events = siris.run_tool("home_assistant_get_calendar_events", {"days": 2})
+                events = [
+                    {**e, "all_day": e.get("all_day", len(str(e.get("start") or "")) <= 10)}
+                    for e in siris.run_tool(*source)
+                ]
                 dated = [e for e in events if str(e.get("start", "")).startswith(tomorrow.isoformat())]
                 timed = sorted((e for e in dated if not e.get("all_day")), key=lambda e: e["start"])
                 first = (timed or dated)[0] if dated else None

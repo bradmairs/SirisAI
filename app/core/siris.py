@@ -23,7 +23,8 @@ import httpx
 
 from app.audit.service import AuditLogStore
 from app.capabilities.service import CapabilityGapStore
-from app.calendar.client import CalendarClient
+from app.calendar.client import CalendarClient, CalendarSet
+from app.calendar.ics import parse_feeds
 from app.context.engine import ContextEngine
 from app.conversation.service import ConversationStore
 from app.core import taint
@@ -677,7 +678,11 @@ class SirisAI:
             self.tools.register(HomeAssistantAddTodoItemTool(self._home_assistant_client))
             self.tools.register(HomeAssistantCompleteTodoItemTool(self._home_assistant_client))
             self.tools.register(
-                HomeAssistantGetCalendarEventsTool(self._home_assistant_client, timezone=self.settings.timezone)
+                HomeAssistantGetCalendarEventsTool(
+                    self._home_assistant_client,
+                    timezone=self.settings.timezone,
+                    exclude=self.settings.home_assistant_calendar_exclude,
+                )
             )
             self.tools.register(HomeAssistantListMediaPlayersTool(self._home_assistant_client))
             self.tools.register(HomeAssistantMediaControlTool(self._home_assistant_client))
@@ -768,11 +773,19 @@ class SirisAI:
             self.tools.register(WeatherCurrentTool(self._weather_client))
             self.tools.register(WeatherForecastTool(self._weather_client, timezone=self.settings.timezone))
 
-        if self.settings.caldav_url:
-            calendar_client = CalendarClient(
-                url=self.settings.caldav_url,
-                username=self.settings.caldav_username,
-                password=self.settings.caldav_password,
+        feeds = parse_feeds(self.settings.calendar_ics_urls, timezone=self.settings.timezone)
+        if self.settings.caldav_url or feeds:
+            calendar_client = CalendarSet(
+                CalendarClient(
+                    url=self.settings.caldav_url,
+                    username=self.settings.caldav_username,
+                    password=self.settings.caldav_password,
+                )
+                if self.settings.caldav_url
+                else None,
+                feeds=feeds,
+                exclude=self.settings.calendar_exclude,
+                timezone=self.settings.timezone,
             )
             self.tools.register(CalendarUpcomingEventsTool(calendar_client))
             self.tools.register(CalendarCheckConflictsTool(calendar_client))
