@@ -1,0 +1,28 @@
+# HTTPS in front of both apps with Caddy's own local certificate authority.
+# SIRIS_HOST (from .env) must be the address you type in the browser, e.g.
+# 192.168.0.100: browsers send no SNI for an IP address, so default_sni
+# tells Caddy which certificate to use for those connections.
+{
+	local_certs
+	default_sni {$SIRIS_HOST}
+}
+
+{$SIRIS_HOST}:8443, localhost:8443 {
+	# Trust this once per device to lose the warning (see README.md).
+	handle /siris-root-ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		file_server
+	}
+	handle {
+		reverse_proxy sirisai:8000 {
+			flush_interval -1
+		}
+	}
+}
+
+{$SIRIS_HOST}:8444, localhost:8444 {
+	reverse_proxy sirisos:6464 {
+		flush_interval -1
+	}
+}

@@ -1,0 +1,88 @@
+# SirisAI + SirisOS on one server, wired together.
+#
+#   ./setup.sh          once: secrets, data folders, the SirisOS checkout
+#   make up             build and start (or: docker compose up -d --build)
+#
+# What to edit, and where:
+#   .env           ports, the server's address, shared secrets (setup.sh fills these)
+#   sirisai.env    SirisAI's settings: model, Home Assistant, cameras, email...
+#   sirisos.env    SirisOS's settings: its login, the apps it connects to
+# The two apps' addresses and the keys between them are set here, so they
+# can't drift apart: SirisOS reaches SirisAI at http://sirisai:8000 and
+# SirisAI reaches SirisOS at http://sirisos:6464, on this stack's network.
+#
+# Data lives in ./data (back that folder up). See README.md.
+
+name: siris
+
+services:
+  sirisai:
+    build: ..
+    image: siris/sirisai:local
+    container_name: sirisai
+    env_file: sirisai.env
+    environment:
+      SIRISAI_DATABASE_URL: sqlite:///./data/sirisai.db
+      SIRISAI_API_KEY: ${SIRISAI_API_KEY:?run ./setup.sh first}
+      SIRISAI_SIRISOS_URL: http://sirisos:6464
+      SIRISAI_SIRISOS_SERVICE_KEY: ${SIRIS_SERVICE_KEY:?run ./setup.sh first}
+      SIRISAI_TIMEZONE: ${TZ:-Australia/Melbourne}
+    # Lets SirisAI reach services running on the host itself (Ollama, usually)
+    # at http://host.docker.internal:<port>, on Linux as on Docker Desktop.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${SIRISAI_PORT:-8000}:8000"
+    volumes:
+      - ./data/sirisai:/app/data
+      # SSH identity for the cron overview, kept with the data so it survives rebuilds.
+      - ./data/sirisai/ssh:/root/.ssh
+      # Self-healing and docker_* tools restart and inspect containers on this host.
+      # Remove this line if you'd rather SirisAI couldn't.
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  sirisos:
+    build: ${SIRISOS_SRC:-../../SirisOS}
+    image: siris/sirisos:local
+    container_name: sirisos
+    env_file: sirisos.env
+    environment:
+      SIRISAI_URL: http://sirisai:8000
+      SIRISAI_API_KEY: ${SIRISAI_API_KEY:?run ./setup.sh first}
+      SIRISAI_PUBLIC_URL: ${SIRISAI_PUBLIC_URL:-}
+      SIRISOS_SERVICE_KEY: ${SIRIS_SERVICE_KEY:?run ./setup.sh first}
+      SIRISOS_JWT_SECRET: ${SIRISOS_JWT_SECRET:?run ./setup.sh first}
+      SIRISOS_TIMEZONE: ${TZ:-Australia/Melbourne}
+      SIRISOS_STANDARDS_PATH: /app/data/standards
+      SIRISOS_BRIEF_STATE_PATH: /app/data/brief-state.json
+      SIRISOS_ATTENTION_STATE_PATH: /app/data/attention-state.json
+    ports:
+      - "${SIRISOS_PORT:-8094}:6464"
+    volumes:
+      - ./data/sirisos/app:/app/data
+      - ./data/sirisos/standards:/app/data/standards
+      - ./data/sirisos/logs:/app/logs
+    depends_on:
+      - sirisai
+    restart: unless-stopped
+
+  # HTTPS for both (self-signed), so browsers allow the microphone:
+  #   make https   (or: docker compose --profile https up -d)
+  # SirisAI on https://<SIRIS_HOST>:8443, SirisOS on https://<SIRIS_HOST>:8444.
+  https:
+    profiles: ["https"]
+    image: caddy:2-alpine
+    container_name: siris-https
+    environment:
+      SIRIS_HOST: ${SIRIS_HOST:-localhost}
+    ports:
+      - "8443:8443"
+      - "8444:8444"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data
+    depends_on:
+      - sirisai
+      - sirisos
+    restart: unless-stopped

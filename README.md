@@ -5706,6 +5706,13 @@ Set `SIRISAI_OBSIDIAN_BASE_URL=https://<server>:27123`.
 
 ## Running with Docker
 
+**SirisAI and SirisOS together** (recommended for a home server): see
+[`deploy/README.md`](deploy/README.md). `cd deploy && ./setup.sh && make up`
+runs both, wired to each other, with one `.env` for the stack and one
+settings file per app.
+
+SirisAI on its own:
+
 Two ways to get a container running, same `.env` and `./data` bind mount
 either way:
 
