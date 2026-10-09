@@ -185,7 +185,7 @@ class FakeBrain:
 def test_second_brain_reviews() -> None:
     siris = SirisAI(settings=Settings(timezone="UTC"))
     siris.second_brain = FakeBrain()  # type: ignore[assignment]
-    siris.attention._last_brain_sync = 0.0
+    siris.attention._last_brain_sync = None
     attention.sync_all(siris)
     items = {i["key"]: i for i in siris.attention.list()}
     assert items["brain:links"]["body"] == "3 links about to be made automatically; 1 pair that could be linked."

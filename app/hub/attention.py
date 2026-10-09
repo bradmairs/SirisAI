@@ -75,7 +75,7 @@ class AttentionFeed:
         self._session_factory = session_factory
         self._subscribers: list[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = []
         self._lock = threading.Lock()
-        self._last_brain_sync = 0.0
+        self._last_brain_sync: float | None = None  # None = never (monotonic() can be small just after boot)
 
     # -- reading -----------------------------------------------------------
 
@@ -303,7 +303,8 @@ def sync_all(siris: "SirisAI", *, include_brain: bool = True) -> None:
             fn(siris)
         except Exception:
             logger.debug("attention sync %s failed", name, exc_info=True)
-    if include_brain and siris.second_brain is not None and time.monotonic() - siris.attention._last_brain_sync > BRAIN_SYNC_SECONDS:
+    last = siris.attention._last_brain_sync
+    if include_brain and siris.second_brain is not None and (last is None or time.monotonic() - last > BRAIN_SYNC_SECONDS):
         siris.attention._last_brain_sync = time.monotonic()
         try:
             _sync_brain(siris)

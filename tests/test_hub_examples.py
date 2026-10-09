@@ -82,7 +82,7 @@ def produced(client: TestClient) -> dict[str, Any]:
     _wire_ha(siris, ha)
     siris.llm = FakeLLM()
     siris.second_brain = ExampleBrain()  # type: ignore[assignment]
-    siris.attention._last_brain_sync = 0.0
+    siris.attention._last_brain_sync = None
     parcel = siris.parcels.add("LX123456789AU", "New drill")
     siris.parcels.update(parcel["id"], status="InTransit", eta="2026-10-10")
     _fake(siris, "frigate_look_at_camera", {"camera": "front_door", "question": "Who's at the door?", "description": "A courier is holding a brown parcel."})
