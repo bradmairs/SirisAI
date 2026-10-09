@@ -825,9 +825,15 @@ class HomeAssistantGetCalendarEventsTool(Tool):
         "required": [],
     }
 
-    def __init__(self, client: HomeAssistantClient, timezone: str = "UTC") -> None:
+    def __init__(self, client: HomeAssistantClient, timezone: str = "UTC", exclude: str = "") -> None:
         self._client = client
         self._timezone = timezone
+        self._exclude = [e.strip().lower() for e in exclude.split(",") if e.strip()]
+
+    def _wanted(self, cal: dict) -> bool:
+        """Leave out media schedules (Sonarr/Radarr...) unless named explicitly."""
+        text = f"{cal.get('entity_id', '')} {cal.get('name', '')}".lower()
+        return not any(term in text for term in self._exclude)
 
     def run(self, days: int = 1, calendar: str | None = None, **kwargs: Any) -> Any:
         from app.core.clock import get_zone
@@ -839,7 +845,7 @@ class HomeAssistantGetCalendarEventsTool(Tool):
         if calendar:
             calendars = [{"entity_id": _resolve_entity_id(self._client, "calendar", calendar, "calendar"), "name": calendar}]
         else:
-            calendars = self._client.list_calendars()
+            calendars = [cal for cal in self._client.list_calendars() if self._wanted(cal)]
         events: list[dict[str, Any]] = []
         for cal in calendars:
             for ev in self._client.get_calendar_events(cal["entity_id"], now, end):
