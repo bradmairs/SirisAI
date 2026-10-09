@@ -19,13 +19,25 @@ raises or is skipped.
 """
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
 
+logger = logging.getLogger(__name__)
+
 
 def notify_confirmation_needed(siris: "SirisAI", context: str, tool_name: str, arguments: dict[str, Any]) -> None:
+    # The attention feed gets it whether or not a push channel exists, with
+    # working Approve/Decline actions (app/hub/attention.py).
+    try:
+        from app.hub.attention import raise_confirmation
+
+        raise_confirmation(siris, context, tool_name, arguments)
+    except Exception:
+        logger.exception("Adding a confirmation to the attention feed failed")
+
     if siris.tools.get("notify") is None:
         return
 

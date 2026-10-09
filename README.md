@@ -5361,6 +5361,73 @@ provider for the same capability actually exists to design against.
     of those notes (`brain.py file --into`), file as a new note of a given
     type, or leave it for Brad. Without a model, the router files it as before.
 
+125. **Done** -- A contract SirisOS can rely on: `/siris/hub/v1`. SirisOS
+    used to run SirisAI tools by name and read their raw results, so renaming
+    a tool or reshaping a result quietly emptied part of its daily brief and
+    no test in either repo noticed. Now (`app/hub/`, `app/api/routes/hub.py`):
+    - `GET /siris/hub/v1` -- who the request acts as (`X-Siris-User`), guest
+      mode, which integrations are configured, which sections are personal.
+    - `GET /siris/hub/v1/brief` -- the day as data, no LLM: weather now and
+      today, calendar, to-dos, unread and important email, health against
+      your baseline, the car, parcels, cheap power, the second brain's
+      overdue tasks/deadlines/inbox/links, and attention counts. Each
+      section fails alone: not configured -> `null`; configured but failed
+      -> `null` and named in `unavailable`.
+    - `GET /siris/hub/v1/widgets` -- car, parcels, energy, protocols and the
+      last run (with undo), cameras, the autonomy timeline.
+    - `GET /siris/hub/v1/search?q=` -- second-brain notes, past chats and
+      memories in one list, each with a `ref` to deep-link with.
+    - Protocols (`GET .../protocols/{name}` shows what would run now; `POST
+      .../run` and `.../protocols/undo` need `{"confirmed": true}`), `POST
+      .../cameras/{camera}/look` (the vision model describes a frame) and
+      `POST .../llm/complete` (one plain completion through the model
+      router, audited under the caller's task name -- so SirisOS needn't
+      keep its own model connection).
+    - **The contract is checked on both sides.** Every response is built as
+      a pydantic model that forbids unknown fields
+      (`app/hub/contract.py`); `contracts/hub-v1/schema.json` is generated
+      from them (`python -m app.hub.contract`, a test fails when it drifts);
+      `contracts/hub-v1/examples/` holds one real payload per endpoint,
+      produced by `tests/test_hub_examples.py` from a faked SirisAI, which
+      fails when an example goes stale. SirisOS's tests parse the same
+      files. Adding an optional field stays v1; removing or retyping one is
+      a v2.
+    - **Guest mode** leaves the personal sections (calendar, to-dos, email,
+      health, car, parcels, brain) out of the brief and widgets -- they're
+      never even read -- and search returns nothing, so a wall tablet
+      showing SirisOS is safe with visitors over.
+    - Requests carry `X-Siris-User` like the rest of the API, so per-user
+      health, memories and chats follow whoever is signed in to SirisOS;
+      `X-Siris-Client` names the app in audit triggers ("... in SirisOS").
+
+126. **Done** -- The attention feed: one inbox for everything that needs you
+    (`app/hub/attention.py`; `GET /siris/hub/v1/attention`, live at
+    `.../attention/stream` as Server-Sent Events, `POST
+    .../attention/{id}/act` and `.../dismiss`).
+    - **Raised as it happens:** every push notification becomes an alert,
+      whoever sent it -- self-healing failures and intruders are urgent, and
+      an intruder alert offers "Lock down" (which runs the lockdown
+      protocol) next to "It's fine". The same alert again updates the open
+      item instead of adding another. An unattended action that needs
+      confirmation (a routine, a chat nobody is watching) becomes an
+      approval: **Approve** runs the held call with `confirmed=True`,
+      **Decline** drops it. This works even without ntfy.
+    - **Synced from what SirisAI already keeps** (on request, and every
+      `SIRISAI_ATTENTION_SYNC_MINUTES`, default 5): open habit suggestions
+      (Create automation / No thanks), jobs waiting for cheap power
+      (Cancel), notices queued for the briefing, and second-brain links and
+      inbox notes to review. What you dismissed stays dismissed; items close
+      themselves when the underlying thing goes away (accepted in chat, run,
+      delivered in the briefing).
+    - Acting does the real thing under a trigger naming the feed and the
+      client ("attention feed: the user chose 'approve' on ... in SirisOS"),
+      so the audit log and autonomy timeline show where the decision came
+      from. An item can be acted on once; a second tap is a 404, not a
+      second run. Dismissals are server-side, so phone and desktop agree.
+    - The stream sends a snapshot first, then each change from whichever
+      thread made it (the scheduler, a chat, another device), with a
+      keepalive every 15 s. `?max_events=N` ends it early for a peek.
+
 ## Running locally
 
 ```bash

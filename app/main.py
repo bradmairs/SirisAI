@@ -14,6 +14,7 @@ from app.api.routes import (
     cron,
     evals,
     health_data,
+    hub,
     hud,
     events,
     health,
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(cameras.router)
     app.include_router(health_data.router)
     app.include_router(hud.router)
+    app.include_router(hub.router)
     app.include_router(evals.router)
     app.include_router(satellites.router)
     app.include_router(integrations.router)

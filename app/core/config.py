@@ -322,6 +322,20 @@ class Settings(BaseSettings):
     seventeentrack_base_url: str = "https://api.17track.net"
     parcel_refresh_minutes: float = 120.0
 
+    # The hub contract (app/hub/, /siris/hub/v1) that SirisOS builds on, and
+    # its attention feed: how often the synced sources (habit suggestions,
+    # jobs waiting for cheap power, queued notices, second-brain reviews) are
+    # refreshed in the background. 0 = only when someone asks for the feed.
+    attention_sync_minutes: float = 5.0
+
+    # SirisOS (github.com/bradmairs/SirisOS), the home screen: SirisAI calls
+    # it for the engineering library it owns (standards, calculators,
+    # projects, SirisHydro) and for the state of every app it monitors.
+    # sirisos_service_key must match SIRISOS_SERVICE_KEY on the SirisOS side.
+    # Empty URL = the sirisos_* tools aren't registered.
+    sirisos_url: str = ""
+    sirisos_service_key: str = ""
+
     # Energy-aware scheduling (app/energy/service.py): power counts as cheap
     # inside any window in energy_cheap_windows (local "HH:MM-HH:MM", comma-
     # separated, may cross midnight), or when the solar sensor (W or kW) is at

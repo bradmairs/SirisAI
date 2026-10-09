@@ -266,6 +266,7 @@ from app.email.client import EmailClient
 from app.health.service import HealthStore
 from app.car import service as car_service
 from app.parcels.service import ParcelStore, SeventeenTrackClient
+from app.hub.attention import AttentionFeed
 from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
 from app.plugins.builtin.health_data import HealthSummaryTool
 from app.plugins.builtin.autonomy import WhatDidYouDoTool
@@ -464,6 +465,7 @@ class SirisAI:
     deferred_jobs: DeferredJobStore = field(default_factory=lambda: DeferredJobStore(SessionLocal))
     health: HealthStore = field(default_factory=lambda: HealthStore(SessionLocal))
     parcels: ParcelStore = field(default_factory=lambda: ParcelStore(SessionLocal))
+    attention: AttentionFeed = field(default_factory=lambda: AttentionFeed(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -1313,6 +1315,14 @@ class SirisAI:
             if verification is not None
             else None,
         )
+        if name == "notify":
+            # Every push also lands in the attention feed (app/hub/attention.py).
+            try:
+                from app.hub.attention import on_push
+
+                on_push(self, arguments, trigger)
+            except Exception:
+                logger.exception("Adding a push to the attention feed failed")
         return result
 
     def status(self) -> dict[str, object]:
