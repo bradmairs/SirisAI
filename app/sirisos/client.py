@@ -1,6 +1,8 @@
 """SirisOS (github.com/bradmairs/SirisOS), the home screen, seen from
 SirisAI: the engineering library it owns -- standards, calculators,
-projects, SirisHydro -- and the state of every app it monitors.
+projects, SirisHydro -- the state of every app it monitors, and Brad's
+career record (CPD imported from Engineers Australia, the pathways to
+Chartered and registration, competency evidence, goals).
 
 Authenticates with SirisOS's service key (`Authorization: Bearer
 <SIRISOS_SERVICE_KEY>`, matched by SIRISAI_SIRISOS_SERVICE_KEY here), which
@@ -55,6 +57,10 @@ class SirisOSClient:
 
     def projects(self) -> list[dict[str, Any]]:
         return self._get("/api/v1/projects").get("projects") or []
+
+    def career(self) -> dict[str, Any]:
+        """The Career tab's record and overview (SirisOS ADR 111)."""
+        return self._get("/api/v1/career")
 
     def sirishydro(self, question: str, limit: int = 6) -> dict[str, Any]:
         # Synthesis can take a while: SirisOS asks a model (SirisAI's, via the hub).

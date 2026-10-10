@@ -36,6 +36,8 @@ _PERSONAL_TOOLS = {
     "bedtime_check",
     "departure_check",
     "engineering_projects",  # client project names
+    "career_cpd_status",  # Brad's professional record
+    "career_chartership_status",
 }
 
 
