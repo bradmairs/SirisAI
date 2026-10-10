@@ -5452,6 +5452,12 @@ provider for the same capability actually exists to design against.
       arithmetic itself.
     - `engineering_projects` -- the project list (hidden in guest mode:
       client names).
+    - `career_cpd_status` / `career_chartership_status` -- Brad's CPD over
+      the rolling 3 years against the 150 hours and its minimums (from his
+      Engineers Australia record, as imported into SirisOS's Career tab),
+      and where he is on the path to Chartered, the NER and Victorian
+      registration: next steps, competency elements still needing
+      evidence, goals (SirisOS ADR 111; hidden in guest mode).
     - `sirisos_apps_status` -- the state of every app SirisOS monitors.
       SirisAI no longer needs to check those apps again: `integration_health`
       includes them, the morning briefing says "Apps needing a look: APD PM

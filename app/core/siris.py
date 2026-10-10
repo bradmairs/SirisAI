@@ -269,6 +269,8 @@ from app.car import service as car_service
 from app.parcels.service import ParcelStore, SeventeenTrackClient
 from app.hub.attention import AttentionFeed
 from app.plugins.builtin.sirisos import (
+    CareerChartershipStatusTool,
+    CareerCpdStatusTool,
     EngineeringCalculateTool,
     EngineeringCalculatorsTool,
     EngineeringProjectsTool,
@@ -929,6 +931,8 @@ class SirisAI:
             self.tools.register(EngineeringCalculateTool(self._sirisos_client))
             self.tools.register(EngineeringProjectsTool(self._sirisos_client))
             self.tools.register(SirisHydroAskTool(self._sirisos_client))
+            self.tools.register(CareerCpdStatusTool(self._sirisos_client))
+            self.tools.register(CareerChartershipStatusTool(self._sirisos_client))
 
         if self.settings.frigate_base_url:
             self._frigate_client = FrigateClient(

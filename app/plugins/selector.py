@@ -128,6 +128,11 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     ),
     (frozenset("project projects job jobs".split()), ("engineering_projects",)),
     (frozenset("sirisos apd reviewer archive gvw timesheet timesheets sirisdrone apps app tile tiles".split()), ("sirisos_apps_status",)),
+    (
+        frozenset("cpd career chartered chartership cpeng charter registration registered register ner rpe rpev competency competencies "
+                  "promotion progression mieaust ea".split()),
+        ("career_",),
+    ),
 ]
 
 _HINT_WEIGHT = 4.0

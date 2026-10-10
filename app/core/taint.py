@@ -80,6 +80,8 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         # Text from uploaded standards PDFs, and a model's answer built from it.
         "engineering_standards_search",
         "sirishydro_ask",
+        # CPD activity titles come from Engineers Australia's record (event and course names).
+        "career_cpd_status",
     }
 )
 

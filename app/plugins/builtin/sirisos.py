@@ -185,3 +185,85 @@ class SirisHydroAskTool(Tool):
                 for i, e in enumerate(found.get("evidence") or [], start=1)
             ],
         }
+
+
+def _career(client: SirisOSClient) -> tuple[dict[str, Any], dict[str, Any]]:
+    found = client.career()
+    return found.get("document") or {}, found.get("overview") or {}
+
+
+class CareerCpdStatusTool(Tool):
+    name = "career_cpd_status"
+    description = (
+        "Brad's CPD (continuing professional development) over the rolling 3 years Engineers Australia counts: "
+        "total against the 150 hours, the minimums (50 area of practice, 10 risk management, 15 business and "
+        "management), what's short, hours about to drop out of the window, and recent activities. Comes from "
+        "his Engineers Australia CPD record as last imported into SirisOS. Use for 'how's my CPD', 'how many "
+        "CPD hours do I need', 'am I on track for CPD'. CPD is logged in Engineers Australia, not here."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, client: SirisOSClient) -> None:
+        self._client = client
+
+    def run(self, **kwargs: Any) -> Any:
+        doc, ov = _career(self._client)
+        cpd = ov.get("cpd") or {}
+        if not cpd.get("records"):
+            return {"imported": False, "how": "No CPD imported yet. Export it from Engineers Australia (myPortal, "
+                    "Record my CPD, export as CSV or Excel) and import it in SirisOS: Career, CPD."}
+        window = cpd.get("window") or {}
+        recent = [
+            {"date": r.get("date"), "title": r.get("title"), "hours": r.get("hours"), "provider": r.get("provider") or None}
+            for r in (doc.get("cpd") or {}).get("records", [])[:5]
+        ]
+        return {
+            "imported": True,
+            "window": f"{window.get('from')} to {window.get('to')}",
+            "total_hours": cpd.get("total"),
+            "required_hours": cpd.get("required"),
+            "hours_short": cpd.get("short"),
+            "requirement_met": cpd.get("met"),
+            "minimums": [{"category": m["label"], "hours": m["hours"], "minimum": m["minimum"], "short": m["short"]} for m in cpd.get("minimums", [])],
+            "hours_leaving_window_in_90_days": cpd.get("expiring_90_days"),
+            "hours_by_year": cpd.get("by_year"),
+            "recent_activities": recent,
+            "guessed_categories": cpd.get("guessed"),
+            "last_imported": (cpd.get("last_import") or {}).get("at"),
+            "latest_activity": cpd.get("latest_activity"),
+        }
+
+
+class CareerChartershipStatusTool(Tool):
+    name = "career_chartership_status"
+    description = (
+        "Where Brad is on the path to Chartered (CPEng) with Engineers Australia, the National Engineering "
+        "Register and registration as a civil engineer in Victoria: progress on each pathway and its next step, "
+        "which of the 16 Stage 2 competency elements still need evidence, his career goals, and the overall next "
+        "steps. Use for 'what's my next chartership step', 'how close am I to CPEng', 'what do I need for "
+        "registration', 'what are my career goals'."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, client: SirisOSClient) -> None:
+        self._client = client
+
+    def run(self, **kwargs: Any) -> Any:
+        doc, ov = _career(self._client)
+        comp = ov.get("competencies") or {}
+        return {
+            "next_steps": [f"{s['title']} ({s['detail']})" for s in ov.get("next_steps", [])],
+            "pathways": [
+                {"name": p["name"], "steps_done": p["done"], "steps": p["total"], "next_step": (p.get("next") or {}).get("title")}
+                for p in ov.get("pathways", [])
+            ],
+            "competencies": {
+                "elements_with_evidence": comp.get("evidenced"),
+                "elements": comp.get("total"),
+                "still_need_evidence": [f"{g['id']}. {g['title']}" for g in comp.get("gaps", [])],
+            },
+            "goals": [{"goal": g["title"], "by": g.get("target_date"), "next_step": g.get("next_step") or None} for g in ov.get("goals", [])],
+            "evidence_items": len(doc.get("evidence") or []),
+        }
