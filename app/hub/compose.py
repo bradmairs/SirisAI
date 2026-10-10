@@ -116,6 +116,7 @@ def calendar(siris: "SirisAI") -> list[c.CalendarEvent]:
                 end=str(e["end"]) if isinstance(e.get("end"), str) else None,
                 all_day=all_day,
                 location=e.get("location") or None,
+                calendar=e.get("calendar") or None,
             )
         )
     out.sort(key=lambda e: (not e.all_day, e.start or ""))

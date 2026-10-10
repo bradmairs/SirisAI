@@ -146,6 +146,7 @@ def test_brief_normalises_every_source(use) -> None:
     assert body["weather"]["now"]["temperature_c"] == 17.4 and body["weather"]["now"]["wind_kmh"] == 11
     assert body["weather"]["today"] == {"date": "2026-10-09", "conditions": "Slight rain", "high_c": 19.0, "low_c": 9.0, "rain_chance_percent": 70.0, "precipitation_mm": 4.2}
     assert [e["title"] for e in body["calendar"]] == ["Bin night", "Site visit, Werribee"]  # all-day first
+    assert [e["calendar"] for e in body["calendar"]] == ["Home", "Work"]  # which calendar, for the brief
     assert body["calendar"][0]["all_day"] is True
     assert body["todo"] == [{"summary": "Milk", "list": "todo.shopping", "due": None}]
     assert body["email"] == {"unread": 2, "important": [{"sender": "Dana Lee", "subject": "Drainage report comments", "why": ["from a frequent contact"]}]}

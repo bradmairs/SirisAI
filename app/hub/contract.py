@@ -78,6 +78,7 @@ class CalendarEvent(_Model):
     end: str | None = None
     all_day: bool = False
     location: str | None = None
+    calendar: str | None = Field(None, description="Which calendar it's on, e.g. Gmail or an iCloud calendar's name.")
 
 
 class TodoItem(_Model):

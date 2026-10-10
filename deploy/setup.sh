@@ -4,8 +4,8 @@
 #   2. sirisai.env and sirisos.env, from each app's own .env.example, with
 #      the settings this stack wires up itself commented out
 #   3. the data folders
-#   4. the SirisOS checkout (cloned next to SirisAI if missing), with the
-#      ADR 110 integration patch applied if that checkout doesn't have it yet
+#   4. the SirisOS checkout (cloned next to SirisAI if missing); the
+#      integration (SirisOS ADR 110) is in its main branch
 # It never overwrites a file you've already edited.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -35,16 +35,12 @@ if [ ! -d "$sirisos/.git" ]; then
   say "Cloning SirisOS into $sirisos"
   git clone https://github.com/bradmairs/SirisOS.git "$sirisos"
 fi
-if [ ! -f "$sirisos/docs/adr/110-sirisai-integration.md" ]; then
-  if [ -n "$(git -C "$sirisos" status --porcelain)" ]; then
-    say "SirisOS at $sirisos has uncommitted changes; not applying the integration patch."
-    say "Commit or stash them, then re-run ./setup.sh (or: git -C $sirisos am $here/patches/sirisos-adr110.patch)."
-  else
-    say "Applying the SirisAI integration (ADR 110) to SirisOS on a new branch"
-    git -C "$sirisos" checkout -q -B sirisai-integration
-    git -C "$sirisos" -c user.name="${GIT_AUTHOR_NAME:-siris-setup}" -c user.email="${GIT_AUTHOR_EMAIL:-siris-setup@localhost}" \
-      am -q "$here/patches/sirisos-adr110.patch"
-  fi
+# The SirisAI integration (SirisOS ADR 110) is in SirisOS main now. Earlier
+# versions of this script applied it as a patch on a local branch called
+# sirisai-integration; a checkout still on that branch should go back to main.
+if [ "$(git -C "$sirisos" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "sirisai-integration" ]; then
+  say "SirisOS at $sirisos is on the old 'sirisai-integration' branch. The integration is in SirisOS main now:"
+  say "  git -C $sirisos checkout main && git -C $sirisos pull"
 fi
 
 # 2. App settings ----------------------------------------------------------------
