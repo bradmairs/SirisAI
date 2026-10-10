@@ -20,10 +20,10 @@ cd SirisAI/deploy
 - creates `.env` with three random secrets;
 - clones SirisOS next to SirisAI (`../../SirisOS`, or wherever `SIRISOS_SRC`
   in `.env` points);
-- if that checkout doesn't have the SirisAI integration yet (SirisOS ADR 110),
-  applies `patches/sirisos-adr110.patch` on a branch called
-  `sirisai-integration`. Once that change is merged into SirisOS, nothing is
-  applied;
+- checks the SirisOS checkout is on `main`. The SirisAI integration
+  (SirisOS ADR 110) used to be applied here as a patch on a local branch
+  called `sirisai-integration`. It's in SirisOS main now, so a checkout
+  still on that branch is told to switch back;
 - creates `sirisai.env` and `sirisos.env` from each app's own `.env.example`,
   so every setting is listed there with its explanation.
 
