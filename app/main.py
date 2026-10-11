@@ -28,6 +28,7 @@ from app.api.routes import (
     voice,
     web,
 )
+from app import __version__
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core import scheduler
@@ -77,7 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
 
     app.include_router(health.router)
     app.include_router(siris.router)

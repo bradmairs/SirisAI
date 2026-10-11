@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 
+from app import __version__
 from app.audit.service import AuditLogStore
 from app.capabilities.service import CapabilityGapStore
 from app.calendar.client import CalendarClient, CalendarSet
@@ -1365,6 +1366,7 @@ class SirisAI:
         """A snapshot of the core service's state, for the status endpoint."""
         return {
             "app_name": self.settings.app_name,
+            "version": __version__,
             "environment": self.settings.environment,
             "llm_provider": self.settings.llm_provider,
             "stt_provider": self.settings.stt_provider,
