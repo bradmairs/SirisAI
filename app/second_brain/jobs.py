@@ -3,9 +3,12 @@ scheduler (app/core/scheduler.py). Each runs at most once per local day (or
 week), remembered in the state store, so a restart never repeats one:
 
 - **meetings** (daily, SIRISAI_BRAIN_MEETING_NOTES_HOUR_LOCAL): a note for
-  each of today's timed calendar events -- when, where, and empty Agenda /
-  Notes / Decisions / Action items sections -- linked by the engine to any
-  person or project its title mentions.
+  each of today's timed events on the calendars named in
+  SIRISAI_BRAIN_MEETING_CALENDARS -- when, where, and empty Agenda / Notes /
+  Decisions / Action items sections -- linked by the engine to any person or
+  project its title mentions. Opt-in: with no calendars named it does
+  nothing, so a personal calendar (a haircut, "Call dad") never becomes
+  notes just because a calendar was connected.
 - **dream** (nightly, SIRISAI_BRAIN_DREAM_HOUR_LOCAL): the general model
   reads the day's conversations and turns what's worth keeping into proper
   atomic notes, reusing existing titles so facts land on the notes they
@@ -137,6 +140,8 @@ def write_meeting_notes(siris: "SirisAI", day: date) -> dict[str, Any]:
     if tool is None:
         return {"skipped": "no calendar configured"}
     allowed = {c.strip().lower() for c in siris.settings.brain_meeting_calendars.split(",") if c.strip()}
+    if not allowed:
+        return {"skipped": "no meeting calendars named (SIRISAI_BRAIN_MEETING_CALENDARS)"}
     brain = siris.second_brain
     items = []
     for event in tool.run(days_ahead=1) or []:
@@ -144,7 +149,7 @@ def write_meeting_notes(siris: "SirisAI", day: date) -> dict[str, Any]:
         summary = (event.get("summary") or "").strip()
         if not summary or "T" not in start or not start.startswith(day.isoformat()):
             continue  # all-day events and other days don't get a meeting note
-        if allowed and (event.get("calendar") or "").lower() not in allowed:
+        if (event.get("calendar") or "").lower() not in allowed:
             continue
         title = f"{summary} ({day.isoformat()})"
         existing = brain.get_note(title)
