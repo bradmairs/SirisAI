@@ -5805,6 +5805,16 @@ docker compose pull && docker compose up -d
 
 SQLite data persists to `./data` on the host via a bind mount.
 
+## Versions and releases
+
+SirisAI 1.0 was the first numbered release; `CHANGELOG.md` lists every
+version since. Each change merged to `main` bumps the version: +0.01 for a
+small one, +0.1 for a significant one (`python scripts/bump_version.py
+small|significant "<summary>"`). A new version on `main` is tagged
+`v<version>` and released on GitHub automatically, and the Docker image is
+published as `ghcr.io/bradmairs/sirisai:<version>` as well as `:latest`.
+`GET /siris/status` reports the running version.
+
 ## Tests
 
 ```bash
