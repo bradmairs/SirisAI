@@ -568,8 +568,9 @@ class Settings(BaseSettings):
     # (0 turns it off). Only reasonably strong matches are used.
     brain_context_notes: int = 3
     # Growth jobs (app/second_brain/jobs.py), all in local time (timezone).
-    # An hour of None turns that job off. meeting_calendars limits meeting
-    # notes to those calendar names (comma-separated; empty = all calendars).
+    # An hour of None turns that job off. Meeting notes are opt-in:
+    # meeting_calendars names the calendars whose timed events get a note
+    # (comma-separated, e.g. "Work"); empty = no meeting notes at all.
     # weekly_day is 0=Monday ... 6=Sunday; gap_questions is how many gaps to
     # ask about each week (0 = off).
     brain_meeting_notes_hour_local: int | None = 6

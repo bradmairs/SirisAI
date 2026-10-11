@@ -5302,8 +5302,10 @@ provider for the same capability actually exists to design against.
     - **Growth jobs** (`app/second_brain/jobs.py`, on the scheduler, once
       per local day and remembered across restarts):
       - *Meeting notes* at `SIRISAI_BRAIN_MEETING_NOTES_HOUR_LOCAL` (6):
-        a note per timed calendar event today, optionally limited to
-        `SIRISAI_BRAIN_MEETING_CALENDARS`.
+        a note per timed event today on the calendars named in
+        `SIRISAI_BRAIN_MEETING_CALENDARS` (e.g. `Work`). Opt-in since
+        2026-10-11: with none named it writes nothing, so connecting Gmail
+        and iCloud didn't turn every haircut and phone call into a note.
       - *Dream* at `SIRISAI_BRAIN_DREAM_HOUR_LOCAL` (23): the general model
         reads the day's conversations and memory-inbox entries and writes
         what's worth keeping as atomic notes, reusing existing titles. It

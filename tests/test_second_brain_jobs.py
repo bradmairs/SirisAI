@@ -163,7 +163,8 @@ def test_weekly_only_on_its_day() -> None:
 
 
 def test_a_failing_job_is_reported_and_not_retried_today() -> None:
-    siris = _siris(brain_dream_hour_local=None, brain_weekly_hour_local=None, brain_upkeep_hour_local=None)
+    siris = _siris(brain_dream_hour_local=None, brain_weekly_hour_local=None, brain_upkeep_hour_local=None,
+                   brain_meeting_calendars="Work")
     siris.second_brain = FakeBrain()
 
     class Broken(FakeCalendar):
@@ -193,6 +194,17 @@ def test_meeting_notes_for_todays_timed_events() -> None:
     content = brain.learned[0]["content"]
     assert "**When:** 2026-10-06 10:00–11:00" in content and "**Where:** Shepparton" in content
     assert "## Action items" in content and brain.learned[0]["tags"] == ["meeting"]
+
+
+def test_meeting_notes_are_opt_in_by_calendar_name() -> None:
+    # Connecting a calendar never writes its events into the brain by itself.
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain()
+    siris.tools.register(FakeCalendar([
+        {"summary": "Call dad", "start": "2026-10-06T17:15:00+11:00", "calendar": "Google Calendar"},
+    ]))
+    assert jobs.write_meeting_notes(siris, DAY) == {"skipped": "no meeting calendars named (SIRISAI_BRAIN_MEETING_CALENDARS)"}
+    assert brain.learned == []
 
 
 def test_meeting_notes_need_a_calendar() -> None:
