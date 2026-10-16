@@ -1,7 +1,7 @@
 """The second brain over HTTP (app/second_brain/): quick capture from
 anywhere -- an iOS Shortcut, the share sheet, a Home Assistant automation
 -- plus the interactive mind map, what was learned today, insights, and
-search, and acting on insights' "could be linked" suggestions (link the two
+search, deleting and restoring notes, and acting on insights' "could be linked" suggestions (link the two
 notes, or mark them not related).
 
 Capture lands in the vault's inbox (`type: capture`, 00-Inbox/) through the
@@ -143,3 +143,42 @@ def not_related(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> di
         return _brain(siris).unrelate(request.a, request.b)
     except SecondBrainError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+class NoteRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+class DeleteRequest(NoteRequest):
+    permanent: bool = False
+
+
+def _note_write(action, *args):
+    try:
+        return action(*args)
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.post("/delete")
+def delete_note(request: DeleteRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Delete a note (restorable from /deleted unless `permanent`). Links to it are removed."""
+    return _note_write(_brain(siris).delete_note, request.title, request.permanent)
+
+
+@router.post("/restore")
+def restore_note(request: NoteRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Undo a delete: the note returns where it was, with its connections."""
+    return _note_write(_brain(siris).restore_note, request.title)
+
+
+@router.post("/purge")
+def purge_note(request: NoteRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Permanently remove a note that's already deleted."""
+    return _note_write(_brain(siris).purge_note, request.title)
+
+
+@router.get("/deleted")
+def deleted_notes(siris: SirisAI = Depends(get_siris)) -> list[dict]:
+    """Deleted notes, newest first, and whether each can be restored."""
+    return _note_write(_brain(siris).deleted_notes)

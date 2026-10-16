@@ -1,6 +1,10 @@
 """Second Brain tools, via app/second_brain/client.py. Registered only when
 SIRISAI_BRAIN_PATH points at a checkout of Siris-Second-Brain.
 
+brain_delete_note is CONFIRM_REQUIRED: deleting the wrong note on a
+misheard "forget it" is worse than asking, even though brain_restore_note
+(SAFE_ACTION) undoes it and permanent deletion isn't offered to the model.
+
 brain_search/brain_get_note/brain_insights are READ. brain_learn is
 SAFE_ACTION, not CONFIRM_REQUIRED like obsidian_create_or_update_note: the
 vault's engine
@@ -175,6 +179,55 @@ class BrainUnlinkNotesTool(Tool):
     def run(self, a: str = "", b: str = "", **kwargs: Any) -> Any:
         try:
             return self._client.unlink(a, b)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
+class BrainDeleteNoteTool(Tool):
+    name = "brain_delete_note"
+    description = (
+        "Delete a note from Brad's second brain when he asks you to (\"delete the note about X\", \"forget "
+        "X\", \"remove that from my brain\"). Use the note's exact title (find it with brain_search first). "
+        "Links to it in other notes are removed, but the note itself can be brought back with "
+        "brain_restore_note, so tell him that. Never use this on your own initiative."
+    )
+    # Deleting the wrong note on a misheard "forget it" is worse than asking, even though it's undoable.
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {"title": {"type": "string", "description": "The exact title of the note to delete."}},
+        "required": ["title"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, title: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.delete_note(title)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
+class BrainRestoreNoteTool(Tool):
+    name = "brain_restore_note"
+    description = (
+        "Bring back a note that was deleted from Brad's second brain (\"undo that\", \"bring back the note "
+        "about X\"). It returns where it was and is reconnected to the notes that linked to it."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {"title": {"type": "string", "description": "The deleted note's title."}},
+        "required": ["title"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, title: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.restore_note(title)
         except SecondBrainError as exc:
             return {"error": str(exc)}
 

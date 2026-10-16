@@ -141,10 +141,12 @@ from app.plugins.builtin.obsidian import (
     ObsidianSearchTool,
 )
 from app.plugins.builtin.second_brain import (
+    BrainDeleteNoteTool,
     BrainGetNoteTool,
     BrainInsightsTool,
     BrainLearnTool,
     BrainLinkNotesTool,
+    BrainRestoreNoteTool,
     BrainSearchTool,
     BrainUnlinkNotesTool,
 )
@@ -922,6 +924,8 @@ class SirisAI:
             self.tools.register(BrainInsightsTool(self.second_brain))
             self.tools.register(BrainLinkNotesTool(self.second_brain))
             self.tools.register(BrainUnlinkNotesTool(self.second_brain))
+            self.tools.register(BrainDeleteNoteTool(self.second_brain))
+            self.tools.register(BrainRestoreNoteTool(self.second_brain))
             self.tools.register(BrainLearnTool(self.second_brain))
 
         if self.settings.sirisos_url:
