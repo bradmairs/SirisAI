@@ -184,6 +184,31 @@ class SecondBrainClient:
         return self._write(["unlink", "--output", "json", "--", a, b],
                            message=lambda r: f"siris: unlinked {r.get('a', a)} and {r.get('b', b)}")
 
+    def delete_note(self, title: str, permanent: bool = False) -> dict:
+        """Delete a note Brad asked to delete. It moves to the vault's .deleted/
+        folder (out of search, links and the map) and links to it in other notes
+        are removed; restore_note() undoes it. `permanent` removes the file
+        instead (it stays in git history). Unknown notes and the brain's hubs
+        raise SecondBrainError."""
+        args = ["delete", "--output", "json", *(["--permanent"] if permanent else []), "--", title]
+        return self._write(args, message=lambda r: f"siris: deleted {r.get('title', title)}"
+                           + (" permanently" if permanent else ""))
+
+    def restore_note(self, title: str) -> dict:
+        """Bring back a deleted note where it was, reconnecting the notes that linked to it."""
+        return self._write(["restore", "--output", "json", "--", title],
+                           message=lambda r: f"siris: restored {r.get('title', title)}")
+
+    def purge_note(self, title: str) -> dict:
+        """Permanently remove a note that's already deleted (it stays in git history)."""
+        return self._write(["purge", "--output", "json", "--", title],
+                           message=lambda r: f"siris: deleted {r.get('title', title)} permanently")
+
+    def deleted_notes(self) -> list[dict]:
+        """Deleted notes, newest first: `title`, `type`, `path`, `date`, `linked_from`, `restorable`."""
+        self._maybe_pull()
+        return self._engine_call(["deleted", "--output", "json"])
+
     def relink(self) -> int:
         """Link plain mentions of note titles across the vault; returns how many links were added."""
         out = self._write(["relink"], raw=True, message=lambda r: "siris: relink")

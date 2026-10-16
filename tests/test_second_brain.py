@@ -70,6 +70,35 @@ FAKE_ENGINE = textwrap.dedent(
         (root / "archive.md").write_text(stdin)
         print(json.dumps({"archived": len(json.loads(stdin))}))
         sys.exit(0)
+    if cmd in ("delete", "restore", "purge"):
+        t = args[args.index("--") + 1]
+        trash = json.loads((root / "trash.json").read_text()) if (root / "trash.json").exists() else {}
+        if cmd == "delete":
+            real = find(t)
+            if real is None:
+                sys.exit("No note called " + repr(t))
+            if real == "Health":
+                sys.exit("Health is one of the hubs the brain is organised around, so it can't be deleted")
+            trash[real] = notes.pop(real)
+            result = {"action": "deleted", "title": real, "path": f"Notes/{real}.md", "permanent": "--permanent" in args,
+                      "deleted_to": None if "--permanent" in args else f".deleted/2026-10-16/Notes/{real}.md", "linked_from": []}
+        else:
+            real = next((x for x in trash if x.lower() == t.lower()), None)
+            if real is None:
+                sys.exit("No deleted note called " + repr(t))
+            body = trash.pop(real)
+            if cmd == "restore":
+                notes[real] = body
+            result = {"action": "restored" if cmd == "restore" else "purged", "title": real, "path": f"Notes/{real}.md", "relinked": []}
+        store.write_text(json.dumps(notes))
+        (root / "trash.json").write_text(json.dumps(trash))
+        print(json.dumps(result))
+        sys.exit(0)
+    if cmd == "deleted":
+        trash = json.loads((root / "trash.json").read_text()) if (root / "trash.json").exists() else {}
+        print(json.dumps([{"title": t, "type": "note", "path": f"Notes/{t}.md", "date": "2026-10-16", "linked_from": [],
+                           "restorable": True} for t in trash]))
+        sys.exit(0)
     if cmd in ("link", "unrelate"):
         a, b = (find(x) for x in args[args.index("--") + 1:])
         if a is None or b is None:
@@ -636,3 +665,51 @@ def test_link_commits_when_syncing(tmp_path: Path) -> None:
     client.link("A Note", "B Note")
     client.unrelate("A Note", "B Note")
     assert seen == ["siris: linked A Note and B Note", "siris: A Note and B Note aren't related"]
+
+
+def test_delete_restore_purge_and_deleted_routes(brain_api) -> None:
+    client, vault = brain_api
+    client.post("/siris/brain/capture", json={"title": "Old Router", "text": "Netgear"})
+    client.post("/siris/brain/capture", json={"title": "Spare Pi", "text": "Pi 4"})
+
+    r = client.post("/siris/brain/delete", json={"title": "old router"})
+    assert r.status_code == 200 and r.json()["title"] == "Old Router" and r.json()["deleted_to"].startswith(".deleted/")
+    assert _calls(vault)[-1]["args"] == ["delete", "--output", "json", "--", "old router"]
+    assert [d["title"] for d in client.get("/siris/brain/deleted").json()] == ["Old Router"]
+
+    r = client.post("/siris/brain/restore", json={"title": "Old Router"})
+    assert r.json()["action"] == "restored" and client.get("/siris/brain/deleted").json() == []
+
+    r = client.post("/siris/brain/delete", json={"title": "Spare Pi", "permanent": True})
+    assert r.json()["permanent"] is True and r.json()["deleted_to"] is None
+    assert _calls(vault)[-1]["args"] == ["delete", "--output", "json", "--permanent", "--", "Spare Pi"]
+
+    client.post("/siris/brain/delete", json={"title": "Old Router"})
+    assert client.post("/siris/brain/purge", json={"title": "Old Router"}).json()["action"] == "purged"
+
+
+def test_delete_errors_are_422(brain_api) -> None:
+    client, _ = brain_api
+    r = client.post("/siris/brain/delete", json={"title": "Nope"})
+    assert r.status_code == 422 and "No note called 'Nope'" in r.json()["detail"]
+    assert client.post("/siris/brain/restore", json={"title": "Nope"}).status_code == 422
+    assert client.post("/siris/brain/delete", json={"title": ""}).status_code == 422
+
+
+def test_delete_tool_needs_confirmation_and_restore_does_not(tmp_path: Path) -> None:
+    from app.plugins.base import ToolPermission
+    from app.plugins.builtin.second_brain import BrainDeleteNoteTool, BrainRestoreNoteTool
+
+    vault = _vault(tmp_path, {"Old Router": "Netgear"})
+    client = SecondBrainClient(str(vault))
+    delete, restore = BrainDeleteNoteTool(client), BrainRestoreNoteTool(client)
+    assert delete.permission is ToolPermission.CONFIRM_REQUIRED
+    assert restore.permission is ToolPermission.SAFE_ACTION
+    assert delete.run(title="Old Router")["action"] == "deleted"
+    assert restore.run(title="Old Router")["action"] == "restored"
+    assert "No note called" in delete.run(title="Nope")["error"]
+
+
+def test_delete_tools_registered_with_a_brain(tmp_path: Path) -> None:
+    siris = SirisAI(settings=Settings(brain_path=str(_vault(tmp_path, {}))))
+    assert {"brain_delete_note", "brain_restore_note"} <= {t.name for t in siris.tools.list()}
