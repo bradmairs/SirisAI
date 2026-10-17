@@ -50,7 +50,7 @@ def test_resolve_user_id_uses_header_value() -> None:
 
 def test_memory_recall_is_scoped_to_user_id() -> None:
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex
     siris.memory.remember(f"alice's memory {marker}", user_id="alice-46")
     siris.memory.remember(f"bob's memory {marker}", user_id="bob-46")
 
@@ -63,7 +63,7 @@ def test_memory_recall_is_scoped_to_user_id() -> None:
 
 def test_memory_list_all_is_scoped_to_user_id() -> None:
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex
     siris.memory.remember(f"carol's memory {marker}", user_id="carol-46")
 
     assert any(marker in e["content"] for e in siris.memory.list_all(user_id="carol-46"))
@@ -75,7 +75,7 @@ def test_memory_list_all_is_scoped_to_user_id() -> None:
 
 def test_goal_list_is_scoped_to_user_id() -> None:
     siris = SirisAI(settings=get_siris().settings)
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex
     siris.goals.create_goal(f"Alice's goal {marker}", user_id="alice-46g")
     siris.goals.create_goal(f"Bob's goal {marker}", user_id="bob-46g")
 
@@ -128,7 +128,7 @@ def test_stale_goals_is_scoped_to_user_id() -> None:
 
 
 def test_memory_endpoints_are_isolated_by_x_siris_user_header(client: TestClient) -> None:
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex
     content = f"alice-only memory {marker}"
 
     create_response = client.post(
@@ -147,7 +147,7 @@ def test_memory_endpoints_are_isolated_by_x_siris_user_header(client: TestClient
 
 
 def test_goals_endpoints_are_isolated_by_x_siris_user_header(client: TestClient) -> None:
-    marker = str(uuid.uuid4())
+    marker = uuid.uuid4().hex
     title = f"alice-only goal {marker}"
 
     create_response = client.post(
@@ -247,7 +247,9 @@ def test_sqlite_engine_is_configured_for_wal_mode() -> None:
 
 
 def test_no_header_falls_back_to_the_default_user_consistently(client: TestClient) -> None:
-    marker = str(uuid.uuid4())
+    # One 32-character word: a dashed uuid's 4-character pieces could match
+    # inside another test's random hex (found in CI: "9ec9").
+    marker = uuid.uuid4().hex
     content = f"default-user memory {marker}"
 
     client.post("/siris/memory", json={"content": content})
