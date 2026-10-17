@@ -28,6 +28,10 @@ class FakeBrain:
         self.cleared: list[dict] = []
         self.file_calls: list[tuple[str, str, str]] = []
         self.search_results: list[dict] = []
+        self.activity_entries = [{"date": "2026-10-06", "line": "🧠 Learned [[Home Server]]"}]
+        self.recall = {"score": 0.9, "found": 27, "total": 30, "misses": []}
+        self.reviewed: list[str] = []
+        self.queue = [{"title": "Plex", "path": "Notes/Plex.md", "links": 9, "as_of": "2026-10-05", "excerpt": "Media server."}]
         self.filed: list[str] = []
         self.relinked = 0
         self.sources: dict[str, str] = {}
@@ -46,14 +50,27 @@ class FakeBrain:
         self.cleared += filed
         return {"archived": len(filed)}
 
-    def file_note(self, title: str, type: str = "auto", into: str = "") -> dict:
+    def file_note(self, title: str, type: str = "auto", into: str = "", folder: str = "") -> dict:
         self.filed.append(title)
-        self.file_calls.append((title, type, into))
+        self.file_calls.append((title, type, into) if not folder else (title, type, into, folder))
         if into:
             return {"action": "merged", "title": title, "into": into}
         if title == "Dom":
             return {"action": "merged", "title": title, "into": "Dom Mairs"}
         return {"action": "left" if title == "Hmm" else "filed", "title": title}
+
+    def activity(self, days: int) -> list[dict]:
+        return self.activity_entries
+
+    def recall_check(self) -> dict:
+        return self.recall
+
+    def review_queue(self, count: int = 3) -> list[dict]:
+        return self.queue[:count]
+
+    def mark_reviewed(self, title: str) -> dict:
+        self.reviewed.append(title)
+        return {"reviewed": True, "title": title}
 
     def search(self, query: str, limit: int = 10) -> list[dict]:
         return self.search_results[:limit]
@@ -114,9 +131,11 @@ class FakeLLM:
 class FakeNotify:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str]] = []
+        self.priorities: list[str | None] = []
 
     def send(self, message: str, title: str = "", **kwargs: Any) -> None:
         self.sent.append((title, message))
+        self.priorities.append(kwargs.get("priority"))
 
     def close(self) -> None:
         pass
@@ -510,12 +529,72 @@ def test_upkeep_reports_once_and_keeps_going_past_a_failure() -> None:
     assert "Filed 1 memories (Dom Mairs)." in message and "Failed: inbox." in message
 
 
-def test_a_quiet_upkeep_sends_nothing() -> None:
+def test_a_quiet_night_sends_a_low_priority_summary() -> None:
     siris = _siris()
     siris.second_brain = FakeBrain()
     siris._notify_client = FakeNotify()
+    siris.state.set(jobs.LAST_DREAM_KEY, {"date": "2026-10-05", "learned": 0, "note": "nothing worth keeping"})
     asyncio.run(jobs.upkeep(siris, _at(2)))
-    assert siris._notify_client.sent == []
+    (title, message), = siris._notify_client.sent
+    assert title == "Siris: brain upkeep" and siris._notify_client.priorities == ["low"]
+    assert message.startswith("Learned or updated 1 notes in the last day. The dream found nothing worth keeping.")
+    assert "Recall 90%." in message
+
+
+def test_three_quiet_days_raise_an_alert() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain()
+    brain.activity_entries = [{"date": "2026-10-05", "line": "🔗 Linked [[A]] ↔ [[B]]"}]   # links aren't learning
+    siris._notify_client = FakeNotify()
+    out = asyncio.run(jobs.upkeep(siris, _at(2)))
+    assert out["growth"]["quiet"] is True
+    title, message = siris._notify_client.sent[0]
+    assert title == "Siris: brain needs a look" and siris._notify_client.priorities == ["high"]
+    assert "hasn't learned anything in 3 days" in message
+
+
+def test_a_recall_drop_raises_an_alert() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain()
+    siris._notify_client = FakeNotify()
+    siris.state.set(jobs.LAST_RECALL_KEY, 0.9)
+    brain.recall = {"score": 0.8, "found": 24, "total": 30, "misses": [{"q": "what car do I drive?"}]}
+    out = asyncio.run(jobs.upkeep(siris, _at(2)))
+    assert out["recall"] == {"score": 0.8, "previous": 0.9, "found": 24, "total": 30, "misses": ["what car do I drive?"]}
+    assert "Recall dropped from 90% to 80%" in siris._notify_client.sent[0][1]
+    assert siris.state.get(jobs.LAST_RECALL_KEY) == 0.8
+
+
+def test_claude_chats_are_distilled_then_kept_as_a_log() -> None:
+    siris = _siris()
+    chat = {"title": "Claude Chat 2026-10-17 – Mac mini sizing", "source": "Claude chat", "text": "User: 32 or 64 GB?"}
+    brain = siris.second_brain = FakeBrain({"Local AI Hardware": "x"}, inbox_notes=[chat, {"title": "Garden", "source": ""}])
+    siris.llm = FakeLLM('{"notes": [{"title": "Local AI Hardware", "content": "Brad leans to 32 GB."}]}')
+    out = asyncio.run(jobs.distill_chats(siris))
+    assert out == {"chats": [chat["title"]], "learned": ["Local AI Hardware"]}
+    item = brain.learned[0]
+    assert item["inbox_if_new"] is True and item["links"] == [chat["title"]] and "claude-chat" in item["tags"]
+    assert brain.file_calls == [(chat["title"], "resource", "", jobs.CHATS_FOLDER)]
+
+
+def test_without_a_model_chats_wait_and_are_never_filed_raw() -> None:
+    siris = _siris()
+    siris.llm = None
+    chat = {"title": "Claude Chat – x", "source": "Claude chat", "text": "..."}
+    brain = siris.second_brain = FakeBrain(inbox_notes=[chat])
+    assert asyncio.run(jobs.distill_chats(siris)) == {"chats": [], "learned": []}
+    assert asyncio.run(jobs.file_inbox_notes(siris)) == {"filed": [], "merged": [], "left": []}
+    assert brain.file_calls == []
+
+
+def test_weekly_review_prompt_and_gap_questions_skip_files() -> None:
+    siris = _siris(brain_gap_questions=5)
+    brain = siris.second_brain = FakeBrain(gaps=[{"title": "shot.png", "kind": "missing_attachment", "detail": "in X"},
+                                                 {"title": "Frigate", "kind": "unwritten", "detail": "linked from Home Lab"}])
+    siris._notify_client = FakeNotify()
+    assert jobs.ask_to_review_notes(siris) == {"asked": ["Plex"]}
+    assert "1. Plex (as of 2026-10-05): Media server." in siris._notify_client.sent[0][1]
+    assert jobs.ask_gap_questions(siris, DAY) == {"asked": ["Frigate"]}
 
 
 def test_weekly_review_note() -> None:
