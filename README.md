@@ -5502,7 +5502,6 @@ provider for the same capability actually exists to design against.
         The browser run caught one bug: a sheet opened from a glass card
         rendered inside the card. SirisOS sheets now render in a portal.
 
-
 129. **Done** -- The second brain checks on itself, answers questions, and
     takes Claude chats (vault release 1.2).
     - **Is it still learning?** The nightly upkeep always ends with a quiet
@@ -5532,6 +5531,19 @@ provider for the same capability actually exists to design against.
       distilled into *Local AI Hardware* and kept in Claude Chats, recall
       scored 23/30 (keyword search only, with no Ollama), and the summary
       went out at low priority.
+
+130. **Done** -- Calendar by date range for SirisOS. `GET
+    /siris/hub/v1/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD` returns every
+    event from every connected calendar (CalDAV and .ics feeds, with the
+    excluded ones left out) between two local dates, up to 62 days, in the
+    hub contract's `CalendarEvent` shape. Guest mode hides them, and
+    `unavailable` says when there's no calendar or every calendar failed.
+    SirisOS's week view and its "log this as CPD" suggestions read it.
+    `GET /siris/hub/v1/forecast?days=7` gives the week's daily forecast
+    (today first) for the same view. Verified with a faked calendar set in
+    `tests/test_hub.py` (local midnight bounds in Australia/Melbourne,
+    guest mode, a failing calendar, bad ranges), the forecast tool, and the
+    new `calendar.json` and `forecast.json` contract examples.
 
 ## Connecting your calendars (Gmail and iCloud)
 

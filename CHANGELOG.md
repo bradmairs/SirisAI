@@ -5,6 +5,11 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.21 — 2026-10-17
+
+- Hub calendar range: every event between two dates, for SirisOS's week view and CPD logging
+- Hub forecast: `GET /siris/hub/v1/forecast?days=7`, the week's daily forecast for SirisOS's week view
+
 ## 1.2 — 2026-10-17
 
 - The second brain checks on itself, answers questions with sources, and takes Claude chats (vault 1.2)

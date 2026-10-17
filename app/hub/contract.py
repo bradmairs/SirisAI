@@ -81,6 +81,23 @@ class CalendarEvent(_Model):
     calendar: str | None = Field(None, description="Which calendar it's on, e.g. Gmail or an iCloud calendar's name.")
 
 
+class CalendarRange(_Model):
+    """Every event from `start` up to (not including) `end`, local dates."""
+
+    start: str = Field(description="First day, YYYY-MM-DD.")
+    end: str = Field(description="The day after the last day, YYYY-MM-DD.")
+    guest_mode: bool
+    events: list[CalendarEvent] | None = Field(None, description="Null in guest mode or when no calendar answered.")
+    unavailable: bool = Field(False, description="No calendar is set up, or every calendar failed.")
+
+
+class Forecast(_Model):
+    """The daily forecast at home, today first."""
+
+    days: list[ForecastDay] | None = Field(None, description="Null when no forecast is set up or it failed.")
+    unavailable: bool = False
+
+
 class TodoItem(_Model):
     summary: str
     list: str | None = None
@@ -360,6 +377,8 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "brief": Brief,
     "widgets": Widgets,
     "search": SearchResults,
+    "calendar": CalendarRange,
+    "forecast": Forecast,
     "attention": AttentionList,
     "attention_act_request": AttentionActRequest,
     "attention_act": AttentionActResult,
