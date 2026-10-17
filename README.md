@@ -5502,7 +5502,37 @@ provider for the same capability actually exists to design against.
         The browser run caught one bug: a sheet opened from a glass card
         rendered inside the card. SirisOS sheets now render in a portal.
 
-129. **Done** -- Calendar by date range for SirisOS. `GET
+129. **Done** -- The second brain checks on itself, answers questions, and
+    takes Claude chats (vault release 1.2).
+    - **Is it still learning?** The nightly upkeep always ends with a quiet
+      one-line summary: how many notes were learned or updated in the last
+      day, and what the dream found. If nothing was learned for 3 days, or
+      the recall score dropped by more than 5 points, it sends a
+      high-priority alert instead.
+    - **Recall check:** each night runs the vault's `brain.py eval --record`.
+      That asks 30 questions with known answer notes, scores how often search
+      finds them, and adds the score to the summary and the mind map.
+    - **Ask the brain:** `POST /siris/brain/ask {"question": ...}` returns a
+      short answer from the notes, naming them, with "as of" dates (see
+      "Ask my brain" below). Chat context now shows each note's "as of"
+      date too.
+    - **Claude chats:** `POST /siris/brain/capture` with `"kind": "chat"`
+      saves a whole conversation to the inbox. The upkeep's model pulls out
+      the facts and decisions worth keeping, which go through the inbox sort,
+      and keeps the chat in `03-Resources/Claude Chats/`. With no model, the
+      chats wait and are never filed raw.
+    - **Check these notes:** each week, a push lists the 3 most-connected
+      notes Siris wrote that Brad hasn't checked. "The Plex note looks
+      right" in chat runs the new `brain_mark_reviewed` tool (also `GET
+      /siris/brain/review` and `POST /siris/brain/reviewed`). A correction
+      goes through `brain_learn`.
+    - Gap questions skip missing attachments, which aren't questions.
+    - Verified end to end against a copy of the real vault: a saved chat was
+      distilled into *Local AI Hardware* and kept in Claude Chats, recall
+      scored 23/30 (keyword search only, with no Ollama), and the summary
+      went out at low priority.
+
+130. **Done** -- Calendar by date range for SirisOS. `GET
     /siris/hub/v1/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD` returns every
     event from every connected calendar (CalDAV and .ics feeds, with the
     excluded ones left out) between two local dates, up to 62 days, in the
@@ -5648,6 +5678,22 @@ text, so a Shortcut can speak it:
 
 Actions that need confirmation (locks, garage doors, automations, code changes)
 are not run from Shortcuts: the reply tells you to approve them in the web UI.
+
+**Ask my brain.** The same Shortcut works with `POST /siris/brain/ask`. That
+answers only from your second brain, names the notes it used, and says how
+current they are. Make the Request Body **JSON** with a `question` field set
+to the *Provided Input*, then **Speak Text** with the dictionary value
+`answer`.
+
+**Send a Claude chat to Siris.** In the Claude app, copy the conversation
+(or share it), then run a Shortcut that sends the text to the brain:
+
+1. New Shortcut that accepts Text from the share sheet (or uses **Get
+   Clipboard**).
+2. **Get Contents of URL**: `http://<server>:8000/siris/brain/capture`, Method
+   POST, the same `Authorization` header, Request Body JSON with `text` set
+   to the input, `kind` set to `chat` and, optionally, a `title`.
+3. Overnight, the upkeep pulls out what's worth keeping and files it.
 
 **Reminders and timers.** "Remind me at 7pm to take the bins out" and "set a
 timer for 10 minutes" arrive as push notifications (ntfy), sent by the

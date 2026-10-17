@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from app.llm.base import LLMResponse
+
 from app.core.config import Settings
 from app.core.health import check_integrations
 from app.core.siris import SirisAI
@@ -128,12 +130,21 @@ FAKE_ENGINE = textwrap.dedent(
         date = args[args.index("--date") + 1]
         print(json.dumps([e for e in json.loads(log.read_text()) if e["date"] == date]))
         sys.exit(0)
+    if cmd == "review":
+        if "--" in args:
+            print(json.dumps({"reviewed": True, "title": args[args.index("--") + 1], "date": "2026-10-17"}))
+        else:
+            n = int(args[args.index("--count") + 1])
+            print(json.dumps([{"title": t, "path": f"Notes/{t}.md", "links": 3, "as_of": "2026-10-02", "excerpt": b[:40]}
+                              for t, b in list(notes.items())[:n]]))
+        sys.exit(0)
     if cmd == "relink":
         print("Notes/A.md: + B\\nAdded 3 links.")
         sys.exit(0)
     if cmd == "search":
         q = args[args.index("--") + 1].lower()
-        hits = [{"title": t, "path": f"Notes/{t}.md", "type": "note", "tags": [], "score": 5, "excerpts": [b[:80]]}
+        hits = [{"title": t, "path": f"Notes/{t}.md", "type": "note", "tags": [], "score": 5, "excerpts": [b[:80]],
+                 "as_of": "2026-10-02"}
                 for t, b in notes.items() if q in t.lower() or q in b.lower()]
         print(json.dumps(hits))
     elif cmd == "show":
@@ -482,12 +493,12 @@ class _FakeBrain:
 def test_context_includes_strong_brain_matches_only() -> None:
     siris = SirisAI(settings=Settings())
     siris.second_brain = _FakeBrain([
-        {"title": "Melbourne Marathon 2026 10 km", "score": 6, "excerpts": ["Target under 1:10:00"]},
+        {"title": "Melbourne Marathon 2026 10 km", "score": 6, "excerpts": ["Target under 1:10:00"], "as_of": "2026-10-05"},
         {"title": "Home", "score": 1, "excerpts": ["one weak word"]},
     ])
     text = siris.context.build(siris, "how's my 10 km prep going?")
     assert "second brain" in text
-    assert "[Melbourne Marathon 2026 10 km] Target under 1:10:00" in text
+    assert "[Melbourne Marathon 2026 10 km, as of 2026-10-05] Target under 1:10:00" in text
     assert "[Home]" not in text
     assert siris.second_brain.queries == [("how's my 10 km prep going?", 3)]
 
@@ -546,6 +557,48 @@ def test_capture_lands_in_the_inbox(brain_api) -> None:
     sent = json.loads(_calls(vault)[-1]["stdin"])[0]
     assert sent["type"] == "capture" and sent["tags"] == ["capture", "idea"]
     assert sent["title"] == "Look into Frigate for the driveway camera. Maybe…"
+
+
+def test_a_claude_chat_capture_waits_for_the_nightly_distill(brain_api) -> None:
+    client, vault = brain_api
+    r = client.post("/siris/brain/capture", json={"text": "User: should I get 64 GB?\nClaude: ...", "kind": "chat",
+                                                   "title": "Mac mini memory", "url": "https://claude.ai/chat/abc"})
+    assert r.status_code == 200
+    sent = json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert sent["title"].startswith("Claude Chat ") and sent["title"].endswith(" – Mac mini memory")
+    assert sent["source"] == "Claude chat: https://claude.ai/chat/abc" and "claude-chat" in sent["tags"]
+    assert sent["type"] == "capture"
+
+
+def test_ask_answers_from_notes_and_names_them(brain_api, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, vault = brain_api
+    siris = get_siris()
+    client.post("/siris/brain/capture", json={"text": "Plex runs on the home server's RTX 3060.", "title": "Plex"})
+    monkeypatch.setattr(siris, "llm", None)
+    r = client.post("/siris/brain/ask", json={"question": "rtx 3060"}).json()
+    assert r["answer"].startswith("From your note Plex:") and r["sources"][0] == {"title": "Plex", "path": "Notes/Plex.md", "as_of": "2026-10-02"}
+
+    class LLM:
+        prompt = ""
+
+        async def generate(self, messages, **kwargs):
+            LLM.prompt = messages[1]["content"]
+            return LLMResponse(text="Plex runs on the RTX 3060, as of October 2026 (from: Plex).")
+
+    monkeypatch.setattr(siris, "llm", LLM())
+    if siris.model_router is not None:
+        monkeypatch.setattr(siris.model_router, "pick", lambda llm, label, role="general": (None, llm))
+    r = client.post("/siris/brain/ask", json={"question": "rtx 3060"}).json()
+    assert r["answer"].endswith("(from: Plex).") and "Plex (as of 2026-10-02)" in LLM.prompt
+    assert client.post("/siris/brain/ask", json={"question": "zebra quilting"}).json() == {
+        "answer": "Your second brain doesn't have anything on that yet.", "sources": []}
+
+
+def test_review_queue_and_marking_reviewed(brain_api) -> None:
+    client, vault = brain_api
+    assert client.get("/siris/brain/review?count=1").json()[0]["title"] == "2026-10-02"
+    assert client.post("/siris/brain/reviewed", json={"title": "Plex"}).json()["reviewed"] is True
+    assert _calls(vault)[-1]["args"] == ["review", "--output", "json", "--", "Plex"]
 
 
 def test_capture_a_link_keeps_it_as_the_source(brain_api) -> None:

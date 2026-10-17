@@ -146,6 +146,7 @@ from app.plugins.builtin.second_brain import (
     BrainInsightsTool,
     BrainLearnTool,
     BrainLinkNotesTool,
+    BrainMarkReviewedTool,
     BrainRestoreNoteTool,
     BrainSearchTool,
     BrainUnlinkNotesTool,
@@ -927,6 +928,7 @@ class SirisAI:
             self.tools.register(BrainInsightsTool(self.second_brain))
             self.tools.register(BrainLinkNotesTool(self.second_brain))
             self.tools.register(BrainUnlinkNotesTool(self.second_brain))
+            self.tools.register(BrainMarkReviewedTool(self.second_brain))
             self.tools.register(BrainDeleteNoteTool(self.second_brain))
             self.tools.register(BrainRestoreNoteTool(self.second_brain))
             self.tools.register(BrainLearnTool(self.second_brain))
