@@ -154,6 +154,7 @@ from app.plugins.builtin.second_brain import (
     BrainRestoreNoteTool,
     BrainSearchTool,
     BrainUnlinkNotesTool,
+    BrainDoneTool,
 )
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import (
@@ -948,6 +949,7 @@ class SirisAI:
             self.tools.register(BrainInsightsTool(self.second_brain))
             self.tools.register(BrainLinkNotesTool(self.second_brain))
             self.tools.register(BrainUnlinkNotesTool(self.second_brain))
+            self.tools.register(BrainDoneTool(self.second_brain))
             self.tools.register(BrainMarkReviewedTool(self.second_brain))
             self.tools.register(BrainDeleteNoteTool(self.second_brain))
             self.tools.register(BrainRestoreNoteTool(self.second_brain))

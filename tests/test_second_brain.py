@@ -117,6 +117,13 @@ FAKE_ENGINE = textwrap.dedent(
         print(json.dumps({"linked": [{"a": "Pump Stations", "b": "Rising Mains", "confidence": 88, "why": "88% similar"}],
                           "deferred": 0, "thresholds": {"auto_min": 0.8, "basis": "default"}}))
         sys.exit(0)
+    if cmd == "done":
+        rest = args[args.index("--") + 1:]
+        real = find(rest[0])
+        if real is None:
+            sys.exit("No note called " + repr(rest[0]))
+        print(json.dumps({"action": "done" if len(rest) > 1 else "project-done", "note": real, "task": rest[1] if len(rest) > 1 else None}))
+        sys.exit(0)
     if cmd == "unlink":
         a, b = (find(x) for x in args[args.index("--") + 1:])
         if a is None or b is None:
@@ -710,6 +717,18 @@ def test_link_and_not_related_routes(brain_api) -> None:
     r = client.post("/siris/brain/link", json={"a": "Pump Stations", "b": "Nope"})
     assert r.status_code == 422 and "No note called 'Nope'" in r.json()["detail"]
     assert client.post("/siris/brain/link", json={"a": "", "b": "x"}).status_code == 422
+
+
+def test_done_route_ticks_a_task_or_finishes_a_project(brain_api) -> None:
+    client, vault = brain_api
+    client.post("/siris/brain/capture", json={"title": "Melbourne 10 km", "text": "Race day"})
+    r = client.post("/siris/brain/done", json={"note": "melbourne 10 km", "task": "Race day"})
+    assert r.status_code == 200 and r.json() == {"action": "done", "note": "Melbourne 10 km", "task": "Race day"}
+    assert _calls(vault)[-1]["args"] == ["done", "--output", "json", "--", "melbourne 10 km", "Race day"]
+    r = client.post("/siris/brain/done", json={"note": "Melbourne 10 km"})
+    assert r.json()["action"] == "project-done" and _calls(vault)[-1]["args"] == ["done", "--output", "json", "--", "Melbourne 10 km"]
+    assert client.post("/siris/brain/done", json={"note": "Nope"}).status_code == 422
+    assert client.post("/siris/brain/done", json={"note": ""}).status_code == 422
 
 
 def test_unlink_autolink_and_note_routes(brain_api) -> None:

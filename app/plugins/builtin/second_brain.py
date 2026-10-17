@@ -207,6 +207,33 @@ class BrainUnlinkNotesTool(Tool):
             return {"error": str(exc)}
 
 
+class BrainDoneTool(Tool):
+    name = "brain_mark_done"
+    description = (
+        "Mark something in Brad's second brain done when he says he's done it (\"I did my run\", \"tick off "
+        "the taper\", \"the marathon's finished\"). Give the note's title and the task's text as the brain "
+        "shows it to tick one task; leave the task out to mark a whole project finished."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "note": {"type": "string", "description": "The note or project's title."},
+            "task": {"type": "string", "description": "The task's text; leave out to finish the project."},
+        },
+        "required": ["note"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, note: str = "", task: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.done(note, task or None)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
 class BrainDeleteNoteTool(Tool):
     name = "brain_delete_note"
     description = (
