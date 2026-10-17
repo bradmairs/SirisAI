@@ -5554,6 +5554,76 @@ provider for the same capability actually exists to design against.
     button sends photos straight from the iPhone camera. Verified in
     `tests/test_second_brain.py` against a real vault folder.
 
+132. **Done** -- The learning loop: SirisAI learns from how things went.
+    Until now it was about as smart on day 300 as on day 1. Now it keeps
+    **outcomes** (`app/learning/`, an `outcomes` table) for what happened
+    after it acted or suggested something, and changes what it does
+    because of them.
+    - **Outcomes.** It records:
+      - your answer to anything in the attention feed (habit suggestions
+        however they're answered, approvals, memory proposals);
+      - suggestions left open for 3+ days (*ignored*);
+      - device changes and protocols it did on its own that you reversed
+        within 15 minutes, or an hour for a protocol (*undone*), or left
+        alone (*kept*);
+      - chat turns you corrected ("no, I meant...") (*corrected*);
+      - calls whose own `verify()` said they didn't work (*unverified*).
+      Every outcome names the record it came from, so nothing is counted
+      twice.
+    - **Asks before repeating what you undo.** An action it takes unasked
+      that you've undone or declined 3+ times, more often than kept, is held
+      for confirmation next time: an Approve/Decline in the feed with "you
+      undid or turned down this 3 of the last 3 times" as the reason, in
+      the audit `policy`. Approvals count back in its favour, so it earns
+      its way back. Self-healing (always pre-confirmed) and anything you
+      ask for in chat are never held.
+    - **Quieter suggestions.** Once you've turned down 5+ habit suggestions
+      with under 20% accepted, new ones wait in the feed instead of buzzing
+      your phone.
+    - **Nightly reflection** at `SIRISAI_REFLECTION_HOUR_LOCAL` (3am):
+      - catches up on outcomes;
+      - turns each correction followed by a different tool into a
+        tool-choice **eval case**. Learned cases join
+        `evals/tool_choice.jsonl` in every eval run, and
+        `GET /siris/learning/eval-cases?format=jsonl` exports them to
+        commit;
+      - with a model configured, proposes up to three lasting facts from
+        the day's corrections and failures as "Remember this?" items with
+        Remember / No thanks. Nothing is remembered without a yes, and
+        facts already in memory aren't proposed again;
+      - posts a short "What I learned last night" note when there's
+        something to say.
+    - **Says when a change didn't take.** If a tool's own check afterwards
+      fails in chat (a device that's offline), the reply ends "Heads up: I
+      checked afterwards and light.porch is still 'off'" instead of
+      letting "Done" stand.
+    - **Weekly goal review** (`SIRISAI_GOAL_REVIEW_DAY`/`_HOUR_LOCAL`,
+      Monday 8am) puts each active goal in the feed: "Get chartered: 3 of
+      7 done", the next step, and when it last moved. "Done that" ticks
+      the step off and "Not this week" puts it away. A goal with no steps
+      is asked to be broken down.
+    - **Once-a-day jobs** (`app/core/daily_jobs.py`): these and the upkeep
+      jobs to come run at their local hour, once per day, surviving
+      restarts. `GET /siris/learning/jobs` shows each one's last run and
+      result, and `POST /siris/learning/jobs/{name}/run` runs one now.
+    - Read it all at `GET /siris/learning` (approval per tool and source,
+      what's held for confirmation), `/outcomes`, `/reflections`, or ask
+      "what have you learned?" (`what_have_you_learned`).
+    - **Verified:** 24 tests in `tests/test_learning.py`. Also live on
+      uvicorn with a stand-in Ollama:
+      - Asked "remind me about the bins", the model ran
+        `get_current_time`. "No, I meant set a reminder for 2 hours" then
+        ran `set_reminder`.
+      - `POST /siris/learning/reflect` found the correction and learned
+        the eval case `{"prompt": "remind me about the bins", "expect":
+        ["set_reminder"]}`. The selection eval picked it up (37 cases, up
+        from 36).
+      - It proposed "When Brad says remind me about something, he wants a
+        reminder set". Choosing Remember on SirisOS's
+        `/hub/v1/attention/{id}/act` stored it.
+      - The goal review raised "Get chartered (CPEng): 0 of 1 done" with
+        Done that / Not this week.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

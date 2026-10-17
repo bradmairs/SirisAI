@@ -5,6 +5,17 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.32 — 2026-10-17
+
+- The learning loop: SirisAI learns from what you undo, correct, accept and ignore
+- Outcomes are recorded for feed answers, ignored suggestions, autonomous actions you undo or keep, chat corrections and failed checks.
+- An action it takes on its own that you keep undoing is held for your OK next time. Approvals earn it back.
+- Habit suggestions you mostly turn down stop buzzing your phone and wait in the feed.
+- Nightly reflection (3am) turns corrections into eval cases and proposes facts to remember, which you approve or decline in the feed.
+- Chat says "I checked afterwards and..." when a change didn't take.
+- A weekly goal review puts each goal's progress and next step in the feed.
+- `/siris/learning` routes, the `what_have_you_learned` tool, and a once-a-day job runner other upkeep jobs build on.
+
 ## 1.22 — 2026-10-17
 
 - Photo capture: a photo sent to /siris/brain/capture is saved in the vault's Attachments/ and embedded in the note

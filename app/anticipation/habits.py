@@ -134,4 +134,8 @@ def set_status(siris: "SirisAI", suggestion_id: str, status: str, **extra: Any) 
         raise ValueError(f"Unknown habit suggestion: {suggestion_id}")
     known[suggestion_id].update(status=status, **extra)
     siris.state.set(STATE_KEY, known)
+    if status in ("accepted", "dismissed") and getattr(siris, "outcomes", None) is not None:
+        # The learning loop (app/learning/): whichever way it was answered --
+        # a phone button, chat, or the attention feed -- it's counted once.
+        siris.outcomes.record("attention:habits", status, key=f"habit:{suggestion_id}", source="habits", ref=f"habit:{suggestion_id}:{status}")
     return known[suggestion_id]

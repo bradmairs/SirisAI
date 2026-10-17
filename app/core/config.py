@@ -210,7 +210,7 @@ class Settings(BaseSettings):
     @field_validator(
         "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
-        "brain_upkeep_hour_local",
+        "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         mode="before",
     )
     @classmethod
@@ -418,6 +418,13 @@ class Settings(BaseSettings):
     # model this often, and push a warning if accuracy drops 10+ points.
     # 0 = only on request (POST /siris/evals/run).
     eval_interval_days: float = 7.0
+
+    # The learning loop (app/learning/). Local hour of the nightly reflection
+    # (outcomes, eval cases from corrections, memory proposals), and of the
+    # weekly goal review (SIRISAI_GOAL_REVIEW_DAY: 0 = Monday). Blank = off.
+    reflection_hour_local: int | None = 3
+    goal_review_hour_local: int | None = 8
+    goal_review_day: int = 0
 
     # Background scheduler (app/core/scheduler.py): delivers due reminders and
     # timers and alerts when a tool has been failing. On by default.

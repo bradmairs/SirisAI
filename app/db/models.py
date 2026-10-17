@@ -662,3 +662,23 @@ class AttentionItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Outcome(Base):
+    """What happened after SirisAI did or suggested something (app/learning/):
+    accepted, dismissed, ignored, undone, kept, corrected, unverified. The
+    learning loop reads these back to decide what to offer and what to stop
+    doing on its own. `ref` makes recording idempotent (the same audit entry
+    or attention item is never counted twice)."""
+
+    __tablename__ = "outcomes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subject: Mapped[str] = mapped_column(Text, index=True)  # tool name, or "attention:<source>"
+    key: Mapped[str] = mapped_column(Text, index=True)  # the specific action, e.g. "light.turn_on:light.office"
+    signal: Mapped[str] = mapped_column(Text, index=True)
+    source: Mapped[str] = mapped_column(Text, default="")
+    detail: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    ref: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
