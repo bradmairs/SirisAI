@@ -5,6 +5,8 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/brief                    the day, as data (no LLM)
     GET  /siris/hub/v1/widgets                  car, parcels, energy, protocols, cameras, autonomy
     GET  /siris/hub/v1/search?q=                notes, past chats, memories
+    GET  /siris/hub/v1/calendar?start=&end=     every event in a date range (up to 62 days)
+    GET  /siris/hub/v1/forecast?days=7          the daily forecast at home, today first
     GET  /siris/hub/v1/attention                the attention feed
     GET  /siris/hub/v1/attention/stream         ...live (Server-Sent Events)
     POST /siris/hub/v1/attention/{id}/act       {"action": "approve"} etc.
@@ -27,6 +29,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -68,6 +71,22 @@ async def hub_widgets(siris: SirisAI = Depends(get_siris)) -> c.Widgets:
 @router.get("/search", response_model=c.SearchResults)
 async def hub_search(q: str = Query(min_length=2, max_length=200), limit: int = Query(8, ge=1, le=25), siris: SirisAI = Depends(get_siris)) -> c.SearchResults:
     return await asyncio.to_thread(compose.search, siris, q.strip(), limit)
+
+
+@router.get("/calendar", response_model=c.CalendarRange)
+async def hub_calendar(
+    start: date = Query(description="First day, YYYY-MM-DD"),
+    end: date = Query(description="The day after the last day, YYYY-MM-DD"),
+    siris: SirisAI = Depends(get_siris),
+) -> c.CalendarRange:
+    if end <= start or (end - start).days > compose.MAX_CALENDAR_DAYS:
+        raise HTTPException(status_code=422, detail=f"end must be after start, and at most {compose.MAX_CALENDAR_DAYS} days later.")
+    return await asyncio.to_thread(compose.calendar_range, siris, start, end)
+
+
+@router.get("/forecast", response_model=c.Forecast)
+async def hub_forecast(days: int = Query(7, ge=1, le=7), siris: SirisAI = Depends(get_siris)) -> c.Forecast:
+    return await asyncio.to_thread(compose.forecast, siris, days)
 
 
 # -- attention ------------------------------------------------------------------

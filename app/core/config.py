@@ -586,6 +586,8 @@ class Settings(BaseSettings):
     brain_weekly_day: int = 6
     brain_weekly_hour_local: int | None = 18
     brain_gap_questions: int = 3
+    # Notes Siris wrote that it asks Brad to check each week (0 = off).
+    brain_review_notes: int = 3
     # Nightly upkeep (jobs.upkeep), with the general model (local Ollama):
     # file the inbox, add GitHub activity to project notes, relink. The
     # GitHub step needs a read-only token (contents, pull requests,

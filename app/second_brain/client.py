@@ -135,6 +135,24 @@ class SecondBrainClient:
             self._schedule_push()
         return result
 
+    ATTACHMENTS = "Attachments"
+
+    def save_attachment(self, name: str, data: bytes) -> str:
+        """Write a file (a captured photo) into the vault's Attachments/
+        folder and return its path inside the vault, for an Obsidian embed
+        (`![[Attachments/name]]`). It's committed with the next write."""
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in name).strip("-.") or "attachment"
+        with self._lock:
+            folder = self.path / self.ATTACHMENTS
+            folder.mkdir(parents=True, exist_ok=True)
+            target = folder / safe
+            stem, suffix, n = target.stem, target.suffix, 2
+            while target.exists():
+                target = folder / f"{stem}-{n}{suffix}"
+                n += 1
+            target.write_bytes(data)
+        return f"{self.ATTACHMENTS}/{target.name}"
+
     def inbox(self) -> dict:
         """What's waiting in 00-Inbox: `memory` (the memory inbox's entries: `id`,
         `date`, `text`, `plain`) and `notes` (other captures: `title`, `path`, `type`,
@@ -142,12 +160,40 @@ class SecondBrainClient:
         self._maybe_pull()
         return self._engine_call(["inbox", "--output", "json"])
 
-    def file_note(self, title: str, type: str = "auto", into: str = "") -> dict:
+    def activity(self, days: int) -> list[dict]:
+        """The vault's activity log for the last `days` days ({date, at, line}),
+        e.g. "🧠 Learned [[X]]". Empty for a vault from before the log."""
+        self._maybe_pull()
+        try:
+            return self._engine_call(["log", "--days", str(days), "--output", "json"])
+        except SecondBrainError:
+            return []
+
+    def review_queue(self, count: int = 3) -> list[dict]:
+        """Notes Siris wrote that Brad hasn't checked, most connected first:
+        `title`, `path`, `links`, `as_of` and an `excerpt`."""
+        self._maybe_pull()
+        return self._engine_call(["review", "--count", str(count), "--output", "json"])
+
+    def mark_reviewed(self, title: str) -> dict:
+        """Brad read this note and it's right; it leaves the review queue."""
+        return self._write(["review", "--output", "json", "--", title],
+                           message=lambda r: f"siris: {r.get('title', title)} reviewed by Brad")
+
+    def recall_check(self) -> dict:
+        """The vault's recall check (`brain.py eval --record`): how many of its
+        known questions search answers with the right note in the top 3
+        (`score`, `found`, `total`, `misses`). Recorded for the mind map."""
+        return self._write(["eval", "--record", "--output", "json"],
+                           message=lambda r: f"siris: recall check {round(r.get('score', 0) * 100)}%")
+
+    def file_note(self, title: str, type: str = "auto", into: str = "", folder: str = "") -> dict:
         """File one inbox capture where the router says it belongs, or merge it
         into the existing note `into`. `action` is filed (moved), merged (added
         to that note; the capture is archived), left (unsure, with `reasons`)
         or missing."""
-        args = ["file", "--type", type, "--output", "json"] + (["--into", into] if into else [])
+        args = ["file", "--type", type, "--output", "json"] + (["--into", into] if into else []) \
+            + (["--folder", folder] if folder else [])
         return self._write([*args, "--", title],
                            message=lambda r: f"siris: filed {r.get('title', title)}")
 
