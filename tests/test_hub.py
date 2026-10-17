@@ -328,3 +328,16 @@ def test_calendar_range_is_hidden_in_guest_mode_and_says_when_unavailable(use) -
     guest.set_mode(siris, True)
     body = client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-13"}).json()
     assert body["guest_mode"] is True and body["events"] is None and body["unavailable"] is False
+
+
+def test_forecast_gives_up_to_a_week_today_first(use) -> None:
+    siris = full_siris()
+    tool = siris.tools.get("weather_forecast")
+    client = use(siris)
+    body = client.get("/siris/hub/v1/forecast", params={"days": 7}).json()
+    assert body["unavailable"] is False
+    assert body["days"][0] == {"date": "2026-10-09", "conditions": "Slight rain", "high_c": 19, "low_c": 9, "rain_chance_percent": 70, "precipitation_mm": 4.2}
+    assert tool.calls[-1] == {"days": 7}
+    assert client.get("/siris/hub/v1/forecast", params={"days": 9}).status_code == 422
+    siris.tools._tools.pop("weather_forecast")
+    assert client.get("/siris/hub/v1/forecast").json() == {"days": None, "unavailable": True}

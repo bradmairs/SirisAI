@@ -91,6 +91,13 @@ class CalendarRange(_Model):
     unavailable: bool = Field(False, description="No calendar is set up, or every calendar failed.")
 
 
+class Forecast(_Model):
+    """The daily forecast at home, today first."""
+
+    days: list[ForecastDay] | None = Field(None, description="Null when no forecast is set up or it failed.")
+    unavailable: bool = False
+
+
 class TodoItem(_Model):
     summary: str
     list: str | None = None
@@ -371,6 +378,7 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "widgets": Widgets,
     "search": SearchResults,
     "calendar": CalendarRange,
+    "forecast": Forecast,
     "attention": AttentionList,
     "attention_act_request": AttentionActRequest,
     "attention_act": AttentionActResult,

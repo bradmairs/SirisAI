@@ -8,6 +8,7 @@ numbered milestones hold the detailed history.
 ## 1.21 — 2026-10-17
 
 - Hub calendar range: every event between two dates, for SirisOS's week view and CPD logging
+- Hub forecast: `GET /siris/hub/v1/forecast?days=7`, the week's daily forecast for SirisOS's week view
 
 ## 1.2 — 2026-10-17
 

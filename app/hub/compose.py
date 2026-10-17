@@ -98,6 +98,30 @@ def weather(siris: "SirisAI") -> c.Weather:
     return c.Weather(now=now, today=today)
 
 
+def _day(d: dict[str, Any]) -> c.ForecastDay:
+    return c.ForecastDay(
+        date=d.get("date"),
+        conditions=d.get("conditions"),
+        high_c=d.get("high_c"),
+        low_c=d.get("low_c"),
+        rain_chance_percent=d.get("rain_chance_percent", d.get("precipitation_probability_percent")),
+        precipitation_mm=d.get("rain_mm", d.get("precipitation_mm")),
+    )
+
+
+def forecast(siris: "SirisAI", days: int = 7) -> c.Forecast:
+    """Up to a week of daily forecasts (not personal, so guest mode keeps it)."""
+    if siris.tools.get("weather_forecast") is None:
+        return c.Forecast(days=None, unavailable=True)
+    try:
+        raw = siris.tools.get("weather_forecast").run(days=max(1, min(7, days)))  # type: ignore[union-attr]
+    except Exception as exc:  # noqa: BLE001 - reported as unavailable, never a 500
+        logger.warning("Forecast unavailable: %s", exc)
+        return c.Forecast(days=None, unavailable=True)
+    raw = raw.get("days") if isinstance(raw, dict) else raw
+    return c.Forecast(days=[_day(d) for d in raw if isinstance(d, dict)] if isinstance(raw, list) else None)
+
+
 def _events(events: Any) -> list[c.CalendarEvent]:
     out = []
     for e in events if isinstance(events, list) else []:

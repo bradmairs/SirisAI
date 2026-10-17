@@ -6,6 +6,7 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/widgets                  car, parcels, energy, protocols, cameras, autonomy
     GET  /siris/hub/v1/search?q=                notes, past chats, memories
     GET  /siris/hub/v1/calendar?start=&end=     every event in a date range (up to 62 days)
+    GET  /siris/hub/v1/forecast?days=7          the daily forecast at home, today first
     GET  /siris/hub/v1/attention                the attention feed
     GET  /siris/hub/v1/attention/stream         ...live (Server-Sent Events)
     POST /siris/hub/v1/attention/{id}/act       {"action": "approve"} etc.
@@ -81,6 +82,11 @@ async def hub_calendar(
     if end <= start or (end - start).days > compose.MAX_CALENDAR_DAYS:
         raise HTTPException(status_code=422, detail=f"end must be after start, and at most {compose.MAX_CALENDAR_DAYS} days later.")
     return await asyncio.to_thread(compose.calendar_range, siris, start, end)
+
+
+@router.get("/forecast", response_model=c.Forecast)
+async def hub_forecast(days: int = Query(7, ge=1, le=7), siris: SirisAI = Depends(get_siris)) -> c.Forecast:
+    return await asyncio.to_thread(compose.forecast, siris, days)
 
 
 # -- attention ------------------------------------------------------------------

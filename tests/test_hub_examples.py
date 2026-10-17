@@ -110,6 +110,7 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["search"] = client.get("/siris/hub/v1/search", params={"q": "Hazen-Williams"}, headers=h).json()
         siris.calendar = FakeCalendar()  # type: ignore[assignment]
         out["calendar"] = client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-19"}, headers=h).json()
+        out["forecast"] = client.get("/siris/hub/v1/forecast", params={"days": 2}, headers=h).json()
 
         notify_confirmation_needed(siris, "routine 'morning heat'", switch.name, {"domain": "switch", "service": "turn_on", "entity_id": "switch.heater"})
         siris.attention.raise_item("push:example", "alert", "SirisAI: plex needs you", source="self-healing", severity="urgent", body="plex is down and a restart didn't fix it.")

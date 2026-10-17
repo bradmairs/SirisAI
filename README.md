@@ -5539,9 +5539,11 @@ provider for the same capability actually exists to design against.
     hub contract's `CalendarEvent` shape. Guest mode hides them, and
     `unavailable` says when there's no calendar or every calendar failed.
     SirisOS's week view and its "log this as CPD" suggestions read it.
-    Verified with a faked calendar set in `tests/test_hub.py` (local
-    midnight bounds in Australia/Melbourne, guest mode, a failing calendar,
-    bad ranges) and the new `calendar.json` contract example.
+    `GET /siris/hub/v1/forecast?days=7` gives the week's daily forecast
+    (today first) for the same view. Verified with a faked calendar set in
+    `tests/test_hub.py` (local midnight bounds in Australia/Melbourne,
+    guest mode, a failing calendar, bad ranges), the forecast tool, and the
+    new `calendar.json` and `forecast.json` contract examples.
 
 ## Connecting your calendars (Gmail and iCloud)
 

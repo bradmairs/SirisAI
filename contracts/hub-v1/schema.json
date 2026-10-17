@@ -18,6 +18,9 @@
     "calendar": {
       "$ref": "#/$defs/CalendarRange"
     },
+    "forecast": {
+      "$ref": "#/$defs/Forecast"
+    },
     "attention": {
       "$ref": "#/$defs/AttentionList"
     },
@@ -991,6 +994,35 @@
         "cheap_now"
       ],
       "title": "EnergySummary",
+      "type": "object"
+    },
+    "Forecast": {
+      "additionalProperties": false,
+      "description": "The daily forecast at home, today first.",
+      "properties": {
+        "days": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ForecastDay"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Null when no forecast is set up or it failed.",
+          "title": "Days"
+        },
+        "unavailable": {
+          "default": false,
+          "title": "Unavailable",
+          "type": "boolean"
+        }
+      },
+      "title": "Forecast",
       "type": "object"
     },
     "ForecastDay": {
