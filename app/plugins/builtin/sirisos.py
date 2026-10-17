@@ -267,3 +267,78 @@ class CareerChartershipStatusTool(Tool):
             "goals": [{"goal": g["title"], "by": g.get("target_date"), "next_step": g.get("next_step") or None} for g in ov.get("goals", [])],
             "evidence_items": len(doc.get("evidence") or []),
         }
+
+
+class EngineeringCalcNoteTool(Tool):
+    name = "engineering_calc_note"
+    description = (
+        "Write up an engineering calculation as a calc note in one go: runs the SirisOS calculator, looks up what "
+        "Brad's standards library says (SirisHydro, with citations) when a standards question is given, ties it to "
+        "a SirisOS project, and saves the note to the Second Brain. Use for 'size the stormwater pipe for Werribee "
+        "and write it up', 'do a calc note for the culvert'. Returns the note as markdown either way."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "What the note is, e.g. 'Werribee DN450 outlet capacity'."},
+            "calculator": {"type": "string", "description": "Calculator id, e.g. 'fullPipe' (engineering_calculators lists them)."},
+            "inputs": {"type": "object", "description": "Input values by key, as numbers in SI units."},
+            "project": {"type": "string", "description": "Optional: the SirisOS project's name or id."},
+            "standards_question": {"type": "string", "description": "Optional: what to check in the standards, e.g. 'minimum cover for a DN450 stormwater pipe'."},
+            "notes": {"type": "string", "description": "Optional: assumptions or context to record."},
+        },
+        "required": ["title", "calculator", "inputs"],
+    }
+
+    def __init__(self, client: SirisOSClient, brain: Any = None) -> None:
+        self._client = client
+        self._brain = brain
+
+    def run(
+        self,
+        title: str = "",
+        calculator: str = "",
+        inputs: dict[str, Any] | None = None,
+        project: str | None = None,
+        standards_question: str | None = None,
+        notes: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        calc = EngineeringCalculateTool(self._client).run(calculator=calculator, inputs=inputs)
+        spec = next((c for c in self._client.calculators() if c["id"] == calculator.strip()), {})
+        fields = {f["key"]: f for f in spec.get("fields") or []}
+        match = None
+        if project:
+            wanted = project.strip().lower()
+            match = next((p for p in self._client.projects() if p.get("id") == project or str(p.get("name", "")).lower() == wanted), None)
+            match = match or next((p for p in self._client.projects() if wanted in str(p.get("name", "")).lower()), None)
+        standards = SirisHydroAskTool(self._client).run(question=standards_question) if standards_question else None
+
+        lines = [f"# {title.strip() or calc.get('title') or calculator}", ""]
+        if project:
+            lines.append(f"**Project:** {match['name']} ({match.get('status')})" if match else f"**Project:** {project} (not found in SirisOS)")
+        lines += [f"**Calculator:** {calc.get('title') or calculator} (SirisOS `{calculator}`)", "", "## Inputs", "", "| Input | Value | Unit |", "| --- | --- | --- |"]
+        for key, value in (calc.get("inputs") or inputs or {}).items():
+            field = fields.get(key, {})
+            lines.append(f"| {field.get('label', key)} | {value} | {field.get('unit') or ''} |")
+        lines += ["", "## Results", ""]
+        lines += [f"- **{r.get('label')}:** {r.get('value')}" for r in calc.get("results") or []] or ["- (no results returned)"]
+        if standards is not None:
+            lines += ["", "## Standards", "", f"_Question: {standards_question}_", ""]
+            if standards["sufficient_evidence"] and standards.get("answer"):
+                lines.append(standards["answer"])
+            else:
+                lines.append("The standards library doesn't hold enough to answer this. Check it by hand.")
+            lines += [""] + [f"{e['n']}. {e['citation']}" for e in standards["evidence"]]
+        if notes:
+            lines += ["", "## Notes", "", notes.strip()]
+        lines += ["", "---", "_Calculated by SirisOS's calculators and written up by SirisAI. Check it before relying on it._"]
+        markdown = "\n".join(lines)
+
+        saved = None
+        if self._brain is not None:
+            tags = ["calc-note", "engineering"] + ([str(match["name"]).lower().replace(" ", "-")] if match else [])
+            result = self._brain.learn([{"title": title.strip() or calculator, "content": markdown, "tags": tags, "source": "sirisos", "links": [match["name"]] if match else []}])
+            saved = result[0] if result else None
+        return {"markdown": markdown, "results": calc.get("results"), "project": match, "standards": standards, "saved_to_brain": saved}

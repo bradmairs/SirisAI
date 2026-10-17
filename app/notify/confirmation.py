@@ -4,10 +4,13 @@ RoutineRunner (a routine's action hits a CONFIRM_REQUIRED tool unattended)
 and Cortex (a chat turn does the same, and the user may not be looking at
 the app when it happens).
 
-Always hits POST /siris/tools/{tool_name}/run directly with confirmed: true
--- not POST /siris/chat/confirm -- since a notification tap has no chat
-session behind it; the conversation-independent generic endpoint is exactly
-what it is. ntfy's `http` action type
+The buttons are Approve and Decline, posting to the attention item's own
+act endpoint (POST /siris/hub/v1/attention/{id}/act), so a tap on the phone
+does exactly what the feed's buttons do: runs the held call with
+confirmed: true (or declines it), closes the item everywhere, and is
+counted by the learning loop. Without an attention feed (a stand-in
+SirisAI) it falls back to a single Confirm posting to POST
+/siris/tools/{tool_name}/run directly. ntfy's `http` action type
 (https://ntfy.sh/docs/publish/#send-a-request-when-action-is-selected)
 posts to it directly from the notification, no app open required.
 
@@ -28,34 +31,66 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _headers(siris: "SirisAI") -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if siris.settings.api_key:
+        headers["Authorization"] = f"Bearer {siris.settings.api_key}"
+    return headers
+
+
+def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """ntfy buttons for an attention item's own actions (up to three), each
+    posting to POST /siris/hub/v1/attention/{id}/act -- the same thing the
+    feed's buttons do, so a tap on the phone is recorded, closes the item
+    everywhere, and counts for the learning loop. None without
+    SIRISAI_PUBLIC_BASE_URL (the phone has nowhere to send the tap)."""
+    if not siris.settings.public_base_url:
+        return None
+    base = siris.settings.public_base_url.rstrip("/")
+    return [
+        {
+            "action": "http",
+            "label": a["label"],
+            "url": f"{base}/siris/hub/v1/attention/{item['id']}/act",
+            "method": "POST",
+            "headers": {**_headers(siris), "X-Siris-Client": "your phone"},
+            "body": json.dumps({"action": a["id"]}),
+            "clear": True,
+        }
+        for a in item["actions"][:3]
+    ]
+
+
 def notify_confirmation_needed(siris: "SirisAI", context: str, tool_name: str, arguments: dict[str, Any]) -> None:
     # The attention feed gets it whether or not a push channel exists, with
     # working Approve/Decline actions (app/hub/attention.py).
+    item = None
     try:
         from app.hub.attention import raise_confirmation
 
-        raise_confirmation(siris, context, tool_name, arguments)
+        item = raise_confirmation(siris, context, tool_name, arguments)
     except Exception:
         logger.exception("Adding a confirmation to the attention feed failed")
 
     if siris.tools.get("notify") is None:
         return
 
-    actions = None
-    if siris.settings.public_base_url:
-        headers = {"Content-Type": "application/json"}
-        if siris.settings.api_key:
-            headers["Authorization"] = f"Bearer {siris.settings.api_key}"
+    if item is not None:
+        # Approve / Decline on the phone act on the feed item itself.
+        actions = item_actions(siris, item)
+    elif siris.settings.public_base_url:
         actions = [
             {
                 "action": "http",
                 "label": "Confirm",
                 "url": f"{siris.settings.public_base_url.rstrip('/')}/siris/tools/{tool_name}/run",
                 "method": "POST",
-                "headers": headers,
+                "headers": _headers(siris),
                 "body": json.dumps({"arguments": arguments, "confirmed": True}),
             }
         ]
+    else:
+        actions = None
 
     message = f"{context} wants to run '{tool_name}' ({arguments}) -- needs your confirmation."
     siris.run_tool(

@@ -1,7 +1,8 @@
 """Jobs that run once a day (or week, or month) at a set local hour: the
 nightly reflection, the weekly goal review, and the upkeep jobs that keep
 SirisAI running without anyone tending it (app/upkeep/: backups, the
-restore drill, housekeeping, update checks, model trials).
+restore drill, housekeeping, update checks, model trials), the morning
+triage of email and calendar, and the evening CPD/evidence capture.
 
 Each job runs on the first scheduler tick at or after its hour, on a day it
 hasn't already run, with the last run date kept in app_state so a restart
@@ -77,6 +78,18 @@ def _model_trial(siris: "SirisAI", now: datetime) -> Any:
     return models.weekly(siris, now)
 
 
+def _triage(siris: "SirisAI", now: datetime) -> Any:
+    from app.triage import morning
+
+    return morning.run(siris, now)
+
+
+def _career_capture(siris: "SirisAI", now: datetime) -> Any:
+    from app.career import capture
+
+    return capture.capture(siris, now)
+
+
 JOBS: list[DailyJob] = [
     DailyJob("reflection", lambda s: s.settings.reflection_hour_local, _reflect),
     DailyJob("goal_review", lambda s: s.settings.goal_review_hour_local, _goal_review, weekday=lambda s: s.settings.goal_review_day),
@@ -84,6 +97,8 @@ JOBS: list[DailyJob] = [
     DailyJob("restore_drill", lambda s: s.settings.restore_drill_hour_local, _restore_drill, monthday=1),
     DailyJob("housekeeping", lambda s: s.settings.housekeeping_hour_local, _housekeeping),
     DailyJob("update_check", lambda s: s.settings.update_check_hour_local if s.settings.update_mode != "off" else None, _update_check),
+    DailyJob("morning_triage", lambda s: s.settings.triage_hour_local, _triage),
+    DailyJob("career_capture", lambda s: s.settings.career_capture_hour_local, _career_capture),
     DailyJob("model_trial", lambda s: s.settings.model_trial_hour_local if s.settings.candidate_models else None, _model_trial, weekday=lambda s: s.settings.model_trial_day),
 ]
 

@@ -212,7 +212,7 @@ class Settings(BaseSettings):
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
-        "model_trial_hour_local",
+        "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         mode="before",
     )
     @classmethod
@@ -458,6 +458,15 @@ class Settings(BaseSettings):
     candidate_models: str = ""
     model_trial_day: int = 6
     model_trial_hour_local: int | None = 1
+
+    # Morning triage (app/triage/): drafts replies to the emails that need
+    # you (saved as drafts, never sent unasked) and checks today's calendar
+    # for clashes. Blank hour = off. The signature defaults to "Brad".
+    triage_hour_local: int | None = 6
+    triage_max_drafts: int = 5
+    triage_signature: str = ""
+    # CPD and chartership evidence capture (app/career/capture.py), evenings.
+    career_capture_hour_local: int | None = 18
 
     # Background scheduler (app/core/scheduler.py): delivers due reminders and
     # timers and alerts when a tool has been failing. On by default.

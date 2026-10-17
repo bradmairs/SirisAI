@@ -5698,6 +5698,60 @@ provider for the same capability actually exists to design against.
       The live run caught two bugs, both fixed: a rollback showed twice in
       the feed, and the database size left out the WAL.
 
+134. **Done** -- More useful day to day: engineering write-ups, CPD that
+    logs itself, approvals from the phone, and a sorted inbox before the
+    briefing.
+    - **Calc notes in one request** (`engineering_calc_note`). "Size the
+      outlet pipe for Werribee and write it up":
+      - runs the SirisOS calculator;
+      - asks SirisHydro the standards question, with numbered citations;
+      - matches the SirisOS project by name or id;
+      - writes a markdown note (inputs with labels and units, results,
+        the cited answer, or "the library doesn't hold enough" when it
+        doesn't, plus your notes) and saves it to the Second Brain, tagged
+        `calc-note` and linked to the project.
+    - **CPD and chartership evidence capture**
+      (`app/career/capture.py`, 6pm):
+      - calendar events that look like professional development
+        (webinars, courses, conferences, training, site inspections,
+        IPWEA, Engineers Australia...) become "Log as CPD? IPWEA
+        stormwater webinar (1.5 h)", with hours from the event and a
+        category guessed from the title (risk management, business and
+        management, or area of practice);
+      - a day of engineering work with SirisAI becomes "Chartership
+        evidence from today?", summarising the calculations and standards
+        questions. It suggests the open competency elements SirisOS lists
+        that fit;
+      - `career_log_cpd` logs one in chat, and `career_drafts` lists them.
+      Kept drafts go to the Second Brain and export as CSV
+      (`GET /siris/career/drafts?format=csv`) to copy into Engineers
+      Australia, where CPD is actually logged.
+    - **Approve or Decline from the phone.** A held action's push now
+      carries Approve and Decline, posting to its attention item's own
+      `/siris/hub/v1/attention/{id}/act`. So a tap does exactly what the
+      feed does: runs the call (or doesn't), closes the item everywhere,
+      is audited as "in your phone", and counts for the learning loop.
+      Previously it carried a single Confirm that ran the tool directly
+      and left the item open.
+    - **Morning triage** (`app/triage/morning.py`, 6am):
+      - for the emails from the last day that need you (up to 5), it
+        drafts a reply, saves it in your Drafts folder, and raises "Reply
+        to Sam Lee: Werribee RFI" with the draft. **Send** asks first,
+        then sends exactly that. Nothing is sent otherwise, and the model
+        is told an email's text is data, not instructions;
+      - today's events and any clashes go in one "This morning" item.
+    - **Verified:** 9 tests in `tests/test_useful.py`. Also live on
+      uvicorn with SirisOS and ntfy stood in over real HTTP:
+      - `engineering_calc_note` returned the note with "Werribee
+        Drainage (active)", 0.198 m³/s and the AS/NZS 3500.2 citation;
+      - `career_log_cpd` then `?format=csv` gave the row ready for
+        Engineers Australia, and the evening capture offered the day's
+        calc as evidence;
+      - a routine's held `undo_last_protocol` reached ntfy with Approve
+        and Decline. Posting Decline as ntfy would closed the item as
+        declined, and the learning loop recorded it against
+        `undo_last_protocol`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

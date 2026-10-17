@@ -279,6 +279,7 @@ from app.hub.attention import AttentionFeed
 from app.plugins.builtin.sirisos import (
     CareerChartershipStatusTool,
     CareerCpdStatusTool,
+    EngineeringCalcNoteTool,
     EngineeringCalculateTool,
     EngineeringCalculatorsTool,
     EngineeringProjectsTool,
@@ -295,6 +296,8 @@ from app.goals import review as _goal_review  # noqa: F401 - registers its atten
 from app.plugins.builtin.upkeep import UpkeepStatusTool
 from app.upkeep import issues as _issues, updates as _updates  # noqa: F401 - register their attention actions
 from app.upkeep import models as upkeep_models
+from app.plugins.builtin.career import CareerDraftsTool, CareerLogCpdTool
+from app.triage import morning as _triage  # noqa: F401 - registers its attention actions
 from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
@@ -655,6 +658,8 @@ class SirisAI:
         self.tools.register(WhatDidYouDoTool(self))
         self.tools.register(WhatHaveYouLearnedTool(self))
         self.tools.register(UpkeepStatusTool(self))
+        self.tools.register(CareerLogCpdTool(self))
+        self.tools.register(CareerDraftsTool(self))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
         self.tools.register(DismissCapabilityGapTool(self.capability_gaps))
@@ -958,6 +963,7 @@ class SirisAI:
             self.tools.register(SirisHydroAskTool(self._sirisos_client))
             self.tools.register(CareerCpdStatusTool(self._sirisos_client))
             self.tools.register(CareerChartershipStatusTool(self._sirisos_client))
+            self.tools.register(EngineeringCalcNoteTool(self._sirisos_client, brain=self.second_brain))
 
         if self.settings.frigate_base_url:
             self._frigate_client = FrigateClient(
