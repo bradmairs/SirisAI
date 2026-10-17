@@ -5752,6 +5752,16 @@ provider for the same capability actually exists to design against.
         declined, and the learning loop recorded it against
         `undo_last_protocol`.
 
+135. **Done** -- Marking things done. `POST /siris/brain/done` with
+    `{note, task}` ticks that open task in the note the way Obsidian Tasks
+    does (`- [x] … ✅ 2026-10-17`), matched as insights shows it; with just
+    `{note}` it marks a project finished (`status: done`), which takes its
+    deadline and leftover tasks out of insights. Chat gets the same as
+    `brain_mark_done` ("I did my run", "the marathon's finished"). Needs
+    the Siris vault engine 1.3 (`brain.py done`). SirisOS 2.7 puts a Done
+    button on each item in Siris' "Coming up". Verified in
+    `tests/test_second_brain.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

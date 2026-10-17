@@ -211,6 +211,20 @@ def unlink(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
+class DoneRequest(BaseModel):
+    note: str = Field(min_length=1, max_length=200)
+    task: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/done")
+def done(request: DoneRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Tick a task insights listed as overdue, or (no task) mark a project done."""
+    try:
+        return _brain(siris).done(request.note, request.task or None)
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 @router.post("/autolink")
 def autolink(siris: SirisAI = Depends(get_siris)) -> dict:
     """Link the pairs the engine is confident about now, rather than waiting for the nightly upkeep."""

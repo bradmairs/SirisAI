@@ -223,6 +223,14 @@ class SecondBrainClient:
         return self._write(["autolink", "--output", "json"],
                            message=lambda r: f"siris: auto-linked {len(r.get('linked') or [])} note pairs")
 
+    def done(self, note: str, task: str | None = None) -> dict:
+        """Mark something done: tick `task` in `note` (`- [x] … ✅ date`), or, with no
+        task, mark the project itself finished, which takes its deadline and leftover
+        tasks out of insights. `action` is done, project-done or already-done; an
+        unknown note or task raises."""
+        args = ["done", "--output", "json", "--", note, *([task] if task else [])]
+        return self._write(args, message=lambda r: f"siris: done {r.get('task') or r.get('note', note)}")
+
     def unlink(self, a: str, b: str) -> dict:
         """Disconnect two notes both ways (connection bullets removed, inline links
         turned back into plain words) and remember they're not related, so nothing

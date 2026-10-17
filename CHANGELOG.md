@@ -5,6 +5,11 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.62 — 2026-10-17
+
+- Mark tasks and projects done
+- `POST /siris/brain/done` ticks an overdue task in its note, or marks a project finished so its deadline and leftover tasks leave insights. Chat can do it too (`brain_mark_done`). Needs the vault engine 1.3.
+
 ## 1.52 — 2026-10-17
 
 - More useful: calc notes, CPD and evidence capture, phone approvals, morning triage
