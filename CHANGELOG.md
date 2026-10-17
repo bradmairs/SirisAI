@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.22 — 2026-10-17
+
+- Photo capture: a photo sent to /siris/brain/capture is saved in the vault's Attachments/ and embedded in the note
+
 ## 1.21 — 2026-10-17
 
 - Hub calendar range: every event between two dates, for SirisOS's week view and CPD logging
