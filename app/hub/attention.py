@@ -255,6 +255,8 @@ def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) ->
         return
     if arguments.get("actions") or (trigger or "").endswith(": action needed confirmation"):
         return
+    if (trigger or "").startswith("upkeep:"):  # app/upkeep/alerts.py raised its own item before pushing
+        return
     title = str(arguments.get("title") or "SirisAI")
     message = str(arguments.get("message") or "")
     priority = arguments.get("priority")

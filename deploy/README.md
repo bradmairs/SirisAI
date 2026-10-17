@@ -110,6 +110,32 @@ per device. Download it from `https://<SIRIS_HOST>:8443/siris-root-ca.crt`
 Caddy's keys live in `data/caddy`. Keep that folder, or every device will
 need to trust a new root.
 
+## Updates that apply themselves
+
+```bash
+make auto-update   # once: installs the updater's cron entry
+```
+
+When a new SirisAI release is out, SirisAI says so in the attention feed
+(SirisOS's inbox) with the release notes and an **Update now** button. Set
+`SIRISAI_UPDATE_MODE=auto` in `sirisai.env` to skip the button and update at
+`SIRISAI_UPDATE_CHECK_HOUR_LOCAL` (9am) instead.
+
+`updater.sh` (run every minute by cron, doing nothing unless asked):
+
+1. Refuses if either checkout has local edits, so your changes on the
+   server are never overwritten. Commit or stash them first.
+2. Fast-forwards SirisAI to the release tag, pulls SirisOS, rebuilds and
+   restarts.
+3. Checks both apps answer, SirisAI reports the new version, and its tool
+   selection eval is no worse than before.
+4. If anything fails, puts both checkouts back where they were, rebuilds,
+   and tells you why ("Update to 1.3 rolled back: ...", pushed to your
+   phone). Its log is `data/sirisai/update/update.log`.
+
+`./updater.sh uninstall` removes the cron entry. `make update` still
+updates by hand, without the checks.
+
 ## Data and backups
 
 Everything that matters is in `./data`:
@@ -118,9 +144,16 @@ Everything that matters is in `./data`:
 - `data/sirisos`: SirisOS's state, standards library and logs
 - `data/caddy`: the HTTPS certificate authority
 
-`make backup` writes a dated archive of it to `./backups`. For a
-guaranteed-consistent copy of SirisAI's SQLite database, run `make down`
-first. `.env`, `sirisai.env`, `sirisos.env`, `data/` and `backups/` are
+SirisAI backs up its own database every night at 2am into
+`data/sirisai/backups` (a consistent copy while it runs, the newest 14
+kept), and on the 1st of each month restores the newest one into a scratch
+file to prove it opens. Set `SIRISAI_BACKUP_COPY_TO` to a folder mounted
+from another disk or a NAS (add the mount under the sirisai service's
+`volumes`) to keep a copy off this disk. `make backup` still writes a dated
+archive of all of `./data` to `./backups`; for a guaranteed-consistent copy
+of SirisOS's files with it, run `make down` first.
+
+Container logs are capped at 30 MB per app. `.env`, `sirisai.env`, `sirisos.env`, `data/` and `backups/` are
 git-ignored.
 
 ## Notes

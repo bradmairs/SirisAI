@@ -61,25 +61,27 @@ def selection_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None
     return {"cases": len(cases), "skipped": skipped, "passed": passed, "accuracy": round(100 * passed / max(len(cases), 1), 1), "failures": failures}
 
 
-async def _choose(siris: "SirisAI", prompt: str) -> str | None:
-    assert siris.llm is not None
+async def _choose(siris: "SirisAI", prompt: str, llm: Any = None) -> str | None:
+    llm = llm or siris.llm
+    assert llm is not None
     tools = siris.available_tool_specs(prompt)
     messages = [
         {"role": "system", "content": "You are SirisAI, a home assistant. Use a tool when one fits the request."},
         {"role": "user", "content": prompt},
     ]
-    response = await siris.llm.generate(messages, tools=tools)
+    response = await llm.generate(messages, tools=tools)
     return response.tool_calls[0].name if response.tool_calls else None
 
 
-def choice_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def choice_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None, llm: Any = None) -> dict[str, Any]:
+    """`llm` tries a different model (app/upkeep/models.py) without touching siris.llm."""
     cases, skipped = applicable(siris, cases if cases is not None else all_cases(siris))
 
     async def run_all() -> list[dict[str, Any]]:
         results = []
         for case in cases:
             try:
-                chosen = await _choose(siris, case["prompt"])
+                chosen = await _choose(siris, case["prompt"], llm)
             except Exception as exc:  # a backend error counts as a miss, with why
                 chosen = f"error: {type(exc).__name__}"
             results.append({**case, "chosen": chosen, "ok": chosen in case["expect"]})

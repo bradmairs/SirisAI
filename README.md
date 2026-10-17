@@ -5624,6 +5624,80 @@ provider for the same capability actually exists to design against.
       - The goal review raised "Get chartered (CPEng): 0 of 1 done" with
         Done that / Not this week.
 
+133. **Done** -- Upkeep: SirisAI looks after itself (`app/upkeep/`), so it can
+    run for months without anyone tending it. Each job runs on the
+    once-a-day runner from milestone 132 and reports in the attention feed.
+    - **Backups you can trust.** Every night at 2am SQLite's online backup
+      API takes a consistent copy while SirisAI runs, gzipped into
+      `backups/` next to the database, with the newest 14 kept.
+      `SIRISAI_BACKUP_COPY_TO` copies each one to a second folder (a NAS
+      mount). On the 1st of the month a **restore drill** unpacks the
+      newest backup into a scratch file, runs `PRAGMA integrity_check`,
+      compares its tables with the live database, and reads it through
+      SirisAI's own stores. A pass is a quiet note; a failure is urgent,
+      pushed, and proposed as a GitHub issue.
+    - **Housekeeping** (5am):
+      - prunes the audit log after 180 days, metrics after 90, closed feed
+        items after 60, finished reminders after 90 and outcomes after a
+        year, then VACUUMs after a big prune. Conversations and memories
+        are never pruned;
+      - records database size (including the WAL), free disk space and the
+        day's LLM tokens;
+      - warns when disk is under `SIRISAI_DISK_WARN_PERCENT` (urgent and
+        pushed under half of it), when tokens pass
+        `SIRISAI_TOKEN_BUDGET_DAILY`, when the database doubles in a week,
+        or when backups go stale;
+      - the deploy stack now caps container logs at 3 × 10 MB per app.
+    - **Self-update with rollback.** SirisAI checks GitHub releases daily
+      at 9am. `SIRISAI_UPDATE_MODE=notify` (the default) offers "SirisAI
+      1.4 is out" with the notes and Update now; `auto` updates in that
+      hour; `off` doesn't check. Updating writes `update/request.json`,
+      carrying today's selection-eval accuracy as the bar to clear.
+      `deploy/updater.sh` (cron every minute, `make auto-update`):
+      - refuses if either checkout has local edits;
+      - fast-forwards SirisAI to the tag, pulls SirisOS, rebuilds;
+      - checks both apps answer, SirisAI reports the new version, and the
+        selection eval is no worse;
+      - otherwise resets both checkouts, rebuilds and writes why to
+        `status.json`.
+      Back up, SirisAI reports "Updated to 1.4", or pushes "Update to 1.4
+      rolled back" with the log tail and proposes an issue. A request
+      nobody picks up in 15 minutes means the updater isn't installed, and
+      it says so.
+    - **Files its own issues.** With `SIRISAI_GITHUB_ISSUES_REPO` and
+      `SIRISAI_GITHUB_TOKEN` set, a tool the circuit breaker pauses, a
+      rolled-back update or a failed drill becomes "File a GitHub issue?"
+      in the feed (`SIRISAI_GITHUB_ISSUES_MODE=auto` files straight away).
+      The issue carries the version and the last day's failures, labelled
+      `filed-by-sirisai`. Secret-looking argument names and token-shaped
+      values are blanked. A repeat comments on the open issue, at most
+      once a day.
+    - **Model upgrades gated by evals.** `POST /siris/upkeep/models/trial`
+      runs the tool-choice evals (including the learned cases) against the
+      current model and a candidate on the same Ollama. Each week the same
+      happens for every model in `SIRISAI_CANDIDATE_MODELS` not tried in
+      four weeks. A candidate scoring at least as well is offered: "Switch
+      to qwen3:14b? 92% vs 88%". Switching takes effect at once and
+      survives restarts; `/models/switch` with no model reverts. A worse
+      one is reported and left alone.
+    - `GET /siris/upkeep` shows it all; `POST /backup`, `/restore-drill`,
+      `/housekeeping`, `/update/check` and `/update/apply` run things now.
+      Ask "are your backups OK?" (`upkeep_status`).
+    - **Verified:** 20 tests in `tests/test_upkeep.py`, plus 8 in
+      `tests/test_updater.py` that run `updater.sh` against stand-in git,
+      docker and curl: applied; refused with local edits; no tag; and
+      rolled back after a failed build, an unhealthy start or a worse eval.
+      Also live on uvicorn with a stand-in GitHub:
+      - a backup copied to the "NAS" folder;
+      - the restore drill passed (29 tables);
+      - "SirisAI 9.9 is out" offered; Update now wrote `request.json`
+        with a 100% baseline;
+      - a simulated rolled-back `status.json` was reported within seconds
+        with its log tail, and the proposed issue, once filed, reached
+        GitHub with the token and label.
+      The live run caught two bugs, both fixed: a rollback showed twice in
+      the feed, and the database size left out the WAL.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

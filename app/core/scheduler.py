@@ -72,6 +72,12 @@ def alert_on_broken_tools(siris: "SirisAI", now: datetime | None = None) -> list
             continue
         siris._tool_alerts[name] = now_ts
         alerted.append(name)
+        try:
+            from app.upkeep import issues
+
+            issues.propose(siris, f"'{name}' keeps failing", f"The circuit breaker paused `{name}` after repeated failures. Latest error: {reason}", fingerprint=f"tool:{name}")
+        except Exception:
+            logger.exception("Proposing an issue for %s failed", name)
     return alerted
 
 
@@ -205,6 +211,16 @@ def run_attention_sync(siris: "SirisAI") -> None:
         sync_all(siris)
     except Exception:
         logger.exception("Attention sync failed")
+
+
+def report_update(siris: "SirisAI") -> None:
+    """Say how the last self-update went (app/upkeep/updates.py), once."""
+    from app.upkeep import updates
+
+    try:
+        updates.report(siris)
+    except Exception:
+        logger.exception("Reporting the update outcome failed")
 
 
 def run_parcel_refresh(siris: "SirisAI") -> list[dict]:
@@ -361,6 +377,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             attention_interval = siris.settings.attention_sync_minutes * 60
             if attention_interval > 0 and time.monotonic() - last_attention >= attention_interval:
                 await asyncio.to_thread(run_attention_sync, siris)
+                await asyncio.to_thread(report_update, siris)
                 last_attention = time.monotonic()
 
             # Nightly reflection, weekly goal review and the other once-a-day jobs.
