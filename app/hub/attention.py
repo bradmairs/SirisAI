@@ -413,6 +413,25 @@ class UnknownAction(ValueError):
     pass
 
 
+# (source, action id) -> handler(siris, item, payload, trigger) -> (result, outcome).
+# Features with their own feed items (the learning loop's memory proposals,
+# goal check-ins, updates...) register here instead of growing act() below.
+_HANDLERS: dict[tuple[str, str], Any] = {}
+
+
+def register_action(source: str, action_id: str, handler: Any) -> None:
+    _HANDLERS[(source, action_id)] = handler
+
+
+def _learn(siris: "SirisAI", item: dict[str, Any], action_id: str, payload: dict[str, Any]) -> None:
+    try:
+        from app.learning.observe import on_attention_action
+
+        on_attention_action(siris, item, action_id, payload)
+    except Exception:  # noqa: BLE001 - learning is never in the way of acting
+        logger.debug("Recording the outcome of an attention action failed", exc_info=True)
+
+
 def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app") -> tuple[dict[str, Any], Any]:
     """Do what the action says, then close the item. Raises LookupError for
     an unknown or already-closed item and UnknownAction for an action the
@@ -426,6 +445,7 @@ def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app")
     trigger = f"attention feed: the user chose '{action_id}' on '{item['title']}' in {client}"
     result: Any = None
 
+    _learn(siris, item, action_id, payload)
     if action_id in ("acknowledge", "decline"):
         closed = siris.attention.close(item_id, "done" if action_id == "acknowledge" else "dismissed", action_id.capitalize() + "d")
         return closed or item, None
@@ -437,7 +457,10 @@ def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app")
         closed = siris.attention.close(item_id, "dismissed", "Dismissed")
         return closed or item, None
 
-    if action_id == "approve" and item["kind"] == "confirm":
+    handler = _HANDLERS.get((item["source"], action_id))
+    if handler is not None:
+        result, outcome = handler(siris, item, payload, trigger)
+    elif action_id == "approve" and item["kind"] == "confirm":
         result = siris.run_tool(payload["tool"], payload.get("arguments") or {}, confirmed=True, trigger=trigger)
         outcome = f"Approved and ran {payload['tool']}"
     elif action_id == "accept" and item["source"] == "habits":

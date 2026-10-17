@@ -647,6 +647,29 @@ class Cortex:
         if _ACTION_CLAIM_RE.search(result.response) and not any(changes_state(n) for n in ran):
             looked = f" (I only ran: {', '.join(ran)})" if ran else ""
             result.response += f"\n\nNote: I haven't actually changed anything{looked}. Ask me to do it and I'll run the action."
+            return
+
+        # Check after acting: a tool's own verify() said the change didn't
+        # take (a device that's offline, a container that didn't come back).
+        # Say so, rather than leaving "Done" standing.
+        failed = self._failed_checks(siris, result.conversation_id, ran)
+        if failed:
+            result.response += "\n\nHeads up: I checked afterwards and " + "; ".join(failed) + "."
+
+    @staticmethod
+    def _failed_checks(siris: "SirisAI", conversation_id: str, ran: list[str]) -> list[str]:
+        if not ran:
+            return []
+        try:
+            recent = siris.audit.list_recent(limit=max(10, 3 * len(ran)))
+        except Exception:
+            return []
+        out = []
+        for entry in recent:
+            if entry["conversation_id"] == conversation_id and entry["tool_name"] in ran and entry.get("verified") is False:
+                detail = (entry.get("verification_detail") or f"{entry['tool_name']} didn't take effect").rstrip(".")
+                out.append(detail[0].lower() + detail[1:] if detail else detail)
+        return out[:3]
 
     async def _maybe_extract_memory(
         self, siris: "SirisAI", conversation_id: str, context_label: str, result: "CortexResult"

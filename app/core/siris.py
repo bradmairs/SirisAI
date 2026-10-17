@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 
 from app import __version__
+from app.audit.autonomy import is_autonomous
 from app.audit.service import AuditLogStore
 from app.capabilities.service import CapabilityGapStore
 from app.calendar.client import CalendarClient, CalendarSet
@@ -40,6 +41,8 @@ from app.hermes.client import HermesClient
 from app.home_assistant.client import HomeAssistantClient
 from app.integrations.openapi import DiscoveredOperation, discover_get_operations
 from app.integrations.service import IntegrationStore
+from app.learning import feedback
+from app.learning.outcomes import OutcomeStore
 from app.llm.base import LLMClient
 from app.llm.embeddings import OllamaEmbeddingClient
 from app.llm.factory import build_llm_client
@@ -50,6 +53,7 @@ from app.memory.events import EventMemoryStore
 from app.memory.service import MemoryStore
 from app.metrics.service import MetricsStore
 from app.notify.client import NotifyClient
+from app.notify.confirmation import notify_confirmation_needed
 from app.notify.pending import PendingNotificationStore
 from app.plex.client import PlexClient
 from app.plugins.base import ConfirmationRequired, Tool, ToolPermission, ToolRegistry
@@ -285,6 +289,8 @@ from app.sirisos.client import SirisOSClient
 from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
 from app.plugins.builtin.health_data import HealthSummaryTool
 from app.plugins.builtin.autonomy import WhatDidYouDoTool
+from app.plugins.builtin.learning import WhatHaveYouLearnedTool
+from app.goals import review as _goal_review  # noqa: F401 - registers its attention actions
 from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
@@ -351,6 +357,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "run_speed_test": "system",
     "explain_recent_action": "audit",
     "what_did_you_do": "audit",
+    "what_have_you_learned": "audit",
     "report_capability_gap": "capabilities",
     "list_capability_gaps": "capabilities",
     "dismiss_capability_gap": "capabilities",
@@ -481,6 +488,7 @@ class SirisAI:
     health: HealthStore = field(default_factory=lambda: HealthStore(SessionLocal))
     parcels: ParcelStore = field(default_factory=lambda: ParcelStore(SessionLocal))
     attention: AttentionFeed = field(default_factory=lambda: AttentionFeed(SessionLocal))
+    outcomes: OutcomeStore = field(default_factory=lambda: OutcomeStore(SessionLocal))
 
     def __post_init__(self) -> None:
         if self.llm is None:
@@ -637,6 +645,7 @@ class SirisAI:
         self.tools.register(ExplainRecentActionTool(self.audit))
         self.tools.register(TrustLedgerTool(self.audit))
         self.tools.register(WhatDidYouDoTool(self))
+        self.tools.register(WhatHaveYouLearnedTool(self))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
         self.tools.register(DismissCapabilityGapTool(self.capability_gaps))
@@ -1247,6 +1256,11 @@ class SirisAI:
         own return value or raises on its own account -- a failed or
         missing verification is information about the outcome, not a
         reason to treat the call itself as having failed.
+
+        The learning loop (app/learning/feedback.py): an unconfirmed,
+        non-READ call from an autonomous trigger that the user has mostly
+        undone or declined before is held for confirmation like a
+        CONFIRM_REQUIRED one, and raised in the attention feed.
         """
         start = time.monotonic()
 
@@ -1278,6 +1292,13 @@ class SirisAI:
                     "context (recent events/memories), not from anything the user said"
                 )
 
+        demoted = False
+        if not confirmed and not call_needs_confirmation and tool.permission is not ToolPermission.READ and is_autonomous(trigger):
+            why = feedback.demotion(self, name, arguments)
+            if why is not None:
+                call_needs_confirmation, demoted = True, True
+                policy = f"{tool.permission.name}: held for confirmation -- {why}"
+
         if (
             tool.permission is ToolPermission.RESTRICTED
             and name not in self.settings.restricted_tools_allowlist()
@@ -1308,6 +1329,11 @@ class SirisAI:
                 evidence=evidence,
                 policy=policy,
             )
+            if demoted and not (trigger or "").lower().startswith("routine"):  # a routine asks for itself
+                try:
+                    notify_confirmation_needed(self, trigger or "SirisAI", name, arguments)
+                except Exception:
+                    logger.exception("Asking to confirm a held action failed")
             raise ConfirmationRequired(name, arguments)
 
         try:

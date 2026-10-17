@@ -10,6 +10,9 @@ Two levels:
   tool call land on a correct one? Run on demand (POST /siris/evals/run,
   `python -m app.evals`) and weekly by the scheduler; results are kept, and a
   drop of 10+ points from the previous run is pushed as a regression.
+
+Cases learned from real corrections (app/learning/reflection.py) join the
+checked-in ones in every run.
 """
 
 import asyncio
@@ -30,6 +33,16 @@ def load_cases(path: Path = CASES_PATH) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def all_cases(siris: "SirisAI") -> list[dict[str, Any]]:
+    """The checked-in cases plus the ones the nightly reflection learned
+    from real corrections (app/learning/reflection.py)."""
+    from app.learning.reflection import learned_cases
+
+    cases = load_cases()
+    known = {c["prompt"].strip().lower() for c in cases}
+    return cases + [c for c in learned_cases(siris) if c["prompt"].strip().lower() not in known]
+
+
 def applicable(siris: "SirisAI", cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """Cases this configuration can serve at all -- a case whose tools aren't
     registered (e.g. email isn't set up here) is skipped, not failed."""
@@ -38,7 +51,7 @@ def applicable(siris: "SirisAI", cases: list[dict[str, Any]]) -> tuple[list[dict
 
 
 def selection_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    cases, skipped = applicable(siris, cases if cases is not None else load_cases())
+    cases, skipped = applicable(siris, cases if cases is not None else all_cases(siris))
     failures = []
     for case in cases:
         offered = {s["function"]["name"] for s in siris.available_tool_specs(case["prompt"])}
@@ -60,7 +73,7 @@ async def _choose(siris: "SirisAI", prompt: str) -> str | None:
 
 
 def choice_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    cases, skipped = applicable(siris, cases if cases is not None else load_cases())
+    cases, skipped = applicable(siris, cases if cases is not None else all_cases(siris))
 
     async def run_all() -> list[dict[str, Any]]:
         results = []

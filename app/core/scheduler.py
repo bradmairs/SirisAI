@@ -16,6 +16,7 @@ from app.core.health import broken_tools
 from app.notify import proactive
 from app.remediation import runner as remediation
 from app.anticipation import habits
+from app.learning import feedback
 from app.energy import service as energy
 from app.reminders.service import MAX_ATTEMPTS
 from app.second_brain import jobs as brain_jobs
@@ -183,6 +184,8 @@ def run_habit_check(siris: "SirisAI") -> list[dict]:
                 {"action": "http", "label": "No thanks", "url": f"{base}/siris/tools/dismiss_habit_suggestion/run", "method": "POST", "headers": headers, "body": body},
             ]
         message = f"{suggestion['description']} Want me to automate it?"
+        if feedback.muted(siris, "attention:habits"):
+            continue  # you've turned most of these down: it waits in the attention feed instead of buzzing your phone
         try:
             if siris.tools.get("notify") is not None:
                 siris.run_tool("notify", {"title": "SirisAI: automation idea", "message": message, "actions": actions}, trigger="habit check: automated schedule", evidence=suggestion)
@@ -272,6 +275,16 @@ def run_deferred_jobs(siris: "SirisAI", now: datetime | None = None) -> list[dic
         return []
 
 
+def run_daily_jobs(siris: "SirisAI", now: datetime | None = None) -> dict:
+    from app.core import daily_jobs
+
+    try:
+        return daily_jobs.run_due(siris, now)
+    except Exception:
+        logger.exception("Daily jobs failed")
+        return {}
+
+
 def tick(siris: "SirisAI", now: datetime | None = None, run_health: bool = False) -> dict[str, object]:
     result: dict[str, object] = {"reminders_sent": deliver_due_reminders(siris, now)}
     result["deferred_jobs"] = run_deferred_jobs(siris, now)
@@ -349,6 +362,9 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if attention_interval > 0 and time.monotonic() - last_attention >= attention_interval:
                 await asyncio.to_thread(run_attention_sync, siris)
                 last_attention = time.monotonic()
+
+            # Nightly reflection, weekly goal review and the other once-a-day jobs.
+            await asyncio.to_thread(run_daily_jobs, siris)
 
             # Second brain growth jobs: each decides for itself whether it's due today.
             if siris.second_brain is not None:
