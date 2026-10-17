@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.63 — 2026-10-17
+
+- The second brain is called Siris everywhere you see it (vault 1.21); SirisAI keeps its name
+
 ## 1.62 — 2026-10-17
 
 - Mark tasks and projects done

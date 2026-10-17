@@ -66,7 +66,7 @@ def mirror_to_brain(brain: SecondBrainClient | None, title: str, content: str, *
 class BrainSearchTool(Tool):
     name = "brain_search"
     description = (
-        "Search Brad's second brain (Siris): his long-term vault of linked notes about his life, family, "
+        "Search Siris, Brad's knowledge base: his long-term vault of linked notes about his life, family, "
         "work, projects, home lab, fitness and interests. Use it before answering anything about Brad's own "
         "world. Each result gives a `title` and `path` (cite the title as the source, e.g. \"According to "
         "your note 'Home Server': ...\") and `excerpts`."
@@ -91,7 +91,7 @@ class BrainSearchTool(Tool):
 class BrainGetNoteTool(Tool):
     name = "brain_get_note"
     description = (
-        "Read one note from Brad's second brain in full, by title or alias (e.g. 'Dom Mairs', 'Dom', "
+        "Read one note from Siris, Brad's knowledge base, in full, by title or alias (e.g. 'Dom Mairs', 'Dom', "
         "'Home Server'), with the notes it links to and the notes that link back to it."
     )
     permission = ToolPermission.READ
@@ -116,7 +116,7 @@ class BrainGetNoteTool(Tool):
 class BrainInsightsTool(Tool):
     name = "brain_insights"
     description = (
-        "What Brad's second brain can tell about itself right now: how much it grew this week against "
+        "What Siris can tell about itself right now: how much it grew this week against "
         "last, growing topics, upcoming project deadlines, overdue tasks, projects nobody has touched in "
         "weeks, how old the inbox is, and notes that look related but aren't linked yet. Use it for "
         "\"what's going on in my brain?\", \"what am I neglecting?\", or to plan a weekly review. "
@@ -140,7 +140,7 @@ class BrainInsightsTool(Tool):
 class BrainLinkNotesTool(Tool):
     name = "brain_link_notes"
     description = (
-        "Link two notes in Brad's second brain both ways, when he asks to connect them (\"link Pump "
+        "Link two notes in Siris both ways, when he asks to connect them (\"link Pump "
         "Stations to Rising Mains\"). Linking by hand also overrides an earlier 'not related'."
     )
     permission = ToolPermission.SAFE_ACTION
@@ -166,7 +166,7 @@ class BrainLinkNotesTool(Tool):
 class BrainMarkReviewedTool(Tool):
     name = "brain_mark_reviewed"
     description = (
-        "Record that Brad checked a note Siris wrote in his second brain and it's right (\"the Plex note "
+        "Record that Brad checked a note SirisAI wrote in Siris and it's right (\"the Plex note "
         "looks right\", \"yes, the Home Server note is correct\"). It drops out of the weekly 'check "
         "these notes' list. For a correction, use brain_learn with what's right instead."
     )
@@ -190,7 +190,7 @@ class BrainMarkReviewedTool(Tool):
 class BrainUnlinkNotesTool(Tool):
     name = "brain_unlink_notes"
     description = (
-        "Disconnect two notes in Brad's second brain, when he says they shouldn't be linked (\"unlink X and "
+        "Disconnect two notes in Siris, when he says they shouldn't be linked (\"unlink X and "
         "Y\", \"those aren't related\"). Removes the link both ways (his words stay, just not as a link) and "
         "stops anything automatic from linking them again."
     )
@@ -210,7 +210,7 @@ class BrainUnlinkNotesTool(Tool):
 class BrainDoneTool(Tool):
     name = "brain_mark_done"
     description = (
-        "Mark something in Brad's second brain done when he says he's done it (\"I did my run\", \"tick off "
+        "Mark something in Siris done when he says he's done it (\"I did my run\", \"tick off "
         "the taper\", \"the marathon's finished\"). Give the note's title and the task's text as the brain "
         "shows it to tick one task; leave the task out to mark a whole project finished."
     )
@@ -237,7 +237,7 @@ class BrainDoneTool(Tool):
 class BrainDeleteNoteTool(Tool):
     name = "brain_delete_note"
     description = (
-        "Delete a note from Brad's second brain when he asks you to (\"delete the note about X\", \"forget "
+        "Delete a note from Siris when he asks you to (\"delete the note about X\", \"forget "
         "X\", \"remove that from my brain\"). Use the note's exact title (find it with brain_search first). "
         "Links to it in other notes are removed, but the note itself can be brought back with "
         "brain_restore_note, so tell him that. Never use this on your own initiative."
@@ -263,7 +263,7 @@ class BrainDeleteNoteTool(Tool):
 class BrainRestoreNoteTool(Tool):
     name = "brain_restore_note"
     description = (
-        "Bring back a note that was deleted from Brad's second brain (\"undo that\", \"bring back the note "
+        "Bring back a note that was deleted from Siris (\"undo that\", \"bring back the note "
         "about X\"). It returns where it was and is reconnected to the notes that linked to it."
     )
     permission = ToolPermission.SAFE_ACTION
@@ -286,7 +286,7 @@ class BrainRestoreNoteTool(Tool):
 class BrainLearnTool(Tool):
     name = "brain_learn"
     description = (
-        "Add knowledge to Brad's second brain as a linked note: something durable and worth keeping that "
+        "Add knowledge to Siris, Brad's knowledge base, as a linked note: something durable and worth keeping that "
         "you learned, e.g. a fact, preference, decision, plan, how something works, or a person. Use one "
         "call per idea and title it as the idea or the thing it's about ('Melbourne Marathon 2026 10 km', "
         "'Home Server'). If a note with that title or alias exists, this appends a dated update instead of "

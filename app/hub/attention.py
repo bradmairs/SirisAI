@@ -385,7 +385,7 @@ def _sync_brain(siris: "SirisAI") -> None:
             {
                 "key": "brain:links",
                 "kind": "review",
-                "title": "Second Brain links to review",
+                "title": "Siris links to review",
                 "body": "; ".join(parts) + ".",
                 "severity": "info",
                 "link": "brain:links",
@@ -398,7 +398,7 @@ def _sync_brain(siris: "SirisAI") -> None:
             {
                 "key": "brain:inbox",
                 "kind": "review",
-                "title": f"{inbox} note{'s' if inbox != 1 else ''} in the Second Brain inbox",
+                "title": f"{inbox} note{'s' if inbox != 1 else ''} in Siris' inbox",
                 "body": "New notes wait in 00-Inbox until they're sorted.",
                 "severity": "info",
                 "link": "brain:inbox",

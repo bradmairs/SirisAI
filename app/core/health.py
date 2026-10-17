@@ -105,7 +105,7 @@ def check_integrations(
         sync_error = getattr(second_brain, "last_sync_error", None)
         if ok and sync_error:
             ok, detail = False, sync_error
-        results.append({"name": "Second Brain", "ok": ok, "detail": detail, "ms": None})
+        results.append({"name": "Siris", "ok": ok, "detail": detail, "ms": None})
 
     for host in cron_hosts or []:
         started = time.perf_counter()

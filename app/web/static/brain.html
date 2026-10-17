@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Siris Brain Map</title>
+<title>Siris Mind Map</title>
 <style>
   html, body { height: 100%; margin: 0; background: #04050c; color: #8a93b8; font: 13px/1.5 ui-monospace, Menlo, monospace; }
   main { height: 100%; display: grid; place-items: center; text-align: center; padding: 0 16px; }
@@ -21,7 +21,7 @@
   fetch("/siris/brain/map.html", { headers: key ? { Authorization: `Bearer ${key}` } : {} })
     .then(async (r) => {
       if (r.status === 401) throw new Error("Unauthorized: open this page once as <b>/brain?key=YOUR_API_KEY</b>.");
-      if (r.status === 404) throw new Error("No second brain is configured. Set <b>SIRISAI_BRAIN_PATH</b> and restart.");
+      if (r.status === 404) throw new Error("Siris isn't set up. Set <b>SIRISAI_BRAIN_PATH</b> and restart.");
       if (!r.ok) throw new Error(`The map couldn't be drawn (${r.status}).`);
       const html = await r.text();
       document.open(); document.write(html); document.close();

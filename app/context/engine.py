@@ -77,7 +77,7 @@ class ContextEngine:
         brain_notes = self._brain_notes(siris, prompt)
         if brain_notes:
             data_lines.append(
-                "Relevant notes from the user's second brain (cite them by title; brain_get_note reads one in full; "
+                "Relevant notes from Siris, the user's knowledge base (cite them by title; brain_get_note reads one in full; "
                 "facts that can change are true as of the date shown): "
                 + "; ".join(brain_notes)
             )

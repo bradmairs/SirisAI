@@ -17,7 +17,7 @@ class SirisOSAppsStatusTool(Tool):
     name = "sirisos_apps_status"
     description = (
         "The state of every app on the SirisOS home screen (APD PM, Engineering Reviewer, Engineering Archive, "
-        "GVW Timesheets, SirisDrone, Second Brain...): ok, degraded, down or not configured. Use for 'is APD PM "
+        "GVW Timesheets, SirisDrone, Siris...): ok, degraded, down or not configured. Use for 'is APD PM "
         "up', 'are my apps working', 'what's down on SirisOS'."
     )
     permission = ToolPermission.READ
@@ -274,7 +274,7 @@ class EngineeringCalcNoteTool(Tool):
     description = (
         "Write up an engineering calculation as a calc note in one go: runs the SirisOS calculator, looks up what "
         "Brad's standards library says (SirisHydro, with citations) when a standards question is given, ties it to "
-        "a SirisOS project, and saves the note to the Second Brain. Use for 'size the stormwater pipe for Werribee "
+        "a SirisOS project, and saves the note to Siris. Use for 'size the stormwater pipe for Werribee "
         "and write it up', 'do a calc note for the culvert'. Returns the note as markdown either way."
     )
     permission = ToolPermission.SAFE_ACTION

@@ -371,9 +371,9 @@ def test_brain_tools_registered_only_when_configured(tmp_path: Path) -> None:
 
 
 def test_health_reports_the_vault(tmp_path: Path) -> None:
-    missing = [r for r in check_integrations(Settings(brain_path=str(tmp_path))) if r["name"] == "Second Brain"]
-    assert missing == [{"name": "Second Brain", "ok": False, "detail": f"no tools/brain.py under {tmp_path}", "ms": None}]
-    present = [r for r in check_integrations(Settings(brain_path=str(_vault(tmp_path)))) if r["name"] == "Second Brain"]
+    missing = [r for r in check_integrations(Settings(brain_path=str(tmp_path))) if r["name"] == "Siris"]
+    assert missing == [{"name": "Siris", "ok": False, "detail": f"no tools/brain.py under {tmp_path}", "ms": None}]
+    present = [r for r in check_integrations(Settings(brain_path=str(_vault(tmp_path)))) if r["name"] == "Siris"]
     assert present[0]["ok"] is True
 
 
@@ -461,7 +461,7 @@ def test_sync_failure_is_kept_for_health_not_raised(tmp_path: Path) -> None:
     assert client.learn([{"title": "Plex", "content": "Media server."}])[0]["action"] == "learned"
     client.flush()
     assert client.last_sync_error is not None and client.last_sync_error.startswith("git ")
-    health = [r for r in check_integrations(Settings(brain_path=str(vault)), second_brain=client) if r["name"] == "Second Brain"]
+    health = [r for r in check_integrations(Settings(brain_path=str(vault)), second_brain=client) if r["name"] == "Siris"]
     assert health[0]["ok"] is False and health[0]["detail"] == client.last_sync_error
 
 
@@ -504,7 +504,7 @@ def test_context_includes_strong_brain_matches_only() -> None:
         {"title": "Home", "score": 1, "excerpts": ["one weak word"]},
     ])
     text = siris.context.build(siris, "how's my 10 km prep going?")
-    assert "second brain" in text
+    assert "Relevant notes from Siris" in text
     assert "[Melbourne Marathon 2026 10 km, as of 2026-10-05] Target under 1:10:00" in text
     assert "[Home]" not in text
     assert siris.second_brain.queries == [("how's my 10 km prep going?", 3)]
@@ -514,7 +514,7 @@ def test_context_includes_strong_brain_matches_only() -> None:
 def test_context_brain_notes_can_be_turned_off() -> None:
     siris = SirisAI(settings=Settings(brain_context_notes=0))
     siris.second_brain = _FakeBrain([{"title": "X", "score": 9, "excerpts": ["y"]}])
-    assert "second brain" not in siris.context.build(siris, "anything")
+    assert "Relevant notes from Siris" not in siris.context.build(siris, "anything")
     assert siris.second_brain.queries == []
 
 
@@ -523,7 +523,7 @@ def test_a_broken_vault_never_breaks_chat_context() -> None:
     siris = SirisAI(settings=Settings())
     siris.second_brain = _FakeBrain(fail=True)
     text = siris.context.build(siris, "hello")
-    assert text is not None and "second brain" not in text
+    assert text is not None and "Relevant notes from Siris" not in text
 
 
 def test_engine_env_reaches_the_engine(tmp_path: Path) -> None:
@@ -598,7 +598,7 @@ def test_ask_answers_from_notes_and_names_them(brain_api, monkeypatch: pytest.Mo
     r = client.post("/siris/brain/ask", json={"question": "rtx 3060"}).json()
     assert r["answer"].endswith("(from: Plex).") and "Plex (as of 2026-10-02)" in LLM.prompt
     assert client.post("/siris/brain/ask", json={"question": "zebra quilting"}).json() == {
-        "answer": "Your second brain doesn't have anything on that yet.", "sources": []}
+        "answer": "Siris doesn't have anything on that yet.", "sources": []}
 
 
 def test_review_queue_and_marking_reviewed(brain_api) -> None:
