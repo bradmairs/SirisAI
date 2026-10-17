@@ -190,7 +190,7 @@ def test_second_brain_reviews() -> None:
     items = {i["key"]: i for i in siris.attention.list()}
     assert items["brain:links"]["body"] == "3 links about to be made automatically; 1 pair that could be linked."
     assert items["brain:links"]["link"] == "brain:links" and items["brain:links"]["actions"] == []
-    assert items["brain:inbox"]["title"] == "2 notes in the Second Brain inbox"
+    assert items["brain:inbox"]["title"] == "2 notes in Siris' inbox"
 
 
 def test_open_items_sort_urgent_first_and_counts() -> None:

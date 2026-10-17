@@ -5226,7 +5226,7 @@ provider for the same capability actually exists to design against.
     meaning while "hello there" wasn't; the eval endpoints ran and
     recorded history.
 
-120. **Done** -- Second brain: SirisAI reads and grows Brad's knowledge
+120. **Done** -- Siris: SirisAI reads and grows Brad's knowledge
     vault, [Siris-Second-Brain](https://github.com/bradmairs/Siris-Second-Brain)
     -- Obsidian-compatible Markdown notes about his life, people, work,
     projects and home lab, with their own linking engine (`tools/brain.py`)
@@ -5259,7 +5259,7 @@ provider for the same capability actually exists to design against.
       every `SIRISAI_BRAIN_PULL_INTERVAL_SECONDS`) and the push after each
       learn's commit run on background threads, so a reply never waits on
       the network. A push rebases once if another device pushed first. Failures leave the local
-      checkout usable and show in `integration_health` as "Second Brain".
+      checkout usable and show in `integration_health` as "Siris".
       The image now includes `git`.
     - **Setup:** `git clone git@github.com:bradmairs/Siris-Second-Brain.git
       data/second-brain` (already inside the mounted volume), then set
@@ -5270,7 +5270,7 @@ provider for the same capability actually exists to design against.
       git sync against a real local remote, a background pull, a push that
       has to rebase, and a sync failure that must not fail the write.
 
-121. **Done** -- The second brain everywhere, and growing by itself.
+121. **Done** -- Siris everywhere, and growing by itself.
 
     - **Chat context:** the context engine adds the top second-brain matches
       for each message (`SIRISAI_BRAIN_CONTEXT_NOTES`, default 3, strong
@@ -5321,7 +5321,7 @@ provider for the same capability actually exists to design against.
       its scheduling (once per day, the weekly day only, failures marked
       and not retried), and strict parsing of the model's notes.
 
-122. **Done** -- The second brain files things itself. Every write now
+122. **Done** -- Siris files things itself. Every write now
     goes through the vault's router (`brain.py route`, in the vault). It
     decides whether a memory updates a note Siris already knows or starts
     a new person, project, resource or note, and which folder it goes in
@@ -5337,7 +5337,7 @@ provider for the same capability actually exists to design against.
       the router's real decision: folder, type, areas and why.
     - The nightly dream no longer forces every note to be a plain "note".
     - Mirrored results include the areas chosen.
-123. **Done** -- SirisAI runs the second brain's nightly upkeep itself, on
+123. **Done** -- SirisAI runs Siris' nightly upkeep itself, on
     the local model, replacing the Claude Code routine (which couldn't
     reach the vault from the cloud). At `SIRISAI_BRAIN_UPKEEP_HOUR_LOCAL`
     (default 2:00) the `upkeep` job in `app/second_brain/jobs.py`:
@@ -5374,7 +5374,7 @@ provider for the same capability actually exists to design against.
       mode, which integrations are configured, which sections are personal.
     - `GET /siris/hub/v1/brief` -- the day as data, no LLM: weather now and
       today, calendar, to-dos, unread and important email, health against
-      your baseline, the car, parcels, cheap power, the second brain's
+      your baseline, the car, parcels, cheap power, Siris'
       overdue tasks/deadlines/inbox/links, and attention counts. Each
       section fails alone: not configured -> `null`; configured but failed
       -> `null` and named in `unavailable`.
@@ -5502,7 +5502,7 @@ provider for the same capability actually exists to design against.
         The browser run caught one bug: a sheet opened from a glass card
         rendered inside the card. SirisOS sheets now render in a portal.
 
-129. **Done** -- The second brain checks on itself, answers questions, and
+129. **Done** -- Siris checks on itself, answers questions, and
     takes Claude chats (vault release 1.2).
     - **Is it still learning?** The nightly upkeep always ends with a quiet
       one-line summary: how many notes were learned or updated in the last
@@ -5708,7 +5708,7 @@ provider for the same capability actually exists to design against.
       - matches the SirisOS project by name or id;
       - writes a markdown note (inputs with labels and units, results,
         the cited answer, or "the library doesn't hold enough" when it
-        doesn't, plus your notes) and saves it to the Second Brain, tagged
+        doesn't, plus your notes) and saves it to Siris, tagged
         `calc-note` and linked to the project.
     - **CPD and chartership evidence capture**
       (`app/career/capture.py`, 6pm):
@@ -5723,7 +5723,7 @@ provider for the same capability actually exists to design against.
         questions. It suggests the open competency elements SirisOS lists
         that fit;
       - `career_log_cpd` logs one in chat, and `career_drafts` lists them.
-      Kept drafts go to the Second Brain and export as CSV
+      Kept drafts go to Siris and export as CSV
       (`GET /siris/career/drafts?format=csv`) to copy into Engineers
       Australia, where CPD is actually logged.
     - **Approve or Decline from the phone.** A held action's push now
@@ -5899,7 +5899,7 @@ Actions that need confirmation (locks, garage doors, automations, code changes)
 are not run from Shortcuts: the reply tells you to approve them in the web UI.
 
 **Ask my brain.** The same Shortcut works with `POST /siris/brain/ask`. That
-answers only from your second brain, names the notes it used, and says how
+answers only from Siris, names the notes it used, and says how
 current they are. Make the Request Body **JSON** with a `question` field set
 to the *Provided Input*, then **Speak Text** with the dictionary value
 `answer`.
