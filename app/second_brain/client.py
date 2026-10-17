@@ -135,6 +135,24 @@ class SecondBrainClient:
             self._schedule_push()
         return result
 
+    ATTACHMENTS = "Attachments"
+
+    def save_attachment(self, name: str, data: bytes) -> str:
+        """Write a file (a captured photo) into the vault's Attachments/
+        folder and return its path inside the vault, for an Obsidian embed
+        (`![[Attachments/name]]`). It's committed with the next write."""
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in name).strip("-.") or "attachment"
+        with self._lock:
+            folder = self.path / self.ATTACHMENTS
+            folder.mkdir(parents=True, exist_ok=True)
+            target = folder / safe
+            stem, suffix, n = target.stem, target.suffix, 2
+            while target.exists():
+                target = folder / f"{stem}-{n}{suffix}"
+                n += 1
+            target.write_bytes(data)
+        return f"{self.ATTACHMENTS}/{target.name}"
+
     def inbox(self) -> dict:
         """What's waiting in 00-Inbox: `memory` (the memory inbox's entries: `id`,
         `date`, `text`, `plain`) and `notes` (other captures: `title`, `path`, `type`,

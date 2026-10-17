@@ -13,6 +13,7 @@ every note.
 """
 
 import asyncio
+import base64
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -37,11 +38,32 @@ def _brain(siris: SirisAI) -> SecondBrainClient:
     return siris.second_brain
 
 
+IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "image/heif": "heif", "image/webp": "webp", "image/gif": "gif"}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_IMAGE_CHARS = MAX_IMAGE_BYTES * 4 // 3 + 100
+
+
+def _decode_image(data_url: str) -> tuple[bytes, str]:
+    match = re.fullmatch(r"data:([\w/+.-]+);base64,([A-Za-z0-9+/=\s]+)", data_url.strip())
+    if not match or match.group(1).lower() not in IMAGE_TYPES:
+        raise HTTPException(status_code=422, detail="The photo must be a JPEG, PNG, HEIC, WebP or GIF data URL.")
+    try:
+        raw = base64.b64decode(match.group(2), validate=False)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="The photo isn't valid base64.") from None
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="The photo is larger than 10 MB.")
+    return raw, IMAGE_TYPES[match.group(1).lower()]
+
+
 class CaptureRequest(BaseModel):
     text: str = ""
     url: str = ""
     title: str = ""
     tags: list[str] = Field(default_factory=list)
+    # A photo as a data URL (data:image/jpeg;base64,...). Saved into the
+    # vault's Attachments/ and embedded in the note.
+    image: str = Field(default="", max_length=MAX_IMAGE_CHARS)
     # "chat": a whole conversation with Claude (or another assistant). It waits in the inbox and
     # the nightly upkeep pulls out what's worth keeping, then keeps the chat in 03-Resources/Claude Chats.
     kind: str = ""
@@ -61,16 +83,25 @@ def capture_title(text: str, url: str) -> str:
 @router.post("/capture")
 def capture(request: CaptureRequest, siris: SirisAI = Depends(get_siris)) -> dict:
     text, url = request.text.strip(), request.url.strip()
-    if not text and not url:
-        raise HTTPException(status_code=422, detail="Send some text, a url, or both.")
+    if not text and not url and not request.image:
+        raise HTTPException(status_code=422, detail="Send some text, a url, a photo, or a mix.")
+    brain = _brain(siris)
+    tags = {"capture", *[t.strip().lower() for t in request.tags if t.strip()]}
+    title = request.title.strip() or (capture_title(text, url) if text or url else f"Photo {clock.now_local(siris.settings.timezone):%Y-%m-%d %H:%M}")
     content = text or url
     if text and url:
         content += f"\n\n{url}"
+    if request.image:
+        raw, ext = _decode_image(request.image)
+        stamp = clock.now_local(siris.settings.timezone).strftime("%Y-%m-%d %H%M%S")
+        embed = brain.save_attachment(f"{stamp} {title[:60]}.{ext}", raw)
+        content = (content + "\n\n" if content else "") + f"![[{embed}]]"
+        tags.add("photo")
     item = {
-        "title": request.title.strip() or capture_title(text, url),
+        "title": title,
         "content": content,
         "type": "capture",
-        "tags": sorted({"capture", *[t.strip().lower() for t in request.tags if t.strip()]}),
+        "tags": sorted(tags),
     }
     if url:
         item["source"] = url
@@ -79,7 +110,7 @@ def capture(request: CaptureRequest, siris: SirisAI = Depends(get_siris)) -> dic
         item["title"] = f"Claude Chat {day} – {request.title.strip() or capture_title(text, url)}"[:120]
         item["tags"] = sorted({*item["tags"], "claude-chat"})
         item["source"] = f"Claude chat{': ' + url if url else ''}"   # distill_chats looks for this
-    return {"saved": True, **_brain(siris).learn([item])[0]}
+    return {"saved": True, **brain.learn([item])[0]}
 
 
 class AskRequest(BaseModel):

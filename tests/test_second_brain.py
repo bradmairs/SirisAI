@@ -609,6 +609,28 @@ def test_capture_a_link_keeps_it_as_the_source(brain_api) -> None:
     assert sent["title"] == "home-assistant.io – integrations – frigate"
 
 
+def test_a_photo_capture_is_saved_in_the_vault_and_embedded(brain_api) -> None:
+    import base64
+
+    client, vault = brain_api
+    jpeg = b"\xff\xd8\xff\xe0fake-jpeg"
+    data_url = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()
+    r = client.post("/siris/brain/capture", json={"text": "Pit lid cracked at Mooroopna PS", "image": data_url})
+    assert r.status_code == 200
+    sent = json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert sent["tags"] == ["capture", "photo"]
+    embed = sent["content"].split("![[")[1].rstrip("]")
+    assert sent["content"].startswith("Pit lid cracked at Mooroopna PS\n\n![[Attachments/")
+    assert (vault / embed).read_bytes() == jpeg and embed.endswith(".jpg")
+    # A photo on its own is titled by when it was taken; a second one never overwrites the first.
+    again = client.post("/siris/brain/capture", json={"image": data_url, "title": "Same"}).json()
+    client.post("/siris/brain/capture", json={"image": data_url, "title": "Same"})
+    assert again["saved"] is True and len(list((vault / "Attachments").iterdir())) == 3
+    alone = client.post("/siris/brain/capture", json={"image": data_url}).json()
+    assert json.loads(_calls(vault)[-1]["stdin"])[0]["title"].startswith("Photo ") and alone["saved"]
+    assert client.post("/siris/brain/capture", json={"image": "data:text/html;base64,PGI+"}).status_code == 422
+
+
 def test_capture_needs_something(brain_api) -> None:
     client, _ = brain_api
     assert client.post("/siris/brain/capture", json={}).status_code == 422

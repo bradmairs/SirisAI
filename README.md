@@ -5545,6 +5545,15 @@ provider for the same capability actually exists to design against.
     guest mode, a failing calendar, bad ranges), the forecast tool, and the
     new `calendar.json` and `forecast.json` contract examples.
 
+131. **Done** -- Photos in quick capture. `POST /siris/brain/capture` takes
+    an `image` (a JPEG, PNG, HEIC, WebP or GIF data URL, up to 10 MB) with
+    or without text. The photo is written to the vault's `Attachments/`
+    folder (never overwriting another), embedded in the capture as
+    `![[Attachments/...]]`, tagged `photo`, and committed with the note. A
+    photo on its own is titled by when it was taken. SirisOS's capture
+    button sends photos straight from the iPhone camera. Verified in
+    `tests/test_second_brain.py` against a real vault folder.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
