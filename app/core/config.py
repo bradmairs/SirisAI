@@ -211,6 +211,8 @@ class Settings(BaseSettings):
         "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
+        "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
+        "model_trial_hour_local",
         mode="before",
     )
     @classmethod
@@ -425,6 +427,37 @@ class Settings(BaseSettings):
     reflection_hour_local: int | None = 3
     goal_review_hour_local: int | None = 8
     goal_review_day: int = 0
+
+    # Upkeep (app/upkeep/): what keeps SirisAI running without tending.
+    # Backups of the SQLite database (blank hour = off), a restore drill on
+    # the 1st of each month, and daily housekeeping.
+    backup_hour_local: int | None = 2
+    backup_dir: str = ""  # default: backups/ next to the database
+    backup_keep: int = 14
+    backup_copy_to: str = ""  # a second folder (a NAS mount) to copy each backup to
+    restore_drill_hour_local: int | None = 4
+    housekeeping_hour_local: int | None = 5
+    audit_keep_days: int = 180
+    metrics_keep_days: int = 90
+    disk_warn_percent: float = 10.0
+    token_budget_daily: int = 0  # 0 = no budget
+    # Self-update (deploy/updater.sh applies it): off | notify | auto.
+    update_mode: str = "notify"
+    update_check_hour_local: int | None = 9
+    update_repo: str = "bradmairs/SirisAI"
+    update_dir: str = ""  # default: update/ next to the database
+    github_api_url: str = "https://api.github.com"
+    # Optional for update checks on a public repo; needed for issues and a
+    # private repo. A fine-grained token: Contents read, Issues read/write.
+    github_token: str = ""
+    # GitHub issues for problems SirisAI can't fix itself: blank repo = off;
+    # mode "ask" (in the attention feed) or "auto".
+    github_issues_repo: str = ""
+    github_issues_mode: str = "ask"
+    # Eval-gated model upgrades: comma-separated Ollama models to try weekly.
+    candidate_models: str = ""
+    model_trial_day: int = 6
+    model_trial_hour_local: int | None = 1
 
     # Background scheduler (app/core/scheduler.py): delivers due reminders and
     # timers and alerts when a tool has been failing. On by default.

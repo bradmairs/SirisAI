@@ -1,6 +1,7 @@
 """Jobs that run once a day (or week, or month) at a set local hour: the
 nightly reflection, the weekly goal review, and the upkeep jobs that keep
-SirisAI running without anyone tending it.
+SirisAI running without anyone tending it (app/upkeep/: backups, the
+restore drill, housekeeping, update checks, model trials).
 
 Each job runs on the first scheduler tick at or after its hour, on a day it
 hasn't already run, with the last run date kept in app_state so a restart
@@ -46,9 +47,44 @@ def _goal_review(siris: "SirisAI", now: datetime) -> Any:
     return review(siris, now)
 
 
+def _backup(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import backups
+
+    return backups.make_backup(siris, now)
+
+
+def _restore_drill(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import backups
+
+    return backups.restore_drill(siris, now)
+
+
+def _housekeeping(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import housekeeping
+
+    return housekeeping.run(siris, now)
+
+
+def _update_check(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import updates
+
+    return updates.check(siris, now)
+
+
+def _model_trial(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import models
+
+    return models.weekly(siris, now)
+
+
 JOBS: list[DailyJob] = [
     DailyJob("reflection", lambda s: s.settings.reflection_hour_local, _reflect),
     DailyJob("goal_review", lambda s: s.settings.goal_review_hour_local, _goal_review, weekday=lambda s: s.settings.goal_review_day),
+    DailyJob("backup", lambda s: s.settings.backup_hour_local, _backup),
+    DailyJob("restore_drill", lambda s: s.settings.restore_drill_hour_local, _restore_drill, monthday=1),
+    DailyJob("housekeeping", lambda s: s.settings.housekeeping_hour_local, _housekeeping),
+    DailyJob("update_check", lambda s: s.settings.update_check_hour_local if s.settings.update_mode != "off" else None, _update_check),
+    DailyJob("model_trial", lambda s: s.settings.model_trial_hour_local if s.settings.candidate_models else None, _model_trial, weekday=lambda s: s.settings.model_trial_day),
 ]
 
 

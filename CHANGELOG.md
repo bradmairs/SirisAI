@@ -5,6 +5,16 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.42 — 2026-10-17
+
+- Upkeep: SirisAI looks after itself
+- Nightly database backups (consistent, gzipped, newest 14 kept, optional copy to a NAS folder) and a monthly restore drill that proves the newest one opens.
+- Daily housekeeping: prunes old audit/metric/feed rows, watches disk space, database size and token use, and warns in the feed. Container logs capped in `deploy/`.
+- Self-update with rollback: SirisAI offers new releases (or applies them with `SIRISAI_UPDATE_MODE=auto`); `deploy/updater.sh` (`make auto-update`) applies them and rolls back if the new version isn't healthy or picks tools worse.
+- Files its own GitHub issues (asking first by default) for problems it can't fix, with secrets blanked.
+- Model upgrades gated by the tool-choice evals; a better candidate is offered, a worse one left alone.
+- `/siris/upkeep` routes and the `upkeep_status` tool.
+
 ## 1.32 — 2026-10-17
 
 - The learning loop: SirisAI learns from what you undo, correct, accept and ignore

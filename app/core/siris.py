@@ -292,6 +292,9 @@ from app.plugins.builtin.health_data import HealthSummaryTool
 from app.plugins.builtin.autonomy import WhatDidYouDoTool
 from app.plugins.builtin.learning import WhatHaveYouLearnedTool
 from app.goals import review as _goal_review  # noqa: F401 - registers its attention actions
+from app.plugins.builtin.upkeep import UpkeepStatusTool
+from app.upkeep import issues as _issues, updates as _updates  # noqa: F401 - register their attention actions
+from app.upkeep import models as upkeep_models
 from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
@@ -359,6 +362,7 @@ _CATEGORY_NAMES: dict[str, str] = {
     "explain_recent_action": "audit",
     "what_did_you_do": "audit",
     "what_have_you_learned": "audit",
+    "upkeep_status": "system",
     "report_capability_gap": "capabilities",
     "list_capability_gaps": "capabilities",
     "dismiss_capability_gap": "capabilities",
@@ -603,6 +607,7 @@ class SirisAI:
             else None
         )
         self._register_builtin_tools()
+        upkeep_models.apply_override(self)  # a model switched to after an eval trial
 
     def _register_builtin_tools(self) -> None:
         self.tools.register(EchoTool())
@@ -649,6 +654,7 @@ class SirisAI:
         self.tools.register(TrustLedgerTool(self.audit))
         self.tools.register(WhatDidYouDoTool(self))
         self.tools.register(WhatHaveYouLearnedTool(self))
+        self.tools.register(UpkeepStatusTool(self))
         self.tools.register(ReportCapabilityGapTool(self.capability_gaps))
         self.tools.register(ListCapabilityGapsTool(self.capability_gaps))
         self.tools.register(DismissCapabilityGapTool(self.capability_gaps))
