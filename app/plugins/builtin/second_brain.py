@@ -163,6 +163,30 @@ class BrainLinkNotesTool(Tool):
             return {"error": str(exc)}
 
 
+class BrainMarkReviewedTool(Tool):
+    name = "brain_mark_reviewed"
+    description = (
+        "Record that Brad checked a note Siris wrote in his second brain and it's right (\"the Plex note "
+        "looks right\", \"yes, the Home Server note is correct\"). It drops out of the weekly 'check "
+        "these notes' list. For a correction, use brain_learn with what's right instead."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {"title": {"type": "string", "description": "The note's title."}},
+        "required": ["title"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, title: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.mark_reviewed(title)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
 class BrainUnlinkNotesTool(Tool):
     name = "brain_unlink_notes"
     description = (

@@ -77,7 +77,8 @@ class ContextEngine:
         brain_notes = self._brain_notes(siris, prompt)
         if brain_notes:
             data_lines.append(
-                "Relevant notes from the user's second brain (cite them by title; brain_get_note reads one in full): "
+                "Relevant notes from the user's second brain (cite them by title; brain_get_note reads one in full; "
+                "facts that can change are true as of the date shown): "
                 + "; ".join(brain_notes)
             )
 
@@ -103,8 +104,10 @@ class ContextEngine:
             hits = brain.search(prompt, limit=limit)
         except Exception:
             return []
+        # "as of" says when the note was last added to: facts change, so answers can say how current they are.
         return [
-            f"[{sanitize_untrusted(h['title'], 80)}] " + sanitize_untrusted(" ".join(h.get("excerpts", [])[:1]), 300)
+            f"[{sanitize_untrusted(h['title'], 80)}{', as of ' + h['as_of'] if h.get('as_of') else ''}] "
+            + sanitize_untrusted(" ".join(h.get("excerpts", [])[:1]), 300)
             for h in hits
             if h.get("score", 0) >= _MIN_BRAIN_SCORE
         ]
