@@ -75,6 +75,23 @@ class FakeHA:
         return httpx.Response(404)
 
 
+class FakeCalendar:
+    """A CalendarSet for date-range reads."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.asked: list[tuple[Any, Any]] = []
+
+    def events_between(self, start: Any, end: Any) -> list[dict[str, Any]]:
+        self.asked.append((start, end))
+        if self.error:
+            raise self.error
+        return [
+            {"summary": "Bin night", "start": "2026-10-12", "end": "2026-10-13", "location": None, "calendar": "Home"},
+            {"summary": "Stormwater webinar (IPWEA)", "start": "2026-10-14T12:00:00+11:00", "end": "2026-10-14T13:30:00+11:00", "location": "Online", "calendar": "Work"},
+        ]
+
+
 def full_siris(**settings: Any) -> SirisAI:
     """A SirisAI with every brief source faked, deterministic enough to
     produce the contract examples."""
@@ -283,3 +300,31 @@ def test_hud_summary_leaves_personal_tiles_out_in_guest_mode(use) -> None:
     assert body["next_events"] is None and body["car"] is None and body["parcels"] is None and body["brain"] is None
     assert body["weather"]["temperature_c"] == 17.4 and body["guest_mode"]["on"] is True
     assert len(siris.tools.get("calendar_upcoming_events").calls) == calls_before  # never even read
+
+
+def test_calendar_range_reads_every_event_in_local_dates(use) -> None:
+    siris = full_siris()
+    siris.settings = siris.settings.model_copy(update={"timezone": "Australia/Melbourne"})
+    siris.calendar = FakeCalendar()  # type: ignore[assignment]
+    client = use(siris)
+    body = client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-19"}).json()
+    assert body["start"] == "2026-10-12" and body["end"] == "2026-10-19" and body["unavailable"] is False
+    assert [e["title"] for e in body["events"]] == ["Bin night", "Stormwater webinar (IPWEA)"]
+    assert body["events"][0]["all_day"] is True and body["events"][1]["calendar"] == "Work"
+    start, end = siris.calendar.asked[0]
+    assert start.isoformat() == "2026-10-12T00:00:00+11:00" and end.isoformat() == "2026-10-19T00:00:00+11:00"
+    assert client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-12"}).status_code == 422
+    assert client.get("/siris/hub/v1/calendar", params={"start": "2026-01-01", "end": "2026-06-01"}).status_code == 422
+
+
+def test_calendar_range_is_hidden_in_guest_mode_and_says_when_unavailable(use) -> None:
+    siris = full_siris()
+    client = use(siris)
+    assert client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-13"}).json()["unavailable"] is True
+    siris.calendar = FakeCalendar(RuntimeError("iCloud down"))  # type: ignore[assignment]
+    body = client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-13"}).json()
+    assert body["unavailable"] is True and body["events"] is None
+    siris.calendar = FakeCalendar()  # type: ignore[assignment]
+    guest.set_mode(siris, True)
+    body = client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-13"}).json()
+    assert body["guest_mode"] is True and body["events"] is None and body["unavailable"] is False

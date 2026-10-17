@@ -546,6 +546,8 @@ class SirisAI:
         self._plex_client: PlexClient | None = None
         self._unifi_client: UniFiClient | None = None
         self._weather_client: WeatherClient | None = None
+        # Every calendar as one (CalDAV + .ics feeds), for the hub's date-range reads.
+        self.calendar: CalendarSet | None = None
         self._notify_client: NotifyClient | None = None
         self._hermes_client: HermesClient | None = None
         self._tautulli_client: TautulliClient | None = None
@@ -792,6 +794,7 @@ class SirisAI:
                 exclude=self.settings.calendar_exclude,
                 timezone=self.settings.timezone,
             )
+            self.calendar = calendar_client
             self.tools.register(CalendarUpcomingEventsTool(calendar_client))
             self.tools.register(CalendarCheckConflictsTool(calendar_client))
             self.tools.register(CalendarCreateEventTool(calendar_client))

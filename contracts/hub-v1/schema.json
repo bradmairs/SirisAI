@@ -15,6 +15,9 @@
     "search": {
       "$ref": "#/$defs/SearchResults"
     },
+    "calendar": {
+      "$ref": "#/$defs/CalendarRange"
+    },
     "attention": {
       "$ref": "#/$defs/AttentionList"
     },
@@ -672,6 +675,55 @@
         "title"
       ],
       "title": "CalendarEvent",
+      "type": "object"
+    },
+    "CalendarRange": {
+      "additionalProperties": false,
+      "description": "Every event from `start` up to (not including) `end`, local dates.",
+      "properties": {
+        "start": {
+          "description": "First day, YYYY-MM-DD.",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "description": "The day after the last day, YYYY-MM-DD.",
+          "title": "End",
+          "type": "string"
+        },
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "events": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/CalendarEvent"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Null in guest mode or when no calendar answered.",
+          "title": "Events"
+        },
+        "unavailable": {
+          "default": false,
+          "description": "No calendar is set up, or every calendar failed.",
+          "title": "Unavailable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "guest_mode"
+      ],
+      "title": "CalendarRange",
       "type": "object"
     },
     "CameraLook": {

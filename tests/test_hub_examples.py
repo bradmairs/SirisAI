@@ -23,7 +23,7 @@ from app.main import app
 from app.notify.confirmation import notify_confirmation_needed
 from app.plugins.base import ToolPermission
 from tests.test_attention import Recorder
-from tests.test_hub import EXAMPLES, FakeHA, FakeLLM, _fake, _wire_ha, full_siris
+from tests.test_hub import EXAMPLES, FakeCalendar, FakeHA, FakeLLM, _fake, _wire_ha, full_siris
 
 WRITE = os.environ.get("HUB_WRITE_EXAMPLES") == "1"
 
@@ -108,6 +108,8 @@ def produced(client: TestClient) -> dict[str, Any]:
 
         siris.memory.remember("Brad's drainage reports use Hazen-Williams for water mains", user_id="brad")
         out["search"] = client.get("/siris/hub/v1/search", params={"q": "Hazen-Williams"}, headers=h).json()
+        siris.calendar = FakeCalendar()  # type: ignore[assignment]
+        out["calendar"] = client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-19"}, headers=h).json()
 
         notify_confirmation_needed(siris, "routine 'morning heat'", switch.name, {"domain": "switch", "service": "turn_on", "entity_id": "switch.heater"})
         siris.attention.raise_item("push:example", "alert", "SirisAI: plex needs you", source="self-healing", severity="urgent", body="plex is down and a restart didn't fix it.")

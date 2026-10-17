@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.11 — 2026-10-17
+
+- Hub calendar range: every event between two dates, for SirisOS's week view and CPD logging
+
 ## 1.1 — 2026-10-16
 
 - Delete and restore Second Brain notes: routes, plus brain_delete_note (asks first) and brain_restore_note

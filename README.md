@@ -5502,6 +5502,17 @@ provider for the same capability actually exists to design against.
         The browser run caught one bug: a sheet opened from a glass card
         rendered inside the card. SirisOS sheets now render in a portal.
 
+129. **Done** -- Calendar by date range for SirisOS. `GET
+    /siris/hub/v1/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD` returns every
+    event from every connected calendar (CalDAV and .ics feeds, with the
+    excluded ones left out) between two local dates, up to 62 days, in the
+    hub contract's `CalendarEvent` shape. Guest mode hides them, and
+    `unavailable` says when there's no calendar or every calendar failed.
+    SirisOS's week view and its "log this as CPD" suggestions read it.
+    Verified with a faked calendar set in `tests/test_hub.py` (local
+    midnight bounds in Australia/Melbourne, guest mode, a failing calendar,
+    bad ranges) and the new `calendar.json` contract example.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

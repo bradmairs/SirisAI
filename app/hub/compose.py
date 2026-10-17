@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Any, Callable
 
 from app.core import clock, guest
@@ -96,11 +98,7 @@ def weather(siris: "SirisAI") -> c.Weather:
     return c.Weather(now=now, today=today)
 
 
-def calendar(siris: "SirisAI") -> list[c.CalendarEvent]:
-    if siris.tools.get("calendar_upcoming_events") is not None:
-        events = _tool(siris, "calendar_upcoming_events", days_ahead=1) or []
-    else:
-        events = _tool(siris, "home_assistant_get_calendar_events", days=1) or []
+def _events(events: Any) -> list[c.CalendarEvent]:
     out = []
     for e in events if isinstance(events, list) else []:
         if not isinstance(e, dict):
@@ -119,8 +117,39 @@ def calendar(siris: "SirisAI") -> list[c.CalendarEvent]:
                 calendar=e.get("calendar") or None,
             )
         )
+    return out
+
+
+def calendar(siris: "SirisAI") -> list[c.CalendarEvent]:
+    if siris.tools.get("calendar_upcoming_events") is not None:
+        events = _tool(siris, "calendar_upcoming_events", days_ahead=1) or []
+    else:
+        events = _tool(siris, "home_assistant_get_calendar_events", days=1) or []
+    out = _events(events)
     out.sort(key=lambda e: (not e.all_day, e.start or ""))
     return out
+
+
+MAX_CALENDAR_DAYS = 62
+
+
+def calendar_range(siris: "SirisAI", start: date, end: date) -> c.CalendarRange:
+    """Every event from `start` up to (not including) `end`, local dates, in
+    time order. Hidden in guest mode; `unavailable` when there's no calendar
+    or every calendar failed."""
+    on, _ = _guest(siris)
+    base = c.CalendarRange(start=start.isoformat(), end=end.isoformat(), guest_mode=on, events=None)
+    if on:
+        return base
+    if siris.calendar is None:
+        return base.model_copy(update={"unavailable": True})
+    tz = ZoneInfo(siris.settings.timezone)
+    try:
+        raw = siris.calendar.events_between(datetime.combine(start, time.min, tz), datetime.combine(end, time.min, tz))
+    except Exception as exc:  # noqa: BLE001 - reported as unavailable, never a 500
+        logger.warning("Calendar range unavailable: %s", exc)
+        return base.model_copy(update={"unavailable": True})
+    return base.model_copy(update={"events": _events(raw)})
 
 
 def todo(siris: "SirisAI") -> list[c.TodoItem]:
