@@ -5,6 +5,14 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.52 — 2026-10-17
+
+- More useful: calc notes, CPD and evidence capture, phone approvals, morning triage
+- `engineering_calc_note`: runs a SirisOS calculator, checks the standards through SirisHydro with citations, ties it to a project and saves the write-up to the Second Brain.
+- Evening capture offers CPD-looking calendar events as CPD entries and a day of engineering work as chartership evidence; `career_log_cpd`, `career_drafts` and a CSV export for Engineers Australia.
+- Held actions get Approve and Decline buttons on the phone that act on the attention item itself.
+- Morning triage drafts replies to the emails that need you (saved as drafts; Send asks first) and flags calendar clashes.
+
 ## 1.42 — 2026-10-17
 
 - Upkeep: SirisAI looks after itself
