@@ -212,7 +212,7 @@ class Settings(BaseSettings):
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
-        "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
+        "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local", "onenote_hour_local",
         mode="before",
     )
     @classmethod
@@ -638,6 +638,18 @@ class Settings(BaseSettings):
     brain_upkeep_hour_local: int | None = 2
     brain_github_token: str = ""
     brain_github_owner: str = "bradmairs"
+    # OneNote import (app/onenote/): new and changed pages from Brad's OneNote
+    # notebooks into Siris' inbox each night, handwriting transcribed by the
+    # vision model below. Needs an Azure app registration (README, milestone
+    # 130) for onenote_client_id and a one-off sign-in:
+    # `docker exec -it sirisai-sirisai-1 python -m app.onenote.login`.
+    # onenote_notebooks: comma-separated notebook names; empty = all of them.
+    # onenote_max_pages: pages a night, so a first import spreads over nights.
+    onenote_client_id: str = ""
+    onenote_token_path: str = "data/onenote/token.json"
+    onenote_notebooks: str = ""
+    onenote_hour_local: int | None = 1
+    onenote_max_pages: int = 30
 
     # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
     # NVR with local object detection; SirisAI's first vision integration.

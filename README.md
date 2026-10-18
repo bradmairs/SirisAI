@@ -5761,6 +5761,48 @@ provider for the same capability actually exists to design against.
     the Siris vault engine 1.3 (`brain.py done`). SirisOS 2.7 puts a Done
     button on each item in Siris' "Coming up". Verified in
     `tests/test_second_brain.py`.
+136. **Done** -- OneNote into Siris (`app/onenote/`). Every night at
+    `SIRISAI_ONENOTE_HOUR_LOCAL` (1:00, before the 2:00 upkeep) SirisAI
+    reads new and changed pages from Brad's OneNote notebooks through
+    Microsoft Graph, read-only. OneNote notebooks in OneDrive aren't files
+    you can read off disk, so the API is the only reliable way in.
+    - Typed text becomes Markdown: headings, lists, to-dos as `- [ ]`,
+      tables and links. Pictures are saved in
+      `03-Resources/Attachments/OneNote` and embedded.
+    - Handwriting (OneNote ink) is drawn into images, kept with the note,
+      and transcribed by the local vision model (`SIRISAI_VISION_MODEL`;
+      `qwen2.5vl:7b` reads handwriting best of the small ones). It's marked
+      as a machine transcription to check, with `[illegible]` where it
+      couldn't read a word.
+    - A new page goes to Siris' inbox, so the upkeep's sort files it as a
+      new note or merges it into the note on the same topic. A page edited
+      later adds only what changed, as a dated update on wherever the page
+      ended up.
+    - At most `SIRISAI_ONENOTE_MAX_PAGES` (30) pages a night, oldest first,
+      so a big first import spreads over a few nights.
+      `SIRISAI_ONENOTE_NOTEBOOKS` limits it to some notebooks.
+    - If the sign-in expires you get one high-priority push saying how to
+      sign in again.
+
+    **Setting it up (once):**
+
+    1. At [entra.microsoft.com](https://entra.microsoft.com) (or the Azure
+       portal), go to **App registrations** and choose **New registration**.
+       Name it "SirisAI". Under supported account types choose **Personal
+       Microsoft accounts only**. Leave the redirect URI empty.
+    2. In the new app, open **Authentication** and turn on **Allow public
+       client flows**. Save.
+    3. Under **API permissions**, add **Microsoft Graph**, then
+       **Delegated permissions**: `Notes.Read` and `offline_access`.
+    4. Copy the **Application (client) ID** into
+       `SIRISAI_ONENOTE_CLIENT_ID`, set `SIRISAI_VISION_MODEL=qwen2.5vl:7b`
+       (`ollama pull qwen2.5vl:7b` first) and restart SirisAI.
+    5. Sign in: `docker exec -it sirisai-sirisai-1 python -m app.onenote.login`.
+       It prints a code; enter it at microsoft.com/devicelogin and sign in
+       with the OneDrive account (brad6491@gmail.com). The token is kept in
+       `data/onenote/token.json`, readable by the owner only.
+
+    Verified in `tests/test_onenote.py`.
 
 ## Connecting your calendars (Gmail and iCloud)
 
