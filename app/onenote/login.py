@@ -1,6 +1,7 @@
 """One-time Microsoft sign-in for the OneNote import, from the server:
 
-    docker exec -it sirisai-sirisai-1 python -m app.onenote.login
+    docker exec -it sirisai python -m app.onenote.login            # the deploy/ stack
+    docker exec -it sirisai-sirisai-1 python -m app.onenote.login  # SirisAI on its own
 
 It prints a code to enter at microsoft.com/devicelogin (any device), then
 saves a refresh token in SIRISAI_ONENOTE_TOKEN_PATH. Run it again if the

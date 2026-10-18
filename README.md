@@ -5797,7 +5797,8 @@ provider for the same capability actually exists to design against.
     4. Copy the **Application (client) ID** into
        `SIRISAI_ONENOTE_CLIENT_ID`, set `SIRISAI_VISION_MODEL=qwen2.5vl:7b`
        (`ollama pull qwen2.5vl:7b` first) and restart SirisAI.
-    5. Sign in: `docker exec -it sirisai-sirisai-1 python -m app.onenote.login`.
+    5. Sign in: `docker exec -it sirisai python -m app.onenote.login` with
+       the `deploy/` stack (`sirisai-sirisai-1` if SirisAI runs on its own).
        It prints a code; enter it at microsoft.com/devicelogin and sign in
        with the OneDrive account (brad6491@gmail.com). The token is kept in
        `data/onenote/token.json`, readable by the owner only.
