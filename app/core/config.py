@@ -642,7 +642,7 @@ class Settings(BaseSettings):
     # notebooks into Siris' inbox each night, handwriting transcribed by the
     # vision model below. Needs an Azure app registration (README, milestone
     # 130) for onenote_client_id and a one-off sign-in:
-    # `docker exec -it sirisai-sirisai-1 python -m app.onenote.login`.
+    # `docker exec -it sirisai python -m app.onenote.login`.
     # onenote_notebooks: comma-separated notebook names; empty = all of them.
     # onenote_max_pages: pages a night, so a first import spreads over nights.
     onenote_client_id: str = ""

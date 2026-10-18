@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.74 — 2026-10-18
+
+- OneNote sign-in steps name the right container for the deploy/ stack (sirisai)
+
 ## 1.73 — 2026-10-18
 
 - OneNote into Siris: nightly import of OneNote pages, handwriting transcribed by the local vision model

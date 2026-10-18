@@ -142,7 +142,8 @@ def run_import(siris: "SirisAI", now: datetime, client: OneNoteClient | None = N
     except OneNoteAuthError as exc:
         if not siris.state.get(AUTH_ALERT_KEY):
             _push(siris, "Siris can't read OneNote any more: the Microsoft sign-in has expired. On the server, run "
-                         "`docker exec -it sirisai-sirisai-1 python -m app.onenote.login`.",
+                         "`docker exec -it sirisai python -m app.onenote.login` (container `sirisai-sirisai-1` "
+                         "if SirisAI runs on its own).",
                   "Siris: OneNote sign-in needed", "high")
             siris.state.set(AUTH_ALERT_KEY, True)
         result = {"error": f"OneNote sign-in: {exc}"[:200]}
