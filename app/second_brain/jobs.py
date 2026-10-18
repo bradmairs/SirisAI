@@ -116,6 +116,9 @@ async def run_due(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
         jobs.append(("meetings", lambda: asyncio.to_thread(write_meeting_notes, siris, today)))
     if due("dream", s.brain_dream_hour_local):
         jobs.append(("dream", lambda: dream(siris, today)))
+    if s.onenote_client_id and due("onenote", s.onenote_hour_local):
+        from app.onenote.importer import run_import
+        jobs.append(("onenote", lambda: asyncio.to_thread(run_import, siris, now or datetime.now(UTC))))
     if due("upkeep", s.brain_upkeep_hour_local):
         jobs.append(("upkeep", lambda: upkeep(siris, now or datetime.now(UTC))))
     if local_now.weekday() == s.brain_weekly_day and due("weekly", s.brain_weekly_hour_local):
@@ -718,6 +721,11 @@ def _upkeep_message(out: dict[str, Any]) -> str | None:
     linked = (out.get("autolink") or {}).get("linked") or []
     if linked:
         parts.append(f"Linked {len(linked)} pair{'s' if len(linked) != 1 else ''} of notes it was sure about.")
+    onenote = out.get("onenote") or {}
+    if onenote.get("imported") or onenote.get("updated"):
+        hand = f", {onenote['handwritten']} handwritten" if onenote.get("handwritten") else ""
+        parts.append(f"Imported {len(onenote.get('imported') or [])} OneNote pages and updated "
+                     f"{len(onenote.get('updated') or [])}{hand}.")
     if github.get("updated"):
         parts.append("Project updates from GitHub: " + ", ".join(github["updated"][:6]) + ".")
     waiting = (memory.get("left") or 0) + len(inbox.get("left") or [])
@@ -759,6 +767,13 @@ def _upkeep_alert(out: dict[str, Any]) -> str | None:
     return " ".join(alerts) or None
 
 
+async def _onenote_last_run(siris: "SirisAI", now: datetime) -> dict[str, Any]:
+    from app.onenote.importer import LAST_RUN_KEY
+    last = siris.state.get(LAST_RUN_KEY) or {}
+    local = now.astimezone(clock.get_zone(siris.settings.timezone)).date().isoformat()
+    return last if last.get("date") == local else {}
+
+
 async def upkeep(siris: "SirisAI", now: datetime) -> dict[str, Any]:
     """The nightly tidy, run by SirisAI with its own (local) model: file the memory
     inbox and the other captures, add the day's GitHub work to project notes, then
@@ -767,6 +782,7 @@ async def upkeep(siris: "SirisAI", now: datetime) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for name, step in (
         ("memory", lambda: file_memory_inbox(siris)),
+        ("onenote", lambda: _onenote_last_run(siris, now)),   # what tonight's import brought in, for the summary
         ("chats", lambda: distill_chats(siris)),   # before the sort, which files what it pulls out
         ("inbox", lambda: file_inbox_notes(siris)),
         ("github", lambda: github_activity(siris, now)),
