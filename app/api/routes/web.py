@@ -29,8 +29,8 @@ _MANIFEST: dict[str, Any] = {
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
-    "background_color": "#14161a",
-    "theme_color": "#14161a",
+    "background_color": "#000000",
+    "theme_color": "#000000",
     "icons": [
         {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
         {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
@@ -65,6 +65,13 @@ def hud(request: Request, settings: Settings = Depends(get_settings)) -> Respons
     """Full-screen wall-tablet dashboard (app/web/static/hud.html). Open once
     as /hud?key=YOUR_API_KEY to store the key in that browser."""
     return _page(request, settings, _STATIC / "hud.html")
+
+
+@router.get("/siris-glass.css")
+def glass_css() -> FileResponse:
+    """SirisOS's Liquid Glass tokens and materials, shared by every page here
+    so SirisAI looks like SirisOS (app/web/static/siris-glass.css)."""
+    return FileResponse(_STATIC / "siris-glass.css", media_type="text/css", headers={"Cache-Control": "public, max-age=3600"})
 
 
 @router.get("/manifest.webmanifest")

@@ -5805,6 +5805,41 @@ provider for the same capability actually exists to design against.
 
     Verified in `tests/test_onenote.py`.
 
+137. **Done** -- One look across SirisAI and SirisOS. The web UI, HUD and mind
+    map now use SirisOS's Liquid Glass design system (its ADR 106) instead
+    of SirisAI's old flat grey theme.
+    - `app/web/static/siris-glass.css` (served at `/siris-glass.css`)
+      carries SirisOS's tokens with the same names and values: near-black
+      with ice-blue light, `--brain` violet, the glass fills, rims and
+      sheen, and the radii and springs. It also has the static wallpaper
+      (colour pools and the faint HUD grid) and the glass material. Change
+      a token there when SirisOS changes it.
+    - The chat UI has:
+      - a floating glass header, with SirisOS's dock "lens" under the
+        active tab;
+      - a glass pane for every view, with glass cards for memories,
+        goals, routines, protocols, cron, gaps and activity;
+      - SirisOS's fields and its tinted pill for primary actions;
+      - chat bubbles in the accent tint (yours) and glass (Siris's);
+      - a pill composer that glows when focused, and thinking shown in
+        `--brain` violet.
+      Status colours come from `--good`, `--warning` and `--critical`
+      instead of hard-coded hex.
+    - **Light theme** is opt-in, as in SirisOS: a "Light theme" switch in
+      the settings row sets `data-theme="light"`. It's applied before first
+      paint, so dark never flashes.
+    - The HUD keeps its layout, with SirisOS glass panels and chips over the
+      same wallpaper. The mind map's loading screen matches.
+    - Lists use the glass look without a backdrop blur (`.glass-card`), so
+      long chats and lists scroll smoothly. Everything falls back to solid
+      surfaces under `prefers-reduced-transparency` and stops moving under
+      `prefers-reduced-motion`.
+    - **Verified:** a test checks the stylesheet carries SirisOS's tokens
+      and every page loads it. Also screenshotted in Chromium at 1280 px and
+      390 px, dark and light: chat, memory, goals and the HUD, with no page
+      errors and no horizontal scroll. That caught the API key row wrapping
+      on a phone, now fixed.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
