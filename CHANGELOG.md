@@ -5,6 +5,13 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.84 — 2026-10-19
+
+- SirisAI's web UI, HUD and mind map now use SirisOS's Liquid Glass look
+- A shared `/siris-glass.css` with SirisOS's tokens, wallpaper and glass material (SirisOS ADR 106).
+- Glass header with the dock's active-tab lens, glass views and cards, tinted pill buttons, accent and glass chat bubbles, a pill composer.
+- An opt-in light theme, as in SirisOS, from the settings row.
+
 ## 1.74 — 2026-10-18
 
 - OneNote sign-in steps name the right container for the deploy/ stack (sirisai)

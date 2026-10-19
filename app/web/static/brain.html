@@ -3,15 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
 <title>Siris Mind Map</title>
+<link rel="stylesheet" href="/siris-glass.css">
 <style>
-  html, body { height: 100%; margin: 0; background: #04050c; color: #8a93b8; font: 13px/1.5 ui-monospace, Menlo, monospace; }
+  html, body { height: 100%; margin: 0; color: var(--ink-2); font: 14px/1.5 var(--font); }
   main { height: 100%; display: grid; place-items: center; text-align: center; padding: 0 16px; }
-  b { color: #7df9ff; font-weight: 500; }
+  #status { margin: 0; padding: 16px 22px; max-width: 34rem; border-radius: var(--r-lg); }
+  b { color: var(--brain); font-weight: 600; font-family: var(--mono); }
 </style>
 </head>
 <body>
-<main><p id="status">Loading the brain…</p></main>
+<div class="wallpaper" aria-hidden="true"><div class="wallpaper__blob"></div><div class="wallpaper__blob"></div><div class="wallpaper__blob"></div><div class="wallpaper__blob"></div><div class="wallpaper__grain"></div></div>
+<main><p id="status" class="glass">Loading the brain…</p></main>
 <script>
   // The map embeds every note, so it's fetched with the API key rather than served openly.
   // Open once as /brain?key=YOUR_API_KEY to store the key in this browser (same as /hud).

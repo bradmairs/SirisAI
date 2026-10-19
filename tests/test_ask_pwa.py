@@ -106,3 +106,18 @@ def test_page_links_the_manifest_and_touch_icon(client: TestClient) -> None:
     html = client.get("/").text
     assert 'rel="manifest" href="/manifest.webmanifest"' in html
     assert 'rel="apple-touch-icon"' in html and "apple-mobile-web-app-capable" in html
+
+
+def test_every_page_uses_sirisos_liquid_glass(client: TestClient) -> None:
+    """One look across SirisAI and SirisOS: the shared stylesheet carries
+    SirisOS's tokens (ADR 106), and every page loads it and its wallpaper."""
+    css = client.get("/siris-glass.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+    for token in ("--accent: #5fd3ff", "--brain: #9b72f7", "--glass-fill: rgba(8, 14, 20, 0.62)", ':root[data-theme="light"]', "prefers-reduced-transparency"):
+        assert token in css.text
+    for page in ("/", "/hud", "/brain"):
+        html = client.get(page).text
+        assert '<link rel="stylesheet" href="/siris-glass.css"' in html and 'class="wallpaper"' in html
+    index = client.get("/").text
+    assert 'id="light-theme-toggle"' in index and 'localStorage.getItem("siris-theme")' in index
+    assert client.get("/manifest.webmanifest").json()["theme_color"] == "#000000"

@@ -1,0 +1,283 @@
+/* SirisOS's Liquid Glass design system (SirisOS ADR 106, apps/web/src/glass/
+ * glass.css), shared by SirisAI's web UI, HUD and brain map so the two apps
+ * look like one. Keep the tokens in step with SirisOS: same names, same
+ * values. Served at /siris-glass.css.
+ *
+ * Dark by default (near-black with ice-blue light); light is opt-in with
+ * data-theme="light" on <html>, as in SirisOS. Glass degrades to solid
+ * surfaces under prefers-reduced-transparency and stops moving under
+ * prefers-reduced-motion.
+ */
+
+:root {
+  color-scheme: dark;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+
+  --accent: #5fd3ff;
+  --brain: #9b72f7;
+  --accent-strong: #26a9e0;
+  --accent-ink: #03121c;
+  --accent-2: #8af5c8;
+  --accent-glow: rgba(95, 211, 255, 0.45);
+
+  --ink: #e4f3fc;
+  --ink-2: rgba(220, 238, 250, 0.74);
+  --ink-3: #7c93a6;
+  --ink-inverse: #05080d;
+
+  --bg: #000000;
+  --wall-1: #0b3a5c;
+  --wall-2: #1586b8;
+  --wall-3: #071b2c;
+  --wall-4: #0d5770;
+
+  --glass-fill: rgba(8, 14, 20, 0.62);
+  --glass-fill-strong: rgba(2, 5, 8, 0.88);
+  --glass-fill-clear: rgba(8, 14, 20, 0.3);
+  --glass-blur: 26px;
+  --glass-sat: 160%;
+  --glass-rim-hi: rgba(120, 215, 255, 0.42);
+  --glass-rim-lo: rgba(96, 200, 255, 0.05);
+  --glass-sheen: rgba(95, 211, 255, 0.05);
+  --glass-shadow: 0 1px 1px rgba(0, 0, 0, 0.4), 0 14px 44px rgba(0, 0, 0, 0.6);
+  --glass-solid: #05090d;
+  --hairline: rgba(96, 200, 255, 0.14);
+
+  --good: #8af5c8;
+  --warning: #ffb547;
+  --critical: #ff6b6b;
+  --neutral: rgba(124, 147, 166, 0.85);
+
+  --r-xl: 34px;
+  --r-lg: 26px;
+  --r-md: 18px;
+  --r-sm: 12px;
+  --r-pill: 999px;
+
+  --gutter: 16px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  --spring: cubic-bezier(0.32, 1.32, 0.42, 1);
+  --ease: cubic-bezier(0.25, 0.9, 0.3, 1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --accent: #0a84c6;
+  --brain: #7c3aed;
+  --accent-strong: #0670a8;
+  --accent-ink: #ffffff;
+  --accent-glow: rgba(10, 132, 198, 0.3);
+  --ink: rgba(6, 18, 28, 0.94);
+  --ink-2: rgba(6, 18, 28, 0.66);
+  --ink-3: rgba(6, 18, 28, 0.45);
+  --ink-inverse: #ffffff;
+  --bg: #eef4f8;
+  --wall-1: #8fd3f5;
+  --wall-2: #b7e9ff;
+  --wall-3: #c9d8e8;
+  --wall-4: #a6e8dc;
+  --glass-fill: rgba(255, 255, 255, 0.42);
+  --glass-fill-strong: rgba(255, 255, 255, 0.72);
+  --glass-fill-clear: rgba(255, 255, 255, 0.18);
+  --glass-rim-hi: rgba(255, 255, 255, 0.95);
+  --glass-rim-lo: rgba(255, 255, 255, 0.25);
+  --glass-sheen: rgba(255, 255, 255, 0.5);
+  --glass-shadow: 0 1px 1px rgba(10, 40, 60, 0.06), 0 12px 36px rgba(10, 40, 60, 0.14);
+  --glass-solid: #f7fbfd;
+  --hairline: rgba(6, 18, 28, 0.1);
+  --good: #047857;
+  --warning: #b45309;
+  --critical: #c81e2c;
+  --neutral: rgba(6, 18, 28, 0.5);
+}
+
+html {
+  background: var(--bg);
+}
+
+/* No body background: it would paint over the fixed wallpaper (z-index -1). */
+html,
+body {
+  color: var(--ink);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- wallpaper */
+
+.wallpaper {
+  position: fixed;
+  inset: -20vmax;
+  z-index: -1;
+  background: var(--bg);
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+
+/* Static colour pools: an animated backdrop makes every glass panel above it
+ * re-blur on every frame (SirisOS found this the main source of jank). */
+.wallpaper__blob {
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--blob), transparent);
+  opacity: 0.06;
+}
+
+.wallpaper__blob:nth-child(1) { --blob: var(--wall-1); top: 0; left: 5%; }
+.wallpaper__blob:nth-child(2) { --blob: var(--wall-2); top: 35%; left: 55%; opacity: 0.4; }
+.wallpaper__blob:nth-child(3) { --blob: var(--wall-3); top: 55%; left: -5%; opacity: 0.45; }
+.wallpaper__blob:nth-child(4) { --blob: var(--wall-4); top: -10%; left: 60%; opacity: 0.3; }
+
+/* A faint HUD grid with a vignette, so the glass has something to refract. */
+.wallpaper__grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgba(95, 211, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(95, 211, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 0%, transparent 85%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 0%, transparent 85%);
+}
+
+:root[data-theme="light"] .wallpaper__grain { opacity: 0.2; }
+
+/* ----------------------------------------------------------------- material */
+
+/* .glass blurs what's behind it (bars, docks, sheets); .glass-card is the
+ * same look without the backdrop blur, for the many cards and bubbles in a
+ * list, where blurring each one would make scrolling stutter. */
+.glass,
+.glass-card {
+  position: relative;
+  isolation: isolate;
+  background: var(--glass-fill);
+  border-radius: var(--r-lg);
+  box-shadow: var(--glass-shadow);
+}
+
+.glass {
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+}
+
+/* Light-catching rim: brightest top-left, fading round the edge. */
+.glass::before,
+.glass-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    var(--glass-rim-hi) 0%,
+    var(--glass-rim-lo) 32%,
+    transparent 55%,
+    var(--glass-rim-lo) 78%,
+    var(--glass-rim-hi) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Specular sheen: a soft highlight pooled under the top edge. */
+.glass::after,
+.glass-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(120% 60% at 20% 0%, var(--glass-sheen), transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 40%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.glass--strong { background: var(--glass-fill-strong); }
+.glass--clear { background: var(--glass-fill-clear); --glass-blur: 18px; }
+.glass--pill { border-radius: var(--r-pill); }
+.glass--md { border-radius: var(--r-md); }
+
+.glass--tint {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 88%, white 12%), var(--accent-strong));
+  color: var(--accent-ink);
+  box-shadow: var(--glass-shadow), 0 0 22px var(--accent-glow);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-card,
+  .glass--clear,
+  .glass--strong {
+    background: var(--glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .wallpaper__blob { opacity: 0.18; }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: var(--glass-solid); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ----------------------------------------------------------------- controls */
+
+.section-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink-2);
+}
+
+.tone-good { color: var(--good); }
+.tone-warning { color: var(--warning); }
+.tone-critical { color: var(--critical); }
+.muted { color: var(--ink-3); }
+
+@keyframes rise {
+  from { transform: translateY(14px) scale(0.985); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
