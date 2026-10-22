@@ -5,6 +5,14 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.04 — 2026-10-22
+
+- Reboot and shut down one, several or all servers, always asking first
+- `ssh_power`: reboot, shutdown (now or after a delay) or cancel a pending one, on a server, a list, or all.
+- Always needs a tap on Allow/Approve: never a spoken "yes", never on SirisAI's own initiative.
+- Non-root accounts need passwordless sudo for just the power commands (deploy/README.md has the rule); the reply says so when it's missing.
+- `SIRISAI_SSH_SELF_SERVER` makes "all" do SirisAI's own machine last; `SIRISAI_SSH_ALLOW_POWER=false` turns it off.
+
 ## 1.94 — 2026-10-22
 
 - SSH to servers on your network: health checks and commands, with changes asking first

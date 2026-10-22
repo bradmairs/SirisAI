@@ -44,8 +44,19 @@ def classify_reply(text: str) -> str | None:
     return None
 
 
+# Too big to approve with a spoken "yes" (a TV or a guest can say yes): these
+# wait for a tap on Allow or Approve instead.
+NEVER_BY_VOICE = frozenset({"ssh_power"})
+
+
 def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:
     """A short spoken description of a pending tool call."""
+    if tool_name == "ssh_power":
+        action = str(arguments.get("action") or "reboot")
+        delay = int(arguments.get("delay_minutes") or 0)
+        when = f" in {delay} minutes" if delay > 0 and action != "cancel" else ""
+        what = "cancel the pending shutdown on" if action == "cancel" else action
+        return f"{what} {arguments.get('servers') or 'the server'}{when}"
     if tool_name == "home_assistant_call_service":
         service = str(arguments.get("service", "")).replace("_", " ")
         target = arguments.get("entity_id") or arguments.get("domain") or ""
@@ -61,6 +72,8 @@ def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:
 
 
 def voice_confirmable(tool_name: str, arguments: dict[str, Any], blocked_domains: set[str]) -> bool:
+    if tool_name in NEVER_BY_VOICE:
+        return False
     if tool_name == "home_assistant_call_service":
         domain = str(arguments.get("domain", "")).lower()
         entity = str(arguments.get("entity_id") or "").lower()

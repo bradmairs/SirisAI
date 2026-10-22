@@ -155,6 +155,23 @@ status, logs) run straight away; anything that changes something asks you
 first, showing the server and the exact command. Use a non-root account on
 each server unless you want SirisAI able to do root things with your OK.
 
+### Reboot and shut down
+
+"Reboot the NAS", "shut down all the servers in 10 minutes" and "cancel the
+shutdown" always ask first (tap Allow or Approve; a spoken "yes" isn't
+enough). With a non-root account, allow just the power commands without a
+password, on each server:
+
+```bash
+echo "brad ALL=(root) NOPASSWD: /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff, /usr/sbin/shutdown" | sudo tee /etc/sudoers.d/sirisai
+sudo chmod 440 /etc/sudoers.d/sirisai && sudo visudo -cf /etc/sudoers.d/sirisai
+```
+
+(Check the paths with `which systemctl shutdown`.) If SirisAI itself runs on
+one of the servers, set `SIRISAI_SSH_SELF_SERVER` to its name, so "all" does
+that one last. Note that shutting down the server SirisAI runs on takes
+SirisAI down with it, until someone turns it back on.
+
 ## Data and backups
 
 Everything that matters is in `./data`:

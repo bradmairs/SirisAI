@@ -225,7 +225,7 @@ from app.reminders.service import ReminderStore
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
 from app.cron.client import CronHostsClient, parse_cron_hosts
-from app.plugins.builtin.ssh import SshListServersTool, SshRunTool, SshServerHealthTool
+from app.plugins.builtin.ssh import SshListServersTool, SshPowerTool, SshRunTool, SshServerHealthTool
 from app.ssh.client import SshClient, parse_ssh_hosts
 from app.frigate.client import FrigateClient
 from app.listenarr.client import ListenarrClient
@@ -1012,6 +1012,13 @@ class SirisAI:
                     self.ssh_client,
                     safe_prefixes=[c.strip() for c in self.settings.ssh_safe_commands.split(",") if c.strip()],
                     allow_changes=self.settings.ssh_allow_changes,
+                )
+            )
+            self.tools.register(
+                SshPowerTool(
+                    self.ssh_client,
+                    self_server=self.settings.ssh_self_server,
+                    allowed=self.settings.ssh_allow_power and self.settings.ssh_allow_changes,
                 )
             )
 
