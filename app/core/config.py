@@ -709,6 +709,18 @@ class Settings(BaseSettings):
     # GET /siris/cron_jobs returns an empty list).
     cron_hosts: str = ""
 
+    # SSH to servers on the home network (app/ssh/, app/plugins/builtin/ssh.py):
+    # comma-separated "name=user@host[:port]", e.g.
+    # "nas=brad@192.168.0.127,pi=root@192.168.0.83". Uses the same ambient SSH
+    # identity as the cron overview (no key setting here). Empty = the cron
+    # hosts, if any. Look-only commands run straight away; anything else asks
+    # first, and with ssh_allow_changes=False never runs. ssh_safe_commands adds
+    # command prefixes to treat as look-only, e.g. "pihole status,zpool status".
+    ssh_hosts: str = ""
+    ssh_allow_changes: bool = True
+    ssh_safe_commands: str = ""
+    ssh_command_timeout_seconds: float = 30.0
+
     # Conversation handoff between rooms (app/satellites/service.py,
     # milestone 75). Each satellite process keeps its own local
     # conversation_id in memory (satellite/siris_satellite/client.py) --
