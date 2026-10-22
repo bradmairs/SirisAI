@@ -5,6 +5,14 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 1.94 — 2026-10-22
+
+- SSH to servers on your network: health checks and commands, with changes asking first
+- `SIRISAI_SSH_HOSTS` names the servers (blank uses the cron hosts); same SSH key as the cron overview.
+- `ssh_server_health` reports load, memory, disks and failed services with warnings; `ssh_run` runs a command.
+- Look-only commands run straight away; anything else (or anything touching secrets) asks first. `SIRISAI_SSH_ALLOW_CHANGES=false` makes it look-only.
+- Server output is treated as untrusted text.
+
 ## 1.84 — 2026-10-19
 
 - SirisAI's web UI, HUD and mind map now use SirisOS's Liquid Glass look

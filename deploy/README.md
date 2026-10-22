@@ -136,6 +136,25 @@ When a new SirisAI release is out, SirisAI says so in the attention feed
 `./updater.sh uninstall` removes the cron entry. `make update` still
 updates by hand, without the checks.
 
+## SSH to your other servers
+
+SirisAI can check on and run commands on other machines on your network
+("how's the NAS?", "restart nginx on the web box"). Give it a key once, then
+name the servers in `sirisai.env`:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C sirisai -f data/sirisai/ssh/id_ed25519
+ssh-copy-id -i data/sirisai/ssh/id_ed25519.pub brad@192.168.0.127   # once per server
+echo 'SIRISAI_SSH_HOSTS=nas=brad@192.168.0.127,pi=root@192.168.0.83' >> sirisai.env
+make restart
+```
+
+The key lives in `data/sirisai/ssh`, mounted as the container's `~/.ssh`, so
+it survives rebuilds. Commands that only look (uptime, disk, memory, service
+status, logs) run straight away; anything that changes something asks you
+first, showing the server and the exact command. Use a non-root account on
+each server unless you want SirisAI able to do root things with your OK.
+
 ## Data and backups
 
 Everything that matters is in `./data`:

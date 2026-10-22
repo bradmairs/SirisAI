@@ -5840,6 +5840,51 @@ provider for the same capability actually exists to design against.
       errors and no horizontal scroll. That caught the API key row wrapping
       on a phone, now fixed.
 
+138. **Done** -- SSH to the servers on the home network (`app/ssh/`). Name
+    them in `SIRISAI_SSH_HOSTS` ("nas=brad@192.168.0.127,pi=root@...";
+    blank uses the cron hosts) and ask "how's the NAS?" or "restart nginx on
+    the web box". It uses the same ambient SSH identity as the cron overview
+    (deploy/: `data/sirisai/ssh`), with BatchMode, so a server without its
+    key fails fast instead of asking for a password.
+    - `ssh_list_servers`, and `ssh_server_health`: one fixed command per
+      server for load, CPUs, uptime, memory, disks and failed systemd units,
+      with plain warnings ("/mnt/media is 97% full (120G free)", "plex.service
+      has failed").
+    - `ssh_run` runs a command on a named server and returns stdout, stderr
+      and the exit code. Output is capped, keeping the end, and there's a
+      timeout. Only configured servers can be reached.
+    - **What asks first is decided in code, not by the model.** A command
+      runs straight away only if all of these hold:
+      - its program is on a short look-only list (uptime, df, free, ls,
+        tail, journalctl, `systemctl status`, `docker ps`/`logs`, `ip addr`,
+        `zpool status`...);
+      - it has no shell operators (`;`, `|`, `&&`, `>`, `$(`, backticks);
+      - it doesn't follow output (`-f`) or ping without a count;
+      - it doesn't mention anything secret-looking (`.ssh`, keys, `.env`,
+        shadow, tokens, `/proc/*/environ`, shell history);
+      - it isn't one of the ways a "look" command changes or leaks things
+        (`hostname NAME`, `date -s`, `mount DEV DIR`, `ip link set`,
+        `docker inspect` and `systemctl show`, which print env vars, or
+        `ps e`).
+      Anything else is held for Allow/Cancel (or Approve in the attention
+      feed when nobody's watching), showing the server and exact command.
+      `SIRISAI_SSH_ALLOW_CHANGES=false` makes it look-only;
+      `SIRISAI_SSH_SAFE_COMMANDS` adds your own look-only prefixes.
+    - Server output counts as untrusted text for the injection guard, so a
+      log line can't instruct SirisAI to save or run anything.
+    - **Verified:** 59 tests in `tests/test_ssh.py` against a stand-in `ssh`,
+      including 32 commands that must not count as look-only. Also live on
+      uvicorn against a real OpenSSH server (key-only login, a test user):
+      - `df -h /` and the health snapshot came straight back;
+      - `touch /tmp/...`, `cat .env` and `uptime; rm -rf ~` were all held
+        for confirmation, and nothing ran until confirmed;
+      - once confirmed, the touch ran (exit 0);
+      - an unreachable server reported "Connection refused", and an unknown
+        name was refused.
+      The tests caught `ip link set` slipping through as look-only, and a
+      review caught `docker inspect`, `systemctl show`, `ps e`, `hostname`,
+      `date -s` and `mount` too, all fixed.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

@@ -225,6 +225,8 @@ from app.reminders.service import ReminderStore
 from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
 from app.cron.client import CronHostsClient, parse_cron_hosts
+from app.plugins.builtin.ssh import SshListServersTool, SshRunTool, SshServerHealthTool
+from app.ssh.client import SshClient, parse_ssh_hosts
 from app.frigate.client import FrigateClient
 from app.listenarr.client import ListenarrClient
 from app.obsidian.client import ObsidianClient
@@ -332,6 +334,7 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("brain_", "second_brain"),
     ("synology_", "synology"),
     ("cron_", "cron"),
+    ("ssh_", "ssh"),
     ("frigate_", "frigate"),
     ("email_", "email"),
     ("car_", "car"),
@@ -589,6 +592,7 @@ class SirisAI:
             )
         self._synology_client: SynologyClient | None = None
         self.cron_client: CronHostsClient | None = None
+        self.ssh_client: SshClient | None = None
         self._speaker_encoder: SpeakerEncoder | None = None
         self._speaker_encoder_checked = False
         self._openapi_http_clients: list[httpx.Client] = []
@@ -995,6 +999,21 @@ class SirisAI:
             self.cron_client = CronHostsClient(parse_cron_hosts(self.settings.cron_hosts))
             self.tools.register(CronListJobsTool(self.cron_client))
             self.tools.register(CronSetJobEnabledTool(self.cron_client))
+
+        ssh_spec = self.settings.ssh_hosts or ",".join(
+            h.strip() for h in self.settings.cron_hosts.split(",") if h.strip()
+        )
+        if ssh_spec:
+            self.ssh_client = SshClient(parse_ssh_hosts(ssh_spec), timeout=self.settings.ssh_command_timeout_seconds)
+            self.tools.register(SshListServersTool(self.ssh_client))
+            self.tools.register(SshServerHealthTool(self.ssh_client))
+            self.tools.register(
+                SshRunTool(
+                    self.ssh_client,
+                    safe_prefixes=[c.strip() for c in self.settings.ssh_safe_commands.split(",") if c.strip()],
+                    allow_changes=self.settings.ssh_allow_changes,
+                )
+            )
 
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite

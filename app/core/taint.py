@@ -82,6 +82,9 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         "sirishydro_ask",
         # CPD activity titles come from Engineers Australia's record (event and course names).
         "career_cpd_status",
+        # Whatever a server prints: log lines and file contents are anyone's text.
+        "ssh_run",
+        "ssh_server_health",
     }
 )
 
