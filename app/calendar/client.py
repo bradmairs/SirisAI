@@ -18,6 +18,7 @@ from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 import caldav
+from app.calendar.ics import attendees
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class CalendarClient:
                             "end": dtend.dt.isoformat() if dtend else None,
                             "location": str(location) if location else None,
                             "calendar": cal.name,
+                            "attendees": attendees(component),
                         }
                     )
 

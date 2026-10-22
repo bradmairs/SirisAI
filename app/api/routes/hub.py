@@ -16,6 +16,12 @@ screen, daily brief, search, inbox and controls on.
     POST /siris/hub/v1/protocols/undo           {"confirmed": true}
     POST /siris/hub/v1/cameras/{camera}/look    {"question": "..."}
     POST /siris/hub/v1/llm/complete             a plain completion through the model router
+    GET  /siris/hub/v1/presence                 home or away, from the last presence check
+    GET  /siris/hub/v1/reminders                pending reminders ("remind me at 7")
+    POST /siris/hub/v1/reminders/{id}/done      cancel one that's no longer needed
+    GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
+    GET  /siris/hub/v1/upkeep                   backups and whether an update is waiting
+    GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first
 
 Every response is validated against its contract model before it leaves.
 Requests act as X-Siris-User like the rest of the API, so per-user health,
@@ -142,7 +148,7 @@ async def attention_stream(
 @router.post("/attention/{item_id}/act", response_model=c.AttentionActResult)
 async def attention_act(item_id: int, body: c.AttentionActRequest, request: Request, siris: SirisAI = Depends(get_siris)) -> c.AttentionActResult:
     try:
-        item, result = await asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request))
+        item, result = await asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request), body.body)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except attention.UnknownAction as exc:
@@ -269,3 +275,46 @@ async def llm_complete(body: c.LLMCompleteRequest, siris: SirisAI = Depends(get_
         raise HTTPException(status_code=502, detail="The model returned nothing.")
     model = getattr(llm, "model", None) or getattr(getattr(llm, "_inner", None), "model", None)
     return c.LLMCompleteResult(text=text, role=role, model=str(model) if model else None)
+
+
+# -- the day ---------------------------------------------------------------------
+
+
+@router.get("/presence", response_model=c.Presence)
+async def hub_presence(siris: SirisAI = Depends(get_siris)) -> c.Presence:
+    return await asyncio.to_thread(compose.presence, siris)
+
+
+@router.get("/reminders", response_model=c.ReminderList)
+async def hub_reminders(siris: SirisAI = Depends(get_siris)) -> c.ReminderList:
+    return await asyncio.to_thread(compose.reminders, siris)
+
+
+@router.post("/reminders/{reminder_id}/done", response_model=c.ReminderDone)
+async def hub_reminder_done(reminder_id: int, siris: SirisAI = Depends(get_siris)) -> c.ReminderDone:
+    if not await asyncio.to_thread(siris.reminders.cancel, reminder_id):
+        raise HTTPException(status_code=404, detail="No pending reminder with that id.")
+    return c.ReminderDone(id=reminder_id, status="cancelled")
+
+
+@router.get("/email/with", response_model=c.EmailWith)
+async def hub_email_with(
+    address: list[str] = Query(min_length=1, max_length=8),
+    limit: int = Query(5, ge=1, le=10),
+    siris: SirisAI = Depends(get_siris),
+) -> c.EmailWith:
+    try:
+        return await asyncio.to_thread(compose.email_with, siris, [a.strip() for a in address if a.strip()], limit)
+    except Exception as exc:
+        logger.info("email_with failed", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Email didn't answer: {str(exc)[:200]}") from exc
+
+
+@router.get("/upkeep", response_model=c.Upkeep)
+async def hub_upkeep(siris: SirisAI = Depends(get_siris)) -> c.Upkeep:
+    return await asyncio.to_thread(compose.upkeep, siris)
+
+
+@router.get("/health/days", response_model=c.HealthDays)
+async def hub_health_days(days: int = Query(7, ge=1, le=35), siris: SirisAI = Depends(get_siris)) -> c.HealthDays:
+    return await asyncio.to_thread(compose.health_days, siris, days)

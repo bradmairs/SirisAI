@@ -434,7 +434,7 @@ def _learn(siris: "SirisAI", item: dict[str, Any], action_id: str, payload: dict
         logger.debug("Recording the outcome of an attention action failed", exc_info=True)
 
 
-def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app") -> tuple[dict[str, Any], Any]:
+def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app", body: str | None = None) -> tuple[dict[str, Any], Any]:
     """Do what the action says, then close the item. Raises LookupError for
     an unknown or already-closed item and UnknownAction for an action the
     item doesn't offer."""
@@ -444,6 +444,10 @@ def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app")
     if action_id not in {a["id"] for a in item["actions"]} and action_id != "dismiss":
         raise UnknownAction(f"Item {item_id} has no action '{action_id}'")
     payload = siris.attention._payload(item_id)
+    if body is not None and item["source"] == "triage" and action_id == "send":
+        if not body.strip():
+            raise UnknownAction("An edited reply can't be empty")
+        payload = {**payload, "body": body.strip()}
     trigger = f"attention feed: the user chose '{action_id}' on '{item['title']}' in {client}"
     result: Any = None
 

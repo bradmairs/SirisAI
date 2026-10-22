@@ -27,6 +27,7 @@ METRICS = {
     "active_energy_kcal": ("active_energy_kcal", "active_energy", "active_calories"),
     "weight_kg": ("weight_kg", "weight", "body_mass"),
     "exercise_minutes": ("exercise_minutes", "exercise_time", "workout_minutes"),
+    "running_km": ("running_km", "run_km", "running_distance_km", "distance_running_km"),
 }
 _ALIASES = {alias: name for name, aliases in METRICS.items() for alias in aliases}
 _LABELS = {
@@ -37,6 +38,7 @@ _LABELS = {
     "active_energy_kcal": ("active energy", " kcal"),
     "weight_kg": ("weight", " kg"),
     "exercise_minutes": ("exercise", " min"),
+    "running_km": ("ran", " km"),
 }
 # How far from your own average counts as worth mentioning -- an absolute
 # amount or a fraction of the average -- and which direction is the

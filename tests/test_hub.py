@@ -88,7 +88,7 @@ class FakeCalendar:
             raise self.error
         return [
             {"summary": "Bin night", "start": "2026-10-12", "end": "2026-10-13", "location": None, "calendar": "Home"},
-            {"summary": "Stormwater webinar (IPWEA)", "start": "2026-10-14T12:00:00+11:00", "end": "2026-10-14T13:30:00+11:00", "location": "Online", "calendar": "Work"},
+            {"summary": "Stormwater webinar (IPWEA)", "start": "2026-10-14T12:00:00+11:00", "end": "2026-10-14T13:30:00+11:00", "location": "Online", "calendar": "Work", "attendees": ["dana.lee@example.com", "brad@example.com"]},
         ]
 
 

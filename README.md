@@ -5923,6 +5923,27 @@ provider for the same capability actually exists to design against.
       - a 10-minute delayed shutdown was scheduled, then cancelled;
       - "lab,prod" ran nothing.
 
+
+140. **Done** -- The hub for SirisOS's day (2.14). SirisOS 2.9 builds the
+    following on these:
+    - **Tasks, the evening wrap-up and the adaptive Home.** Vault tasks
+      (`GET /siris/brain/tasks`, from `brain.py tasks`), reminders
+      (`GET /siris/hub/v1/reminders`, with `POST .../{id}/done`) and
+      presence (`GET /presence`, from the last UniFi check).
+    - **Meeting prep.** Calendar events now carry `attendees`, and
+      `GET /email/with?address=` reads the latest emails from those people.
+      It uses IMAP and leaves everything unread.
+    - **Email triage.** `POST /attention/{id}/act` accepts an edited `body`
+      for a triage reply's Send.
+    - **The fitness card and the Status page.** `GET /health/days` gives
+      metrics per day; the new `running_km` comes from the Health shortcut.
+      `GET /upkeep` reports the newest backup, whether it's stale, and an
+      update waiting.
+
+    Everything personal is null in guest mode. Verified in
+    `tests/test_hub_day.py`, the contract examples and
+    `tests/test_second_brain.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

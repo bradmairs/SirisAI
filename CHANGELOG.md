@@ -5,6 +5,20 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.14 — 2026-10-22
+
+- The hub for SirisOS's day: presence, reminders, emails with meeting attendees, upkeep, health by day, vault tasks, edited triage replies
+- Calendar events carry `attendees`, from the event's attendee and organiser addresses.
+- New hub endpoints (all additive):
+  - `GET /presence`: home or away, from the last presence check.
+  - `GET /reminders` and `POST /reminders/{id}/done`.
+  - `GET /email/with?address=`: the latest emails from the people in a meeting.
+  - `GET /upkeep`: backups, and whether an update is waiting.
+  - `GET /health/days`: health metrics day by day.
+- `POST /attention/{id}/act` takes an optional `body`, so a triage reply can be edited in SirisOS before it's sent.
+- `GET /siris/brain/tasks` lists every open task in the vault. It needs vault engine 1.41.
+- Health takes a new `running_km` metric (also accepted as `run_km`) from the iPhone shortcut.
+
 ## 2.04 — 2026-10-22
 
 - Reboot and shut down one, several or all servers, always asking first

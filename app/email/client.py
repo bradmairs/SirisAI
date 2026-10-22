@@ -155,6 +155,42 @@ class EmailClient:
         finally:
             conn.logout()
 
+    def recent_with(self, addresses: list[str], limit: int = 5, since_days: int = 60) -> list[dict[str, Any]]:
+        """The latest messages from any of `addresses` (read or not), newest
+        first, without marking anything read: meeting prep in SirisOS."""
+        conn = self._imap()
+        try:
+            conn.select("INBOX", readonly=True)
+            since = time.strftime("%d-%b-%Y", time.gmtime(time.time() - since_days * 86400))
+            found: dict[str, Message] = {}
+            for address in addresses[:8]:
+                if not re.fullmatch(r"[^\s\"()]+@[^\s\"()]+", address):
+                    continue
+                status, data = conn.uid("search", None, "FROM", f'"{address}"', "SINCE", since)
+                for uid in (data[0].split()[-limit:] if status == "OK" and data and data[0] else []):
+                    found.setdefault(uid.decode(), None)  # type: ignore[arg-type]
+            newest = sorted(found, key=int)[-limit * 2:]
+            out = []
+            for uid in newest:
+                message = self._fetch(conn, uid)
+                out.append({
+                    "uid": uid,
+                    "from": _header(message, "From"),
+                    "subject": _header(message, "Subject"),
+                    "date": _header(message, "Date"),
+                    "snippet": re.sub(r"\s+", " ", body_text(message))[:240],
+                })
+        finally:
+            conn.logout()
+
+        def when(m: dict[str, Any]) -> float:
+            try:
+                return email.utils.parsedate_to_datetime(m["date"]).timestamp()
+            except (TypeError, ValueError):
+                return 0.0
+
+        return sorted(out, key=when, reverse=True)[:limit]
+
     def read(self, uid: str) -> dict[str, Any]:
         conn = self._imap()
         try:
