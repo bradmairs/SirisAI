@@ -79,6 +79,7 @@ class CalendarEvent(_Model):
     all_day: bool = False
     location: str | None = None
     calendar: str | None = Field(None, description="Which calendar it's on, e.g. Gmail or an iCloud calendar's name.")
+    attendees: list[str] = Field([], description="Attendee and organiser email addresses, when the calendar has them.")
 
 
 class CalendarRange(_Model):
@@ -279,6 +280,75 @@ class AttentionAction(_Model):
     confirm: str | None = Field(None, description="If set, ask the user this before acting.")
 
 
+# -- the day: presence, reminders, email with people, upkeep, health by day -------
+
+
+class Presence(_Model):
+    home: bool | None = Field(description="Whether the last presence check found someone home; null when presence isn't set up.")
+    checked_at: str | None = None
+
+
+class Reminder(_Model):
+    id: int
+    message: str
+    due_at: str = Field(description="ISO date-time, UTC.")
+    status: Literal["pending", "sent"]
+
+
+class ReminderList(_Model):
+    guest_mode: bool
+    reminders: list[Reminder] | None = Field(None, description="Pending and recently sent reminders; null in guest mode.")
+
+
+class ReminderDone(_Model):
+    id: int
+    status: str
+
+
+class EmailBrief(_Model):
+    uid: str
+    sender: str
+    subject: str
+    date: str | None = None
+    snippet: str = ""
+
+
+class EmailWith(_Model):
+    guest_mode: bool
+    configured: bool
+    messages: list[EmailBrief] | None = Field(None, description="Newest first; null in guest mode or when email isn't set up.")
+
+
+class BackupStatus(_Model):
+    newest: str | None = Field(None, description="When the newest backup was made, ISO.")
+    count: int = 0
+    stale: bool = False
+    last_drill: str | None = None
+    drill_ok: bool | None = None
+
+
+class UpdateStatus(_Model):
+    current: str
+    latest: str | None = None
+    available: bool = False
+    checked_at: str | None = None
+
+
+class Upkeep(_Model):
+    backups: BackupStatus | None = None
+    update: UpdateStatus
+
+
+class HealthDay(_Model):
+    date: str
+    metrics: dict[str, float] = {}
+
+
+class HealthDays(_Model):
+    guest_mode: bool
+    days: list[HealthDay] | None = Field(None, description="Oldest first; null in guest mode.")
+
+
 class AttentionItem(_Model):
     id: int
     key: str = Field(description="Stable identity of the underlying thing (a suggestion, a job, an alert).")
@@ -302,6 +372,7 @@ class AttentionList(_Model):
 
 class AttentionActRequest(_Model):
     action: str
+    body: str | None = Field(None, max_length=20000, description="For a triage reply's 'send': the reply as edited, instead of the draft.")
 
 
 class AttentionActResult(_Model):
@@ -390,6 +461,12 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "camera_look": CameraLook,
     "llm_complete_request": LLMCompleteRequest,
     "llm_complete": LLMCompleteResult,
+    "presence": Presence,
+    "reminders": ReminderList,
+    "reminder_done": ReminderDone,
+    "email_with": EmailWith,
+    "upkeep": Upkeep,
+    "health_days": HealthDays,
 }
 
 

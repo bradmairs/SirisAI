@@ -139,6 +139,7 @@ def _events(events: Any) -> list[c.CalendarEvent]:
                 all_day=all_day,
                 location=e.get("location") or None,
                 calendar=e.get("calendar") or None,
+                attendees=[str(a) for a in e.get("attendees") or [] if isinstance(a, str)],
             )
         )
     return out
@@ -427,3 +428,79 @@ def search(siris: "SirisAI", query: str, limit: int = 8) -> c.SearchResults:
     sections, unavailable = _sections(siris, {"notes": notes, "chats": chats, "memories": memories}, [])
     hits = [h for name in ("notes", "chats", "memories") for h in (sections[name] or [])]
     return c.SearchResults(query=query, hits=hits, unavailable=unavailable)
+
+
+# -- the day: presence, reminders, email with people, upkeep, health by day -------
+
+
+def presence(siris: "SirisAI") -> c.Presence:
+    """Home or away from the last UniFi presence check (none when it isn't set up)."""
+    from app.skills.builtin.presence import _PRESENCE_ENTITY_NAME, anyone_home
+
+    last = siris.events.recent_events(entity_name=_PRESENCE_ENTITY_NAME, limit=1)
+    checked = last[0].get("created_at") if last else None
+    return c.Presence(home=anyone_home(siris), checked_at=str(checked) if checked else None)
+
+
+def reminders(siris: "SirisAI") -> c.ReminderList:
+    on, _ = _guest(siris)
+    if on:
+        return c.ReminderList(guest_mode=True)
+    rows = siris.reminders.list_pending()
+    return c.ReminderList(guest_mode=False, reminders=[
+        c.Reminder(id=r["id"], message=r["message"], due_at=r["due_at"] + "Z" if "+" not in r["due_at"] else r["due_at"], status="pending")
+        for r in rows
+    ])
+
+
+def email_with(siris: "SirisAI", addresses: list[str], limit: int) -> c.EmailWith:
+    on, _ = _guest(siris)
+    if on:
+        return c.EmailWith(guest_mode=True, configured=siris.tools.get("email_read") is not None)
+    tool = siris.tools.get("email_read")
+    if tool is None:
+        return c.EmailWith(guest_mode=False, configured=False)
+    found = tool._client.recent_with(addresses, limit=limit)  # type: ignore[attr-defined]
+    return c.EmailWith(guest_mode=False, configured=True, messages=[
+        c.EmailBrief(uid=str(m["uid"]), sender=_who(str(m.get("from") or "")), subject=str(m.get("subject") or "(no subject)"),
+                     date=m.get("date") or None, snippet=str(m.get("snippet") or ""))
+        for m in found
+    ])
+
+
+def _who(sender: str) -> str:
+    from email.utils import parseaddr
+
+    name, address = parseaddr(sender)
+    return name or address or sender
+
+
+def upkeep(siris: "SirisAI") -> c.Upkeep:
+    from app import __version__
+    from app.upkeep import backups, updates
+
+    found = None
+    if backups.db_path(siris.settings) is not None:
+        items = backups.list_backups(siris.settings)
+        found = c.BackupStatus(newest=items[0]["at"] if items else None, count=len(items), stale=backups.freshness(siris) is not None)
+    offered = [i for i in siris.attention.list("open") if i.get("source") == updates.SOURCE and str(i.get("key", "")).startswith("update:")]
+    latest = offered[0]["key"].split(":", 1)[1] if offered else None
+    return c.Upkeep(backups=found, update=c.UpdateStatus(current=__version__, latest=latest, available=bool(latest)))
+
+
+def health_days(siris: "SirisAI", days: int) -> c.HealthDays:
+    from datetime import timedelta
+
+    from app.health.service import METRICS
+
+    on, _ = _guest(siris)
+    if on:
+        return c.HealthDays(guest_mode=True)
+    today = clock.now_local(siris.settings.timezone).date()
+    since = (today - timedelta(days=days - 1)).isoformat()
+    by_day: dict[str, dict[str, float]] = {(today - timedelta(days=i)).isoformat(): {} for i in range(days)}
+    for metric in METRICS:
+        for day, value in siris.health.series(metric, since):
+            if day in by_day:
+                by_day[day][metric] = value
+    return c.HealthDays(guest_mode=False, days=[c.HealthDay(date=d, metrics=m) for d, m in sorted(by_day.items())])

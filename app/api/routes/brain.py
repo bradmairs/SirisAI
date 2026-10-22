@@ -188,6 +188,15 @@ def insights(days: int = Query(30, ge=7, le=365), siris: SirisAI = Depends(get_s
     return _brain(siris).insights(days=days)
 
 
+@router.get("/tasks")
+def tasks(siris: SirisAI = Depends(get_siris)) -> dict:
+    """Every open task in the vault, soonest due first (SirisOS's Tasks screen)."""
+    try:
+        return {"tasks": _brain(siris).tasks()}
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 class PairRequest(BaseModel):
     a: str = Field(min_length=1, max_length=200)
     b: str = Field(min_length=1, max_length=200)

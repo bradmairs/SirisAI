@@ -9,7 +9,8 @@
       "end": "2026-10-13",
       "all_day": true,
       "location": null,
-      "calendar": "Home"
+      "calendar": "Home",
+      "attendees": []
     },
     {
       "title": "Stormwater webinar (IPWEA)",
@@ -17,7 +18,11 @@
       "end": "2026-10-14T13:30:00+11:00",
       "all_day": false,
       "location": "Online",
-      "calendar": "Work"
+      "calendar": "Work",
+      "attendees": [
+        "dana.lee@example.com",
+        "brad@example.com"
+      ]
     }
   ],
   "unavailable": false

@@ -112,6 +112,22 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["calendar"] = client.get("/siris/hub/v1/calendar", params={"start": "2026-10-12", "end": "2026-10-19"}, headers=h).json()
         out["forecast"] = client.get("/siris/hub/v1/forecast", params={"days": 2}, headers=h).json()
 
+        from datetime import UTC, datetime, timedelta
+
+        from tests.test_hub_day import FakeEmailClient
+
+        siris.events.log_event("presence_changed", entity_name="presence", data={"home": True})
+        out["presence"] = client.get("/siris/hub/v1/presence", headers=h).json()
+        reminder = siris.reminders.create("Put the bins out", datetime.now(UTC) + timedelta(hours=3))
+        out["reminders"] = client.get("/siris/hub/v1/reminders", headers=h).json()
+        out["reminders"]["reminders"] = [r for r in out["reminders"]["reminders"] if r["id"] == reminder["id"]]
+        out["reminder_done"] = client.post(f"/siris/hub/v1/reminders/{reminder['id']}/done", headers=h).json()
+        _fake(siris, "email_read", {})._client = FakeEmailClient()  # type: ignore[attr-defined]
+        out["email_with"] = client.get("/siris/hub/v1/email/with", params={"address": "dana.lee@example.com"}, headers=h).json()
+        out["upkeep"] = client.get("/siris/hub/v1/upkeep", headers=h).json()
+        siris.health.record({"steps": 9120, "running_km": 5.2, "sleep_hours": 7.1}, datetime.now(UTC).date().isoformat(), user_id="brad")
+        out["health_days"] = client.get("/siris/hub/v1/health/days", params={"days": 2}, headers=h).json()
+
         notify_confirmation_needed(siris, "routine 'morning heat'", switch.name, {"domain": "switch", "service": "turn_on", "entity_id": "switch.heater"})
         siris.attention.raise_item("push:example", "alert", "SirisAI: plex needs you", source="self-healing", severity="urgent", body="plex is down and a restart didn't fix it.")
         out["brief"] = client.get("/siris/hub/v1/brief", headers=h).json()

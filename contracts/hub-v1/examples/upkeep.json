@@ -1,0 +1,15 @@
+{
+  "backups": {
+    "newest": null,
+    "count": 0,
+    "stale": true,
+    "last_drill": null,
+    "drill_ok": null
+  },
+  "update": {
+    "current": "2.04",
+    "latest": null,
+    "available": false,
+    "checked_at": null
+  }
+}

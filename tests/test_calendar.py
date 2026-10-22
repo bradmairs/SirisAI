@@ -62,6 +62,7 @@ def test_upcoming_events_maps_icalendar_components_and_sorts() -> None:
             "end": "2026-09-05T10:00:00+00:00",
             "location": "Office",
             "calendar": "Work",
+            "attendees": [],
         },
         {
             "summary": "Later meeting",
@@ -69,6 +70,7 @@ def test_upcoming_events_maps_icalendar_components_and_sorts() -> None:
             "end": "2026-09-06T10:00:00+00:00",
             "location": None,
             "calendar": "Work",
+            "attendees": [],
         },
     ]
     fake_calendar.search.assert_called_once()

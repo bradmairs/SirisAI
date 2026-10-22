@@ -296,6 +296,12 @@ class SecondBrainClient:
         self._maybe_pull()
         return self._engine_call(["insights", "--days", str(days), "--output", "json"])
 
+    def tasks(self) -> list[dict]:
+        """Every open task in the vault, soonest due first: {task, note, due,
+        type}. Needs the vault engine 1.41 or later (`brain.py tasks`)."""
+        self._maybe_pull()
+        return self._engine_call(["tasks", "--output", "json"])
+
     def render_map(self) -> str:
         """The vault's interactive mind map as one self-contained HTML page,
         drawn fresh from the notes as they are now."""

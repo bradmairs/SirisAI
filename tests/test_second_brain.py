@@ -52,6 +52,9 @@ FAKE_ENGINE = textwrap.dedent(
         (root / "_site" / "index.html").write_text("<html>map of " + str(len(notes)) + " notes</html>")
         print("Mind map -> _site/index.html")
         sys.exit(0)
+    if cmd == "tasks":
+        print(json.dumps([{"task": "Send levels to Dana", "note": "Werribee Drainage", "due": "2026-10-20", "type": "project"}]))
+        sys.exit(0)
     if cmd == "insights":
         days = int(args[args.index("--days") + 1])
         print(json.dumps({"date": "2026-10-03", "highlights": [f"{len(notes)} notes"], "summary": {"notes": len(notes)},
@@ -807,3 +810,10 @@ def test_delete_tool_needs_confirmation_and_restore_does_not(tmp_path: Path) -> 
 def test_delete_tools_registered_with_a_brain(tmp_path: Path) -> None:
     siris = SirisAI(settings=Settings(brain_path=str(_vault(tmp_path, {}))))
     assert {"brain_delete_note", "brain_restore_note"} <= {t.name for t in siris.tools.list()}
+
+
+def test_tasks_route_lists_open_tasks(brain_api) -> None:
+    client, vault = brain_api
+    r = client.get("/siris/brain/tasks")
+    assert r.status_code == 200 and r.json() == {"tasks": [{"task": "Send levels to Dana", "note": "Werribee Drainage", "due": "2026-10-20", "type": "project"}]}
+    assert _calls(vault)[-1]["args"] == ["tasks", "--output", "json"]

@@ -84,6 +84,7 @@ class IcsCalendar:
                     "end": self._iso(dtend.dt) if dtend else None,
                     "location": str(location) if location else None,
                     "calendar": self.name,
+                    "attendees": attendees(component),
                 }
             )
         return events
@@ -137,3 +138,19 @@ def parse_feeds(value: str, timezone: str = "UTC") -> list[IcsCalendar]:
         feeds.append(IcsCalendar(label.strip() or default, url, timezone=timezone))
     return feeds
 
+
+def attendees(component: Any) -> list[str]:
+    """Email addresses of an event's attendees and organiser (mailto: dropped),
+    for meeting prep in SirisOS."""
+    raw = component.get("attendee") or []
+    if not isinstance(raw, list):
+        raw = [raw]
+    organizer = component.get("organizer")
+    out: list[str] = []
+    for value in [*raw, *([organizer] if organizer else [])]:
+        text = str(value).strip()
+        if text.lower().startswith("mailto:"):
+            text = text[7:]
+        if "@" in text and text.lower() not in (a.lower() for a in out):
+            out.append(text)
+    return out[:30]

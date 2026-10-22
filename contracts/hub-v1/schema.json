@@ -53,6 +53,24 @@
     },
     "llm_complete": {
       "$ref": "#/$defs/LLMCompleteResult"
+    },
+    "presence": {
+      "$ref": "#/$defs/Presence"
+    },
+    "reminders": {
+      "$ref": "#/$defs/ReminderList"
+    },
+    "reminder_done": {
+      "$ref": "#/$defs/ReminderDone"
+    },
+    "email_with": {
+      "$ref": "#/$defs/EmailWith"
+    },
+    "upkeep": {
+      "$ref": "#/$defs/Upkeep"
+    },
+    "health_days": {
+      "$ref": "#/$defs/HealthDays"
     }
   },
   "$defs": {
@@ -62,6 +80,20 @@
         "action": {
           "title": "Action",
           "type": "string"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "maxLength": 20000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For a triage reply's 'send': the reply as edited, instead of the draft.",
+          "title": "Body"
         }
       },
       "required": [
@@ -399,6 +431,60 @@
       "title": "AutonomyItem",
       "type": "object"
     },
+    "BackupStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "newest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the newest backup was made, ISO.",
+          "title": "Newest"
+        },
+        "count": {
+          "default": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "stale": {
+          "default": false,
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "last_drill": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Drill"
+        },
+        "drill_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Drill Ok"
+        }
+      },
+      "title": "BackupStatus",
+      "type": "object"
+    },
     "BrainSummary": {
       "additionalProperties": false,
       "properties": {
@@ -672,6 +758,15 @@
           "default": null,
           "description": "Which calendar it's on, e.g. Gmail or an iCloud calendar's name.",
           "title": "Calendar"
+        },
+        "attendees": {
+          "default": [],
+          "description": "Attendee and organiser email addresses, when the calendar has them.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Attendees",
+          "type": "array"
         }
       },
       "required": [
@@ -906,6 +1001,47 @@
       "title": "Deadline",
       "type": "object"
     },
+    "EmailBrief": {
+      "additionalProperties": false,
+      "properties": {
+        "uid": {
+          "title": "Uid",
+          "type": "string"
+        },
+        "sender": {
+          "title": "Sender",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "type": "string"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Date"
+        },
+        "snippet": {
+          "default": "",
+          "title": "Snippet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uid",
+        "sender",
+        "subject"
+      ],
+      "title": "EmailBrief",
+      "type": "object"
+    },
     "EmailSummary": {
       "additionalProperties": false,
       "properties": {
@@ -926,6 +1062,41 @@
         "unread"
       ],
       "title": "EmailSummary",
+      "type": "object"
+    },
+    "EmailWith": {
+      "additionalProperties": false,
+      "properties": {
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "messages": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/EmailBrief"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Newest first; null in guest mode or when email isn't set up.",
+          "title": "Messages"
+        }
+      },
+      "required": [
+        "guest_mode",
+        "configured"
+      ],
+      "title": "EmailWith",
       "type": "object"
     },
     "EnergySummary": {
@@ -1102,6 +1273,58 @@
         }
       },
       "title": "ForecastDay",
+      "type": "object"
+    },
+    "HealthDay": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "title": "Date",
+          "type": "string"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {},
+          "title": "Metrics",
+          "type": "object"
+        }
+      },
+      "required": [
+        "date"
+      ],
+      "title": "HealthDay",
+      "type": "object"
+    },
+    "HealthDays": {
+      "additionalProperties": false,
+      "properties": {
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "days": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HealthDay"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Oldest first; null in guest mode.",
+          "title": "Days"
+        }
+      },
+      "required": [
+        "guest_mode"
+      ],
+      "title": "HealthDays",
       "type": "object"
     },
     "HealthMetric": {
@@ -1511,6 +1734,40 @@
       "title": "ParcelSummary",
       "type": "object"
     },
+    "Presence": {
+      "additionalProperties": false,
+      "properties": {
+        "home": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether the last presence check found someone home; null when presence isn't set up.",
+          "title": "Home"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        }
+      },
+      "required": [
+        "home"
+      ],
+      "title": "Presence",
+      "type": "object"
+    },
     "ProtocolInfo": {
       "additionalProperties": false,
       "properties": {
@@ -1662,6 +1919,89 @@
       "title": "ProtocolStep",
       "type": "object"
     },
+    "Reminder": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "due_at": {
+          "description": "ISO date-time, UTC.",
+          "title": "Due At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "sent"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "message",
+        "due_at",
+        "status"
+      ],
+      "title": "Reminder",
+      "type": "object"
+    },
+    "ReminderDone": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "title": "ReminderDone",
+      "type": "object"
+    },
+    "ReminderList": {
+      "additionalProperties": false,
+      "properties": {
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "reminders": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Reminder"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pending and recently sent reminders; null in guest mode.",
+          "title": "Reminders"
+        }
+      },
+      "required": [
+        "guest_mode"
+      ],
+      "title": "ReminderList",
+      "type": "object"
+    },
     "SearchHit": {
       "additionalProperties": false,
       "properties": {
@@ -1787,6 +2127,73 @@
         "summary"
       ],
       "title": "TodoItem",
+      "type": "object"
+    },
+    "UpdateStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "current": {
+          "title": "Current",
+          "type": "string"
+        },
+        "latest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latest"
+        },
+        "available": {
+          "default": false,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        }
+      },
+      "required": [
+        "current"
+      ],
+      "title": "UpdateStatus",
+      "type": "object"
+    },
+    "Upkeep": {
+      "additionalProperties": false,
+      "properties": {
+        "backups": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BackupStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "update": {
+          "$ref": "#/$defs/UpdateStatus"
+        }
+      },
+      "required": [
+        "update"
+      ],
+      "title": "Upkeep",
       "type": "object"
     },
     "Weather": {
