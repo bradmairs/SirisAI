@@ -1,5 +1,5 @@
 """SSH to servers on the home network (app/ssh/client.py, app/plugins/builtin/ssh.py),
-against a stand-in `ssh` binary."""
+including reboot and shutdown, against a stand-in `ssh` binary."""
 
 import stat
 from pathlib import Path
@@ -12,8 +12,9 @@ from app.core import taint
 from app.core.config import Settings
 from app.core.siris import SirisAI
 from app.plugins.base import ConfirmationRequired
-from app.plugins.builtin.ssh import SshRunTool
-from app.ssh.client import SshClient, SshError, SshHost, is_read_only, parse_health, parse_ssh_hosts
+from app.plugins.builtin.ssh import SshPowerTool, SshRunTool
+from app.ssh.client import NEEDS_SUDO_EXIT, SshClient, SshError, SshHost, is_read_only, parse_health, parse_ssh_hosts, power_command
+from app.voice.confirmations import describe_call, voice_confirmable
 
 HEALTH_OUTPUT = """##uptime
 0.42 3.10 2.80 2/345 6789
@@ -206,3 +207,75 @@ def test_server_health_over_one_or_all(client: TestClient, tmp_path: Path) -> No
     one = siris.run_tool("ssh_server_health", {"server": "nas"})
     assert one["server"] == "nas" and "plex.service has failed" in one["warnings"]
     assert [h["server"] for h in siris.run_tool("ssh_server_health", {})] == ["nas", "pi"]
+
+
+# -- reboot and shut down -------------------------------------------------------------------
+
+
+def test_power_commands_use_sudo_only_for_non_root_and_detach_immediate_ones() -> None:
+    brad, root = SshHost("nas", "brad", "10.0.0.2"), SshHost("pi", "root", "10.0.0.3")
+    assert power_command(root, "reboot") == "nohup sh -c 'sleep 2; systemctl reboot' >/dev/null 2>&1 & echo started"
+    assert power_command(brad, "shutdown") == (
+        f"sudo -n -l systemctl poweroff >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; "
+        "nohup sh -c 'sleep 2; sudo -n systemctl poweroff' >/dev/null 2>&1 & echo started"
+    )
+    assert power_command(brad, "reboot", 15).endswith("sudo -n shutdown -r +15 'SirisAI: reboot requested' && echo scheduled")
+    assert power_command(root, "cancel") == "shutdown -c && echo cancelled"
+    with pytest.raises(ValueError):
+        power_command(root, "halt")
+
+
+def _power_tool(tmp_path: Path, script: str, hosts: str = "nas=brad@10.0.0.2,pi=root@10.0.0.3,box=root@10.0.0.4", **kwargs: Any) -> SshPowerTool:
+    return SshPowerTool(SshClient(parse_ssh_hosts(hosts), ssh_binary=_fake_ssh(tmp_path, script)), **kwargs)
+
+
+def test_power_reaches_one_several_or_all_with_its_own_server_last(tmp_path: Path) -> None:
+    log = tmp_path / "calls"
+    tool = _power_tool(tmp_path, f'echo "$*" >> {log}; echo started\n', self_server="nas")
+    result = tool.run(action="reboot", servers="all")
+    assert [r["server"] for r in result["results"]] == ["pi", "box", "nas"]  # nas is SirisAI's own: last
+    assert result["results"][-1]["self"] is True and result["summary"] == "Rebooting pi, box, nas"
+    assert len(log.read_text().splitlines()) == 3
+    several = tool.run(action="shutdown", servers="pi, BOX, pi", delay_minutes=999)
+    assert [r["server"] for r in several["results"]] == ["pi", "box"] and several["delay_minutes"] == 240
+    assert several["summary"] == "Shutting down pi, box in 240 minutes"
+    with pytest.raises(ValueError, match="Unknown server 'prod'"):
+        tool.run(action="reboot", servers="pi,prod")  # nothing runs on a bad name
+    assert len(log.read_text().splitlines()) == 5
+    with pytest.raises(ValueError):
+        tool.run(action="reboot", servers=" ")
+
+
+def test_power_failures_are_per_server_and_say_why(tmp_path: Path) -> None:
+    script = (
+        'case "$*" in\n'
+        f'  *brad@*) exit {NEEDS_SUDO_EXIT};;\n'
+        '  *10.0.0.3*) echo "Connection refused" >&2; exit 255;;\n'
+        '  *) echo "Failed to talk to init" >&2; exit 1;;\n'
+        "esac\n"
+    )
+    result = _power_tool(tmp_path, script).run(action="reboot", servers="all")
+    by = {r["server"]: r for r in result["results"]}
+    assert "brad needs passwordless sudo" in by["nas"]["detail"]
+    assert "Couldn't connect to pi" in by["pi"]["detail"]
+    assert by["box"] == {"server": "box", "status": "failed", "detail": "Failed to talk to init"}
+    assert result["summary"] == "Nothing was done."
+
+
+def test_power_can_be_turned_off(tmp_path: Path) -> None:
+    with pytest.raises(PermissionError):
+        _power_tool(tmp_path, "echo started\n", allowed=False).run(action="reboot", servers="all")
+
+
+def test_power_always_asks_never_by_voice_and_not_on_its_own(client: TestClient, tmp_path: Path) -> None:
+    siris = SirisAI(settings=Settings(ssh_hosts="nas=brad@10.0.0.2"))
+    siris.ssh_client._ssh_binary = _fake_ssh(tmp_path, "echo started\n")  # type: ignore[union-attr]
+    with pytest.raises(ConfirmationRequired):
+        siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"})
+    with pytest.raises(ConfirmationRequired):
+        siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"}, trigger="routine: 'nightly' (at 03:00)")
+    assert siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"}, confirmed=True)["summary"] == "Rebooting nas"
+    assert not voice_confirmable("ssh_power", {"action": "reboot", "servers": "nas"}, set())
+    assert describe_call("ssh_power", {"action": "shutdown", "servers": "all", "delay_minutes": 10}) == "shutdown all in 10 minutes"
+    assert describe_call("ssh_power", {"action": "cancel", "servers": "nas"}) == "cancel the pending shutdown on nas"
+    assert SirisAI(settings=Settings(ssh_hosts="nas=brad@10.0.0.2", ssh_allow_changes=False)).tools.get("ssh_power")._allowed is False  # type: ignore[union-attr]

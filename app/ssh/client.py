@@ -234,3 +234,34 @@ def parse_health(output: str) -> dict[str, Any]:
     warnings += [f"{s} has failed" for s in out["failed_services"]]
     out["warnings"] = warnings
     return out
+
+
+POWER_ACTIONS = ("reboot", "shutdown", "cancel")
+NEEDS_SUDO_EXIT = 77
+
+
+def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:
+    """The remote command for a reboot, shutdown or cancelling a pending one.
+
+    A non-root account needs passwordless sudo for these (`sudo -n` fails at
+    once rather than waiting for a password, and the command exits 77 so the
+    reply can say what's missing). An immediate reboot or shutdown is started
+    in the background two seconds later, so this SSH session ends cleanly
+    instead of being cut off and reported as a failure."""
+    if action not in POWER_ACTIONS:
+        raise ValueError(f"Unknown power action '{action}': use reboot, shutdown or cancel.")
+    sudo = "" if host.user == "root" else "sudo -n "
+    flag = "-r" if action == "reboot" else "-h"
+    verb = "reboot" if action == "reboot" else "poweroff"
+    if action == "cancel":
+        run = f"{sudo}shutdown -c && echo cancelled"
+    elif delay_minutes > 0:
+        run = f"{sudo}shutdown {flag} +{int(delay_minutes)} 'SirisAI: {action} requested' && echo scheduled"
+    else:
+        run = f"nohup sh -c 'sleep 2; {sudo}systemctl {verb}' >/dev/null 2>&1 & echo started"
+    if not sudo:
+        return run
+    # Ask sudo about this exact command, so a sudoers rule that allows only
+    # the power commands is enough (sudo -l <command> exits 0 when allowed).
+    allowed = f"systemctl {verb}" if action != "cancel" and delay_minutes <= 0 else "shutdown"
+    return f"sudo -n -l {allowed} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; " + run

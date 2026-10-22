@@ -720,6 +720,11 @@ class Settings(BaseSettings):
     ssh_allow_changes: bool = True
     ssh_safe_commands: str = ""
     ssh_command_timeout_seconds: float = 30.0
+    # Reboot/shut down servers (ssh_power): always asks first, never by a
+    # spoken yes. ssh_self_server names the server SirisAI itself runs on, so
+    # "all" does it last.
+    ssh_allow_power: bool = True
+    ssh_self_server: str = ""
 
     # Conversation handoff between rooms (app/satellites/service.py,
     # milestone 75). Each satellite process keeps its own local

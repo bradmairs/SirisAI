@@ -5885,6 +5885,44 @@ provider for the same capability actually exists to design against.
       review caught `docker inspect`, `systemctl show`, `ps e`, `hostname`,
       `date -s` and `mount` too, all fixed.
 
+139. **Done** -- Reboot and shut down servers (`ssh_power`). "Reboot the NAS",
+    "shut down all the servers", "restart the Pi in 10 minutes" and "cancel
+    the shutdown" work for one server, a comma-separated list, or `all`,
+    over the SSH from milestone 138.
+    - **Always asks first, with a tap.** It's CONFIRM_REQUIRED with no
+      exceptions. An unattended caller (a routine, a protocol) gets it held
+      for Approve in the attention feed, like any other confirmable call.
+      It's never approved by a spoken "yes" (`NEVER_BY_VOICE`), because a TV
+      or a guest can say yes. The confirmation reads "reboot all", "shutdown
+      nas, pi in 10 minutes", and so on.
+    - **Safe in what it runs.** For a non-root account it first asks sudo
+      about the exact command (`sudo -n -l systemctl reboot`). If the
+      account lacks passwordless sudo for it, the reply says exactly that,
+      and deploy/README.md has the one-line sudoers rule that allows just
+      the power commands. An immediate reboot or shutdown starts two seconds
+      later in the background, so the SSH session ends cleanly and is
+      reported as started rather than as a dropped connection. A delay uses
+      `shutdown -r/-h +N` (up to 240 minutes), and cancel runs
+      `shutdown -c`.
+    - **Its own server last.** `SIRISAI_SSH_SELF_SERVER` names the machine
+      SirisAI runs on, so "all" does that one after the others.
+    - **Per-server results.** A server that's unreachable or lacks sudo
+      fails on its own line without stopping the rest. A server name that
+      doesn't exist stops the whole call before anything runs.
+    - `SIRISAI_SSH_ALLOW_POWER=false` turns it off, as does
+      `SIRISAI_SSH_ALLOW_CHANGES=false`.
+    - **Verified:** 5 more tests in `tests/test_ssh.py`. Also live on
+      uvicorn against a real OpenSSH server, with stand-in `systemctl` and
+      `shutdown` recording what they were asked:
+      - unconfirmed "reboot all" was held;
+      - confirmed, `lab` (a normal user, via a sudoers rule allowing only
+        the power commands) and `box` (root, marked as SirisAI's own
+        server) each got `systemctl reboot` as root, with `box` last;
+      - `plain` (no sudo) reported "needs passwordless sudo", and an
+        unreachable server reported "Connection refused";
+      - a 10-minute delayed shutdown was scheduled, then cancelled;
+      - "lab,prod" ran nothing.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
