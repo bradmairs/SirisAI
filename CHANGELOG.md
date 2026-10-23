@@ -8,6 +8,9 @@ numbered milestones hold the detailed history.
 ## 2.36 — 2026-10-23
 
 - Home controls for SirisOS: lights, garage, locks and scenes
+  - `GET /siris/hub/v1/controls`; `SIRISAI_HUB_CONTROLS` picks which entities show.
+  - `POST /siris/hub/v1/controls/{entity}`: garage doors and unlocking need `confirmed`; guest mode hides both.
+  - `POST /siris/hub/v1/scenes/{id}/run` runs Siris and Home Assistant scenes.
 
 ## 2.26 — 2026-10-23
 
