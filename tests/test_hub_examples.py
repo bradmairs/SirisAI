@@ -101,6 +101,9 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["protocol_preview"] = client.get("/siris/hub/v1/protocols/lockdown", headers=h).json()
         out["protocol_run_request"] = {"confirmed": True}
         out["protocol_run"] = client.post("/siris/hub/v1/protocols/lockdown/run", json={"confirmed": True}, headers=h).json()
+        out["controls"] = client.get("/siris/hub/v1/controls", headers=h).json()
+        out["control_request"] = {"action": "turn_off"}
+        out["control"] = client.post("/siris/hub/v1/controls/light.kitchen", json=out["control_request"], headers=h).json()
         out["camera_look_request"] = {"question": "Who's at the door?"}
         out["camera_look"] = client.post("/siris/hub/v1/cameras/front_door/look", json=out["camera_look_request"], headers=h).json()
         out["llm_complete_request"] = {"task": "sirishydro", "system": "Answer only from the evidence.", "prompt": "Question: minimum grade for a 225 mm sewer?\n[1] AS/NZS 3500.2 ..."}

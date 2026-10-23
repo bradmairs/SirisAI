@@ -20,6 +20,9 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/reminders                pending reminders ("remind me at 7")
     POST /siris/hub/v1/reminders/{id}/done      cancel one that's no longer needed
     GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
+    GET  /siris/hub/v1/controls                 lights, garage doors, locks and scenes (SirisOS Home)
+    POST /siris/hub/v1/controls/{entity}        {action, confirmed}: one of them (garage/unlock ask first)
+    POST /siris/hub/v1/scenes/{id}/run          a Siris or Home Assistant scene
     GET  /siris/hub/v1/email/about?q=           latest emails with these words in the subject (project pages)
     GET  /siris/hub/v1/upkeep                   backups and whether an update is waiting
     GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first (up to 400 days)
@@ -232,6 +235,38 @@ async def protocol_run(name: str, body: c.ProtocolRunRequest, request: Request, 
         failed=[f"{s['step']}: {s.get('error')}" for s in steps if s["status"] == "error"],
         can_undo=bool(result.get("undo_available")),
     )
+
+
+# -- home controls ------------------------------------------------------------------
+
+
+@router.get("/controls", response_model=c.Controls)
+async def hub_controls(siris: SirisAI = Depends(get_siris)) -> c.Controls:
+    try:
+        return await asyncio.to_thread(compose.controls, siris)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Home Assistant didn't answer: {str(exc)[:200]}") from exc
+
+
+@router.post("/controls/{entity_id}", response_model=c.ControlResult)
+async def hub_control(entity_id: str, body: c.ControlRequest, request: Request, siris: SirisAI = Depends(get_siris)) -> c.ControlResult:
+    trigger = f"hub: the user tapped {body.action.replace('_', ' ')} on {entity_id} in {_client_name(request)}"
+    try:
+        return await asyncio.to_thread(compose.control, siris, entity_id, body.action, body.confirmed, trigger)
+    except compose.ControlRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Home Assistant didn't do it: {str(exc)[:200]}") from exc
+
+
+@router.post("/scenes/{scene_id}/run", response_model=c.ControlResult)
+async def hub_scene(scene_id: str, request: Request, siris: SirisAI = Depends(get_siris)) -> c.ControlResult:
+    try:
+        return await asyncio.to_thread(compose.run_scene, siris, scene_id, f"hub: the user ran scene {scene_id} in {_client_name(request)}")
+    except compose.ControlRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"The scene didn't run: {str(exc)[:200]}") from exc
 
 
 # -- cameras ----------------------------------------------------------------------

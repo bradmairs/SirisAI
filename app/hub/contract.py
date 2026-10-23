@@ -443,6 +443,42 @@ class LLMCompleteResult(_Model):
     model: str | None = None
 
 
+# -- Home controls (/siris/hub/v1/controls, SirisOS 4.2) ---------------------------
+
+
+class Control(_Model):
+    entity_id: str
+    name: str
+    kind: Literal["light", "switch", "garage", "lock"]
+    state: str = Field(description="Home Assistant's state: on/off, open/closed/opening/closing, locked/unlocked...")
+    brightness_pct: int | None = None
+    confirm: str | None = Field(None, description="Set when the action needs the user's yes first (garage doors and locks).")
+
+
+class SceneControl(_Model):
+    id: str = Field(description="siris:<n> for a Siris scene, or a Home Assistant scene.* entity id.")
+    name: str
+    source: Literal["siris", "home_assistant"]
+
+
+class Controls(_Model):
+    configured: bool
+    guest_mode: bool
+    controls: list[Control] = []
+    scenes: list[SceneControl] = []
+
+
+class ControlRequest(_Model):
+    action: Literal["toggle", "turn_on", "turn_off", "open", "close", "lock", "unlock"]
+    confirmed: bool = Field(False, description="Garage doors and locks: the user said yes.")
+
+
+class ControlResult(_Model):
+    entity_id: str
+    action: str
+    state: str | None = None
+
+
 ENDPOINTS: dict[str, type[BaseModel]] = {
     "info": HubInfo,
     "brief": Brief,
@@ -467,6 +503,9 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "email_with": EmailWith,
     "upkeep": Upkeep,
     "health_days": HealthDays,
+    "controls": Controls,
+    "control_request": ControlRequest,
+    "control": ControlResult,
 }
 
 

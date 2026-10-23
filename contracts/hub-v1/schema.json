@@ -71,6 +71,15 @@
     },
     "health_days": {
       "$ref": "#/$defs/HealthDays"
+    },
+    "controls": {
+      "$ref": "#/$defs/Controls"
+    },
+    "control_request": {
+      "$ref": "#/$defs/ControlRequest"
+    },
+    "control": {
+      "$ref": "#/$defs/ControlResult"
     }
   },
   "$defs": {
@@ -980,6 +989,162 @@
         "summary"
       ],
       "title": "CarSummary",
+      "type": "object"
+    },
+    "Control": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "light",
+            "switch",
+            "garage",
+            "lock"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "state": {
+          "description": "Home Assistant's state: on/off, open/closed/opening/closing, locked/unlocked...",
+          "title": "State",
+          "type": "string"
+        },
+        "brightness_pct": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Brightness Pct"
+        },
+        "confirm": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when the action needs the user's yes first (garage doors and locks).",
+          "title": "Confirm"
+        }
+      },
+      "required": [
+        "entity_id",
+        "name",
+        "kind",
+        "state"
+      ],
+      "title": "Control",
+      "type": "object"
+    },
+    "ControlRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "toggle",
+            "turn_on",
+            "turn_off",
+            "open",
+            "close",
+            "lock",
+            "unlock"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "confirmed": {
+          "default": false,
+          "description": "Garage doors and locks: the user said yes.",
+          "title": "Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "ControlRequest",
+      "type": "object"
+    },
+    "ControlResult": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        }
+      },
+      "required": [
+        "entity_id",
+        "action"
+      ],
+      "title": "ControlResult",
+      "type": "object"
+    },
+    "Controls": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "controls": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Control"
+          },
+          "title": "Controls",
+          "type": "array"
+        },
+        "scenes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SceneControl"
+          },
+          "title": "Scenes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "configured",
+        "guest_mode"
+      ],
+      "title": "Controls",
       "type": "object"
     },
     "Deadline": {
@@ -2000,6 +2165,35 @@
         "guest_mode"
       ],
       "title": "ReminderList",
+      "type": "object"
+    },
+    "SceneControl": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "siris:<n> for a Siris scene, or a Home Assistant scene.* entity id.",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "siris",
+            "home_assistant"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "source"
+      ],
+      "title": "SceneControl",
       "type": "object"
     },
     "SearchHit": {

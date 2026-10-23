@@ -520,3 +520,105 @@ def health_days(siris: "SirisAI", days: int) -> c.HealthDays:
             if day in by_day:
                 by_day[day][metric] = value
     return c.HealthDays(guest_mode=False, days=[c.HealthDay(date=d, metrics=m) for d, m in sorted(by_day.items())])
+
+
+# -- home controls (SirisOS 4.2) ---------------------------------------------------
+
+CONTROL_DOMAINS = {"light": "light", "switch": "switch", "cover": "garage", "lock": "lock"}
+MAX_CONTROLS = 16
+
+
+def _control_kind(state: dict) -> str | None:
+    domain = state["entity_id"].split(".", 1)[0]
+    if domain == "cover":
+        attrs = state.get("attributes") or {}
+        named = str(attrs.get("friendly_name") or state["entity_id"]).lower()
+        return "garage" if attrs.get("device_class") in ("garage", "gate") or "garage" in named or "gate" in named else None
+    return CONTROL_DOMAINS.get(domain)
+
+
+def _control(state: dict) -> c.Control | None:
+    kind = _control_kind(state)
+    if kind is None:
+        return None
+    attrs = state.get("attributes") or {}
+    name = str(attrs.get("friendly_name") or state["entity_id"])
+    brightness = attrs.get("brightness")
+    confirm = None
+    if kind == "garage":
+        confirm = f"{'Close' if state['state'] == 'open' else 'Open'} {name}?"
+    elif kind == "lock":
+        confirm = f"Unlock {name}?" if state["state"] == "locked" else None
+    return c.Control(entity_id=state["entity_id"], name=name, kind=kind, state=str(state["state"]),  # type: ignore[arg-type]
+                     brightness_pct=round(brightness / 255 * 100) if isinstance(brightness, (int, float)) and state["state"] == "on" else None,
+                     confirm=confirm)
+
+
+def controls(siris: "SirisAI") -> c.Controls:
+    """Lights, switches, garage doors and locks, and scenes, for SirisOS's Home.
+    In guest mode garage doors and locks are left out."""
+    client = siris._home_assistant_client
+    on = guest.is_on(siris)
+    scenes = [c.SceneControl(id=f"siris:{s['id']}", name=s["name"], source="siris") for s in siris.scenes.list_scenes()][:12]
+    if client is None:
+        return c.Controls(configured=False, guest_mode=on, scenes=scenes)
+    states = {s["entity_id"]: s for s in client.list_states()}
+    wanted = [e.strip() for e in siris.settings.hub_controls.split(",") if e.strip()]
+    if wanted:
+        picked = [states[e] for e in wanted if e in states]
+    else:
+        picked = sorted((s for s in states.values() if _control_kind(s) in ("light", "garage", "lock")),
+                        key=lambda s: (["garage", "lock", "light"].index(_control_kind(s) or "light"), str((s.get("attributes") or {}).get("friendly_name") or s["entity_id"]).lower()))
+    found = [ctl for s in picked if (ctl := _control(s)) is not None and not (on and ctl.kind in ("garage", "lock"))][:MAX_CONTROLS]
+    ha_scenes = sorted((s for s in states.values() if s["entity_id"].startswith("scene.")), key=lambda s: str((s.get("attributes") or {}).get("friendly_name") or s["entity_id"]).lower())
+    scenes += [c.SceneControl(id=s["entity_id"], name=str((s.get("attributes") or {}).get("friendly_name") or s["entity_id"]), source="home_assistant") for s in ha_scenes[:12]]
+    return c.Controls(configured=True, guest_mode=on, controls=found, scenes=scenes)
+
+
+ACTIONS = {
+    "light": {"toggle": "toggle", "turn_on": "turn_on", "turn_off": "turn_off"},
+    "switch": {"toggle": "toggle", "turn_on": "turn_on", "turn_off": "turn_off"},
+    "garage": {"open": "open_cover", "close": "close_cover"},
+    "lock": {"lock": "lock", "unlock": "unlock"},
+}
+
+
+class ControlRefused(Exception):
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def control(siris: "SirisAI", entity_id: str, action: str, confirmed: bool, trigger: str) -> c.ControlResult:
+    """Do one thing to one entity. Only entities `controls` would show, only
+    their own actions, and garage doors and unlocking only when confirmed."""
+    client = siris._home_assistant_client
+    if client is None:
+        raise ControlRefused("Home Assistant isn't set up in SirisAI.", 404)
+    state = client.get_state_or_none(entity_id)
+    ctl = _control(state) if state else None
+    if ctl is None or entity_id not in {x.entity_id for x in controls(siris).controls}:
+        raise ControlRefused(f"{entity_id} isn't one of the Home controls.", 404)
+    service = ACTIONS[ctl.kind].get(action)
+    if service is None:
+        raise ControlRefused(f"{ctl.name} can't {action.replace('_', ' ')}.", 422)
+    if (ctl.kind == "garage" or action == "unlock") and not confirmed:
+        raise ControlRefused(f"{'Garage doors' if ctl.kind == 'garage' else 'Unlocking'} needs a yes first.", 409)
+    siris.run_tool("home_assistant_call_service", {"domain": entity_id.split(".", 1)[0], "service": service, "entity_id": entity_id},
+                   confirmed=True, trigger=trigger)
+    after = client.get_state_or_none(entity_id)
+    return c.ControlResult(entity_id=entity_id, action=action, state=str(after["state"]) if after else None)
+
+
+def run_scene(siris: "SirisAI", scene_id: str, trigger: str) -> c.ControlResult:
+    if scene_id.startswith("siris:") and scene_id[6:].isdigit():
+        if siris.scenes.get_scene(int(scene_id[6:])) is None:
+            raise ControlRefused("No such scene.", 404)
+        siris.run_tool("run_scene", {"scene_id": int(scene_id[6:])}, confirmed=True, trigger=trigger)
+        return c.ControlResult(entity_id=scene_id, action="run")
+    if scene_id.startswith("scene.") and siris._home_assistant_client is not None:
+        if siris._home_assistant_client.get_state_or_none(scene_id) is None:
+            raise ControlRefused("No such scene.", 404)
+        siris.run_tool("home_assistant_call_service", {"domain": "scene", "service": "turn_on", "entity_id": scene_id}, confirmed=True, trigger=trigger)
+        return c.ControlResult(entity_id=scene_id, action="run")
+    raise ControlRefused("No such scene.", 404)
