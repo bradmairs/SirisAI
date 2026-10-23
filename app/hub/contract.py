@@ -373,6 +373,11 @@ class AttentionList(_Model):
 class AttentionActRequest(_Model):
     action: str
     body: str | None = Field(None, max_length=20000, description="For a triage reply's 'send': the reply as edited, instead of the draft.")
+    pin: str | None = Field(
+        None,
+        max_length=32,
+        description="The approval PIN, when SirisAI has one and this approves a high-risk action. Without it the reply is 403 with detail starting 'pin_required'.",
+    )
 
 
 class AttentionActResult(_Model):

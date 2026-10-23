@@ -337,6 +337,19 @@
 
   /* Status */
   #status-view button { margin-bottom: 1rem; }
+  #settings-view { padding: 16px; max-width: 760px; }
+  #settings-view fieldset { border: 1px solid var(--glass-border, rgba(255,255,255,0.12)); border-radius: 14px; margin: 0 0 16px; padding: 10px 14px 14px; }
+  #settings-view legend { font-size: 12px; color: var(--accent); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; padding: 0 6px; }
+  .setting-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 2px 12px; align-items: center; padding: 6px 0; }
+  .setting-row input[type="checkbox"] { justify-self: start; }
+  .setting-help { grid-column: 1 / -1; font-size: 0.75rem; opacity: 0.6; }
+  .settings-hint { font-size: 0.85rem; opacity: 0.75; }
+  .settings-actions { display: flex; gap: 12px; align-items: center; }
+  @media (max-width: 560px) { .setting-row { grid-template-columns: 1fr; } }
+  #pin-dialog { border-radius: 16px; border: 1px solid rgba(255,255,255,0.15); background: var(--bg, #111); color: inherit; padding: 18px 20px; max-width: 320px; }
+  #pin-dialog::backdrop { background: rgba(0,0,0,0.55); }
+  #pin-dialog input { width: 100%; font-size: 1.4rem; letter-spacing: 0.3em; text-align: center; margin: 8px 0 12px; }
+  #pin-dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 0; }
   #status-view h3 { font-size: 12px; margin: 1.5rem 0 10px; color: var(--accent); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; }
   dl.status-grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1rem; margin: 0; }
   dl.status-grid dt { color: var(--muted); }
@@ -361,6 +374,7 @@
     <button data-view="gaps">Gaps</button>
     <button data-view="activity">Activity</button>
     <button data-view="status">Status</button>
+    <button data-view="settings">Settings</button>
     <a class="nav-link" href="/hud" target="_blank" rel="noopener" title="Full-screen dashboard for a wall tablet">HUD</a>
   </nav>
 </header>
@@ -484,7 +498,29 @@
       <div id="voiceid-list"></div>
     </div>
   </section>
+  <section id="settings-view" class="view">
+    <p class="settings-hint">Saved here, these win over <code>.env</code> and survive a restart. Keys, passwords and the approval PIN stay in <code>.env</code>.</p>
+    <form id="settings-form">
+      <div id="settings-body"></div>
+      <div class="settings-actions">
+        <button class="action-btn" type="submit" id="settings-save">Save</button>
+        <span id="settings-status"></span>
+      </div>
+    </form>
+  </section>
 </main>
+
+<dialog id="pin-dialog">
+  <form method="dialog">
+    <h3 id="pin-title">Approval PIN</h3>
+    <p id="pin-note"></p>
+    <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="32" />
+    <menu>
+      <button value="cancel" type="submit" formnovalidate>Cancel</button>
+      <button value="ok" type="submit" class="action-btn">Approve</button>
+    </menu>
+  </form>
+</dialog>
 
 <script>
 (() => {
@@ -554,6 +590,37 @@
     return btn;
   }
 
+  // The approval PIN (app/core/approvals.py): a 403 "pin_required" asks for
+  // it and sends again; a wrong PIN asks again with the reason. Never stored.
+  const pinDialog = document.getElementById("pin-dialog");
+  function askPin(title, note) {
+    return new Promise((resolve) => {
+      document.getElementById("pin-title").textContent = title;
+      document.getElementById("pin-note").textContent = note || "";
+      const input = document.getElementById("pin-input");
+      input.value = "";
+      pinDialog.returnValue = "";
+      pinDialog.addEventListener("close", () => resolve(pinDialog.returnValue === "ok" ? input.value.trim() : null), { once: true });
+      pinDialog.showModal();
+      input.focus();
+    });
+  }
+  async function withPin(send, title) {
+    let pin = null;
+    for (;;) {
+      try {
+        return await send(pin);
+      } catch (err) {
+        const msg = String(err.message || "");
+        const needsPin = msg.startsWith("pin_required");
+        const wrong = pin !== null && msg.startsWith("Wrong PIN");
+        if (!needsPin && !wrong) throw err;
+        pin = await askPin(title, wrong ? msg : "This needs your approval PIN.");
+        if (!pin) throw Object.assign(new Error("Cancelled."), { cancelled: true });
+      }
+    }
+  }
+
   // --- Navigation ---
   const navButtons = document.querySelectorAll("nav button");
   const views = document.querySelectorAll("section.view");
@@ -571,6 +638,7 @@
       if (btn.dataset.view === "gaps") loadGaps();
       if (btn.dataset.view === "activity") loadActivity();
       if (btn.dataset.view === "status") loadStatus();
+      if (btn.dataset.view === "settings") loadSettings();
     });
   });
 
@@ -963,14 +1031,15 @@
         // should basically always produce text once a tool actually ran
         // (a completed action, not just a lookup), so "Done." is a rare
         // fallback, not the common case.
-        await runChatTurn("/siris/chat/confirm/stream", {
+        await withPin((pin) => runChatTurn("/siris/chat/confirm/stream", {
           conversation_id: conversationId,
           tool_name: name,
           arguments: args,
           use_planner: !!usePlanner,
-        });
+          pin,
+        }), `Approve ${name.replace(/_/g, " ")}`);
       } catch (err) {
-        addMessage(err.message, "error");
+        if (!err.cancelled) addMessage(err.message, "error");
       }
     });
     noBtn.addEventListener("click", () => {
@@ -2063,6 +2132,95 @@
     autoShowThinking = autoThinkingToggle.checked;
     try { localStorage.setItem(AUTO_THINKING_KEY, autoShowThinking ? "1" : "0"); } catch (err) { /* ignore */ }
   });
+  // --- Settings (GET/PUT /siris/settings) ---
+  const settingsBody = document.getElementById("settings-body");
+  const settingsStatus = document.getElementById("settings-status");
+  let settingsShown = [];
+
+  async function loadSettings() {
+    settingsBody.innerHTML = '<p class="empty">Loading...</p>';
+    try {
+      renderSettings((await api("/siris/settings")).settings);
+    } catch (err) {
+      settingsBody.innerHTML = '<p class="empty"></p>';
+      settingsBody.firstChild.textContent = err.message;
+    }
+  }
+
+  function renderSettings(list) {
+    settingsShown = list;
+    settingsBody.innerHTML = "";
+    let group = null, fieldset = null;
+    for (const field of list) {
+      if (field.group !== group) {
+        group = field.group;
+        fieldset = document.createElement("fieldset");
+        const legend = document.createElement("legend");
+        legend.textContent = group;
+        fieldset.appendChild(legend);
+        settingsBody.appendChild(fieldset);
+      }
+      const row = document.createElement("label");
+      row.className = "setting-row";
+      const name = document.createElement("span");
+      name.className = "setting-label";
+      name.textContent = field.label + (field.restart ? " (after a restart)" : "");
+      const input = document.createElement("input");
+      input.name = field.name;
+      if (field.type === "bool") {
+        input.type = "checkbox";
+        input.checked = !!field.value;
+      } else {
+        input.type = field.type === "number" ? "number" : "text";
+        if (field.type === "number") input.step = "any";
+        input.value = field.value === null || field.value === undefined ? "" : field.value;
+      }
+      const help = document.createElement("span");
+      help.className = "setting-help";
+      help.textContent = [field.help, field.source === "web" ? "set here" : ""].filter(Boolean).join(" · ");
+      row.append(name, input, help);
+      fieldset.appendChild(row);
+    }
+  }
+
+  // Only what changed. A blank optional number (an hour) means off.
+  function settingsChanges() {
+    const changes = {};
+    for (const field of settingsShown) {
+      const input = settingsBody.querySelector(`[name="${field.name}"]`);
+      const raw = field.type === "bool" ? null : input.value.trim();
+      let value;
+      if (field.type === "bool") value = input.checked;
+      else if (field.type === "number") {
+        if (raw === "" && !field.optional) continue;
+        value = raw === "" ? null : Number(raw);
+      } else value = raw;
+      const before = field.value === undefined ? null : field.value;
+      if (value !== before) changes[field.name] = value === null ? "" : value;
+    }
+    return changes;
+  }
+
+  document.getElementById("settings-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const changes = settingsChanges();
+    if (!Object.keys(changes).length) {
+      settingsStatus.textContent = "Nothing changed.";
+      return;
+    }
+    settingsStatus.textContent = "Saving...";
+    settingsStatus.className = "";
+    try {
+      const out = await withPin((pin) => api("/siris/settings", { method: "PUT", body: JSON.stringify({ changes, pin }) }), "Save settings");
+      renderSettings(out.settings);
+      settingsStatus.textContent = out.needs_restart.length ? `Saved. Restart SirisAI for: ${out.needs_restart.join(", ")}.` : "Saved.";
+      settingsStatus.className = "ok";
+    } catch (err) {
+      settingsStatus.textContent = err.cancelled ? "" : err.message;
+      settingsStatus.className = err.cancelled ? "" : "error";
+    }
+  });
+
   // Light theme: opt-in, as in SirisOS (applied before first paint in <head>).
   const lightThemeToggle = document.getElementById("light-theme-toggle");
   lightThemeToggle.checked = document.documentElement.dataset.theme === "light";

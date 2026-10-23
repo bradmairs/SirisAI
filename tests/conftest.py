@@ -6,6 +6,8 @@ from collections.abc import Iterator
 # points Settings at a `.env` file that doesn't exist, so tests get
 # deterministic defaults regardless of a real local `.env` in the repo root.
 os.environ.setdefault("SIRISAI_ENV_FILE", ".env.test")
+# Settings saved from the web UI go to a throwaway file, never ./data.
+os.environ.setdefault("SIRISAI_OVERRIDES_FILE", f"{tempfile.mkdtemp()}/settings-overrides.json")
 
 # Same reasoning, for the database: the default DATABASE_URL points at the
 # same `./data/sirisai.db` a locally-running dev server uses, so without

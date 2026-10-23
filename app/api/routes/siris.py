@@ -8,6 +8,7 @@ registered, what backend is active) that will grow as the core does.
 import asyncio
 import base64
 import binascii
+import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -18,6 +19,7 @@ from fastapi import Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
+from app.core import approvals
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
@@ -480,6 +482,20 @@ class ConfirmToolRequest(BaseModel):
     # exactly as before.
     use_planner: bool = False
     max_plan_steps: int = 5
+    # The approval PIN, when one is set and this is a high-risk tool (see
+    # app/core/approvals.py). Without it: 403 "pin_required: ...".
+    pin: str | None = None
+
+
+def _check_pin(siris: SirisAI, tool_name: str, arguments: dict[str, Any], pin: str | None) -> bool:
+    """403 unless the PIN is right (or not needed); True when it was checked."""
+    if not approvals.tool_needs_pin(siris, tool_name, arguments):
+        return False
+    try:
+        approvals.check_pin(siris, pin)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from None
+    return True
 
 
 @router.post("/chat/confirm")
@@ -498,13 +514,15 @@ async def confirm_tool_call(
     of ending the turn after just this one step -- see Cortex.confirm()."""
     if not siris.conversation.conversation_exists(request.conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    result = await Cortex(max_plan_steps=request.max_plan_steps).confirm(
-        siris,
-        request.conversation_id,
-        request.tool_name,
-        request.arguments,
-        use_planner=request.use_planner,
-    )
+    verified = _check_pin(siris, request.tool_name, request.arguments, request.pin)
+    with approvals.pin_verified() if verified else contextlib.nullcontext():
+        result = await Cortex(max_plan_steps=request.max_plan_steps).confirm(
+            siris,
+            request.conversation_id,
+            request.tool_name,
+            request.arguments,
+            use_planner=request.use_planner,
+        )
     return _shape_response(result)
 
 
@@ -626,8 +644,11 @@ async def confirm_tool_call_stream(
     format."""
     if not siris.conversation.conversation_exists(request.conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    verified = _check_pin(siris, request.tool_name, request.arguments, request.pin)
 
     async def run(on_event: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
+        if verified:
+            approvals.mark_verified()  # the turn runs in its own task
         await Cortex(max_plan_steps=request.max_plan_steps, on_event=on_event).confirm(
             siris,
             request.conversation_id,
@@ -707,6 +728,7 @@ class RunToolRequest(BaseModel):
     # dry run has no effect to confirm. Not every tool supports this;
     # unsupported returns 501.
     dry_run: bool = False
+    pin: str | None = None  # the approval PIN, for a high-risk tool
 
 
 class RunToolResponse(BaseModel):
@@ -751,13 +773,15 @@ def run_tool_directly(
             )
         )
 
+    verified = request.confirmed and _check_pin(siris, name, request.arguments, request.pin)
     try:
-        output = siris.run_tool(
-            name,
-            request.arguments,
-            confirmed=request.confirmed,
-            trigger="direct API request: a human explicitly asked for exactly this tool",
-        )
+        with approvals.pin_verified() if verified else contextlib.nullcontext():
+            output = siris.run_tool(
+                name,
+                request.arguments,
+                confirmed=request.confirmed,
+                trigger="direct API request: a human explicitly asked for exactly this tool",
+            )
     except ConfirmationRequired:
         return RunToolResponse(
             confirmation_required=PendingToolCall(

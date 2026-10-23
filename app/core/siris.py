@@ -29,7 +29,7 @@ from app.calendar.client import CalendarClient, CalendarSet
 from app.calendar.ics import parse_feeds
 from app.context.engine import ContextEngine
 from app.conversation.service import ConversationStore
-from app.core import taint
+from app.core import approvals, taint
 from app.core.health import broken_tools
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
@@ -1393,6 +1393,13 @@ class SirisAI:
                 except Exception:
                     logger.exception("Asking to confirm a held action failed")
             raise ConfirmationRequired(name, arguments)
+
+        if call_needs_confirmation and confirmed:
+            try:
+                approvals.require(self, name, arguments)
+            except approvals.PinRequired as exc:
+                self.audit.record(name, arguments, error=str(exc), duration_ms=(time.monotonic() - start) * 1000, conversation_id=conversation_id, trigger=trigger, evidence=evidence, policy=policy)
+                raise
 
         try:
             result = tool.run(**arguments)

@@ -94,6 +94,20 @@
           "default": null,
           "description": "For a triage reply's 'send': the reply as edited, instead of the draft.",
           "title": "Body"
+        },
+        "pin": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The approval PIN, when SirisAI has one and this approves a high-risk action. Without it the reply is 403 with detail starting 'pin_required'.",
+          "title": "Pin"
         }
       },
       "required": [

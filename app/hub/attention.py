@@ -30,6 +30,7 @@ thread made it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -300,6 +301,12 @@ def raise_confirmation(siris: "SirisAI", context: str, tool_name: str, arguments
 
 def sync_all(siris: "SirisAI", *, include_brain: bool = True) -> None:
     """Refresh every synced source. Each is best-effort on its own."""
+    try:
+        from app.core.approvals import close_expired
+
+        close_expired(siris)
+    except Exception:
+        logger.debug("closing expired approvals failed", exc_info=True)
     for name, fn in (("habits", _sync_habits), ("energy", _sync_jobs), ("briefing", _sync_pending)):
         try:
             fn(siris)
@@ -434,10 +441,15 @@ def _learn(siris: "SirisAI", item: dict[str, Any], action_id: str, payload: dict
         logger.debug("Recording the outcome of an attention action failed", exc_info=True)
 
 
-def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app", body: str | None = None) -> tuple[dict[str, Any], Any]:
+def act(
+    siris: "SirisAI", item_id: int, action_id: str, client: str = "the app", body: str | None = None, pin: str | None = None
+) -> tuple[dict[str, Any], Any]:
     """Do what the action says, then close the item. Raises LookupError for
     an unknown or already-closed item and UnknownAction for an action the
-    item doesn't offer."""
+    item doesn't offer. A held action past its expiry raises ApprovalExpired
+    (and closes); a high-risk one needs `pin` when an approval PIN is set
+    (app/core/approvals.py: PinRequired, PinRejected)."""
+    from app.core import approvals
     item = siris.attention.get(item_id)
     if item is None or item["status"] != "open":
         raise LookupError(f"No open attention item {item_id}")
@@ -451,6 +463,19 @@ def act(siris: "SirisAI", item_id: int, action_id: str, client: str = "the app",
     trigger = f"attention feed: the user chose '{action_id}' on '{item['title']}' in {client}"
     result: Any = None
 
+    risky = action_id not in ("acknowledge", "decline", "dismiss")
+    if risky and approvals.expired(siris, item):
+        siris.attention.close(item_id, "dismissed", f"Expired: approvals last {siris.settings.approval_expiry_minutes:g} minutes")
+        raise approvals.ApprovalExpired(f"That approval expired (they last {siris.settings.approval_expiry_minutes:g} minutes). Ask again if you still want it.")
+    verified = risky and approvals.action_needs_pin(siris, item, action_id, payload)
+    if verified:
+        approvals.check_pin(siris, pin)
+    with approvals.pin_verified() if verified else contextlib.nullcontext():
+        return _dispatch(siris, item, item_id, action_id, payload, trigger)
+
+
+def _dispatch(siris: "SirisAI", item: dict[str, Any], item_id: int, action_id: str, payload: dict[str, Any], trigger: str) -> tuple[dict[str, Any], Any]:
+    result: Any = None
     _learn(siris, item, action_id, payload)
     if action_id in ("acknowledge", "decline"):
         closed = siris.attention.close(item_id, "done" if action_id == "acknowledge" else "dismissed", action_id.capitalize() + "d")
