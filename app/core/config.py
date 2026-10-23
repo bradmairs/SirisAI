@@ -212,7 +212,8 @@ class Settings(BaseSettings):
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
-        "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local", "onenote_hour_local", "gmail_hour_local",
+        "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
+        "server_updates_hour_local", "server_disks_hour_local", "onenote_hour_local", "gmail_hour_local",
         mode="before",
     )
     @classmethod
@@ -734,6 +735,19 @@ class Settings(BaseSettings):
     # "all" does it last.
     ssh_allow_power: bool = True
     ssh_self_server: str = ""
+    # Wake-on-LAN (app/servers/wake.py). MACs are learned while servers are up;
+    # "name=aa:bb:cc:dd:ee:ff,..." overrides. A relay server sends the packet
+    # from inside the LAN (a container can't broadcast to it).
+    ssh_wake_macs: str = ""
+    ssh_wake_relay: str = ""
+    ssh_wake_broadcast: str = ""
+    ssh_wake_timeout_seconds: float = 240.0
+    # Server watch (app/servers/watch.py): health every N minutes (0 = off),
+    # OS updates and disk health once a day (blank hour = off).
+    server_watch_minutes: float = 15.0
+    server_disk_warn_percent: int = 90
+    server_updates_hour_local: int | None = 7
+    server_disks_hour_local: int | None = 6
 
     # Conversation handoff between rooms (app/satellites/service.py,
     # milestone 75). Each satellite process keeps its own local

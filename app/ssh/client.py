@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 MAX_OUTPUT_CHARS = 6000
+_MAC_RE = re.compile(r"[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")
 
 
 @dataclass(frozen=True)
@@ -189,7 +190,11 @@ HEALTH_COMMAND = (
     "echo '##uptime'; cat /proc/loadavg 2>/dev/null; nproc 2>/dev/null; uptime -p 2>/dev/null; "
     "echo '##mem'; free -m 2>/dev/null; "
     "echo '##disk'; df -hP -x tmpfs -x devtmpfs -x overlay -x squashfs 2>/dev/null; "
-    "echo '##failed'; systemctl --failed --no-legend --plain 2>/dev/null | head -20"
+    "echo '##failed'; systemctl --failed --no-legend --plain 2>/dev/null | head -20; "
+    # The MAC of the interface the default route uses, learned while the server
+    # is up so Wake-on-LAN works later without configuring it.
+    "echo '##mac'; dev=$(awk '$2==\"00000000\" {print $1; exit}' /proc/net/route 2>/dev/null); "
+    "[ -n \"$dev\" ] && cat /sys/class/net/$dev/address 2>/dev/null"
 )
 
 
@@ -225,6 +230,9 @@ def parse_health(output: str) -> dict[str, Any]:
             disks.append({"mount": fields[5], "size": fields[1], "used_percent": int(fields[4].rstrip("%")), "free": fields[3]})
     out["disks"] = disks
     out["failed_services"] = [line.split()[0] for line in sections.get("failed", []) if line.split()]
+    mac = next((m.strip().lower() for m in sections.get("mac", []) if _MAC_RE.fullmatch(m.strip())), None)
+    if mac and mac != "00:00:00:00:00:00":
+        out["mac"] = mac
     warnings = []
     if "load" in out and out.get("cpus") and out["load"][1] > out["cpus"] * 1.5:
         warnings.append(f"load is high ({out['load'][1]} over 5 minutes on {out['cpus']} CPUs)")
@@ -240,6 +248,21 @@ POWER_ACTIONS = ("reboot", "shutdown", "cancel")
 NEEDS_SUDO_EXIT = 77
 
 
+def sudo_prefix(host: SshHost) -> str:
+    return "" if host.user == "root" else "sudo -n "
+
+
+def sudo_check(host: SshHost, command: str) -> str:
+    """A guard that exits 77 unless this account may run `command` through sudo
+    without a password. Asks about the exact command (`sudo -n -l <command>`),
+    so a sudoers rule allowing only that is enough. Works the same with the
+    classic sudo and with sudo-rs (Ubuntu 25.10's default), both tested. Empty
+    for root."""
+    if not sudo_prefix(host):
+        return ""
+    return f"sudo -n -l {command} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; "
+
+
 def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:
     """The remote command for a reboot, shutdown or cancelling a pending one.
 
@@ -250,7 +273,7 @@ def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:
     instead of being cut off and reported as a failure."""
     if action not in POWER_ACTIONS:
         raise ValueError(f"Unknown power action '{action}': use reboot, shutdown or cancel.")
-    sudo = "" if host.user == "root" else "sudo -n "
+    sudo = sudo_prefix(host)
     flag = "-r" if action == "reboot" else "-h"
     verb = "reboot" if action == "reboot" else "poweroff"
     if action == "cancel":
@@ -259,9 +282,5 @@ def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:
         run = f"{sudo}shutdown {flag} +{int(delay_minutes)} 'SirisAI: {action} requested' && echo scheduled"
     else:
         run = f"nohup sh -c 'sleep 2; {sudo}systemctl {verb}' >/dev/null 2>&1 & echo started"
-    if not sudo:
-        return run
-    # Ask sudo about this exact command, so a sudoers rule that allows only
-    # the power commands is enough (sudo -l <command> exits 0 when allowed).
     allowed = f"systemctl {verb}" if action != "cancel" and delay_minutes <= 0 else "shutdown"
-    return f"sudo -n -l {allowed} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; " + run
+    return sudo_check(host, allowed) + run

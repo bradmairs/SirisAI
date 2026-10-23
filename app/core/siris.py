@@ -228,6 +228,13 @@ from app.bazarr.client import BazarrClient
 from app.cleanuparr.client import CleanuparrClient
 from app.cron.client import CronHostsClient, parse_cron_hosts
 from app.plugins.builtin.ssh import SshListServersTool, SshPowerTool, SshRunTool, SshServerHealthTool
+from app.plugins.builtin.servers import (
+    SshDiskHealthTool,
+    SshInstallUpdatesTool,
+    SshServerPermissionsTool,
+    SshServerUpdatesTool,
+    SshWakeTool,
+)
 from app.ssh.client import SshClient, parse_ssh_hosts
 from app.frigate.client import FrigateClient
 from app.listenarr.client import ListenarrClient
@@ -1018,6 +1025,8 @@ class SirisAI:
                     allow_changes=self.settings.ssh_allow_changes,
                 )
             )
+            for server_tool in (SshWakeTool, SshServerUpdatesTool, SshInstallUpdatesTool, SshDiskHealthTool, SshServerPermissionsTool):
+                self.tools.register(server_tool(self))
             self.tools.register(
                 SshPowerTool(
                     self.ssh_client,

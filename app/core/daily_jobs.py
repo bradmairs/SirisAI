@@ -90,6 +90,18 @@ def _career_capture(siris: "SirisAI", now: datetime) -> Any:
     return capture.capture(siris, now)
 
 
+def _server_updates(siris: "SirisAI", now: datetime) -> Any:
+    from app.servers import watch
+
+    return watch.check_updates(siris, now) if siris.ssh_client is not None else {"skipped": "no SSH servers"}
+
+
+def _server_disks(siris: "SirisAI", now: datetime) -> Any:
+    from app.servers import watch
+
+    return watch.check_disks(siris, now) if siris.ssh_client is not None else {"skipped": "no SSH servers"}
+
+
 JOBS: list[DailyJob] = [
     DailyJob("reflection", lambda s: s.settings.reflection_hour_local, _reflect),
     DailyJob("goal_review", lambda s: s.settings.goal_review_hour_local, _goal_review, weekday=lambda s: s.settings.goal_review_day),
@@ -99,6 +111,8 @@ JOBS: list[DailyJob] = [
     DailyJob("update_check", lambda s: s.settings.update_check_hour_local if s.settings.update_mode != "off" else None, _update_check),
     DailyJob("morning_triage", lambda s: s.settings.triage_hour_local, _triage),
     DailyJob("career_capture", lambda s: s.settings.career_capture_hour_local, _career_capture),
+    DailyJob("server_updates", lambda s: s.settings.server_updates_hour_local if s.ssh_client is not None else None, _server_updates),
+    DailyJob("server_disks", lambda s: s.settings.server_disks_hour_local if s.ssh_client is not None else None, _server_disks),
     DailyJob("model_trial", lambda s: s.settings.model_trial_hour_local if s.settings.candidate_models else None, _model_trial, weekday=lambda s: s.settings.model_trial_day),
 ]
 

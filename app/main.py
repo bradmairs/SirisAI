@@ -26,6 +26,7 @@ from app.api.routes import (
     proactive,
     routines,
     satellites,
+    servers,
     scenes,
     siris,
     voice,
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router)
     app.include_router(proactive.router)
     app.include_router(learning.router)
+    app.include_router(servers.router)
     app.include_router(career.router)
     app.include_router(upkeep.router)
     app.include_router(routines.router)
