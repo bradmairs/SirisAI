@@ -85,6 +85,8 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         # Whatever a server prints: log lines and file contents are anyone's text.
         "ssh_run",
         "ssh_server_health",
+        "ssh_server_updates",
+        "ssh_disk_health",
     }
 )
 

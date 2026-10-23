@@ -5975,6 +5975,65 @@ provider for the same capability actually exists to design against.
       about it, its open tasks and the people involved.
     Verified in `tests/test_gmail.py`, `tests/test_second_brain_jobs.py` and
     `tests/test_second_brain.py`.
+140. **Done** -- Looking after the servers (`app/servers/`): wake them,
+    watch them, keep them updated, check their disks, and know what
+    permissions SirisAI has on each.
+    - **Wake-on-LAN** (`ssh_wake`, "wake the NAS"):
+      - each health check learns the server's MAC from its default
+        interface (via `/proc/net/route`, so no `ip` command needed);
+        `SIRISAI_SSH_WAKE_MACS` overrides;
+      - the magic packet goes every available way: through a relay server
+        over SSH (`SIRISAI_SSH_WAKE_RELAY`, since a container can't
+        broadcast onto the LAN), Home Assistant's `wake_on_lan`, and a
+        direct broadcast;
+      - it then polls SSH in the background and posts "nas is awake (took
+        48s)" or "nas didn't wake up" with what to check.
+    - **The server watch** runs every `SIRISAI_SERVER_WATCH_MINUTES` (15). It
+      syncs the attention feed with what's wrong right now, and items close
+      themselves when fixed:
+      - disks at 90%+ (urgent at 97%), and memory at 95%+;
+      - failed systemd services, with **Restart**;
+      - a server missing two checks, with **Wake** when its MAC is known.
+    - **OS updates** (daily, 7am): apt and dnf. Raises "2 updates waiting on
+      nas (1 security)" with **Install updates**, which runs in the
+      background and logs; the next check reports a failure. "nas needs a
+      reboot" comes with **Reboot**. `ssh_install_updates` does the same in
+      chat and asks first.
+    - **Disk health** (daily, 6am): SMART health and counters in plain
+      words ("sda: SMART health FAILED!, 12 reallocated sectors"), NVMe
+      wear, degraded ZFS pools and md RAID, one item per disk.
+    - **Permissions** (`ssh_server_permissions`): asks sudo about each exact
+      command SirisAI would run and gives the sudoers line for what's
+      missing. A failed Restart names the exact rule for that service.
+    - **sudo-rs** (Ubuntu 25.10's sudo), tested against sudo-rs and classic
+      sudo:
+      - `sudo -n -l <command>` behaves the same in both;
+      - sudo-rs refuses wildcards in rule arguments, even when running the
+        command, so every recommended rule names an exact command (the apt
+        options escaped);
+      - exact rules work identically on both.
+    - `/siris/servers` lists each server with its MAC and last check, and
+      `POST /siris/servers/watch`, `/updates` and `/disks` run a check now.
+    - **Verified:** 15 tests in `tests/test_servers.py` against a
+      programmable stand-in `ssh`. Also live on uvicorn against a real
+      OpenSSH server, with sudo-rs as the server's sudo and stand-ins for
+      systemctl, apt, apt-get and smartctl:
+      - the watch raised the full disk, the failed nginx, and "ghost isn't
+        answering" with Wake after two misses;
+      - it learned both servers' MACs;
+      - updates showed "2 waiting (1 security)" and "needs a reboot";
+      - disks showed a failing drive as urgent;
+      - Restart, Install updates and Reboot from the feed ran as root
+        through sudo-rs on the non-root server;
+      - waking `lab` reported "awake", and waking `ghost` posted "didn't
+        wake up" after the timeout;
+      - a UDP listener caught valid magic packets, sent both through the
+        relay and directly.
+      The live run caught three bugs, all fixed:
+      - two problems on one disk collapsed into the milder one;
+      - the MAC lookup needed `ip`;
+      - wildcard sudoers rules don't work on sudo-rs.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
