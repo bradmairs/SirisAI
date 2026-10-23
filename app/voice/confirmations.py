@@ -45,8 +45,8 @@ def classify_reply(text: str) -> str | None:
 
 
 # Too big to approve with a spoken "yes" (a TV or a guest can say yes): these
-# wait for a tap on Allow or Approve instead.
-NEVER_BY_VOICE = frozenset({"ssh_power"})
+# wait for a tap on Allow or Approve instead (with the PIN, when one is set).
+NEVER_BY_VOICE = frozenset({"ssh_power", "ssh_install_updates", "ssh_run"})
 
 
 def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:

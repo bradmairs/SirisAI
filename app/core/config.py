@@ -735,6 +735,12 @@ class Settings(BaseSettings):
     # "all" does it last.
     ssh_allow_power: bool = True
     ssh_self_server: str = ""
+    # Approvals (app/core/approvals.py): a PIN for high-risk approvals (server
+    # power, updates, SSH changes, settings; plus approval_pin_tools), and how
+    # long an action held in the attention feed stays approvable.
+    approval_pin: str = ""
+    approval_pin_tools: str = ""
+    approval_expiry_minutes: float = 15.0
     # Wake-on-LAN (app/servers/wake.py). MACs are learned while servers are up;
     # "name=aa:bb:cc:dd:ee:ff,..." overrides. A relay server sends the packet
     # from inside the LAN (a container can't broadcast to it).
@@ -768,5 +774,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Cached settings accessor -- use as a FastAPI dependency."""
-    return Settings()
+    """Cached settings accessor -- use as a FastAPI dependency. Settings
+    changed on the web UI's Settings page win over .env
+    (app/core/settings_overrides.py)."""
+    from app.core import settings_overrides
+
+    return Settings(**settings_overrides.load())

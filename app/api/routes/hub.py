@@ -42,6 +42,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from app.core import approvals
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
@@ -149,7 +150,9 @@ async def attention_stream(
 @router.post("/attention/{item_id}/act", response_model=c.AttentionActResult)
 async def attention_act(item_id: int, body: c.AttentionActRequest, request: Request, siris: SirisAI = Depends(get_siris)) -> c.AttentionActResult:
     try:
-        item, result = await asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request), body.body)
+        item, result = await asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request), body.body, body.pin)
+    except approvals.ApprovalExpired as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except attention.UnknownAction as exc:
