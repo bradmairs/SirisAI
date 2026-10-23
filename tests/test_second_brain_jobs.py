@@ -36,6 +36,12 @@ class FakeBrain:
         self.relinked = 0
         self.sources: dict[str, str] = {}
         self.types: dict[str, str] = {}
+        self.renamed: dict[str, str] = {}
+        self.pages: list[dict] = []
+        self.path = "/nonexistent-vault"
+
+    def project_pages(self) -> list[dict]:
+        return self.pages
 
     def inbox(self) -> dict:
         return {"memory": list(self.memory), "notes": list(self.inbox_notes)}
@@ -50,7 +56,9 @@ class FakeBrain:
         self.cleared += filed
         return {"archived": len(filed)}
 
-    def file_note(self, title: str, type: str = "auto", into: str = "", folder: str = "") -> dict:
+    def file_note(self, title: str, type: str = "auto", into: str = "", folder: str = "", new_title: str = "") -> dict:
+        if new_title:
+            self.renamed[title] = new_title
         self.filed.append(title)
         self.file_calls.append((title, type, into) if not folder else (title, type, into, folder))
         if into:
@@ -657,3 +665,56 @@ def test_upkeep_auto_links_confident_pairs_and_says_so() -> None:
     out = asyncio.run(jobs.upkeep(siris, _at(2)))
     assert len(out["autolink"]["linked"]) == 2
     assert "Linked 2 pairs of notes it was sure about." in siris._notify_client.sent[0][1]
+
+
+# ---------- capture titles, photos, project pages ----------
+
+
+def test_a_cut_off_capture_title_is_replaced_when_filed() -> None:
+    brain, out, _ = _sort('{"action": "new", "type": "note", "title": "Where I Capture Things in Siris"}',
+                          title="I’ve decided I want to add things to…")
+    assert brain.renamed == {"I’ve decided I want to add things to…": "Where I Capture Things in Siris"}
+    brain, out, _ = _sort('{"action": "new", "title": "A Different Name"}')   # a real title stays
+    assert brain.renamed == {}
+    brain, out, _ = _sort('{"action": "new", "title": "Still cut off…"}', title="Photo 2026-10-21 08:14")
+    assert brain.renamed == {}
+
+
+class FakeVision:
+    def __init__(self, reply: str = "# Site markup\n- [ ] Move valve 300 mm east") -> None:
+        self.reply, self.calls = reply, 0
+
+    def describe(self, images: list[bytes], prompt: str | None = None) -> str:
+        self.calls += 1
+        return self.reply
+
+
+def test_photos_in_the_inbox_are_read_once(tmp_path: Any) -> None:
+    (tmp_path / "Attachments").mkdir()
+    (tmp_path / "Attachments" / "2026-10-21 board.jpg").write_bytes(b"\xff\xd8\xff photo")
+    (tmp_path / "00-Inbox").mkdir()
+    (tmp_path / "00-Inbox" / "Photo 2026-10-21 08:14.md").write_text(
+        "---\ntype: capture\n---\n# Photo 2026-10-21 08:14\n\n![[Attachments/2026-10-21 board.jpg]]\n")
+    siris = _siris()
+    siris.state.set(jobs.PHOTO_KEY, [])
+    brain = siris.second_brain = FakeBrain(inbox_notes=[{"title": "Photo 2026-10-21 08:14", "path": "00-Inbox/Photo 2026-10-21 08:14.md"}])
+    brain.path = str(tmp_path)
+    siris.vision = FakeVision()
+    assert asyncio.run(jobs.read_inbox_photos(siris)) == {"read": ["Photo 2026-10-21 08:14"]}
+    assert "Move valve 300 mm east" in brain.learned[0]["content"]
+    assert brain.learned[0]["title"] == "Photo 2026-10-21 08:14"
+    assert asyncio.run(jobs.read_inbox_photos(siris)) == {"read": []}   # never twice
+    assert siris.vision.calls == 1
+    siris.vision = None
+    assert "skipped" in asyncio.run(jobs.read_inbox_photos(siris))
+
+
+def test_the_upkeep_summary_mentions_photos_pages_and_emails() -> None:
+    message = jobs._upkeep_message({
+        "photos": {"read": ["Photo 1"]},
+        "projects": [{"project": "Melrose East Pump Station", "action": "updated"}, {"project": "Other", "action": "unchanged"}],
+        "gmail": {"imported": ["Booking", "Receipt"]},
+    })
+    assert "Read 1 photo in the inbox." in message
+    assert "Project pages refreshed: Melrose East Pump Station." in message
+    assert "Brought in 2 emails labelled Siris." in message

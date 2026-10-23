@@ -207,6 +207,54 @@ class BrainUnlinkNotesTool(Tool):
             return {"error": str(exc)}
 
 
+class BrainMergeNotesTool(Tool):
+    name = "brain_merge_notes"
+    description = (
+        "Merge one note in Siris into another on the same topic, when Brad agrees they're duplicates "
+        "(\"merge GVW Project Closure into GVW Contract Closure\", or yes to insights' \"might be the same "
+        "topic\"). Nothing is reworded: the first note's text goes onto the second as a dated update, links "
+        "follow, and the first is archived. Use brain_notes_distinct when he says they're different."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "description": "The note to fold in (it's archived)."},
+            "into": {"type": "string", "description": "The note to keep."},
+        },
+        "required": ["source", "into"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, source: str = "", into: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.merge(source, into)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
+class BrainNotesDistinctTool(Tool):
+    name = "brain_notes_distinct"
+    description = (
+        "Record that two notes in Siris that look alike are different things, when Brad says so (\"no, "
+        "those are different\" to a 'might be the same topic' suggestion). They're never suggested for "
+        "merging again; neither note changes."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = BrainLinkNotesTool.parameters
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, a: str = "", b: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.distinct(a, b)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
 class BrainDoneTool(Tool):
     name = "brain_mark_done"
     description = (

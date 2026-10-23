@@ -5944,6 +5944,37 @@ provider for the same capability actually exists to design against.
     `tests/test_hub_day.py`, the contract examples and
     `tests/test_second_brain.py`.
 
+141. **Done** -- A tidier Siris, and more ways in (needs the vault engine
+    1.61).
+    - **Email into Siris** (`app/gmail/`). Give any Gmail message the label
+      **Siris** and it comes into Siris' inbox that night (at
+      `SIRISAI_GMAIL_HOUR_LOCAL`, 1:00) for the sort to file: subject as the
+      title, who sent it and when, the body as Markdown (quoted replies left
+      out), pictures and PDFs saved in `03-Resources/Attachments/Email`. It's
+      read-only over IMAP: the label is opened read-only, so nothing in Gmail
+      changes. Set up: turn on 2-Step Verification for the Google account,
+      make an app password at myaccount.google.com/apppasswords, then set
+      `SIRISAI_GMAIL_ADDRESS` and `SIRISAI_GMAIL_APP_PASSWORD` and create
+      the label. A refused password sends one high-priority push.
+    - **Photos are read.** Before the nightly sort, the vision model
+      (`SIRISAI_VISION_MODEL`) reads every photo waiting in the inbox (quick
+      capture photos, email attachments): handwriting, whiteboards and
+      printed pages are transcribed, anything else gets a one-line
+      description, marked as a machine reading to check. Each photo is read
+      once.
+    - **Real titles for quick captures.** A capture titled with its first
+      few words ("I've decided I want to add things to…") or a photo's time
+      is filed under a proper name the model gives it; the old title stays
+      an alias.
+    - **Duplicates.** Insights points out two notes that look like one
+      topic. In chat, `brain_merge_notes` folds one into the other (nothing
+      reworded; the first is archived) and `brain_notes_distinct` says
+      they're different, so they're never suggested again.
+    - **Work project pages.** The upkeep refreshes a page per project in
+      GVW Projects (`Work/GVW/Projects/`), gathering what the notes say
+      about it, its open tasks and the people involved.
+    Verified in `tests/test_gmail.py`, `tests/test_second_brain_jobs.py` and
+    `tests/test_second_brain.py`.
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

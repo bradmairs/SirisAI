@@ -187,13 +187,14 @@ class SecondBrainClient:
         return self._write(["eval", "--record", "--output", "json"],
                            message=lambda r: f"siris: recall check {round(r.get('score', 0) * 100)}%")
 
-    def file_note(self, title: str, type: str = "auto", into: str = "", folder: str = "") -> dict:
+    def file_note(self, title: str, type: str = "auto", into: str = "", folder: str = "", new_title: str = "") -> dict:
         """File one inbox capture where the router says it belongs, or merge it
-        into the existing note `into`. `action` is filed (moved), merged (added
+        into the existing note `into`. `new_title` files it under a better name
+        (the old one stays an alias). `action` is filed (moved), merged (added
         to that note; the capture is archived), left (unsure, with `reasons`)
         or missing."""
         args = ["file", "--type", type, "--output", "json"] + (["--into", into] if into else []) \
-            + (["--folder", folder] if folder else [])
+            + (["--folder", folder] if folder else []) + (["--title", new_title] if new_title else [])
         return self._write([*args, "--", title],
                            message=lambda r: f"siris: filed {r.get('title', title)}")
 
@@ -214,6 +215,30 @@ class SecondBrainClient:
         vault and never suggested again. Neither note changes."""
         return self._write(["unrelate", "--output", "json", "--", a, b],
                            message=lambda r: f"siris: {r.get('a', a)} and {r.get('b', b)} aren't related")
+
+    def duplicates(self) -> list[dict]:
+        """Pairs of notes that look like one topic written twice: [{a, b, score, why}]."""
+        self._maybe_pull()
+        return self._engine_call(["duplicates", "--output", "json"])
+
+    def merge(self, source: str, into: str) -> dict:
+        """Fold note `source` into note `into` (same topic): its text becomes a dated
+        "Merged from" update, links to it point at `into`, and it's archived in
+        04-Archive/Merged. Its title stays findable as an alias. Unknown notes raise."""
+        return self._write(["merge", "--output", "json", "--", source, into],
+                           message=lambda r: f"siris: merged {r.get('from', source)} into {r.get('into', into)}")
+
+    def distinct(self, a: str, b: str) -> dict:
+        """Two notes that look alike are different things: never suggest merging them again."""
+        return self._write(["distinct", "--output", "json", "--", a, b],
+                           message=lambda r: f"siris: {r.get('a', a)} and {r.get('b', b)} are different notes")
+
+    def project_pages(self) -> list[dict]:
+        """Refresh the page for each project a #project-list note names (GVW Projects):
+        [{project, action created/updated/unchanged, path, mentions, tasks, people}]."""
+        return self._write(["project-pages", "--apply", "--output", "json"],
+                           message=lambda r: "siris: refreshed project pages ("
+                           + ", ".join(p["project"] for p in r if p["action"] != "unchanged")[:150] + ")")
 
     def autolink(self) -> dict:
         """Link every pair of notes the engine is confident about (a calibrated

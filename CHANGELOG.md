@@ -5,6 +5,13 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.24 — 2026-10-22
+
+- Email into Siris, photos read, real capture titles, duplicate merging and work project pages
+- Label an email "Siris" in Gmail and it's in Siris' inbox the next morning (read-only IMAP with an app password; `SIRISAI_GMAIL_*`).
+- The nightly upkeep reads inbox photos with the vision model, gives cut-off capture titles a real name, and refreshes the GVW project pages.
+- Chat can merge duplicate notes (`brain_merge_notes`) or mark them different (`brain_notes_distinct`). Needs the vault engine 1.61.
+
 ## 2.14 — 2026-10-22
 
 - The hub for SirisOS's day: presence, reminders, emails with meeting attendees, upkeep, health by day, vault tasks, edited triage replies
