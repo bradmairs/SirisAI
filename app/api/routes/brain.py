@@ -188,6 +188,18 @@ def insights(days: int = Query(30, ge=7, le=365), siris: SirisAI = Depends(get_s
     return _brain(siris).insights(days=days)
 
 
+@router.get("/projects")
+def projects(siris: SirisAI = Depends(get_siris)) -> dict:
+    """Every project note: `title`, `status`, `aliases`, `path` (SirisOS's Projects screen)."""
+    try:
+        notes = _brain(siris).list_notes()
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    found = [{"title": n["title"], "status": n.get("status") or "active", "aliases": n.get("aliases") or [], "path": n.get("path")}
+             for n in notes if n.get("type") == "project"]
+    return {"projects": sorted(found, key=lambda p: p["title"].lower())}
+
+
 @router.get("/tasks")
 def tasks(siris: SirisAI = Depends(get_siris)) -> dict:
     """Every open task in the vault, soonest due first (SirisOS's Tasks screen)."""

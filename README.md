@@ -5975,6 +5975,15 @@ provider for the same capability actually exists to design against.
       about it, its open tasks and the people involved.
     Verified in `tests/test_gmail.py`, `tests/test_second_brain_jobs.py` and
     `tests/test_second_brain.py`.
+
+142. **Done** -- What SirisOS's Projects screen needs (2.25).
+    `GET /siris/brain/projects` lists every project note: title, status
+    ("active" when the note doesn't say), aliases and path.
+    `GET /siris/hub/v1/email/about?q=` returns the latest emails with any of
+    those words in the subject. It's read-only, searches the last 90 days,
+    quotes the words safely, and returns nothing in guest mode. Verified in
+    `tests/test_second_brain.py` and `tests/test_hub_day.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

@@ -52,6 +52,11 @@ FAKE_ENGINE = textwrap.dedent(
         (root / "_site" / "index.html").write_text("<html>map of " + str(len(notes)) + " notes</html>")
         print("Mind map -> _site/index.html")
         sys.exit(0)
+    if cmd == "list":
+        print(json.dumps([{"title": "Werribee Drainage", "type": "project", "aliases": ["WD"], "path": "01-Projects/Werribee Drainage.md", "status": ""},
+                          {"title": "Plex", "type": "resource", "aliases": [], "path": "03-Resources/Plex.md", "status": ""},
+                          {"title": "Akaroa Upgrade", "type": "project", "aliases": [], "path": "01-Projects/Akaroa Upgrade.md", "status": "done"}]))
+        sys.exit(0)
     if cmd == "tasks":
         print(json.dumps([{"task": "Send levels to Dana", "note": "Werribee Drainage", "due": "2026-10-20", "type": "project"}]))
         sys.exit(0)
@@ -830,6 +835,14 @@ def test_tasks_route_lists_open_tasks(brain_api) -> None:
     r = client.get("/siris/brain/tasks")
     assert r.status_code == 200 and r.json() == {"tasks": [{"task": "Send levels to Dana", "note": "Werribee Drainage", "due": "2026-10-20", "type": "project"}]}
     assert _calls(vault)[-1]["args"] == ["tasks", "--output", "json"]
+
+
+def test_projects_route_lists_project_notes(brain_api) -> None:
+    client, _ = brain_api
+    assert client.get("/siris/brain/projects").json() == {"projects": [
+        {"title": "Akaroa Upgrade", "status": "done", "aliases": [], "path": "01-Projects/Akaroa Upgrade.md"},
+        {"title": "Werribee Drainage", "status": "active", "aliases": ["WD"], "path": "01-Projects/Werribee Drainage.md"},
+    ]}
 
 
 def test_merge_distinct_duplicates_and_project_pages(tmp_path: Path) -> None:
