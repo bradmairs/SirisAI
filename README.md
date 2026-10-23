@@ -5975,7 +5975,21 @@ provider for the same capability actually exists to design against.
       about it, its open tasks and the people involved.
     Verified in `tests/test_gmail.py`, `tests/test_second_brain_jobs.py` and
     `tests/test_second_brain.py`.
-140. **Done** -- Looking after the servers (`app/servers/`): wake them,
+
+142. **Done** -- What SirisOS's Projects screen needs (2.25).
+    `GET /siris/brain/projects` lists every project note: title, status
+    ("active" when the note doesn't say), aliases and path.
+    `GET /siris/hub/v1/email/about?q=` returns the latest emails with any of
+    those words in the subject. It's read-only, searches the last 90 days,
+    quotes the words safely, and returns nothing in guest mode. Verified in
+    `tests/test_second_brain.py` and `tests/test_hub_day.py`.
+
+143. **Done** -- A year of health for SirisOS's trends (2.26).
+    `GET /siris/hub/v1/health/days` now answers up to 400 days (it was 35),
+    so SirisOS 4.1 can chart running, exercise and steps month by month.
+    Each metric is still a single query. Verified in `tests/test_hub_day.py`.
+
+144. **Done** -- Looking after the servers (`app/servers/`): wake them,
     watch them, keep them updated, check their disks, and know what
     permissions SirisAI has on each.
     - **Wake-on-LAN** (`ssh_wake`, "wake the NAS"):

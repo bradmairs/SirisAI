@@ -23,6 +23,10 @@ class FakeEmailClient:
         self.asked.append(addresses)
         return [{"uid": "41", "from": "Dana Lee <dana.lee@example.com>", "subject": "Werribee levels", "date": "Tue, 20 Oct 2026 09:12:00 +1100", "snippet": "Attached are the levels."}]
 
+    def recent_about(self, words: list[str], limit: int = 5, since_days: int = 90) -> list[dict[str, Any]]:
+        self.asked.append(words)
+        return self.recent_with(words, limit)
+
 
 class Sender(Tool):
     name = "email_send_reply"
@@ -97,6 +101,37 @@ def test_email_with_reads_the_latest_from_those_people(use) -> None:
     assert client.get("/siris/hub/v1/email/with", params={"address": "x@example.com"}).json()["messages"] is None
 
 
+def test_email_about_finds_a_project_by_subject(use) -> None:
+    siris = full_siris()
+    client = use(siris)
+    fake = FakeEmailClient()
+    _fake(siris, "email_read", {})._client = fake  # type: ignore[attr-defined]
+    body = client.get("/siris/hub/v1/email/about", params=[("q", "Werribee Drainage"), ("q", "WD")]).json()
+    assert body["messages"][0]["subject"] == "Werribee levels"
+    assert fake.asked[-1] == ["Werribee Drainage", "WD"]
+    assert client.get("/siris/hub/v1/email/about").status_code == 422
+    guest.set_mode(siris, True)
+    assert client.get("/siris/hub/v1/email/about", params={"q": "x"}).json()["messages"] is None
+
+
+def test_subject_search_is_quoted_safely() -> None:
+    from app.email.client import EmailClient
+
+    seen: list[tuple] = []
+
+    class Conn:
+        def select(self, *a, **k): ...
+        def uid(self, *a):
+            seen.append(a)
+            return "OK", [b""]
+        def logout(self): ...
+
+    client = EmailClient.__new__(EmailClient)
+    client._imap = lambda: Conn()  # type: ignore[method-assign]
+    assert client.recent_about(['Werribee "Drainage"\r\nX', "ab"]) == []
+    assert [a[3] for a in seen] == ['"Werribee  Drainage   X"']
+
+
 def test_upkeep_reports_backups_and_a_waiting_update(use, tmp_path, monkeypatch) -> None:
     siris = full_siris()
     client = use(siris)
@@ -118,6 +153,9 @@ def test_health_days_and_running_distance(use) -> None:
     assert client.post("/siris/health/metrics", json={"date": today.isoformat(), "metrics": {"run_km": 5.2, "steps": 9000}}).json()["stored"] == {"running_km": 5.2, "steps": 9000}
     body = client.get("/siris/hub/v1/health/days", params={"days": 3}).json()
     assert len(body["days"]) == 3 and body["days"][-1]["date"] == today.isoformat()
+    year = client.get("/siris/hub/v1/health/days", params={"days": 366}).json()["days"]
+    assert len(year) == 366 and year[-1]["metrics"]["running_km"] == 5.2  # SirisOS's year view (4.1)
+    assert client.get("/siris/hub/v1/health/days", params={"days": 401}).status_code == 422
     assert body["days"][-1]["metrics"]["running_km"] == 5.2
     guest.set_mode(siris, True)
     assert client.get("/siris/hub/v1/health/days").json()["days"] is None

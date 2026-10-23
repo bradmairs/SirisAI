@@ -468,6 +468,22 @@ def email_with(siris: "SirisAI", addresses: list[str], limit: int) -> c.EmailWit
     ])
 
 
+def email_about(siris: "SirisAI", words: list[str], limit: int) -> c.EmailWith:
+    """The latest emails with any of `words` in the subject (a SirisOS project page)."""
+    on, _ = _guest(siris)
+    if on:
+        return c.EmailWith(guest_mode=True, configured=siris.tools.get("email_read") is not None)
+    tool = siris.tools.get("email_read")
+    if tool is None:
+        return c.EmailWith(guest_mode=False, configured=False)
+    found = tool._client.recent_about(words, limit=limit)  # type: ignore[attr-defined]
+    return c.EmailWith(guest_mode=False, configured=True, messages=[
+        c.EmailBrief(uid=str(m["uid"]), sender=_who(str(m.get("from") or "")), subject=str(m.get("subject") or "(no subject)"),
+                     date=m.get("date") or None, snippet=str(m.get("snippet") or ""))
+        for m in found
+    ])
+
+
 def _who(sender: str) -> str:
     from email.utils import parseaddr
 
