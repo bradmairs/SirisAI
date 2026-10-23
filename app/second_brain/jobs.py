@@ -48,6 +48,7 @@ import json
 import logging
 import re
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.core import clock
@@ -119,6 +120,9 @@ async def run_due(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
     if s.onenote_client_id and due("onenote", s.onenote_hour_local):
         from app.onenote.importer import run_import
         jobs.append(("onenote", lambda: asyncio.to_thread(run_import, siris, now or datetime.now(UTC))))
+    if s.gmail_address and s.gmail_app_password and due("gmail", s.gmail_hour_local):
+        from app.gmail.importer import run_import as run_gmail
+        jobs.append(("gmail", lambda: asyncio.to_thread(run_gmail, siris, now or datetime.now(UTC))))
     if due("upkeep", s.brain_upkeep_hour_local):
         jobs.append(("upkeep", lambda: upkeep(siris, now or datetime.now(UTC))))
     if local_now.weekday() == s.brain_weekly_day and due("weekly", s.brain_weekly_hour_local):
@@ -510,7 +514,12 @@ end), or resource (reference material, a link, a book); leave type out if unsure
 - "leave": it's a fragment you can't make sense of, or it looks sensitive (passwords, account numbers).
 Only merge when the existing note is clearly about the same thing; sharing a general theme isn't enough.
 
-Reply with JSON only: {"action": "merge" | "new" | "leave", "into": "...", "type": "..."}"""
+When it's "new" and its title is cut off (ends with "…") or is only a date ("Photo 2026-10-21 08:14"), also give \
+"title": a short Title Case name for what it's about, 2-6 words, in the user's terms ("Where I Capture Things in \
+Siris", "Improving My Mental Health").
+
+Reply with JSON only: {"action": "merge" | "new" | "leave", "into": "...", "type": "...", "title": "..."}"""
+_AUTO_TITLE = re.compile(r"…$|^Photo \d{4}-\d{2}-\d{2}")   # titles quick capture made up from the text or the time
 _SORT_TYPES = {"note", "person", "project", "resource"}
 _NOT_MERGE_TARGETS = {"capture", "area", "daily", "dashboard"}
 
@@ -539,7 +548,67 @@ async def _sort_one(siris: "SirisAI", n: dict) -> dict[str, Any]:
     if action == "leave":
         return {"action": "left", "title": n["title"], "reasons": ["the model left it for Brad"]}
     kind = data.get("type") if action == "new" and data.get("type") in _SORT_TYPES else "auto"
-    return await asyncio.to_thread(brain.file_note, n["title"], kind)
+    better = str(data.get("title") or "").strip() if _AUTO_TITLE.search(n["title"]) else ""
+    if not 3 <= len(better) <= 80 or "…" in better:
+        better = ""
+    return await asyncio.to_thread(brain.file_note, n["title"], kind, **({"new_title": better} if better else {}))
+
+
+PHOTO_KEY = "second_brain_photos_read"   # embeds already read, so a photo is never read twice
+PHOTO_EMBED = re.compile(r"!\[\[([^\]|]+\.(?:jpe?g|png|gif|webp))(?:\|[^\]]*)?\]\]", re.I)
+PHOTO_PROMPT = (
+    "This photo was captured into a notes app. If it shows handwriting, a whiteboard, a printed page, a screen "
+    "or a sign, transcribe its text into Markdown exactly as written: keep the wording, use '#' for titles, '- ' "
+    "for bullets, '- [ ] ' for tasks and a table for a table, and write [illegible] for any word you can't read; "
+    "never guess. Describe a sketch or diagram in one italic line. If there's no text in it, describe the photo "
+    "in one sentence. Reply with only the Markdown."
+)
+MAX_PHOTOS = 10
+
+
+def _photo_path(vault: Path, embed: str) -> Path | None:
+    direct = vault / embed
+    if direct.is_file():
+        return direct
+    name = Path(embed).name   # Obsidian embeds can be by name alone
+    return next((p for p in vault.rglob(name) if ".git" not in p.parts), None)
+
+
+async def read_inbox_photos(siris: "SirisAI") -> dict[str, Any]:
+    """Photos captured into the inbox (whiteboards, notebook pages, site markups) read by the local vision
+    model before the sort: the text goes onto the capture, marked as a machine reading to check, so the
+    sort can file it by what it says. Off without SIRISAI_VISION_MODEL."""
+    vision = getattr(siris, "vision", None)
+    if vision is None:
+        return {"skipped": "no vision model"}
+    brain = siris.second_brain
+    vault = Path(brain.path)
+    done = set(siris.state.get(PHOTO_KEY) or [])
+    read: list[str] = []
+    for n in (await asyncio.to_thread(brain.inbox))["notes"]:
+        try:
+            raw = (vault / n["path"]).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for embed in PHOTO_EMBED.findall(raw):
+            if embed in done or len(read) >= MAX_PHOTOS:
+                continue
+            path = _photo_path(vault, embed)
+            if path is None:
+                continue
+            try:
+                text = (await asyncio.to_thread(vision.describe, [path.read_bytes()], PHOTO_PROMPT)).strip()
+            except Exception as exc:  # noqa: BLE001 - the model being down leaves the photo for tomorrow
+                logger.warning("Reading photo %s failed: %s", embed, exc)
+                continue
+            done.add(embed)
+            siris.state.set(PHOTO_KEY, sorted(done))
+            if text:
+                await asyncio.to_thread(brain.learn, [{
+                    "title": n["title"], "tags": ["photo"],
+                    "content": "From the photo (read by the local vision model: check it against the photo):\n\n" + text}])
+                read.append(n["title"])
+    return {"read": read}
 
 
 async def file_inbox_notes(siris: "SirisAI") -> dict[str, Any]:
@@ -726,6 +795,16 @@ def _upkeep_message(out: dict[str, Any]) -> str | None:
         hand = f", {onenote['handwritten']} handwritten" if onenote.get("handwritten") else ""
         parts.append(f"Imported {len(onenote.get('imported') or [])} OneNote pages and updated "
                      f"{len(onenote.get('updated') or [])}{hand}.")
+    photos = (out.get("photos") or {}).get("read") or []
+    if photos:
+        parts.append(f"Read {len(photos)} photo{'s' if len(photos) != 1 else ''} in the inbox.")
+    pages = [p for p in (out.get("projects") or []) if isinstance(p, dict) and p.get("action") in ("created", "updated")] \
+        if isinstance(out.get("projects"), list) else []
+    if pages:
+        parts.append("Project pages refreshed: " + ", ".join(p["project"] for p in pages[:4]) + ".")
+    emails = (out.get("gmail") or {}).get("imported") or []
+    if emails:
+        parts.append(f"Brought in {len(emails)} email{'s' if len(emails) != 1 else ''} labelled Siris.")
     if github.get("updated"):
         parts.append("Project updates from GitHub: " + ", ".join(github["updated"][:6]) + ".")
     waiting = (memory.get("left") or 0) + len(inbox.get("left") or [])
@@ -767,9 +846,9 @@ def _upkeep_alert(out: dict[str, Any]) -> str | None:
     return " ".join(alerts) or None
 
 
-async def _onenote_last_run(siris: "SirisAI", now: datetime) -> dict[str, Any]:
-    from app.onenote.importer import LAST_RUN_KEY
-    last = siris.state.get(LAST_RUN_KEY) or {}
+async def _last_run(siris: "SirisAI", now: datetime, key: str) -> dict[str, Any]:
+    """What tonight's import (OneNote or Gmail) brought in, for the upkeep summary."""
+    last = siris.state.get(key) or {}
     local = now.astimezone(clock.get_zone(siris.settings.timezone)).date().isoformat()
     return last if last.get("date") == local else {}
 
@@ -782,9 +861,12 @@ async def upkeep(siris: "SirisAI", now: datetime) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for name, step in (
         ("memory", lambda: file_memory_inbox(siris)),
-        ("onenote", lambda: _onenote_last_run(siris, now)),   # what tonight's import brought in, for the summary
+        ("onenote", lambda: _last_run(siris, now, "onenote_last_run")),   # tonight's imports, for the summary
+        ("gmail", lambda: _last_run(siris, now, "gmail_last_run")),
         ("chats", lambda: distill_chats(siris)),   # before the sort, which files what it pulls out
+        ("photos", lambda: read_inbox_photos(siris)),   # before the sort, so it files photos by what they say
         ("inbox", lambda: file_inbox_notes(siris)),
+        ("projects", lambda: asyncio.to_thread(siris.second_brain.project_pages)),   # after the sort, before relink
         ("github", lambda: github_activity(siris, now)),
         ("relink", lambda: asyncio.to_thread(siris.second_brain.relink)),
         # Confident links are made for Brad; unsure ones wait in insights' suggestions.

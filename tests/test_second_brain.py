@@ -127,6 +127,19 @@ FAKE_ENGINE = textwrap.dedent(
             sys.exit("No note called " + repr(rest[0]))
         print(json.dumps({"action": "done" if len(rest) > 1 else "project-done", "note": real, "task": rest[1] if len(rest) > 1 else None}))
         sys.exit(0)
+    if cmd in ("merge", "distinct"):
+        a, b = (find(x) for x in args[args.index("--") + 1:])
+        if a is None or b is None:
+            sys.exit("No note called " + repr(args[-2] if a is None else args[-1]))
+        print(json.dumps({"action": "merged", "from": a, "into": b} if cmd == "merge" else {"action": "distinct", "a": a, "b": b}))
+        sys.exit(0)
+    if cmd == "duplicates":
+        print(json.dumps([{"a": "GVW Project Closure", "b": "GVW Contract Closure", "score": 0.9, "why": "90% similar"}]))
+        sys.exit(0)
+    if cmd == "project-pages":
+        print(json.dumps([{"project": "Melrose East Pump Station", "action": "updated", "path": "Work/GVW/Projects/x.md",
+                           "mentions": ["GVW Budgets"], "tasks": 0, "people": []}]))
+        sys.exit(0)
     if cmd == "unlink":
         a, b = (find(x) for x in args[args.index("--") + 1:])
         if a is None or b is None:
@@ -817,3 +830,20 @@ def test_tasks_route_lists_open_tasks(brain_api) -> None:
     r = client.get("/siris/brain/tasks")
     assert r.status_code == 200 and r.json() == {"tasks": [{"task": "Send levels to Dana", "note": "Werribee Drainage", "due": "2026-10-20", "type": "project"}]}
     assert _calls(vault)[-1]["args"] == ["tasks", "--output", "json"]
+
+
+def test_merge_distinct_duplicates_and_project_pages(tmp_path: Path) -> None:
+    from app.plugins.builtin.second_brain import BrainMergeNotesTool, BrainNotesDistinctTool
+
+    vault = _vault(tmp_path / "vault", {"GVW Project Closure": "# GVW Project Closure", "GVW Contract Closure": "# GVW Contract Closure"})
+    client = SecondBrainClient(str(vault))
+    assert client.duplicates()[0]["b"] == "GVW Contract Closure"
+    merged = BrainMergeNotesTool(client).run(source="gvw project closure", into="GVW Contract Closure")
+    assert merged == {"action": "merged", "from": "GVW Project Closure", "into": "GVW Contract Closure"}
+    assert _calls(vault)[-1]["args"] == ["merge", "--output", "json", "--", "gvw project closure", "GVW Contract Closure"]
+    assert "error" in BrainMergeNotesTool(client).run(source="Nope", into="GVW Contract Closure")
+    assert BrainNotesDistinctTool(client).run(a="GVW Project Closure", b="GVW Contract Closure")["action"] == "distinct"
+    assert client.project_pages()[0]["project"] == "Melrose East Pump Station"
+    assert _calls(vault)[-1]["args"] == ["project-pages", "--apply", "--output", "json"]
+    client.file_note("I’ve decided…", "note", new_title="Where I Capture Things")
+    assert _calls(vault)[-1]["args"][-4:] == ["--title", "Where I Capture Things", "--", "I’ve decided…"]

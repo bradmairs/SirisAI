@@ -212,7 +212,7 @@ class Settings(BaseSettings):
         "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
-        "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local", "onenote_hour_local",
+        "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local", "onenote_hour_local", "gmail_hour_local",
         mode="before",
     )
     @classmethod
@@ -650,6 +650,15 @@ class Settings(BaseSettings):
     onenote_notebooks: str = ""
     onenote_hour_local: int | None = 1
     onenote_max_pages: int = 30
+    # Email into Siris (app/gmail/): emails Brad gives the Gmail label below
+    # come into Siris' inbox each night, read-only over IMAP. Needs Google
+    # 2-Step Verification and an app password (myaccount.google.com/apppasswords);
+    # empty = off. Attached pictures are read by the vision model at the upkeep.
+    gmail_address: str = ""
+    gmail_app_password: str = ""
+    gmail_label: str = "Siris"
+    gmail_hour_local: int | None = 1
+    gmail_max_messages: int = 30
 
     # Frigate (app/frigate/, app/plugins/builtin/frigate.py) -- self-hosted
     # NVR with local object detection; SirisAI's first vision integration.
