@@ -20,6 +20,7 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/reminders                pending reminders ("remind me at 7")
     POST /siris/hub/v1/reminders/{id}/done      cancel one that's no longer needed
     GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
+    GET  /siris/hub/v1/email/about?q=           latest emails with these words in the subject (project pages)
     GET  /siris/hub/v1/upkeep                   backups and whether an update is waiting
     GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first
 
@@ -307,6 +308,19 @@ async def hub_email_with(
         return await asyncio.to_thread(compose.email_with, siris, [a.strip() for a in address if a.strip()], limit)
     except Exception as exc:
         logger.info("email_with failed", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Email didn't answer: {str(exc)[:200]}") from exc
+
+
+@router.get("/email/about", response_model=c.EmailWith)
+async def hub_email_about(
+    q: list[str] = Query(min_length=1, max_length=6),
+    limit: int = Query(5, ge=1, le=10),
+    siris: SirisAI = Depends(get_siris),
+) -> c.EmailWith:
+    try:
+        return await asyncio.to_thread(compose.email_about, siris, [w.strip() for w in q if w.strip()], limit)
+    except Exception as exc:
+        logger.info("email_about failed", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Email didn't answer: {str(exc)[:200]}") from exc
 
 

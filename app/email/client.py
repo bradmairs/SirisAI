@@ -158,15 +158,25 @@ class EmailClient:
     def recent_with(self, addresses: list[str], limit: int = 5, since_days: int = 60) -> list[dict[str, Any]]:
         """The latest messages from any of `addresses` (read or not), newest
         first, without marking anything read: meeting prep in SirisOS."""
+        good = [a for a in addresses[:8] if re.fullmatch(r"[^\s\"()]+@[^\s\"()]+", a)]
+        return self._recent([("FROM", a) for a in good], limit, since_days)
+
+    def recent_about(self, words: list[str], limit: int = 5, since_days: int = 90) -> list[dict[str, Any]]:
+        """The latest messages whose subject has any of `words` (a project's
+        name and aliases), newest first, without marking anything read."""
+        clean = [w for w in (re.sub(r'["\\\r\n]', " ", w).strip() for w in words[:6]) if len(w) >= 3]
+        return self._recent([("SUBJECT", w) for w in clean], limit, since_days)
+
+    def _recent(self, criteria: list[tuple[str, str]], limit: int, since_days: int) -> list[dict[str, Any]]:
+        if not criteria:
+            return []
         conn = self._imap()
         try:
             conn.select("INBOX", readonly=True)
             since = time.strftime("%d-%b-%Y", time.gmtime(time.time() - since_days * 86400))
             found: dict[str, Message] = {}
-            for address in addresses[:8]:
-                if not re.fullmatch(r"[^\s\"()]+@[^\s\"()]+", address):
-                    continue
-                status, data = conn.uid("search", None, "FROM", f'"{address}"', "SINCE", since)
+            for key, value in criteria:
+                status, data = conn.uid("search", None, key, f'"{value}"', "SINCE", since)
                 for uid in (data[0].split()[-limit:] if status == "OK" and data and data[0] else []):
                     found.setdefault(uid.decode(), None)  # type: ignore[arg-type]
             newest = sorted(found, key=int)[-limit * 2:]

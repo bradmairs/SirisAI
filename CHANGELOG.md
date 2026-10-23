@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.25 — 2026-10-23
+
+- Project list and email by subject for SirisOS's Projects screen
+
 ## 2.24 — 2026-10-22
 
 - Email into Siris, photos read, real capture titles, duplicate merging and work project pages
