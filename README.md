@@ -6048,7 +6048,45 @@ provider for the same capability actually exists to design against.
       - the MAC lookup needed `ip`;
       - wildcard sudoers rules don't work on sudo-rs.
 
-145. **Done** -- Home controls for SirisOS (2.46). `GET /siris/hub/v1/controls`
+145. **Done** -- Safer approvals and a Settings page (`app/core/approvals.py`,
+    `app/core/settings_overrides.py`).
+    - **An approval PIN** (`SIRISAI_APPROVAL_PIN`). With one set, the
+      high-risk actions need it wherever they're approved: chat's Confirm,
+      the attention feed (SirisOS, the web UI), `POST /siris/tools/{name}/run`,
+      the feed's Reboot, Install updates and Restart buttons, and saving
+      settings. High-risk means `ssh_power`, `ssh_install_updates`, `ssh_run`
+      when it would change something, and anything in
+      `SIRISAI_APPROVAL_PIN_TOOLS`.
+      - The HTTP layer checks the PIN and marks the request verified;
+        `SirisAI.run_tool()` refuses a confirmed high-risk call that wasn't,
+        so there's no side door.
+      - Without the PIN the reply is 403 `pin_required: ...`. The web UI
+        asks for it and sends again.
+      - Five wrong PINs in a row lock these for 10 minutes and raise an
+        urgent alert. Every wrong PIN is in the audit log.
+      - Phone buttons can't carry a PIN, so these items get Decline only.
+        A spoken "yes" never approves them.
+    - **Approvals expire** (`SIRISAI_APPROVAL_EXPIRY_MINUTES`, 15): an action
+      held in the feed for approval can't be approved after that. The item
+      closes as expired (410 to the client), and the attention sync closes
+      stale ones. Synced items like "nas needs a reboot" are re-checked on
+      their own schedule, so they don't expire.
+    - **Settings from the web UI** (Settings tab, `GET`/`PUT /siris/settings`):
+      servers, approvals and daily-job hours. Saved values go to
+      `SIRISAI_OVERRIDES_FILE` (`./data/settings-overrides.json`), win over
+      `.env` and survive restarts. They apply at once, except the few read
+      at start-up, which the page marks. Each value is validated by the
+      same `Settings` model. Secrets and the PIN aren't editable there.
+      Saving needs the PIN when one is set, is refused in guest mode, and is
+      audited.
+    - **Verified:** `tests/test_approvals.py` covers run_tool's guard, the
+      lockout, the feed with and without the PIN, expiry, phone buttons,
+      voice, and the routes (403, then 200 with the PIN, and 410 for an
+      expired approval). `tests/test_settings_ui.py` covers listing without
+      secrets, live apply and persistence, validation, clearing an override,
+      the PIN and guest mode.
+
+146. **Done** -- Home controls for SirisOS (2.56). `GET /siris/hub/v1/controls`
     lists lights, garage doors (covers whose device class or name says
     garage or gate) and locks, plus Siris and Home Assistant scenes. Set
     `SIRISAI_HUB_CONTROLS` to choose which entities appear and in what order;
@@ -6059,7 +6097,9 @@ provider for the same capability actually exists to design against.
     `confirmed`; locking never asks. `POST /siris/hub/v1/scenes/{id}/run`
     runs a scene. Guest mode leaves garage doors and locks out entirely.
     Every action goes through `home_assistant_call_service`, so it's
-    audited with who tapped what. Verified in `tests/test_hub_controls.py`.
+    audited with who tapped what. If `SIRISAI_APPROVAL_PIN_TOOLS` names
+    `home_assistant_call_service`, controls refuse with 403 and the PIN is
+    entered in SirisAI. Verified in `tests/test_hub_controls.py`.
 
 ## Connecting your calendars (Gmail and iCloud)
 

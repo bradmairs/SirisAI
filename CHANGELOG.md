@@ -5,12 +5,21 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
-## 2.46 — 2026-10-23
+## 2.56 — 2026-10-23
 
 - Home controls for SirisOS: lights, garage, locks and scenes
   - `GET /siris/hub/v1/controls`; `SIRISAI_HUB_CONTROLS` picks which entities show.
   - `POST /siris/hub/v1/controls/{entity}`: garage doors and unlocking need `confirmed`; guest mode hides both.
   - `POST /siris/hub/v1/scenes/{id}/run` runs Siris and Home Assistant scenes.
+
+## 2.46 — 2026-10-23
+
+- Safer approvals and a Settings page: an approval PIN, approvals that expire, and settings from the web UI
+- `SIRISAI_APPROVAL_PIN`: rebooting or shutting down servers, installing updates, SSH commands that change things and saving settings need the PIN, wherever they're approved (chat, the feed, the API). Five wrong PINs lock them for 10 minutes and raise an urgent alert.
+- Phone notification buttons offer only Decline for those actions, and a spoken "yes" never approves them (`ssh_install_updates` and `ssh_run` join `ssh_power`).
+- Actions held for approval expire after `SIRISAI_APPROVAL_EXPIRY_MINUTES` (15). Approving one late returns 410 and closes it.
+- The web UI's Settings tab edits server, approval and daily-job settings. Saved values win over `.env`, survive restarts, and mostly apply at once. Secrets and the PIN stay in `.env`.
+- Hub contract: optional `pin` on `AttentionActRequest` (additive).
 
 ## 2.36 — 2026-10-23
 

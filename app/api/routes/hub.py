@@ -45,6 +45,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from app.core import approvals
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
@@ -152,7 +153,9 @@ async def attention_stream(
 @router.post("/attention/{item_id}/act", response_model=c.AttentionActResult)
 async def attention_act(item_id: int, body: c.AttentionActRequest, request: Request, siris: SirisAI = Depends(get_siris)) -> c.AttentionActResult:
     try:
-        item, result = await asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request), body.body)
+        item, result = await asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request), body.body, body.pin)
+    except approvals.ApprovalExpired as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except attention.UnknownAction as exc:
@@ -255,6 +258,8 @@ async def hub_control(entity_id: str, body: c.ControlRequest, request: Request, 
         return await asyncio.to_thread(compose.control, siris, entity_id, body.action, body.confirmed, trigger)
     except compose.ControlRefused as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    except PermissionError as exc:  # SIRISAI_APPROVAL_PIN_TOOLS names Home Assistant: approve it in SirisAI
+        raise HTTPException(status_code=403, detail=f"{exc}. Approve it in SirisAI.") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Home Assistant didn't do it: {str(exc)[:200]}") from exc
 
@@ -265,6 +270,8 @@ async def hub_scene(scene_id: str, request: Request, siris: SirisAI = Depends(ge
         return await asyncio.to_thread(compose.run_scene, siris, scene_id, f"hub: the user ran scene {scene_id} in {_client_name(request)}")
     except compose.ControlRefused as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=f"{exc}. Approve it in SirisAI.") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"The scene didn't run: {str(exc)[:200]}") from exc
 

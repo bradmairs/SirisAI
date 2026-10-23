@@ -192,6 +192,23 @@ SirisAI down with it, until someone turns it back on.
   Allowing apt lets that account install packages as root, so leave it out if
   that's too much. SMART needs `smartmontools` installed.
 
+### An approval PIN, and the Settings page
+
+- **PIN:** set `SIRISAI_APPROVAL_PIN` in `.env` (in `.env` only, never on
+  the Settings page). Rebooting or shutting down servers, installing
+  updates, SSH commands that change things and saving settings then need
+  it. Someone with your unlocked phone or the wall tablet can't do them
+  with a tap. Five wrong PINs lock these for 10 minutes and send an urgent
+  alert. Phone notifications offer only Decline for these actions, and a
+  spoken "yes" never approves them. SirisOS's approve button gets
+  `403 pin_required` for them until SirisOS asks for the PIN.
+- **Expiry:** an action held for approval can't be approved after
+  `SIRISAI_APPROVAL_EXPIRY_MINUTES` (15). Its feed item closes as expired.
+- **Settings page** (web UI, Settings tab): server, approval and daily-job
+  settings. Saved values go to `data/sirisai/settings-overrides.json`, win
+  over `.env` and survive restarts and updates. Most apply at once; the
+  page says which need a restart (`docker compose restart sirisai`).
+
 ## Data and backups
 
 Everything that matters is in `./data`:

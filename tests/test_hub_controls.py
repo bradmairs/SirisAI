@@ -90,3 +90,11 @@ def test_scenes_run(use) -> None:
 def test_without_home_assistant(use) -> None:
     body = use(full_siris()).get("/siris/hub/v1/controls").json()
     assert body["configured"] is False and body["controls"] == []
+
+
+def test_a_pin_on_home_assistant_is_respected(use) -> None:
+    ha = HA()
+    siris = _siris(ha, approval_pin="4321", approval_pin_tools="home_assistant_call_service")
+    r = use(siris).post("/siris/hub/v1/controls/light.deck", json={"action": "toggle"})
+    assert r.status_code == 403 and "pin_required" in r.json()["detail"]
+    assert ha.states["light.deck"]["state"] == "off"

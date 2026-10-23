@@ -28,6 +28,7 @@ from app.api.routes import (
     satellites,
     servers,
     scenes,
+    settings as settings_routes,
     siris,
     voice,
     web,
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(proactive.router)
     app.include_router(learning.router)
     app.include_router(servers.router)
+    app.include_router(settings_routes.router)
     app.include_router(career.router)
     app.include_router(upkeep.router)
     app.include_router(routines.router)

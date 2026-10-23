@@ -46,7 +46,13 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
     SIRISAI_PUBLIC_BASE_URL (the phone has nowhere to send the tap)."""
     if not siris.settings.public_base_url:
         return None
+    from app.core import approvals
+
     base = siris.settings.public_base_url.rstrip("/")
+    payload = siris.attention._payload(item["id"])
+    # A button can't carry the approval PIN: big actions get Decline only and
+    # are approved in the app.
+    actions = [a for a in item["actions"] if not approvals.action_needs_pin(siris, item, a["id"], payload)]
     return [
         {
             "action": "http",
@@ -57,7 +63,7 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
             "body": json.dumps({"action": a["id"]}),
             "clear": True,
         }
-        for a in item["actions"][:3]
+        for a in actions[:3]
     ]
 
 
@@ -75,10 +81,12 @@ def notify_confirmation_needed(siris: "SirisAI", context: str, tool_name: str, a
     if siris.tools.get("notify") is None:
         return
 
+    from app.core import approvals
+
     if item is not None:
         # Approve / Decline on the phone act on the feed item itself.
         actions = item_actions(siris, item)
-    elif siris.settings.public_base_url:
+    elif siris.settings.public_base_url and not approvals.tool_needs_pin(siris, tool_name, arguments):
         actions = [
             {
                 "action": "http",
