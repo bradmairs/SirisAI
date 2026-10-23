@@ -27,5 +27,11 @@
       "confirm": null
     }
   ],
-  "scenes": []
+  "scenes": [
+    {
+      "id": "siris:1",
+      "name": "Wind down",
+      "source": "siris"
+    }
+  ]
 }

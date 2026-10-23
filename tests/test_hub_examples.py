@@ -101,6 +101,8 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["protocol_preview"] = client.get("/siris/hub/v1/protocols/lockdown", headers=h).json()
         out["protocol_run_request"] = {"confirmed": True}
         out["protocol_run"] = client.post("/siris/hub/v1/protocols/lockdown/run", json={"confirmed": True}, headers=h).json()
+        if not any(x["name"] == "Wind down" for x in siris.scenes.list_scenes()):
+            siris.scenes.create_scene("Wind down", [{"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}])
         out["controls"] = client.get("/siris/hub/v1/controls", headers=h).json()
         out["control_request"] = {"action": "turn_off"}
         out["control"] = client.post("/siris/hub/v1/controls/light.kitchen", json=out["control_request"], headers=h).json()
