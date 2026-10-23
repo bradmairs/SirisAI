@@ -5,12 +5,21 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
-## 2.36 — 2026-10-23
+## 2.46 — 2026-10-23
 
 - Home controls for SirisOS: lights, garage, locks and scenes
   - `GET /siris/hub/v1/controls`; `SIRISAI_HUB_CONTROLS` picks which entities show.
   - `POST /siris/hub/v1/controls/{entity}`: garage doors and unlocking need `confirmed`; guest mode hides both.
   - `POST /siris/hub/v1/scenes/{id}/run` runs Siris and Home Assistant scenes.
+
+## 2.36 — 2026-10-23
+
+- Looking after the servers: Wake-on-LAN, a server watch, OS updates, disk health and sudo permissions
+- `ssh_wake`: Wake-on-LAN with MACs learned automatically, sent via a relay server, Home Assistant or directly, then a check that it came back.
+- The server watch (every 15 minutes) raises full disks, memory pressure, failed services (Restart) and servers that stop answering (Wake), and clears them when fixed.
+- Daily OS update and disk health checks: "2 updates waiting (1 security)" with Install updates, "needs a reboot" with Reboot, SMART/NVMe/ZFS/RAID problems.
+- `ssh_server_permissions` says which sudo permissions are missing and the exact rule to add. Works with sudo-rs (Ubuntu 25.10): every recommended rule names an exact command, since sudo-rs takes no wildcards.
+- `/siris/servers` routes.
 
 ## 2.26 — 2026-10-23
 

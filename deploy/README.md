@@ -172,6 +172,26 @@ one of the servers, set `SIRISAI_SSH_SELF_SERVER` to its name, so "all" does
 that one last. Note that shutting down the server SirisAI runs on takes
 SirisAI down with it, until someone turns it back on.
 
+### Wake, watch, updates and disks
+
+- **Wake-on-LAN** ("wake the NAS"): turn it on in the server's BIOS and
+  network settings. SirisAI learns each server's MAC while it's up. A
+  container can't broadcast onto your LAN, so either set
+  `SIRISAI_SSH_WAKE_RELAY` to a server that stays on (it sends the packet for
+  SirisAI), or enable Home Assistant's `wake_on_lan:` integration.
+- **The server watch** checks every 15 minutes and puts disks over 90%,
+  failed services and servers that stop answering in the attention feed,
+  with Restart and Wake buttons. Each morning it also lists waiting OS
+  updates (Install updates, and Reboot when one is needed) and checks the
+  disks (SMART, ZFS, RAID).
+- **Permissions:** ask "what permissions are you missing on the NAS?". SirisAI
+  checks with sudo and gives the exact line to add for what's missing. Rules
+  must name exact commands: Ubuntu 25.10's `sudo-rs` doesn't accept wildcards
+  in arguments. Restarting a service takes one rule per service, e.g.
+  `brad ALL=(root) NOPASSWD: /usr/bin/systemctl restart nginx.service`.
+  Allowing apt lets that account install packages as root, so leave it out if
+  that's too much. SMART needs `smartmontools` installed.
+
 ## Data and backups
 
 Everything that matters is in `./data`:

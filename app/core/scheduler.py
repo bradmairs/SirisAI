@@ -213,6 +213,19 @@ def run_attention_sync(siris: "SirisAI") -> None:
         logger.exception("Attention sync failed")
 
 
+def run_server_watch(siris: "SirisAI") -> dict | None:
+    """Server health (app/servers/watch.py), every SIRISAI_SERVER_WATCH_MINUTES."""
+    if siris.ssh_client is None:
+        return None
+    from app.servers import watch
+
+    try:
+        return watch.check_health(siris)
+    except Exception:
+        logger.exception("Server watch failed")
+        return None
+
+
 def report_update(siris: "SirisAI") -> None:
     """Say how the last self-update went (app/upkeep/updates.py), once."""
     from app.upkeep import updates
@@ -322,6 +335,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_parcels = 0.0
     last_eval = time.monotonic()
     last_attention = time.monotonic()  # the feed syncs itself when asked; no need to at boot
+    last_servers = 0.0
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -379,6 +393,11 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
                 await asyncio.to_thread(run_attention_sync, siris)
                 await asyncio.to_thread(report_update, siris)
                 last_attention = time.monotonic()
+
+            servers_interval = siris.settings.server_watch_minutes * 60
+            if servers_interval > 0 and time.monotonic() - last_servers >= servers_interval:
+                await asyncio.to_thread(run_server_watch, siris)
+                last_servers = time.monotonic()
 
             # Nightly reflection, weekly goal review and the other once-a-day jobs.
             await asyncio.to_thread(run_daily_jobs, siris)

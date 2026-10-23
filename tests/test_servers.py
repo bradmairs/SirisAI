@@ -1,0 +1,337 @@
+"""Server watch, OS updates, disk health, Wake-on-LAN and sudo permissions
+(app/servers/, app/plugins/builtin/servers.py), against a programmable
+stand-in `ssh`."""
+
+import json
+import stat
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.core import daily_jobs, scheduler
+from app.core.config import Settings
+from app.core.siris import SirisAI, get_siris
+from app.db.models import AttentionItem
+from app.db.session import SessionLocal
+from app.hub import attention
+from app.main import app
+from app.servers import checks, wake, watch
+from app.ssh.client import NEEDS_SUDO_EXIT, SshHost, parse_health
+
+FAKE_SSH = r'''#!/usr/bin/env python3
+import json, os, sys
+target, command = sys.argv[-2], sys.argv[-1]
+with open(os.environ["FAKE_SSH_LOG"], "a") as log:
+    log.write(json.dumps([target, command]) + "\n")
+for rule in json.load(open(os.environ["FAKE_SSH_RULES"])):
+    if rule["host"] in target and all(part in command for part in rule.get("cmd", [""])):
+        sys.stdout.write(rule.get("out", ""))
+        sys.stderr.write(rule.get("err", ""))
+        sys.exit(rule.get("exit", 0))
+sys.exit(0)
+'''
+
+HEALTH_OK = "##uptime\n0.1 0.2 0.3 1/2 3\n4\nup 2 days\n##mem\n  total used free shared buff available\nMem: 8000 2000 5000 0 1000 6000\n##disk\nFilesystem Size Used Avail Use% Mounted on\n/dev/sda1 100G 40G 60G 40% /\n##failed\n##mac\naa:bb:cc:00:00:01\n"
+HEALTH_BAD = (
+    "##uptime\n0.1 0.2 0.3 1/2 3\n4\nup 2 days\n##mem\n  total used free shared buff available\nMem: 8000 7800 50 0 150 100\n"
+    "##disk\nFilesystem Size Used Avail Use% Mounted on\n/dev/sdb1 3.6T 3.5T 60G 98% /mnt/media\n##failed\nnginx.service loaded failed failed nginx\n##mac\naa:bb:cc:00:00:02\n"
+)
+APT_UPDATES = "##pm\napt\nopenssl/noble-security 3.0.13 amd64 [upgradable from: 3.0.12]\ncurl/noble-updates 8.5 amd64 [upgradable from: 8.4]\n##reboot\nyes\nlinux-image-6.8\n##last\n"
+SMART_BAD = (
+    "##smart\n@@sda\nSMART overall-health self-assessment test result: FAILED!\n"
+    "  5 Reallocated_Sector_Ct   0x0033   090   090   010    Pre-fail  Always       -       12\n"
+    "@@nvme0n1\nSMART overall-health self-assessment test result: PASSED\nPercentage Used:                    93%\nMedia and Data Integrity Errors:    0\n"
+    "##zpool\n  pool: tank\n state: DEGRADED\n##md\nmd0 : active raid1 sdc1[0] sdd1[1]\n      976630336 blocks super 1.2 [2/1] [U_]\n"
+)
+
+
+@pytest.fixture(autouse=True)
+def _clean(client: TestClient):
+    with SessionLocal() as session:
+        session.query(AttentionItem).delete()
+        session.commit()
+    siris = SirisAI(settings=Settings())
+    siris.state.delete(watch.STATE_KEY)
+    siris.state.delete(wake.STATE_KEY)
+    yield
+
+
+class Servers:
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **settings: Any) -> None:
+        self.rules_path, self.log_path = tmp_path / "rules.json", tmp_path / "ssh.log"
+        self.rules: list[dict[str, Any]] = []
+        self.save()
+        self.log_path.write_text("")
+        ssh = tmp_path / "ssh"
+        ssh.write_text(FAKE_SSH)
+        ssh.chmod(ssh.stat().st_mode | stat.S_IEXEC)
+        monkeypatch.setenv("FAKE_SSH_RULES", str(self.rules_path))
+        monkeypatch.setenv("FAKE_SSH_LOG", str(self.log_path))
+        defaults = {"ssh_hosts": "nas=brad@10.0.0.2,pi=root@10.0.0.3", "ssh_wake_timeout_seconds": 0}
+        self.siris = SirisAI(settings=Settings(**{**defaults, **settings}))
+        self.siris.ssh_client._ssh_binary = str(ssh)  # type: ignore[union-attr]
+
+    def rule(self, host: str, cmd: list[str], out: str = "", exit: int = 0, err: str = "") -> None:
+        self.rules.insert(0, {"host": host, "cmd": cmd, "out": out, "exit": exit, "err": err})
+        self.save()
+
+    def save(self) -> None:
+        self.rules_path.write_text(json.dumps(self.rules))
+
+    def commands(self, host: str = "") -> list[str]:
+        return [c for t, c in (json.loads(line) for line in self.log_path.read_text().splitlines()) if host in t]
+
+    def items(self, source: str) -> dict[str, dict[str, Any]]:
+        return {i["title"]: i for i in self.siris.attention.list() if i["source"] == source}
+
+
+@pytest.fixture
+def servers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Servers:
+    return Servers(tmp_path, monkeypatch)
+
+
+# -- parsing ------------------------------------------------------------------------------
+
+
+def test_apt_and_dnf_updates_and_the_reboot_flag_parse() -> None:
+    apt = checks.parse_updates(APT_UPDATES)
+    assert apt == {"package_manager": "apt", "updates": 2, "security": 1, "packages": ["openssl", "curl"], "reboot_required": True, "reboot_because": ["linux-image-6.8"]}
+    dnf = checks.parse_updates("##pm\ndnf\nkernel.x86_64 6.9.1-200.fc40 updates\nLast metadata expiration check: 0:10 ago\n##reboot\n##last\n1\nE: broken\n")
+    assert dnf["updates"] == 1 and dnf["packages"] == ["kernel"] and not dnf["reboot_required"]
+    assert dnf["last_install"] == {"exit_code": 1, "log_tail": "E: broken"}
+    assert checks.parse_updates("##pm\nnone\n##reboot\n")["updates"] == 0
+
+
+def test_install_and_restart_commands_check_exactly_what_they_run() -> None:
+    brad, root = SshHost("nas", "brad", "10.0.0.2"), SshHost("pi", "root", "10.0.0.3")
+    apt = checks.install_updates_command(brad, "apt")
+    assert f"sudo -n -l {checks.APT_UPDATE} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}" in apt
+    assert f"sudo -n -l {checks.APT_UPGRADE} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}" in apt
+    assert f"nohup sh -c 'sudo -n {checks.APT_UPDATE} && sudo -n {checks.APT_UPGRADE} </dev/null" in apt and apt.endswith("& echo started")
+    assert "sudo" not in checks.install_updates_command(root, "dnf")
+    with pytest.raises(ValueError):
+        checks.install_updates_command(root, "pacman")
+    assert checks.restart_unit_command(brad, "nginx.service") == (
+        f"sudo -n -l systemctl restart nginx.service >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; sudo -n systemctl restart nginx.service && echo restarted"
+    )
+    for bad in ("nginx; reboot", "a b", "$(id)", ""):
+        with pytest.raises(ValueError):
+            checks.restart_unit_command(root, bad)
+
+
+def test_disk_health_reads_smart_nvme_zfs_and_raid() -> None:
+    found = checks.parse_disks(SMART_BAD)
+    assert found["problems"] == [
+        "sda: SMART health FAILED!, 12 reallocated sectors",
+        "nvme0n1: 93% of its rated life used",
+        "ZFS pool tank is DEGRADED",
+        "RAID md0 is degraded (U_)",
+    ]
+    healthy = checks.parse_disks("##smart\n@@sda\nSMART overall-health self-assessment test result: PASSED\n  5 Reallocated_Sector_Ct 0x0033 100 100 010 Pre-fail Always - 0\n##zpool\nall pools are healthy\n##md\nmd0 : active raid1 [2/2] [UU]\n")
+    assert healthy["problems"] == [] and healthy["zfs_healthy"]
+    assert checks.parse_disks("##smart\nNOSUDO\n##zpool\n##md\n")["smart_note"] == "SMART needs passwordless sudo for smartctl"
+    assert checks.parse_disks("##smart\nNOSMARTCTL\n")["smart_note"].startswith("smartctl isn't installed")
+    assert "sudo -n -l smartctl" in checks.disks_command(SshHost("nas", "brad", "x")) and "sudo" not in checks.disks_command(SshHost("pi", "root", "x"))
+
+
+def test_the_health_snapshot_learns_the_mac() -> None:
+    assert parse_health(HEALTH_OK)["mac"] == "aa:bb:cc:00:00:01"
+    assert "mac" not in parse_health("##mac\n00:00:00:00:00:00\n")
+
+
+# -- Wake-on-LAN ----------------------------------------------------------------------------
+
+
+def test_magic_packets_macs_and_broadcasts(servers: Servers) -> None:
+    packet = wake.magic_packet("aa:bb:cc:dd:ee:ff")
+    assert len(packet) == 102 and packet[:6] == b"\xff" * 6 and packet[6:12] == bytes.fromhex("aabbccddeeff")
+    with pytest.raises(ValueError):
+        wake.magic_packet("nope")
+    s = servers.siris
+    nas = s.ssh_client.find("nas")  # type: ignore[union-attr]
+    assert wake.mac_for(s, nas) is None
+    wake.remember_mac(s, nas, "aa:bb:cc:00:00:09")
+    assert wake.mac_for(s, nas) == "aa:bb:cc:00:00:09"
+    assert wake.broadcasts_for(s, nas) == ["255.255.255.255", "10.0.0.255"]
+    s2 = SirisAI(settings=Settings(ssh_hosts="nas=brad@10.0.0.2", ssh_wake_macs="NAS=AA-BB-CC-00-00-07,bad=zz", ssh_wake_broadcast="10.0.0.127"))
+    assert wake.configured_macs(s2) == {"nas": "aa:bb:cc:00:00:07"}
+    assert wake.broadcasts_for(s2, nas) == ["10.0.0.127"]
+    cmd = wake.relay_command("aa:bb:cc:00:00:09", ["255.255.255.255", "10.0.0.255", "evil;rm"])
+    assert "'aabbcc000009'*16" in cmd and "'10.0.0.255'" in cmd and "evil" not in cmd
+
+
+def test_waking_sends_every_way_and_needs_a_mac(servers: Servers, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(wake, "send_direct", lambda mac, addresses, port=9: sent.append((mac, addresses)))
+
+    class FakeHA:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+
+        def call_service(self, domain: str, service: str, **data: Any) -> None:
+            self.calls.append((domain, service, data))
+
+    s = SirisAI(settings=Settings(ssh_hosts="nas=brad@10.0.0.2,pi=root@10.0.0.3", ssh_wake_relay="pi", ssh_wake_timeout_seconds=0))
+    s.ssh_client._ssh_binary = servers.siris.ssh_client._ssh_binary  # type: ignore[union-attr]
+    s._home_assistant_client = FakeHA()  # type: ignore[assignment]
+    assert s.run_tool("ssh_wake", {"servers": "nas"})[0]["error"].startswith("I don't know nas's MAC")
+    wake.remember_mac(s, s.ssh_client.find("nas"), "aa:bb:cc:00:00:01")  # type: ignore[union-attr]
+    result = s.run_tool("ssh_wake", {"servers": "nas"})[0]
+    assert result["sent_via"] == ["relay pi", "Home Assistant", "direct broadcast"] and result["watching"] is False
+    assert s._home_assistant_client.calls == [("wake_on_lan", "send_magic_packet", {"mac": "aa:bb:cc:00:00:01"})]  # type: ignore[union-attr]
+    assert sent == [("aa:bb:cc:00:00:01", ["255.255.255.255", "10.0.0.255"])]
+    assert any("python3 -c" in c for c in servers.commands("root@10.0.0.3"))
+
+
+def test_after_waking_it_says_whether_the_server_came_back(servers: Servers) -> None:
+    s = servers.siris
+    nas = s.ssh_client.find("nas")  # type: ignore[union-attr]
+    assert wake.wait_until_up(s, nas, timeout=1, poll=0.05) is True
+    assert "nas is awake" in {i["title"] for i in s.attention.list()}
+    servers.rule("brad@", [""], exit=255, err="No route to host")
+    assert wake.wait_until_up(s, nas, timeout=0.2, poll=0.05) is False
+    assert "nas didn't wake up" in {i["title"] for i in s.attention.list()}
+
+
+# -- the watch ----------------------------------------------------------------------------------
+
+
+def test_the_watch_raises_and_clears_problems_and_learns_macs(servers: Servers) -> None:
+    servers.rule("brad@", ["##uptime"], HEALTH_BAD)
+    servers.rule("root@", ["##uptime"], HEALTH_OK)
+    report = watch.check_health(servers.siris)
+    assert report["pi"]["reachable"] and report["nas"]["failed_services"] == ["nginx.service"]
+    items = servers.items("servers")
+    assert set(items) == {"/mnt/media on nas is 98% full", "nas is out of memory (99% used)", "nginx.service has failed on nas"}
+    assert items["/mnt/media on nas is 98% full"]["severity"] == "urgent"
+    assert [a["id"] for a in items["nginx.service has failed on nas"]["actions"]] == ["restart", "dismiss"]
+    assert wake.mac_for(servers.siris, servers.siris.ssh_client.find("pi")) == "aa:bb:cc:00:00:01"  # type: ignore[union-attr]
+
+    servers.rule("brad@", ["##uptime"], HEALTH_OK)
+    watch.check_health(servers.siris)
+    assert servers.items("servers") == {}  # all cleared up
+
+
+def test_a_server_that_stops_answering_is_raised_after_two_misses_with_wake(servers: Servers) -> None:
+    servers.rule("root@", ["##uptime"], HEALTH_OK)
+    watch.check_health(servers.siris)  # learns pi's MAC
+    servers.rule("root@", [""], exit=255, err="Connection timed out")
+    watch.check_health(servers.siris)
+    assert "pi isn't answering" not in servers.items("servers")  # one miss isn't enough
+    watch.check_health(servers.siris)
+    item = servers.items("servers")["pi isn't answering"]
+    assert "Connection timed out" in item["body"] and [a["id"] for a in item["actions"]] == ["wake", "acknowledge"]
+    servers.rule("brad@", [""], exit=255, err="refused")
+    watch.check_health(servers.siris)
+    watch.check_health(servers.siris)
+    assert [a["id"] for a in servers.items("servers")["nas isn't answering"]["actions"]] == ["acknowledge"]  # no MAC known: no Wake
+
+
+def test_updates_and_disks_reach_the_feed(servers: Servers) -> None:
+    servers.rule("brad@", ["##pm"], APT_UPDATES)
+    servers.rule("root@", ["##pm"], "##pm\napt\n##reboot\n##last\n1\nE: dpkg was interrupted\n")
+    servers.rule("brad@", ["##smart"], SMART_BAD)
+    servers.rule("root@", ["##smart"], "##smart\nNOSMARTCTL\n##zpool\n##md\n")
+    watch.check_updates(servers.siris)
+    updates = servers.items("server-updates")
+    assert updates["2 updates waiting on nas (1 security)"]["severity"] == "attention"
+    assert [a["id"] for a in updates["nas needs a reboot"]["actions"]] == ["reboot", "dismiss"]
+    assert updates["Installing updates on pi failed"]["body"] == "E: dpkg was interrupted"
+    report = watch.check_disks(servers.siris)
+    assert report["pi"]["smart_note"].startswith("smartctl isn't installed")
+    disks = servers.items("server-disks")
+    assert disks["Disk trouble on nas: sda: SMART health FAILED!, 12 reallocated sectors"]["severity"] == "urgent"
+    assert disks["Disk trouble on nas: ZFS pool tank is DEGRADED"]["severity"] == "urgent"
+    assert len(disks) == 4
+
+
+def test_the_feed_buttons_restart_install_reboot_and_wake(servers: Servers, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(wake, "send_direct", lambda mac, addresses, port=9: None)
+    s = servers.siris
+    servers.rule("brad@", ["##uptime"], HEALTH_BAD)
+    servers.rule("brad@", ["##pm"], APT_UPDATES)
+    servers.rule("brad@", ["systemctl restart nginx.service"], "restarted\n")
+    servers.rule("brad@", ["nohup"], "started\n")
+    watch.check_health(s)
+    watch.check_updates(s)
+    attention.act(s, servers.items("servers")["nginx.service has failed on nas"]["id"], "restart")
+    attention.act(s, servers.items("server-updates")["2 updates waiting on nas (1 security)"]["id"], "install")
+    attention.act(s, servers.items("server-updates")["nas needs a reboot"]["id"], "reboot")
+    sent = servers.commands("brad@")
+    assert any(c.endswith("sudo -n systemctl restart nginx.service && echo restarted") for c in sent)
+    assert any(checks.APT_UPGRADE in c and "nohup" in c for c in sent)
+    assert any("systemctl reboot" in c for c in sent)
+    audit = {e["tool_name"]: e for e in s.audit.list_recent(limit=20)}
+    assert audit["ssh_power"]["trigger"].startswith("attention feed: the user chose 'reboot'")
+
+    wake.remember_mac(s, s.ssh_client.find("nas"), "aa:bb:cc:00:00:02")  # type: ignore[union-attr]
+    s.attention.raise_item("servers:down:nas", "alert", "nas isn't answering", source="servers", actions=[attention.action("wake", "Wake")], payload={"server": "nas"})
+    _, result = attention.act(s, servers.items("servers")["nas isn't answering"]["id"], "wake")
+    assert result[0]["sent_via"] == ["direct broadcast"]
+
+
+def test_a_restart_without_sudo_says_the_exact_rule(servers: Servers) -> None:
+    s = servers.siris
+    servers.rule("brad@", ["##uptime"], HEALTH_BAD)
+    servers.rule("brad@", ["systemctl restart"], exit=NEEDS_SUDO_EXIT)
+    watch.check_health(s)
+    with pytest.raises(PermissionError, match=r"brad ALL=\(root\) NOPASSWD: /usr/bin/systemctl restart nginx.service"):
+        attention.act(s, servers.items("servers")["nginx.service has failed on nas"]["id"], "restart")
+
+
+# -- permissions --------------------------------------------------------------------------------
+
+
+def test_permissions_say_what_is_missing_and_the_sudoers_line(servers: Servers) -> None:
+    servers.rule("brad@", ["sudo -n -l"], "ok 0\nok 1\nno 2\nno 3\nok 4\n")
+    rows = {r["server"]: r for r in servers.siris.run_tool("ssh_server_permissions", {})}
+    assert rows["pi"]["root"] is True and rows["pi"]["cannot"] == []
+    nas = rows["nas"]
+    assert nas["can"] == ["reboot", "shut down", "read SMART"] and nas["cannot"] == ["delayed power / cancel", "install updates (apt)"]
+    assert nas["sudoers"] == (
+        "brad ALL=(root) NOPASSWD: /usr/sbin/shutdown, /usr/bin/apt-get -y -q update, "
+        "/usr/bin/apt-get -y -q -o Dpkg\\:\\:Options\\:\\:\\=--force-confdef -o Dpkg\\:\\:Options\\:\\:\\=--force-confold upgrade"
+    )
+    assert "*" not in nas["sudoers"]  # sudo-rs takes no wildcards in arguments
+    assert "nginx.service" in nas["restart_services"]
+
+
+def test_install_updates_asks_first_and_reports_missing_sudo(servers: Servers) -> None:
+    from app.plugins.base import ConfirmationRequired
+
+    s = servers.siris
+    with pytest.raises(ConfirmationRequired):
+        s.run_tool("ssh_install_updates", {"server": "nas"})
+    servers.rule("brad@", ["##pm"], "##pm\napt\n##reboot\n##last\n")
+    assert s.run_tool("ssh_install_updates", {"server": "nas"}, confirmed=True)["status"] == "nothing to install"
+    servers.rule("brad@", ["##pm"], APT_UPDATES)
+    servers.rule("brad@", ["nohup"], exit=NEEDS_SUDO_EXIT)
+    with pytest.raises(PermissionError, match="needs passwordless sudo"):
+        s.run_tool("ssh_install_updates", {"server": "nas"}, confirmed=True)
+
+
+# -- wiring -------------------------------------------------------------------------------------
+
+
+def test_routes_jobs_and_the_scheduler(client: TestClient, servers: Servers) -> None:
+    servers.rule("", ["##uptime"], HEALTH_OK)
+    app.dependency_overrides[get_siris] = lambda: servers.siris
+    try:
+        assert client.post("/siris/servers/watch").json()["nas"]["reachable"] is True
+        listing = {r["name"]: r for r in client.get("/siris/servers").json()}
+        assert listing["nas"]["mac"] == "aa:bb:cc:00:00:01" and listing["nas"]["failures"] == 0
+        assert client.post("/siris/servers/updates").status_code == 200 and client.post("/siris/servers/disks").status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+    no_ssh = SirisAI(settings=Settings())
+    app.dependency_overrides[get_siris] = lambda: no_ssh
+    try:
+        assert client.get("/siris/servers").status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+    assert scheduler.run_server_watch(no_ssh) is None
+    jobs = {j.name: j for j in daily_jobs.JOBS}
+    assert jobs["server_updates"].hour(no_ssh) is None and jobs["server_updates"].hour(servers.siris) == 7
+    assert jobs["server_disks"].hour(servers.siris) == 6
