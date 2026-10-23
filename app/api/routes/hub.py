@@ -22,7 +22,7 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
     GET  /siris/hub/v1/email/about?q=           latest emails with these words in the subject (project pages)
     GET  /siris/hub/v1/upkeep                   backups and whether an update is waiting
-    GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first
+    GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first (up to 400 days)
 
 Every response is validated against its contract model before it leaves.
 Requests act as X-Siris-User like the rest of the API, so per-user health,
@@ -330,5 +330,5 @@ async def hub_upkeep(siris: SirisAI = Depends(get_siris)) -> c.Upkeep:
 
 
 @router.get("/health/days", response_model=c.HealthDays)
-async def hub_health_days(days: int = Query(7, ge=1, le=35), siris: SirisAI = Depends(get_siris)) -> c.HealthDays:
+async def hub_health_days(days: int = Query(7, ge=1, le=400), siris: SirisAI = Depends(get_siris)) -> c.HealthDays:
     return await asyncio.to_thread(compose.health_days, siris, days)

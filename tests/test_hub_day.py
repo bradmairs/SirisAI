@@ -153,6 +153,9 @@ def test_health_days_and_running_distance(use) -> None:
     assert client.post("/siris/health/metrics", json={"date": today.isoformat(), "metrics": {"run_km": 5.2, "steps": 9000}}).json()["stored"] == {"running_km": 5.2, "steps": 9000}
     body = client.get("/siris/hub/v1/health/days", params={"days": 3}).json()
     assert len(body["days"]) == 3 and body["days"][-1]["date"] == today.isoformat()
+    year = client.get("/siris/hub/v1/health/days", params={"days": 366}).json()["days"]
+    assert len(year) == 366 and year[-1]["metrics"]["running_km"] == 5.2  # SirisOS's year view (4.1)
+    assert client.get("/siris/hub/v1/health/days", params={"days": 401}).status_code == 422
     assert body["days"][-1]["metrics"]["running_km"] == 5.2
     guest.set_mode(siris, True)
     assert client.get("/siris/hub/v1/health/days").json()["days"] is None
