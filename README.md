@@ -5984,6 +5984,11 @@ provider for the same capability actually exists to design against.
     quotes the words safely, and returns nothing in guest mode. Verified in
     `tests/test_second_brain.py` and `tests/test_hub_day.py`.
 
+143. **Done** -- A year of health for SirisOS's trends (2.26).
+    `GET /siris/hub/v1/health/days` now answers up to 400 days (it was 35),
+    so SirisOS 4.1 can chart running, exercise and steps month by month.
+    Each metric is still a single query. Verified in `tests/test_hub_day.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
