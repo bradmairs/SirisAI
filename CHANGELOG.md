@@ -5,6 +5,13 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.56 — 2026-10-23
+
+- Home controls for SirisOS: lights, garage, locks and scenes
+  - `GET /siris/hub/v1/controls`; `SIRISAI_HUB_CONTROLS` picks which entities show.
+  - `POST /siris/hub/v1/controls/{entity}`: garage doors and unlocking need `confirmed`; guest mode hides both.
+  - `POST /siris/hub/v1/scenes/{id}/run` runs Siris and Home Assistant scenes.
+
 ## 2.46 — 2026-10-23
 
 - Safer approvals and a Settings page: an approval PIN, approvals that expire, and settings from the web UI

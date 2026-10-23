@@ -6086,6 +6086,21 @@ provider for the same capability actually exists to design against.
       secrets, live apply and persistence, validation, clearing an override,
       the PIN and guest mode.
 
+146. **Done** -- Home controls for SirisOS (2.56). `GET /siris/hub/v1/controls`
+    lists lights, garage doors (covers whose device class or name says
+    garage or gate) and locks, plus Siris and Home Assistant scenes. Set
+    `SIRISAI_HUB_CONTROLS` to choose which entities appear and in what order;
+    by default every light, garage door and lock is shown, 16 at most.
+    `POST /siris/hub/v1/controls/{entity}` performs one of that control's
+    own actions, and only on an entity the list would show. Opening or
+    closing a garage door, or unlocking, returns 409 until the request says
+    `confirmed`; locking never asks. `POST /siris/hub/v1/scenes/{id}/run`
+    runs a scene. Guest mode leaves garage doors and locks out entirely.
+    Every action goes through `home_assistant_call_service`, so it's
+    audited with who tapped what. If `SIRISAI_APPROVAL_PIN_TOOLS` names
+    `home_assistant_call_service`, controls refuse with 403 and the PIN is
+    entered in SirisAI. Verified in `tests/test_hub_controls.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

@@ -119,6 +119,11 @@ class Settings(BaseSettings):
     # for the mechanism.
     home_assistant_no_confirm_domains: str = ""
 
+    # SirisOS's Home controls (hub /controls): the entity ids to show, in
+    # order, comma-separated (light.*, switch.*, cover.*, lock.*). Empty
+    # shows every light, garage door and lock (16 at most).
+    hub_controls: str = ""
+
     # Habit suggestions (app/anticipation/habits.py): look back this many
     # days in the Home Assistant logbook for manual actions repeated at the
     # same time; a habit needs at least habit_min_days occurrences (and 60%
