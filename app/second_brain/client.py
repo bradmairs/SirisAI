@@ -198,6 +198,14 @@ class SecondBrainClient:
         return self._write([*args, "--", title],
                            message=lambda r: f"siris: filed {r.get('title', title)}")
 
+    def archive_split(self, title: str, into: list[str]) -> dict:
+        """An inbox capture whose pieces were added to the notes `into`
+        (the nightly sort's split): moved to 04-Archive/Inbox with
+        `split_into` recording where they went. `action` is split, left
+        or missing."""
+        args = ["file", "--output", "json"] + [a for t in into for a in ("--split-into", t)]
+        return self._write([*args, "--", title], message=lambda r: f"siris: split {r.get('title', title)}")
+
     def clear_memory_inbox(self, filed: list[dict[str, str]]) -> dict:
         """Archive memory-inbox entries ({"id", "filed_to"}) once they're filed.
         They move to 04-Archive/Inbox; nothing is deleted."""

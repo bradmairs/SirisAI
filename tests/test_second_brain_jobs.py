@@ -27,6 +27,7 @@ class FakeBrain:
         self.known = known or {}            # words the fake router recognises → the note they file to
         self.cleared: list[dict] = []
         self.file_calls: list[tuple[str, str, str]] = []
+        self.split_calls: list[tuple[str, list[str]]] = []
         self.search_results: list[dict] = []
         self.activity_entries = [{"date": "2026-10-06", "line": "🧠 Learned [[Home Server]]"}]
         self.recall = {"score": 0.9, "found": 27, "total": 30, "misses": []}
@@ -51,6 +52,10 @@ class FakeBrain:
             if content.startswith(word):
                 return {"action": "update", "title": note}
         return {"action": "update", "title": jobs.MEMORY_INBOX_TITLE}
+
+    def archive_split(self, title: str, into: list[str]) -> dict:
+        self.split_calls.append((title, into))
+        return {"action": "split", "title": title, "into": into, "path": f"04-Archive/Inbox/{title}.md"}
 
     def clear_memory_inbox(self, filed: list[dict]) -> dict:
         self.cleared += filed
@@ -364,7 +369,7 @@ def test_without_a_model_inbox_notes_are_filed_by_the_router() -> None:
     siris = _siris()
     siris.llm = None
     brain = siris.second_brain = FakeBrain(inbox_notes=[{"title": t} for t in ("Knee Soreness", "Dom", "Hmm")])
-    assert asyncio.run(jobs.file_inbox_notes(siris)) == {"filed": ["Knee Soreness"], "merged": ["Dom Mairs"], "left": ["Hmm"]}
+    assert asyncio.run(jobs.file_inbox_notes(siris)) == {"filed": ["Knee Soreness"], "merged": ["Dom Mairs"], "left": ["Hmm"], "split": []}
     assert brain.filed == ["Knee Soreness", "Dom", "Hmm"]
 
 
@@ -383,7 +388,7 @@ def _sort(reply: str, title: str = "SirisHome Business") -> tuple[FakeBrain, dic
 
 def test_the_model_merges_an_inbox_note_into_a_note_on_the_same_topic() -> None:
     brain, out, llm = _sort('{"action": "merge", "into": "SirisHome"}')
-    assert out == {"filed": [], "merged": ["SirisHome"], "left": []}
+    assert out == {"filed": [], "merged": ["SirisHome"], "left": [], "split": []}
     assert brain.file_calls == [("SirisHome Business", "auto", "SirisHome")]
     prompt = llm.messages[1]["content"]
     assert "- SirisHome (note): The smart home business." in prompt
@@ -404,6 +409,68 @@ def test_the_model_files_new_topics_with_a_type_or_leaves_them() -> None:
     assert brain.file_calls == [] and out["left"] == ["SirisHome Business"]
     brain, out, _ = _sort("no idea")
     assert brain.file_calls == [("SirisHome Business", "auto", "")]
+
+
+CAPTURE = ("Had lunch with [[Dad]] today, he's retiring next year. Leg day at the gym: squats up to 100 kg.\n\n"
+           "Thinking the homelab needs a second NAS for backups. And the Siris App Suite should get a launcher on the phone.")
+
+
+def _split(parts: list[dict]) -> tuple[FakeBrain, dict, FakeLLM]:
+    import json as _json
+
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain(inbox_notes=[{"title": "Had lunch with Dad today, he's retiring…", "text": CAPTURE}])
+    brain.search_results = [
+        {"title": "Dad", "type": "person", "path": "People/Dad.md", "excerpts": ["My dad, Rob."]},
+        {"title": "Home Lab", "type": "note", "path": "Notes/Home Lab.md", "excerpts": ["The server and NAS."]},
+        {"title": "Siris App Suite", "type": "project", "path": "01-Projects/Siris App Suite.md", "excerpts": ["The apps."]},
+    ]
+    siris.llm = FakeLLM(_json.dumps({"action": "split", "parts": parts}))
+    return brain, asyncio.run(jobs.file_inbox_notes(siris)), siris.llm
+
+
+def test_a_capture_about_several_things_is_split_across_their_notes() -> None:
+    brain, out, llm = _split([
+        {"text": "Had lunch with Dad today, he's retiring next year.", "into": "Dad"},
+        {"text": "Leg day at the gym: squats up to 100 kg.", "title": "Gym Training", "type": "note"},
+        {"text": "Thinking the homelab needs a second NAS for backups.", "into": "Home Lab"},
+        {"text": "And the Siris App Suite should get a launcher on the phone.", "into": "Siris App Suite"},
+    ])
+    assert [(i["title"], i["content"]) for i in brain.learned] == [
+        ("Dad", "Had lunch with Dad today, he's retiring next year."),
+        ("Gym Training", "Leg day at the gym: squats up to 100 kg."),
+        ("Home Lab", "Thinking the homelab needs a second NAS for backups."),
+        ("Siris App Suite", "And the Siris App Suite should get a launcher on the phone."),
+    ]
+    assert brain.learned[1]["type"] == "note" and "type" not in brain.learned[0]
+    assert all(i["source"] == "Capture: Had lunch with Dad today, he's retiring…" for i in brain.learned)
+    assert all(i["not_link"] == ["Had lunch with Dad today, he's retiring…"] for i in brain.learned)
+    assert brain.split_calls == [("Had lunch with Dad today, he's retiring…", ["Dad", "Gym Training", "Home Lab", "Siris App Suite"])]
+    assert brain.file_calls == []   # archived by the split, not filed whole
+    assert out["split"] == ["Had lunch with Dad today, he's retiring… → Dad, Gym Training, Home Lab, Siris App Suite"]
+    assert "Split 1 capture across the notes it was about" in jobs._upkeep_message({"inbox": out})
+    # Each paragraph was searched too, so the homelab and the app suite had their notes in front of the model.
+    assert "- Home Lab (note)" in llm.messages[1]["content"] and "- Siris App Suite (project)" in llm.messages[1]["content"]
+
+
+def test_a_split_only_writes_the_notes_own_words_into_notes_the_search_found() -> None:
+    brain, out, _ = _split([
+        {"text": "Dad is retiring next year and moving to Bali.", "into": "Dad"},          # reworded and embellished
+        {"text": "Leg day at the gym: squats up to 100 kg.", "into": "Health"},           # not a candidate, no title
+        {"text": "Thinking the homelab needs a second NAS for backups.", "into": "Home Lab"},
+        {"text": "And the Siris App Suite should get a launcher on the phone.", "into": "Siris App Suite"},
+    ])
+    assert [i["title"] for i in brain.learned] == ["Home Lab", "Siris App Suite"]
+    assert brain.split_calls[0][1] == ["Home Lab", "Siris App Suite"]
+
+
+def test_a_split_with_one_usable_piece_files_the_note_whole() -> None:
+    brain, out, _ = _split([
+        {"text": "Thinking the homelab needs a second NAS for backups.", "into": "Home Lab"},
+        {"text": "Something it never said.", "into": "Dad"},
+    ])
+    assert brain.learned == [] and brain.split_calls == []
+    assert brain.file_calls == [("Had lunch with Dad today, he's retiring…", "auto", "")]
 
 
 def test_repos_map_to_their_project_notes() -> None:
@@ -560,7 +627,7 @@ def test_without_a_model_chats_wait_and_are_never_filed_raw() -> None:
     chat = {"title": "Claude Chat – x", "source": "Claude chat", "text": "..."}
     brain = siris.second_brain = FakeBrain(inbox_notes=[chat])
     assert asyncio.run(jobs.distill_chats(siris)) == {"chats": [], "learned": []}
-    assert asyncio.run(jobs.file_inbox_notes(siris)) == {"filed": [], "merged": [], "left": []}
+    assert asyncio.run(jobs.file_inbox_notes(siris)) == {"filed": [], "merged": [], "left": [], "split": []}
     assert brain.file_calls == []
 
 
