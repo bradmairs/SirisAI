@@ -206,6 +206,7 @@ def _siris(tmp_path: Path, **settings: Any) -> SirisAI:
     siris = SirisAI(settings=Settings(timezone="Australia/Melbourne", onenote_client_id="cid",
                                       onenote_token_path=str(tmp_path / "token.json"), **settings))
     siris.state.set(importer.STATE_KEY, {})
+    siris.state.set(importer.SECTIONS_KEY, {})
     siris.state.set(importer.AUTH_ALERT_KEY, False)
     siris.second_brain = FakeBrain(tmp_path / "vault")
     siris.vision = FakeVision()
@@ -304,3 +305,131 @@ def test_the_import_runs_nightly_before_the_upkeep(tmp_path: Path, monkeypatch: 
 def test_the_upkeep_summary_mentions_the_import() -> None:
     message = jobs._upkeep_message({"onenote": {"imported": ["A", "B"], "updated": ["C"], "handwritten": 1}})
     assert "Imported 2 OneNote pages and updated 1, 1 handwritten." in message
+
+
+# ---------- finding pages within OneNote's request limit ----------
+
+
+def _throttle_error() -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", GRAPH)
+    return httpx.HTTPStatusError("429", request=request, response=httpx.Response(429, request=request))
+
+
+class SectionedOneNote(FakeOneNote):
+    """Sections with timestamps; counts page listings and can throttle them."""
+
+    def __init__(self, sections: list[dict], pages: list[dict]) -> None:
+        super().__init__(pages, {p["id"]: ("<p>x</p>", "") for p in pages})
+        self._sections, self.listed = sections, []
+        self.throttle_sections = False
+        self.throttle_listing: set[str] = set()
+
+    def sections(self) -> list[dict]:
+        if self.throttle_sections:
+            raise _throttle_error()
+        return self._sections
+
+    def pages(self, section_id: str) -> list[dict]:
+        if section_id in self.throttle_listing:
+            raise _throttle_error()
+        self.listed.append(section_id)
+        return super().pages(section_id)
+
+
+def _section(sid: str, modified: str) -> dict:
+    return {"id": sid, "displayName": sid.title(), "lastModifiedDateTime": modified,
+            "parentNotebook": {"displayName": "Work"}}
+
+
+def test_only_new_or_changed_sections_are_listed_again(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(importer, "_RECHECKS", 0)
+    siris = _siris(tmp_path)
+    onenote = SectionedOneNote([_section("a", "2026-10-01T00:00:00Z"), _section("b", "2026-10-01T00:00:00Z")],
+                               [_page("p1", "One", section="a"), _page("p2", "Two", section="b")])
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["One", "Two"]
+    assert sorted(onenote.listed) == ["a", "b"]
+
+    onenote.listed.clear()
+    assert importer.run_import(siris, NOW, onenote)["imported"] == []
+    assert onenote.listed == []                                  # nothing changed: no listings at all
+
+    onenote._sections[1] = _section("b", "2026-10-09T00:00:00Z")   # a page in b was added
+    onenote._pages.append(_page("p3", "Three", "2026-10-09T00:00:00Z", section="b"))
+    onenote.content["p3"] = ("<p>three</p>", "")
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["Three"]
+    assert onenote.listed == ["b"]
+
+
+def test_unchanged_sections_are_still_rechecked_a_few_at_a_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """In case a section's timestamp ever lags its pages: the longest-unchecked
+    sections are re-listed anyway, a few a night."""
+    monkeypatch.setattr(importer, "_RECHECKS", 1)
+    siris = _siris(tmp_path)
+    onenote = SectionedOneNote([_section("a", "2026-10-01T00:00:00Z"), _section("b", "2026-10-01T00:00:00Z")], [])
+    importer.run_import(siris, NOW, onenote)
+    onenote.listed.clear()
+    importer.run_import(siris, NOW.replace(hour=15), onenote)
+    importer.run_import(siris, NOW.replace(hour=16), onenote)
+    assert len(onenote.listed) == 2 and set(onenote.listed) == {"a", "b"}   # one a night, taking turns
+
+
+def test_the_first_listing_spreads_over_nights(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(importer, "_MAX_LISTINGS", 2)
+    siris = _siris(tmp_path)
+    sections = [_section(s, "2026-10-01T00:00:00Z") for s in ("a", "b", "c")]
+    pages = [_page(f"p{s}", s.upper(), section=s) for s in ("a", "b", "c")]
+    onenote = SectionedOneNote(sections, pages)
+    out = importer.run_import(siris, NOW, onenote)
+    assert len(out["imported"]) == 2 and out["sections_to_list"] == 1
+    out = importer.run_import(siris, NOW, onenote)
+    assert len(out["imported"]) == 1 and "sections_to_list" not in out
+
+
+def test_a_throttle_while_listing_ends_the_night_and_keeps_what_was_listed(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    sections = [_section("a", "2026-10-01T00:00:00Z"), _section("b", "2026-10-02T00:00:00Z")]
+    onenote = SectionedOneNote(sections, [_page("p1", "One", section="a"), _page("p2", "Two", section="b")])
+    onenote.throttle_listing = {"b"}
+    out = importer.run_import(siris, NOW, onenote)
+    assert "throttled" in out and out["imported"] == []          # no page reads after a throttle
+    assert set(siris.state.get(importer.SECTIONS_KEY)) == {"a"}  # a's listing kept
+
+    onenote.throttle_listing = set()
+    onenote.listed.clear()
+    out = importer.run_import(siris, NOW, onenote)
+    assert out["imported"] == ["One", "Two"]
+    assert "b" in onenote.listed
+
+
+def test_a_throttle_on_the_section_list_is_a_quiet_night(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    onenote = SectionedOneNote([_section("a", "2026-10-01T00:00:00Z")], [_page("p1", "One", section="a")])
+    onenote.throttle_sections = True
+    out = importer.run_import(siris, NOW, onenote)
+    assert "throttled" in out and out["imported"] == []
+    assert siris._notify_client.sent == []                       # not a sign-in problem
+
+
+def test_deleted_sections_are_forgotten(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    onenote = SectionedOneNote([_section("a", "2026-10-01T00:00:00Z"), _section("b", "2026-10-01T00:00:00Z")], [])
+    importer.run_import(siris, NOW, onenote)
+    onenote._sections = onenote._sections[:1]
+    importer.run_import(siris, NOW, onenote)
+    assert set(siris.state.get(importer.SECTIONS_KEY)) == {"a"}
+
+
+def test_sections_are_fetched_whole_with_their_timestamp(tmp_path: Path) -> None:
+    """No $top: for sections Graph returns that many and no nextLink to the rest
+    (seen live: 100 of 343), while one plain call returns them all."""
+    store = _store(tmp_path, access_token="a", refresh_token="r", expires_at=9e12)
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return httpx.Response(200, json={"value": [{"id": "s1", "lastModifiedDateTime": "2026-10-01T00:00:00Z"}]})
+
+    sections = OneNoteClient("cid", store, transport=httpx.MockTransport(handler)).sections()
+    assert sections[0]["lastModifiedDateTime"] == "2026-10-01T00:00:00Z"
+    assert "$top" not in seen[0].params
+    assert "lastModifiedDateTime" in seen[0].params["$select"]

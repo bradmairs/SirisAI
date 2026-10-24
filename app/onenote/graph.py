@@ -117,9 +117,12 @@ class OneNoteClient:
             page = self._get(nxt).json()
 
     def sections(self) -> list[dict]:
-        """Every section, with its notebook: {id, displayName, parentNotebook: {displayName}}."""
+        """Every section, with its notebook: {id, displayName, lastModifiedDateTime,
+        parentNotebook: {displayName}}. One call returns them all (343 for Brad); never
+        pass $top here -- Graph then returns that many with no nextLink to the rest."""
         return list(self._paged("/me/onenote/sections", **{
-            "$select": "id,displayName", "$expand": "parentNotebook($select=id,displayName)"}))
+            "$select": "id,displayName,lastModifiedDateTime",
+            "$expand": "parentNotebook($select=id,displayName)"}))
 
     def pages(self, section_id: str) -> list[dict]:
         """A section's pages: {id, title, createdDateTime, lastModifiedDateTime}."""

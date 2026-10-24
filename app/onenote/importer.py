@@ -15,6 +15,15 @@ upkeep): new and changed pages from Brad's OneNote notebooks into Siris.
   holding the GPU for hours.
 
 Page ids, dates and the text last imported are kept in the state store.
+
+Finding pages: OneNote allows roughly 400 requests an hour per app and
+user, and a big account can't list every page in one paged call (Graph
+error 20266 past a section limit) -- only section by section. So each
+section's page list is kept in the state store and re-listed only when
+the section is new or its lastModifiedDateTime has moved, plus a few of
+the longest-unchecked sections each night as a safety net; at most
+_MAX_LISTINGS listings a night, so the first full listing spreads over a
+few nights alongside the imports.
 """
 
 from __future__ import annotations
@@ -38,7 +47,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STATE_KEY = "onenote_pages"          # {page id: {modified, title, text, ink}}
+SECTIONS_KEY = "onenote_sections"    # {section id: {modified, listed, notebook, name, pages: [...]}}
 LAST_RUN_KEY = "onenote_last_run"    # the last run's outcome, for the upkeep summary
+_MAX_LISTINGS = 100                  # section page-listings a night
+_RECHECKS = 10                       # of those, unchanged sections re-listed as a safety net
 AUTH_ALERT_KEY = "onenote_auth_alerted"
 ATTACHMENTS = "03-Resources/Attachments/OneNote"
 
@@ -154,21 +166,74 @@ def run_import(siris: "SirisAI", now: datetime, client: OneNoteClient | None = N
     return result
 
 
+def _throttled(exc: httpx.HTTPStatusError) -> bool:
+    return exc.response.status_code == 429
+
+
+def _refresh_sections(siris: "SirisAI", client: OneNoteClient, now: datetime) -> tuple[dict[str, dict], int, bool]:
+    """Bring the kept section page lists up to date within tonight's budget.
+    Returns (sections, how many still need listing, throttled)."""
+    cache: dict[str, dict] = dict(siris.state.get(SECTIONS_KEY) or {})
+    try:
+        live = client.sections()
+    except httpx.HTTPStatusError as exc:
+        if _throttled(exc):
+            return cache, 0, True
+        raise
+    live_ids = {sec["id"] for sec in live}
+    cache = {sid: c for sid, c in cache.items() if sid in live_ids}   # deleted sections go
+    changed, unchanged = [], []
+    for sec in live:
+        kept = cache.get(sec["id"])
+        if kept is None or sec.get("lastModifiedDateTime", "") > kept.get("modified", ""):
+            changed.append(sec)
+        else:
+            unchanged.append(sec)
+    changed.sort(key=lambda sec: (sec["id"] in cache, cache.get(sec["id"], {}).get("listed", "")))
+    unchanged.sort(key=lambda sec: cache[sec["id"]].get("listed", ""))
+    todo = changed[:_MAX_LISTINGS] + unchanged[:max(0, min(_RECHECKS, _MAX_LISTINGS - len(changed)))]
+    throttled = False
+    for done, sec in enumerate(todo):
+        try:
+            pages = client.pages(sec["id"])
+        except httpx.HTTPStatusError as exc:
+            if not _throttled(exc):
+                raise
+            throttled = True
+            todo = todo[:done]
+            break
+        cache[sec["id"]] = {
+            "modified": sec.get("lastModifiedDateTime", ""), "listed": now.isoformat(),
+            "notebook": (sec.get("parentNotebook") or {}).get("displayName", ""),
+            "name": sec.get("displayName", ""), "pages": pages,
+        }
+        siris.state.set(SECTIONS_KEY, cache)   # after each listing, so a throttle keeps what's done
+    listed = {sec["id"] for sec in todo}
+    remaining = sum(1 for sec in changed if sec["id"] not in listed)
+    return cache, remaining, throttled
+
+
 def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, Any]:
     s, brain = siris.settings, siris.second_brain
     wanted = {n.strip().lower() for n in s.onenote_notebooks.split(",") if n.strip()}
     seen: dict[str, dict] = dict(siris.state.get(STATE_KEY) or {})
+    sections, unlisted, throttled = _refresh_sections(siris, client, now)
     due = []
-    for section in client.sections():
-        notebook = (section.get("parentNotebook") or {}).get("displayName", "")
+    for section in sections.values():
+        notebook = section.get("notebook", "")
         if wanted and notebook.lower() not in wanted:
             continue
-        for page in client.pages(section["id"]):
+        for page in section.get("pages", []):
             known = seen.get(page["id"])
             if known is None or page.get("lastModifiedDateTime", "") > known.get("modified", ""):
-                due.append((page, notebook, section.get("displayName", "")))
+                due.append((page, notebook, section.get("name", "")))
     due.sort(key=lambda d: d[0].get("lastModifiedDateTime", ""))
     out: dict[str, Any] = {"imported": [], "updated": [], "handwritten": 0, "waiting": max(0, len(due) - s.onenote_max_pages)}
+    if unlisted:
+        out["sections_to_list"] = unlisted
+    if throttled:
+        out["throttled"] = "OneNote's hourly request limit; the rest carries on tomorrow night"
+        return out
     used = {v.get("title", "").lower() for v in seen.values()}
     for page, notebook, section in due[:s.onenote_max_pages]:
         try:
