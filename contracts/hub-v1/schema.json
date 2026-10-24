@@ -80,6 +80,9 @@
     },
     "control": {
       "$ref": "#/$defs/ControlResult"
+    },
+    "network": {
+      "$ref": "#/$defs/Network"
     }
   },
   "$defs": {
@@ -1791,6 +1794,149 @@
         }
       },
       "title": "LastProtocolRun",
+      "type": "object"
+    },
+    "Network": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "checked_at": {
+          "title": "Checked At",
+          "type": "string"
+        },
+        "wan": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The internet link: rx_bps, tx_bps, isp.",
+          "title": "Wan"
+        },
+        "nodes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/NetworkNode"
+          },
+          "title": "Nodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "configured",
+        "guest_mode",
+        "checked_at"
+      ],
+      "title": "Network",
+      "type": "object"
+    },
+    "NetworkNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The MAC address.",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "gateway",
+            "switch",
+            "access_point",
+            "client"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "wired": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wired"
+        },
+        "online": {
+          "default": true,
+          "title": "Online",
+          "type": "boolean"
+        },
+        "uplink": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The id of the switch or access point it connects through (null: the gateway).",
+          "title": "Uplink"
+        },
+        "rx_bps": {
+          "default": 0,
+          "description": "Bytes per second it's receiving now.",
+          "title": "Rx Bps",
+          "type": "number"
+        },
+        "tx_bps": {
+          "default": 0,
+          "description": "Bytes per second it's sending now.",
+          "title": "Tx Bps",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind"
+      ],
+      "title": "NetworkNode",
       "type": "object"
     },
     "OverdueTask": {

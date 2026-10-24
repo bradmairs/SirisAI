@@ -622,3 +622,32 @@ def run_scene(siris: "SirisAI", scene_id: str, trigger: str) -> c.ControlResult:
         siris.run_tool("home_assistant_call_service", {"domain": "scene", "service": "turn_on", "entity_id": scene_id}, confirmed=True, trigger=trigger)
         return c.ControlResult(entity_id=scene_id, action="run")
     raise ControlRefused("No such scene.", 404)
+
+
+# -- the network, live (SirisOS 4.5) ------------------------------------------------
+
+
+def network(siris: "SirisAI") -> c.Network:
+    """UniFi's gateway, switches, access points and clients with their live
+    rates. In guest mode clients are left out (their names are personal)."""
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    client = siris._unifi_client
+    on = guest.is_on(siris)
+    if client is None:
+        return c.Network(configured=False, guest_mode=on, checked_at=now)
+    t = client.traffic()
+    infra = {d["mac"] for d in t["devices"] if d.get("mac")}
+    gateway = next((d["mac"] for d in t["devices"] if d["type"] == "gateway"), None)
+    nodes = [c.NetworkNode(id=d["mac"], name=str(d["name"] or d["mac"]), kind=d["type"] if d["type"] in ("gateway", "switch", "access_point") else "switch",
+                           model=d.get("model"), online=d["state"] == "online",
+                           uplink=d["uplink_mac"] if d.get("uplink_mac") in infra and d["uplink_mac"] != gateway and d["mac"] != gateway else None,
+                           rx_bps=d["rx_bps"], tx_bps=d["tx_bps"])
+             for d in t["devices"] if d.get("mac")]
+    if not on:
+        nodes += [c.NetworkNode(id=x["mac"], name=str(x["name"]), kind="client", wired=x["wired"],
+                                uplink=x["uplink_mac"] if x.get("uplink_mac") in infra and x["uplink_mac"] != gateway else None,
+                                rx_bps=x["rx_bps"], tx_bps=x["tx_bps"])
+                  for x in t["clients"] if x.get("mac")]
+    return c.Network(configured=True, guest_mode=on, checked_at=now, wan=t["wan"], nodes=nodes)
