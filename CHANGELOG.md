@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.88 — 2026-10-25
+
+- OneNote pages are split across the notes they cover, like captures: the sort now sees long pages whole (Second Brain 1.76), splits only when the pieces hold most of the note, and an edit to a page that was split goes to the inbox to be sorted the same way.
+
 ## 2.87 — 2026-10-25
 
 - Siris splits a capture about several things across the notes it's about: each piece, in your own words, becomes a dated update on its note (or a new note), and the original is archived. Needs Second Brain 1.74.

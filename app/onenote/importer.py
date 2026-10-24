@@ -7,9 +7,10 @@ upkeep): new and changed pages from Brad's OneNote notebooks into Siris.
   transcribed by the local vision model (SIRISAI_VISION_MODEL), marked as a
   machine transcription to check.
 - A new page goes to Siris' inbox, so the upkeep's sort files it as a new
-  note or merges it into the note on the same topic. A page edited later
-  adds only what changed, as a dated update on wherever the page ended up
-  (following a merge).
+  note, merges it into the note on the same topic, or splits it across the
+  notes it covers. A page edited later adds only what changed, as a dated
+  update on wherever the page ended up (following a merge); for a page that
+  was split, what changed goes to the inbox to be sorted the same way.
 - At most SIRISAI_ONENOTE_MAX_PAGES pages a night, oldest first, so the
   first import of a big notebook spreads over a few nights instead of
   holding the GPU for hours.
@@ -212,10 +213,13 @@ def _content(page: dict, built: dict, notebook: str, section: str) -> str:
     return "\n\n".join(parts)
 
 
-def _follow(siris: "SirisAI", title: str) -> str:
-    """Where a page's note is now: the sort may have merged it into another note."""
+def _follow(siris: "SirisAI", title: str) -> str | None:
+    """Where a page's note is now: the sort may have merged it into another note. None when
+    the sort split it across several notes: there's no one note for an edit to go on."""
     note = siris.second_brain.get_note(title)
     meta = (note or {}).get("meta") or {}
+    if meta.get("split_into"):
+        return None
     return meta.get("merged_into") or (note or {}).get("title") or title
 
 
@@ -368,9 +372,19 @@ def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, An
                     added.append("## Handwriting (updated)\n\n" + built["handwriting"])
                 if added:
                     target = _follow(siris, title)
-                    brain.learn([{"title": target, "content": "Updated in OneNote:\n\n" + "\n".join(added),
-                                  "source": f"OneNote: {notebook} › {section} › {page.get('title') or title}"}])
-                    out["updated"].append(target)
+                    source = f"OneNote: {notebook} › {section} › {page.get('title') or title}"
+                    if target is None:
+                        # The page was split across the notes it covers: what's new waits in the inbox,
+                        # where the nightly sort puts each part of it on its note the same way.
+                        from app.core import clock
+
+                        day = now.astimezone(clock.get_zone(s.timezone)).date().isoformat()
+                        result = brain.learn([{"title": f"{title} (updated {day})", "content": "\n".join(added),
+                                               "source": source, "tags": ["onenote"], "inbox_if_new": True}])[0]
+                        out["updated"].append(result["title"])
+                    else:
+                        brain.learn([{"title": target, "content": "Updated in OneNote:\n\n" + "\n".join(added), "source": source}])
+                        out["updated"].append(target)
             seen[page["id"]] = {"modified": page.get("lastModifiedDateTime", ""), "title": title,
                                 "text": built["typed"], "ink": built["ink"]}
             used.add(title.lower())
