@@ -323,6 +323,13 @@ def tick(siris: "SirisAI", now: datetime | None = None, run_health: bool = False
     return result
 
 
+async def _run_brain_jobs(siris: "SirisAI") -> None:
+    try:
+        await brain_jobs.run_due(siris)
+    except Exception:
+        logger.exception("Second brain jobs failed")
+
+
 async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_health = 0.0
     last_proactive = 0.0
@@ -336,6 +343,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_eval = time.monotonic()
     last_attention = time.monotonic()  # the feed syncs itself when asked; no need to at boot
     last_servers = 0.0
+    brain_task: asyncio.Task | None = None
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -403,9 +411,14 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             await asyncio.to_thread(run_daily_jobs, siris)
 
             # Second brain growth jobs: each decides for itself whether it's due today.
-            if siris.second_brain is not None:
-                await brain_jobs.run_due(siris)
+            # They run beside this loop rather than inside it -- the OneNote import alone
+            # can take the better part of an hour, and reminders and health checks
+            # shouldn't wait. Never two at once, so their order (import before upkeep) holds.
+            if siris.second_brain is not None and (brain_task is None or brain_task.done()):
+                brain_task = asyncio.create_task(_run_brain_jobs(siris))
         except asyncio.CancelledError:
+            if brain_task is not None:
+                brain_task.cancel()
             raise
         except Exception:
             logger.exception("Scheduler tick failed")

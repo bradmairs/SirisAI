@@ -256,3 +256,38 @@ def test_run_skips_a_job_whose_interval_is_zero(monkeypatch: pytest.MonkeyPatch)
 
     assert "proactive" not in calls
     assert "presence" in calls
+
+
+def test_slow_second_brain_jobs_do_not_hold_up_the_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The OneNote import can take the better part of an hour; reminders and
+    checks keep running meanwhile, and the brain jobs never overlap."""
+    import asyncio
+
+    siris = _siris(proactive_check_interval_minutes=0.001, presence_check_interval_minutes=0)
+    siris.second_brain = object()  # type: ignore[assignment]
+    calls: list[str] = []
+    brain_runs: list[int] = []
+
+    async def slow_brain_jobs(s: SirisAI) -> None:
+        brain_runs.append(1)
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(scheduler.brain_jobs, "run_due", slow_brain_jobs)
+    monkeypatch.setattr(scheduler, "run_proactive_check", lambda s, now=None: calls.append("proactive"))
+    monkeypatch.setattr(scheduler, "run_daily_jobs", lambda s, now=None: {})
+    monkeypatch.setattr(scheduler, "deliver_due_reminders", lambda s, now=None: 0)
+    monkeypatch.setattr(scheduler, "maybe_run_daily_briefing", lambda s, now=None: False)
+
+    async def go() -> None:
+        task = asyncio.create_task(scheduler.run(siris, interval_seconds=0.01))
+        await asyncio.sleep(0.15)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(go())
+
+    assert calls.count("proactive") >= 3
+    assert brain_runs == [1]
