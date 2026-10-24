@@ -339,7 +339,8 @@ class BrainLearnTool(Tool):
         "call per idea and title it as the idea or the thing it's about ('Melbourne Marathon 2026 10 km', "
         "'Home Server'). If a note with that title or alias exists, this appends a dated update instead of "
         "duplicating it; it never overwrites. Anything new waits in the brain's inbox (still searchable) "
-        "until the nightly sort files it as a new note or merges it into a note on the same topic. Name "
+        "until the nightly sort files it as a new note, merges it into a note on the same topic, or splits it "
+        "across the notes it's about when it covers several things. Name "
         "related things in the content: existing notes get linked automatically."
     )
     permission = ToolPermission.SAFE_ACTION
