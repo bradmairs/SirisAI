@@ -531,3 +531,66 @@ def test_restart_device_dry_run_does_not_warn_for_a_switch_model() -> None:
     report = UniFiRestartDeviceTool(client).dry_run(device_id="device-1")
     assert "warning" not in report
     client.close()
+
+
+# ---------- live traffic for SirisOS's house view (2.76) ----------
+
+_HEALTH = {"data": [{"subsystem": "wlan"}, {"subsystem": "wan", "rx_bytes-r": 1_250_000, "tx_bytes-r": 90_000, "isp_name": "Aussie Broadband"}]}
+_DEVICES = {"data": [
+    {"mac": "aa:00", "name": "Cloud Gateway Ultra", "model": "UCGULTRA", "type": "udm", "state": 1, "rx_bytes-r": 1_300_000, "tx_bytes-r": 95_000},
+    {"mac": "aa:01", "name": "Office switch", "model": "USWFlexMini", "type": "usw", "state": 1, "uplink": {"uplink_mac": "aa:00"}, "rx_bytes-r": 20, "tx_bytes-r": 30},
+    {"mac": "aa:02", "name": "Lounge AP", "model": "U7Pro", "type": "uap", "state": 0, "uplink": {"uplink_mac": "aa:01"}},
+]}
+_STA = {"data": [
+    {"mac": "bb:01", "hostname": "gaming-pc", "ip": "192.168.0.20", "is_wired": True, "sw_mac": "aa:01", "wired-rx_bytes-r": 800_000, "wired-tx_bytes-r": 40_000},
+    {"mac": "bb:02", "name": "Brad's iPhone", "is_wired": False, "ap_mac": "aa:02", "rx_bytes-r": 5_000, "tx_bytes-r": 1_000},
+    {"mac": "bb:03", "oui": "Sonos", "is_wired": True, "sw_mac": "aa:00"},
+]}
+
+
+def _traffic_handler(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    if path.endswith("/stat/health"):
+        return httpx.Response(200, json=_HEALTH)
+    if path.endswith("/stat/device"):
+        return httpx.Response(200, json=_DEVICES)
+    if path.endswith("/stat/sta"):
+        return httpx.Response(200, json=_STA)
+    return httpx.Response(404)
+
+
+def test_traffic_reads_rates_and_what_connects_through_what() -> None:
+    t = _mock_client(_traffic_handler).traffic()
+    assert t["wan"] == {"rx_bps": 1_250_000.0, "tx_bps": 90_000.0, "isp": "Aussie Broadband"}
+    assert [(d["name"], d["type"], d["state"]) for d in t["devices"]] == [
+        ("Cloud Gateway Ultra", "gateway", "online"), ("Office switch", "switch", "online"), ("Lounge AP", "access_point", "offline")]
+    pc, phone, sonos = t["clients"]
+    assert (pc["name"], pc["wired"], pc["uplink_mac"], pc["rx_bps"]) == ("gaming-pc", True, "aa:01", 800_000.0)
+    assert (phone["uplink_mac"], phone["tx_bps"]) == ("aa:02", 1_000.0)
+    assert sonos["name"] == "Sonos" and sonos["rx_bps"] == 0.0
+
+
+def test_hub_network_shapes_the_graph(client) -> None:
+    from app.core import guest
+    from app.core.siris import get_siris
+    from app.hub import contract as c
+    from app.main import app
+    from tests.test_hub import full_siris
+
+    siris = full_siris()
+    app.dependency_overrides[get_siris] = lambda: siris
+    try:
+        assert client.get("/siris/hub/v1/network").json()["configured"] is False
+        siris._unifi_client = _mock_client(_traffic_handler)
+        body = c.Network.model_validate(client.get("/siris/hub/v1/network").json())
+        by = {n.name: n for n in body.nodes}
+        assert by["Cloud Gateway Ultra"].kind == "gateway" and by["Cloud Gateway Ultra"].uplink is None
+        assert by["Office switch"].uplink is None              # straight into the gateway
+        assert by["Lounge AP"].uplink == "aa:01" and by["Lounge AP"].online is False
+        assert by["gaming-pc"].uplink == "aa:01" and by["Sonos"].uplink is None and by["Brad's iPhone"].uplink == "aa:02"
+        assert body.wan["isp"] == "Aussie Broadband"
+        guest.set_mode(siris, True)
+        assert {n.kind for n in c.Network.model_validate(client.get("/siris/hub/v1/network").json()).nodes} == {"gateway", "switch", "access_point"}
+        guest.set_mode(siris, False)
+    finally:
+        app.dependency_overrides.pop(get_siris, None)

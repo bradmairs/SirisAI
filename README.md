@@ -6112,6 +6112,18 @@ provider for the same capability actually exists to design against.
       are no day notes. Verified in `tests/test_second_brain.py` and
       `tests/test_second_brain_jobs.py`.
 
+148. **Done** -- The network, live, for SirisOS's house (2.76).
+    `GET /siris/hub/v1/network` returns the UniFi gateway, switches, access
+    points and clients as a graph: each node has its uplink (the switch or
+    AP it connects through; null means the gateway) and the bytes per
+    second it's receiving and sending now, plus the WAN rates and ISP. It
+    reads the classic `stat/health`, `stat/device` and `stat/sta` endpoints
+    with the same local API key, because the Integration API's lists carry
+    no rates. Guest mode leaves clients out. SirisOS 4.5 animates these as
+    links between the devices in its 3D model of the house. Verified in
+    `tests/test_unifi.py` against recorded shapes. Not yet live-tested
+    against the Cloud Gateway Ultra.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

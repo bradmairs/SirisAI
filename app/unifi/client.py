@@ -204,6 +204,38 @@ class UniFiClient:
             for e in self._unwrap(response.json())
         ]
 
+    def traffic(self) -> dict:
+        """Live traffic for SirisOS's house view (2.76): the gateway's WAN
+        rates, each UniFi device (gateway, switches, access points) and each
+        client, in bytes per second, with what each connects through. Uses
+        the classic stat endpoints (stat/health, stat/device, stat/sta),
+        which carry the rates; the Integration API lists don't."""
+        base = f"/proxy/network/api/s/{self._site}"
+
+        def get(path: str) -> list[dict]:
+            response = self._client.get(base + path)
+            response.raise_for_status()
+            return self._unwrap(response.json())
+
+        rate = lambda item, key: float(item.get(key) or 0)  # noqa: E731
+        wan = next((h for h in get("/stat/health") if h.get("subsystem") == "wan"), {})
+        devices = [{
+            "mac": d.get("mac"), "name": d.get("name") or d.get("model"), "model": d.get("model"),
+            "type": {"ugw": "gateway", "udm": "gateway", "uxg": "gateway", "usw": "switch", "uap": "access_point"}.get(str(d.get("type")), str(d.get("type") or "")),
+            "state": "online" if d.get("state") == 1 else "offline",
+            "uplink_mac": (d.get("uplink") or {}).get("uplink_mac"),
+            "rx_bps": rate(d, "rx_bytes-r"), "tx_bps": rate(d, "tx_bytes-r"),
+        } for d in get("/stat/device")]
+        clients = [{
+            "mac": c.get("mac"), "name": c.get("name") or c.get("hostname") or c.get("oui") or c.get("mac"),
+            "ip": c.get("ip"), "wired": bool(c.get("is_wired")),
+            "uplink_mac": c.get("sw_mac") if c.get("is_wired") else c.get("ap_mac"),
+            "rx_bps": rate(c, "wired-rx_bytes-r" if c.get("is_wired") else "rx_bytes-r"),
+            "tx_bps": rate(c, "wired-tx_bytes-r" if c.get("is_wired") else "tx_bytes-r"),
+        } for c in get("/stat/sta")]
+        return {"wan": {"rx_bps": rate(wan, "rx_bytes-r"), "tx_bps": rate(wan, "tx_bytes-r"), "isp": wan.get("isp_name")},
+                "devices": devices, "clients": clients}
+
     @staticmethod
     def _unwrap(data: object) -> list[dict]:
         """The Integration API wraps list responses as {"data": [...]}."""

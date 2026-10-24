@@ -103,6 +103,11 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["protocol_run"] = client.post("/siris/hub/v1/protocols/lockdown/run", json={"confirmed": True}, headers=h).json()
         if not any(x["name"] == "Wind down" for x in siris.scenes.list_scenes()):
             siris.scenes.create_scene("Wind down", [{"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}])
+        from tests.test_unifi import _mock_client, _traffic_handler
+
+        siris._unifi_client = _mock_client(_traffic_handler)
+        out["network"] = client.get("/siris/hub/v1/network", headers=h).json()
+        out["network"]["checked_at"] = "2026-10-24T10:00:00+00:00"
         out["controls"] = client.get("/siris/hub/v1/controls", headers=h).json()
         out["control_request"] = {"action": "turn_off"}
         out["control"] = client.post("/siris/hub/v1/controls/light.kitchen", json=out["control_request"], headers=h).json()

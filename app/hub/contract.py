@@ -484,6 +484,29 @@ class ControlResult(_Model):
     state: str | None = None
 
 
+# -- The network, live (/siris/hub/v1/network, SirisOS 4.5's house view) -----------
+
+
+class NetworkNode(_Model):
+    id: str = Field(description="The MAC address.")
+    name: str
+    kind: Literal["gateway", "switch", "access_point", "client"]
+    model: str | None = None
+    wired: bool | None = None
+    online: bool = True
+    uplink: str | None = Field(None, description="The id of the switch or access point it connects through (null: the gateway).")
+    rx_bps: float = Field(0, description="Bytes per second it's receiving now.")
+    tx_bps: float = Field(0, description="Bytes per second it's sending now.")
+
+
+class Network(_Model):
+    configured: bool
+    guest_mode: bool
+    checked_at: str
+    wan: dict[str, float | str | None] | None = Field(None, description="The internet link: rx_bps, tx_bps, isp.")
+    nodes: list[NetworkNode] = []
+
+
 ENDPOINTS: dict[str, type[BaseModel]] = {
     "info": HubInfo,
     "brief": Brief,
@@ -511,6 +534,7 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "controls": Controls,
     "control_request": ControlRequest,
     "control": ControlResult,
+    "network": Network,
 }
 
 

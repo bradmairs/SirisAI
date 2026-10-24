@@ -20,6 +20,7 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/reminders                pending reminders ("remind me at 7")
     POST /siris/hub/v1/reminders/{id}/done      cancel one that's no longer needed
     GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
+    GET  /siris/hub/v1/network                  UniFi gateway, switches, APs and clients with live rates (SirisOS house view)
     GET  /siris/hub/v1/controls                 lights, garage doors, locks and scenes (SirisOS Home)
     POST /siris/hub/v1/controls/{entity}        {action, confirmed}: one of them (garage/unlock ask first)
     POST /siris/hub/v1/scenes/{id}/run          a Siris or Home Assistant scene
@@ -241,6 +242,14 @@ async def protocol_run(name: str, body: c.ProtocolRunRequest, request: Request, 
 
 
 # -- home controls ------------------------------------------------------------------
+
+
+@router.get("/network", response_model=c.Network)
+async def hub_network(siris: SirisAI = Depends(get_siris)) -> c.Network:
+    try:
+        return await asyncio.to_thread(compose.network, siris)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"UniFi didn't answer: {str(exc)[:200]}") from exc
 
 
 @router.get("/controls", response_model=c.Controls)

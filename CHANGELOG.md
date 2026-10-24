@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.76 — 2026-10-24
+
+- Live network for SirisOS's house view: UniFi gateway, APs, switches and clients with their traffic
+
 ## 2.66 — 2026-10-24
 
 - A tidier brain: calendar events don't become notes; memories from SirisOS's wrap-up
