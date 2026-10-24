@@ -5,6 +5,13 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.77 — 2026-10-24
+
+- Live network: real WAN and device rates on a Cloud Gateway Ultra
+- **WAN:** it's now read from the gateway's `wan1` (plus `wan2`) record, which holds a steady rate. `stat/health`'s `wan` figure, used before, reads 0 between the controller's refreshes on a UCG Ultra, so the house view showed no internet traffic most of the time. It stays as the fallback for older gateways.
+- **Devices:** on a UCG Ultra the gateway, switches and access points don't report their own `rx/tx_bytes-r`; those figures are spread over port tables. Each device now carries the traffic flowing through it, which is what a link in the house view draws: the gateway carries the WAN rate, and a switch or access point carries its clients plus the devices below it. Devices that do report their own rate keep it.
+- Checked live against the UCG Ultra: WAN is steady, and each access point and the switch match their clients.
+
 ## 2.76 — 2026-10-24
 
 - Live network for SirisOS's house view: UniFi gateway, APs, switches and clients with their traffic

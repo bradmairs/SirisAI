@@ -218,14 +218,28 @@ class UniFiClient:
             return self._unwrap(response.json())
 
         rate = lambda item, key: float(item.get(key) or 0)  # noqa: E731
-        wan = next((h for h in get("/stat/health") if h.get("subsystem") == "wan"), {})
+        kinds = {"ugw": "gateway", "udm": "gateway", "uxg": "gateway", "usw": "switch", "uap": "access_point"}
+        raw_devices = get("/stat/device")
+        gateway = next((d for d in raw_devices if kinds.get(str(d.get("type"))) == "gateway"), {})
+
+        # WAN: the gateway's own wan1/wan2 records hold a steady rate. stat/health's "wan"
+        # subsystem (and the gateway's `uplink`) read 0 between the controller's refreshes on a
+        # Cloud Gateway Ultra, so they're only the fallback, e.g. for older gateways.
+        health_wan = next((h for h in get("/stat/health") if h.get("subsystem") == "wan"), {})
+        links = [w for w in (gateway.get("wan1"), gateway.get("wan2"))
+                 if isinstance(w, dict) and ("rx_bytes-r" in w or "tx_bytes-r" in w)]
+        if links:
+            wan_rx, wan_tx = sum(rate(w, "rx_bytes-r") for w in links), sum(rate(w, "tx_bytes-r") for w in links)
+        else:
+            wan_rx, wan_tx = rate(health_wan, "rx_bytes-r"), rate(health_wan, "tx_bytes-r")
+
         devices = [{
             "mac": d.get("mac"), "name": d.get("name") or d.get("model"), "model": d.get("model"),
-            "type": {"ugw": "gateway", "udm": "gateway", "uxg": "gateway", "usw": "switch", "uap": "access_point"}.get(str(d.get("type")), str(d.get("type") or "")),
+            "type": kinds.get(str(d.get("type")), str(d.get("type") or "")),
             "state": "online" if d.get("state") == 1 else "offline",
             "uplink_mac": (d.get("uplink") or {}).get("uplink_mac"),
             "rx_bps": rate(d, "rx_bytes-r"), "tx_bps": rate(d, "tx_bytes-r"),
-        } for d in get("/stat/device")]
+        } for d in raw_devices]
         clients = [{
             "mac": c.get("mac"), "name": c.get("name") or c.get("hostname") or c.get("oui") or c.get("mac"),
             "ip": c.get("ip"), "wired": bool(c.get("is_wired")),
@@ -233,8 +247,47 @@ class UniFiClient:
             "rx_bps": rate(c, "wired-rx_bytes-r" if c.get("is_wired") else "rx_bytes-r"),
             "tx_bps": rate(c, "wired-tx_bytes-r" if c.get("is_wired") else "tx_bytes-r"),
         } for c in get("/stat/sta")]
-        return {"wan": {"rx_bps": rate(wan, "rx_bytes-r"), "tx_bps": rate(wan, "tx_bytes-r"), "isp": wan.get("isp_name")},
+        self._fill_device_rates(devices, clients, (wan_rx, wan_tx))
+        return {"wan": {"rx_bps": wan_rx, "tx_bps": wan_tx, "isp": health_wan.get("isp_name")},
                 "devices": devices, "clients": clients}
+
+    @staticmethod
+    def _fill_device_rates(devices: list[dict], clients: list[dict], wan: tuple[float, float]) -> None:
+        """Devices that don't report their own rate (on a Cloud Gateway Ultra, none of them
+        do: the figures are spread over port tables) get the traffic flowing through them,
+        which is what a link in the house view carries: the gateway gets the WAN rate, and a
+        switch or access point gets the sum of its clients and of the devices below it."""
+        by_mac = {d["mac"]: d for d in devices if d.get("mac")}
+        below: dict[str, list[dict]] = {}
+        for item in [*devices, *clients]:
+            if item.get("uplink_mac") in by_mac and item.get("uplink_mac") != item.get("mac"):
+                below.setdefault(item["uplink_mac"], []).append(item)
+        done: dict[str, tuple[float, float]] = {}
+
+        def through(device: dict, seen: frozenset[str]) -> tuple[float, float]:
+            mac = device["mac"]
+            if mac in done:
+                return done[mac]
+            if device["rx_bps"] or device["tx_bps"]:
+                rates = (device["rx_bps"], device["tx_bps"])
+            elif device["type"] == "gateway":
+                rates = wan
+            else:
+                rx = tx = 0.0
+                for item in below.get(mac, []):
+                    if item.get("mac") in by_mac:
+                        if item["mac"] in seen:   # a loop in reported uplinks: count it once
+                            continue
+                        item_rx, item_tx = through(item, seen | {mac})
+                    else:
+                        item_rx, item_tx = item["rx_bps"], item["tx_bps"]
+                    rx, tx = rx + item_rx, tx + item_tx
+                rates = (rx, tx)
+            done[mac] = rates
+            return rates
+
+        for device in by_mac.values():
+            device["rx_bps"], device["tx_bps"] = through(device, frozenset({device["mac"]}))
 
     @staticmethod
     def _unwrap(data: object) -> list[dict]:
