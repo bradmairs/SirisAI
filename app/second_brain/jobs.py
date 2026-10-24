@@ -493,6 +493,25 @@ def _plain(text: str) -> str:
     return " ".join(_WIKILINK.sub(r"\1", text).replace("*", "").lower().split())
 
 
+_MIN_SPLIT_COVERAGE = 0.6   # of the note's own text; a split that leaves more out is filed whole instead
+
+
+def _body(text: str) -> str:
+    """What a note says: without its title heading or the Connections list the engine added."""
+    text = re.split(r"^#{1,3} (?:Connections|Related)\s*$", text, flags=re.M)[0]
+    return re.sub(r"^# .*$", "", text, count=1, flags=re.M)
+
+
+def _coverage(source: str, pieces: list[str]) -> float:
+    """How much of the note (by characters, after _plain) the split's pieces hold."""
+    covered = [False] * len(source)
+    for piece in pieces:
+        at = source.find(piece)
+        if at >= 0:
+            covered[at:at + len(piece)] = [True] * len(piece)
+    return sum(covered) / len(source) if source else 0.0
+
+
 def _chunks(text: str, limit: int = 5) -> list[str]:
     """The note's paragraphs (or sentences, when it's one paragraph), to search for each topic in it."""
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if len(p.strip()) > 15]
@@ -520,7 +539,7 @@ async def _sort_one(siris: "SirisAI", n: dict) -> dict[str, Any]:
     candidates = candidates[:_MAX_CANDIDATES]
     reply = await _generate(
         siris, "second brain inbox sort", SORT_PROMPT,
-        f"Inbox note: {n['title']}\n{n.get('text', '')[:1500]}\n\nExisting notes:\n"
+        f"Inbox note: {n['title']}\n{text[:_MAX_MATERIAL_CHARS]}\n\nExisting notes:\n"
         + ("\n".join(f"- {h['title']} ({h.get('type') or 'note'}): {' '.join(h.get('excerpts') or [])[:300]}"
                      for h in candidates) or "(none similar)"),
     )
@@ -549,8 +568,12 @@ async def _split(siris: "SirisAI", n: dict, parts: Any, titles: set[str]) -> dic
     """Each piece of a capture about several things added to its own note: an existing one the
     search found, or a new one. Only pieces in the note's own words count, and it takes two;
     otherwise None and the note is filed whole. The capture itself is archived, saying where
-    its pieces went."""
-    source = _plain(n.get("text", ""))
+    its pieces went. A note cut short (a long OneNote page) or a split that leaves much of it out
+    isn't split: what's archived must also be in the notes."""
+    text = n.get("text", "")
+    if n.get("chars", len(text)) > len(text):
+        return None
+    source = _plain(_body(text))
     items: list[dict[str, Any]] = []
     for part in parts if isinstance(parts, list) else []:
         if not isinstance(part, dict):
@@ -571,6 +594,8 @@ async def _split(siris: "SirisAI", n: dict, parts: Any, titles: set[str]) -> dic
             continue
         items.append(item)
     if len({i["title"] for i in items}) < 2:
+        return None
+    if _coverage(source, [_plain(i["content"]) for i in items]) < _MIN_SPLIT_COVERAGE:
         return None
     brain = siris.second_brain
     results = await asyncio.to_thread(brain.learn, items)

@@ -167,13 +167,15 @@ class FakeOneNote:
 
 class FakeBrain:
     def __init__(self, path: Path) -> None:
-        self.path, self.learned, self.merged = path, [], {}
+        self.path, self.learned, self.merged, self.split = path, [], {}, {}
 
     def learn(self, items: list[dict]) -> list[dict]:
         self.learned += items
         return [{"action": "created", "title": i["title"]} for i in items]
 
     def get_note(self, title: str) -> dict | None:
+        if title in self.split:
+            return {"title": title, "meta": {"split_into": self.split[title]}}
         return {"title": title, "meta": {"merged_into": self.merged[title]} if title in self.merged else {}}
 
 
@@ -248,6 +250,20 @@ def test_an_unchanged_page_is_left_and_an_edit_adds_only_whats_new(tmp_path: Pat
     update = siris.second_brain.learned[-1]
     assert update["title"] == "Pump Stations"
     assert update["content"] == "Updated in OneNote:\n\nLine two"
+
+
+def test_an_edit_to_a_page_the_sort_split_goes_to_the_inbox_to_be_split_too(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    onenote = FakeOneNote([_page("p1", "Monday catch-up")], {"p1": ("<p>Pump station 4 needs seals.</p>", "")})
+    importer.run_import(siris, NOW, onenote)
+    siris.second_brain.split["Monday catch-up"] = ["Pump Stations", "Dom Mairs"]   # the sort split it
+    onenote._pages = [_page("p1", "Monday catch-up", "2026-10-05T00:00:00Z")]
+    onenote.content["p1"] = ("<p>Pump station 4 needs seals.</p><p>Dom's birthday dinner on Friday.</p>", "")
+    out = importer.run_import(siris, NOW, onenote)
+    update = siris.second_brain.learned[-1]
+    assert update["title"] == "Monday catch-up (updated 2026-10-19)"   # NOW is the 19th in Melbourne
+    assert update["content"] == "Dom's birthday dinner on Friday." and update["inbox_if_new"] is True
+    assert out["updated"] == ["Monday catch-up (updated 2026-10-19)"]
 
 
 def test_same_titles_are_kept_apart_and_the_nightly_budget_holds(tmp_path: Path) -> None:

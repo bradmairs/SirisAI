@@ -460,8 +460,42 @@ def test_a_split_only_writes_the_notes_own_words_into_notes_the_search_found() -
         {"text": "Thinking the homelab needs a second NAS for backups.", "into": "Home Lab"},
         {"text": "And the Siris App Suite should get a launcher on the phone.", "into": "Siris App Suite"},
     ])
-    assert [i["title"] for i in brain.learned] == ["Home Lab", "Siris App Suite"]
-    assert brain.split_calls[0][1] == ["Home Lab", "Siris App Suite"]
+    assert all("Bali" not in i["content"] and i["title"] != "Health" for i in brain.learned)
+    # What's left holds only half the note, so it's filed whole rather than half-archived.
+    assert brain.learned == [] and brain.split_calls == []
+    assert brain.file_calls == [("Had lunch with Dad today, he's retiring…", "auto", "")]
+
+
+def test_a_split_that_leaves_most_of_the_note_out_files_it_whole() -> None:
+    brain, out, _ = _split([
+        {"text": "Leg day at the gym: squats up to 100 kg.", "title": "Gym Training"},
+        {"text": "And the Siris App Suite should get a launcher on the phone.", "into": "Siris App Suite"},
+    ])
+    assert brain.learned == [] and brain.split_calls == []   # Dad and the homelab would only be in the archive
+    assert brain.file_calls == [("Had lunch with Dad today, he's retiring…", "auto", "")]
+
+
+def test_a_note_the_inbox_cut_short_is_never_split() -> None:
+    import json as _json
+
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain(inbox_notes=[{"title": "Long OneNote page", "text": CAPTURE, "chars": 20000}])
+    brain.search_results = [{"title": "Dad", "type": "person", "path": "People/Dad.md", "excerpts": [""]},
+                            {"title": "Home Lab", "type": "note", "path": "Notes/Home Lab.md", "excerpts": [""]}]
+    siris.llm = FakeLLM(_json.dumps({"action": "split", "parts": [
+        {"text": "Had lunch with Dad today, he's retiring next year.", "into": "Dad"},
+        {"text": "Thinking the homelab needs a second NAS for backups.", "into": "Home Lab"}]}))
+    asyncio.run(jobs.file_inbox_notes(siris))
+    assert brain.split_calls == [] and brain.file_calls == [("Long OneNote page", "auto", "")]
+
+
+def test_the_model_sees_a_long_page_whole() -> None:
+    siris = _siris()
+    page = "Site visit notes. " * 400 + "The last line about seals."
+    siris.second_brain = FakeBrain(inbox_notes=[{"title": "Site Visit", "text": page}])
+    siris.llm = FakeLLM('{"action": "new"}')
+    asyncio.run(jobs.file_inbox_notes(siris))
+    assert "The last line about seals." in siris.llm.messages[1]["content"]
 
 
 def test_a_split_with_one_usable_piece_files_the_note_whole() -> None:
