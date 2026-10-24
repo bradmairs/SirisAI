@@ -5784,6 +5784,9 @@ provider for the same capability actually exists to design against.
     - `SIRISAI_ONENOTE_SKIP_IMAGE_PAGES=true` skips pages with pictures or PDF
       printouts, with or without handwriting on them; handwriting on a blank
       page is still imported. A skipped page is read again only if it's edited.
+    - `SIRISAI_ONENOTE_SAVE_IMAGES=false` keeps images out of the vault (and so
+      out of git): handwriting is transcribed and proofread from the rendered
+      images in memory, and the note points to the page in OneNote instead.
     - Microsoft allows about 400 OneNote requests an hour, and a big account
       can't list all its pages in one call, so each section's page list is
       kept and re-listed only when the section changes (plus a few a night as

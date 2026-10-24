@@ -658,6 +658,9 @@ class Settings(BaseSettings):
     # Skip pages with pictures or PDF printouts (with or without handwriting on
     # them); handwriting on a blank page is still imported.
     onenote_skip_image_pages: bool = False
+    # Keep handwriting renders and pictures in the vault (03-Resources/Attachments/OneNote).
+    # False = transcribe from them in memory and link to the page in OneNote instead.
+    onenote_save_images: bool = True
     onenote_hour_local: int | None = 1
     onenote_max_pages: int = 30
     # Email into Siris (app/gmail/): emails Brad gives the Gmail label below

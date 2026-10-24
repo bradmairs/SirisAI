@@ -165,7 +165,11 @@ class _Page:
         if self.siris.settings.onenote_skip_image_pages and _has_images(html):
             return {"skipped": "has images or PDF printouts"}
 
+        save = self.siris.settings.onenote_save_images
+
         def image(src: str, alt: str) -> str:
+            if not save:
+                return f"*(a picture{': ' + alt if alt else ''}: see the page in OneNote)*"
             try:
                 data = self.client.resource(src)
             except httpx.HTTPError:
@@ -177,7 +181,8 @@ class _Page:
         _, typed = html_to_markdown(html, image)
         handwriting, tiles = "", render_strokes(parse_inkml(ink)) if ink else []
         if tiles:
-            embeds = [self._save(f"{_safe(title)} - handwriting {i}.png", t) for i, t in enumerate(tiles, 1)]
+            embeds = [self._save(f"{_safe(title)} - handwriting {i}.png", t) for i, t in enumerate(tiles, 1)] if save else []
+            against = "the images below" if save else "the page in OneNote"
             vision = getattr(self.siris, "vision", None)
             if vision is not None:
                 parts = []
@@ -188,11 +193,12 @@ class _Page:
                     except httpx.HTTPError as exc:   # the model's down or too slow: the images are still kept
                         logger.warning("OneNote handwriting transcription failed: %s", exc)
                         parts.append("*(this part couldn't be transcribed)*")
-                handwriting = ("*Transcribed from handwriting and proofread by the local vision model: check it against the "
-                               "images below.*\n\n" + "\n\n".join(p for p in parts if p))
+                handwriting = (f"*Transcribed from handwriting and proofread by the local vision model: check it against "
+                               f"{against}.*\n\n" + "\n\n".join(p for p in parts if p))
             else:
                 handwriting = "*Handwriting not transcribed: set SIRISAI_VISION_MODEL to have it read.*"
-            handwriting += "\n\n" + "\n".join(embeds)
+            if embeds:
+                handwriting += "\n\n" + "\n".join(embeds)
         return {"typed": typed, "handwriting": handwriting, "ink": hashlib.sha1(ink.encode()).hexdigest() if ink else ""}
 
 

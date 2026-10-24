@@ -576,3 +576,15 @@ def test_a_failed_or_empty_proofread_keeps_the_draft() -> None:
     assert importer._proofread(_Reply(""), b"png", draft) == draft
     silent = _Reply("unused")
     assert importer._proofread(silent, b"png", "  ") == "  " and silent.prompts == []
+
+
+def test_without_saving_images_nothing_is_written_to_the_vault(tmp_path: Path) -> None:
+    siris = _siris(tmp_path, onenote_save_images=False)
+    onenote = FakeOneNote([_page("p1", "Pump station visit")], {"p1": (PAGE_HTML, INK)})
+    out = importer.run_import(siris, NOW, onenote)
+    assert out["imported"] == ["Pump station visit"] and out["handwritten"] == 1
+    content = siris.second_brain.learned[0]["content"]
+    assert "- [ ] Order new seals" in content                         # still transcribed
+    assert "![[" not in content and "see the page in OneNote" in content
+    assert "check it against the page in OneNote" in content
+    assert not (tmp_path / "vault" / importer.ATTACHMENTS).exists()
