@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import io
 import logging
 import re
 from datetime import datetime
@@ -37,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from PIL import Image
 
 from app.onenote.convert import html_to_markdown, parse_inkml, render_strokes
 from app.onenote.graph import OneNoteAuthError, OneNoteClient, TokenStore
@@ -70,6 +72,45 @@ def _ext(data: bytes) -> str:
     return "jpg" if data[:3] == b"\xff\xd8\xff" else "gif" if data[:4] == b"GIF8" else "png"
 
 
+_SHRINK_OVER_BYTES = 300_000
+_MAX_IMAGE_SIDE = 1600
+
+
+def _shrink(data: bytes) -> tuple[bytes, str]:
+    """Pasted printouts and slides arrive as PNGs of up to 15 MB (89 MB for Brad's
+    first 30 pages, so gigabytes in the vault's git history over a whole archive).
+    A big image is scaled to at most _MAX_IMAGE_SIDE and saved as JPEG on white --
+    still readable, a fraction of the size. Small ones are kept exactly."""
+    if len(data) <= _SHRINK_OVER_BYTES:
+        return data, _ext(data)
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            if getattr(im, "is_animated", False):
+                return data, _ext(data)
+            im.thumbnail((_MAX_IMAGE_SIDE, _MAX_IMAGE_SIDE))
+            if im.mode in ("RGBA", "LA", "P"):
+                rgba = im.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, "white")
+                flat.paste(rgba, mask=rgba.getchannel("A"))
+            else:
+                flat = im.convert("RGB")
+            out = io.BytesIO()
+            flat.save(out, "JPEG", quality=82, optimize=True)
+    except Exception:  # noqa: BLE001 - not an image Pillow can read: keep it as it came
+        return data, _ext(data)
+    small = out.getvalue()
+    return (small, "jpg") if len(small) < len(data) else (data, _ext(data))
+
+
+def _page_title(title: str, notebook: str, section: str) -> str:
+    """OneNote titles like "1a", "J" or "-" make meaningless note names, so a
+    title with fewer than three letters gets its notebook and section in front."""
+    if sum(c.isalpha() for c in title) >= 3:
+        return title
+    rest = f" - {title}" if any(c.isalnum() for c in title) else ""
+    return f"{notebook} - {section}{rest}".strip(" -")
+
+
 def _push(siris: "SirisAI", message: str, title: str, priority: str | None = None) -> None:
     from app.second_brain.jobs import _push as push
     push(siris, message, title, priority)
@@ -99,7 +140,8 @@ class _Page:
             except httpx.HTTPError:
                 return f"*(an image that couldn't be downloaded{': ' + alt if alt else ''})*"
             self.images += 1
-            return self._save(f"{_safe(title)} - image {self.images}.{_ext(data)}", data)
+            data, ext = _shrink(data)
+            return self._save(f"{_safe(title)} - image {self.images}.{ext}", data)
 
         _, typed = html_to_markdown(html, image)
         handwriting, tiles = "", render_strokes(parse_inkml(ink)) if ink else []
@@ -240,6 +282,8 @@ def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, An
             known = seen.get(page["id"])
             title = known["title"] if known else (page.get("title") or "").strip() or \
                 f"{section} {(page.get('createdDateTime') or '')[:10]}".strip()
+            if not known:
+                title = _page_title(title, notebook, section)
             if not known and title.lower() in used:   # two pages called "Notes": keep them apart
                 title = f"{title} ({section})"
             built = _Page(siris, client, page, notebook, section).build(title)

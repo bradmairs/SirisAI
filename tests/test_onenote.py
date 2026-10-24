@@ -433,3 +433,48 @@ def test_sections_are_fetched_whole_with_their_timestamp(tmp_path: Path) -> None
     assert sections[0]["lastModifiedDateTime"] == "2026-10-01T00:00:00Z"
     assert "$top" not in seen[0].params
     assert "lastModifiedDateTime" in seen[0].params["$select"]
+
+
+# ---------- keeping the vault small and the titles meaningful ----------
+
+
+def test_big_pasted_images_are_shrunk_to_jpeg_on_white() -> None:
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    rng = np.random.default_rng(0)
+    pixels = rng.integers(0, 255, (2400, 3200, 4), dtype=np.uint8)
+    pixels[:200, :200, 3] = 0                                   # a transparent corner
+    big = io.BytesIO()
+    Image.fromarray(pixels).save(big, "PNG")
+    data, ext = importer._shrink(big.getvalue())
+    assert ext == "jpg" and len(data) < len(big.getvalue()) / 3
+    with Image.open(io.BytesIO(data)) as im:
+        assert max(im.size) == importer._MAX_IMAGE_SIDE and im.size == (1600, 1200)
+        assert im.getpixel((5, 5)) == (255, 255, 255) or min(im.getpixel((5, 5))) > 240   # flattened onto white
+
+
+def test_small_images_and_non_images_are_kept_exactly() -> None:
+    assert importer._shrink(b"\xff\xd8\xff small photo") == (b"\xff\xd8\xff small photo", "jpg")
+    not_an_image = b"\x00" * 400_000
+    assert importer._shrink(not_an_image) == (not_an_image, "png")
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("1a", "ENCL335 - Assignment 1 - 1a"),
+    ("J", "ENCL335 - Assignment 1 - J"),
+    ("-", "ENCL335 - Assignment 1"),
+    ("16082018", "ENCL335 - Assignment 1 - 16082018"),
+    ("Site Visit", "Site Visit"),
+    ("ENCN253 17S2 HW2", "ENCN253 17S2 HW2"),
+])
+def test_meaningless_page_titles_get_their_notebook_and_section(title: str, expected: str) -> None:
+    assert importer._page_title(title, "ENCL335", "Assignment 1") == expected
+
+
+def test_an_imported_page_with_a_meaningless_title_is_named_by_where_it_lives(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    onenote = FakeOneNote([_page("p1", "1a")], {"p1": ("<p>working</p>", "")})
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["Work - Site Visits - 1a"]
