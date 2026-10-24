@@ -345,6 +345,8 @@ def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, An
             if not known and title.lower() in used:   # two pages called "Notes": keep them apart
                 title = f"{title} ({section})"
             built = _Page(siris, client, page, notebook, section).build(title)
+            if not built.get("skipped") and not built["ink"] and not built["typed"].strip(" \n`"):
+                built = {"skipped": "empty page"}   # a title and nothing else adds nothing to Siris
             if built.get("skipped"):
                 seen[page["id"]] = {"modified": page.get("lastModifiedDateTime", ""), "skipped": built["skipped"]}
                 siris.state.set(STATE_KEY, seen)

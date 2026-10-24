@@ -588,3 +588,12 @@ def test_without_saving_images_nothing_is_written_to_the_vault(tmp_path: Path) -
     assert "![[" not in content and "see the page in OneNote" in content
     assert "check it against the page in OneNote" in content
     assert not (tmp_path / "vault" / importer.ATTACHMENTS).exists()
+
+
+def test_an_empty_page_is_skipped_not_imported(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    onenote = FakeOneNote([_page("p1", "Workshop"), _page("p2", "Agenda", "2026-10-02T00:00:00Z")],
+                          {"p1": ("<p> </p>", ""), "p2": ("<p>Item one</p>", "")})
+    out = importer.run_import(siris, NOW, onenote)
+    assert out["imported"] == ["Agenda"] and out["skipped"] == 1
+    assert siris.state.get(importer.STATE_KEY)["p1"]["skipped"] == "empty page"
