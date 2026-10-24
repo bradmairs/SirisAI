@@ -578,6 +578,16 @@ def brain_api(client: TestClient, tmp_path: Path):
         siris.second_brain = previous
 
 
+def test_a_memory_capture_goes_to_the_memory_inbox_not_a_new_note(brain_api) -> None:
+    # SirisOS's wrap-up (4.4): the day's line and tomorrow's top 3 are filed onto the notes they're about.
+    client, vault = brain_api
+    r = client.post("/siris/brain/capture", json={"text": "Planned for 2026-10-25: an 8 km run.", "kind": "memory", "tags": ["wrap-up"]})
+    assert r.status_code == 200 and r.json()["title"] == "Siris Memory Inbox" and r.json()["filed_later"] is True
+    sent = json.loads(_calls(vault)[-1]["stdin"])[0]
+    assert sent == {"title": "", "content": "Planned for 2026-10-25: an 8 km run.", "tags": ["siris-memory", "wrap-up"]}
+    assert client.post("/siris/brain/capture", json={"url": "https://x.example", "kind": "memory"}).status_code == 422
+
+
 def test_capture_lands_in_the_inbox(brain_api) -> None:
     client, vault = brain_api
     r = client.post("/siris/brain/capture", json={"text": "Look into Frigate for the driveway camera. Maybe on the Pi?", "tags": ["Idea"]})

@@ -290,7 +290,7 @@ def test_without_set_up_or_sign_in_it_skips(tmp_path: Path) -> None:
 
 
 def test_the_import_runs_nightly_before_the_upkeep(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    siris = _siris(tmp_path, brain_meeting_notes_hour_local=None, brain_dream_hour_local=None,
+    siris = _siris(tmp_path, brain_dream_hour_local=None,
                    brain_upkeep_hour_local=None, brain_weekly_hour_local=None)
     siris.state.set(jobs.STATE_KEY, {})
     calls = []

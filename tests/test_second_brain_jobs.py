@@ -170,18 +170,26 @@ def test_nothing_runs_without_a_brain() -> None:
     assert asyncio.run(jobs.run_due(siris, _at(23))) == {}
 
 
-def test_meetings_run_once_a_day_from_their_hour() -> None:
-    siris = _siris(brain_dream_hour_local=None, brain_weekly_hour_local=None, brain_upkeep_hour_local=None)
+def test_jobs_run_once_a_day_from_their_hour() -> None:
+    siris = _siris(brain_dream_hour_local=6, brain_weekly_hour_local=None, brain_upkeep_hour_local=None)
     siris.second_brain = FakeBrain()
-    siris.tools.register(FakeCalendar([]))
     assert asyncio.run(jobs.run_due(siris, _at(5))) == {}          # before 06:00
-    assert "meetings" in asyncio.run(jobs.run_due(siris, _at(6)))
+    assert "dream" in asyncio.run(jobs.run_due(siris, _at(6)))
     assert asyncio.run(jobs.run_due(siris, _at(9))) == {}          # already ran today
-    assert "meetings" in asyncio.run(jobs.run_due(siris, _at(6, date(2026, 10, 7))))
+    assert "dream" in asyncio.run(jobs.run_due(siris, _at(6, date(2026, 10, 7))))
+
+
+def test_calendar_events_never_become_notes() -> None:
+    # 2.66: the meeting-notes job is gone; a connected calendar writes nothing into the brain.
+    siris = _siris(brain_dream_hour_local=None, brain_weekly_hour_local=None, brain_upkeep_hour_local=None)
+    brain = siris.second_brain = FakeBrain()
+    siris.tools.register(FakeCalendar([{"summary": "Call dad", "start": "2026-10-06T17:15:00+11:00", "calendar": "Google Calendar"}]))
+    assert asyncio.run(jobs.run_due(siris, _at(12))) == {}
+    assert brain.learned == [] and not hasattr(jobs, "write_meeting_notes")
 
 
 def test_weekly_only_on_its_day() -> None:
-    siris = _siris(brain_meeting_notes_hour_local=None, brain_dream_hour_local=None, brain_upkeep_hour_local=None,
+    siris = _siris(brain_dream_hour_local=None, brain_upkeep_hour_local=None,
                    brain_weekly_day=1)
     siris.second_brain = FakeBrain()
     assert {"weekly", "review"} <= set(asyncio.run(jobs.run_due(siris, _at(18))))   # Tuesday = 1
@@ -189,55 +197,16 @@ def test_weekly_only_on_its_day() -> None:
     assert asyncio.run(jobs.run_due(siris, _at(18, date(2026, 10, 7)))) == {}
 
 
-def test_a_failing_job_is_reported_and_not_retried_today() -> None:
-    siris = _siris(brain_dream_hour_local=None, brain_weekly_hour_local=None, brain_upkeep_hour_local=None,
-                   brain_meeting_calendars="Work")
+def test_a_failing_job_is_reported_and_not_retried_today(monkeypatch) -> None:
+    siris = _siris(brain_dream_hour_local=6, brain_weekly_hour_local=None, brain_upkeep_hour_local=None)
     siris.second_brain = FakeBrain()
 
-    class Broken(FakeCalendar):
-        def run(self, **kwargs: Any) -> Any:
-            raise RuntimeError("calendar down")
+    async def broken(*args: Any) -> Any:
+        raise RuntimeError("model down")
 
-    siris.tools.register(Broken([]))
-    assert "calendar down" in asyncio.run(jobs.run_due(siris, _at(7)))["meetings"]["error"]
+    monkeypatch.setattr(jobs, "dream", broken)
+    assert "model down" in asyncio.run(jobs.run_due(siris, _at(7)))["dream"]["error"]
     assert asyncio.run(jobs.run_due(siris, _at(8))) == {}
-
-
-# ---------- meetings ----------
-
-
-def test_meeting_notes_for_todays_timed_events() -> None:
-    siris = _siris(brain_meeting_calendars="Work")
-    brain = siris.second_brain = FakeBrain({"Already Noted (2026-10-06)": "x"})
-    siris.tools.register(FakeCalendar([
-        {"summary": "GVW design review with Aaron Cheong", "start": "2026-10-06T10:00:00+11:00",
-         "end": "2026-10-06T11:00:00+11:00", "location": "Shepparton", "calendar": "Work"},
-        {"summary": "Public holiday", "start": "2026-10-06", "calendar": "Work"},             # all-day
-        {"summary": "Tomorrow thing", "start": "2026-10-07T09:00:00+11:00", "calendar": "Work"},
-        {"summary": "Dentist", "start": "2026-10-06T15:00:00+11:00", "calendar": "Personal"},  # filtered out
-        {"summary": "Already Noted", "start": "2026-10-06T16:00:00+11:00", "calendar": "Work"},
-    ]))
-    assert jobs.write_meeting_notes(siris, DAY) == {"created": ["GVW design review with Aaron Cheong (2026-10-06)"]}
-    content = brain.learned[0]["content"]
-    assert "**When:** 2026-10-06 10:00–11:00" in content and "**Where:** Shepparton" in content
-    assert "## Action items" in content and brain.learned[0]["tags"] == ["meeting"]
-
-
-def test_meeting_notes_are_opt_in_by_calendar_name() -> None:
-    # Connecting a calendar never writes its events into the brain by itself.
-    siris = _siris()
-    brain = siris.second_brain = FakeBrain()
-    siris.tools.register(FakeCalendar([
-        {"summary": "Call dad", "start": "2026-10-06T17:15:00+11:00", "calendar": "Google Calendar"},
-    ]))
-    assert jobs.write_meeting_notes(siris, DAY) == {"skipped": "no meeting calendars named (SIRISAI_BRAIN_MEETING_CALENDARS)"}
-    assert brain.learned == []
-
-
-def test_meeting_notes_need_a_calendar() -> None:
-    siris = _siris()
-    siris.second_brain = FakeBrain()
-    assert jobs.write_meeting_notes(siris, DAY) == {"skipped": "no calendar configured"}
 
 
 # ---------- dream ----------
@@ -357,7 +326,7 @@ def _entry(i: str, text: str) -> dict:
 
 
 def test_upkeep_runs_nightly_at_its_hour() -> None:
-    siris = _siris(brain_meeting_notes_hour_local=None, brain_dream_hour_local=None, brain_weekly_hour_local=None)
+    siris = _siris(brain_dream_hour_local=None, brain_weekly_hour_local=None)
     siris.second_brain = FakeBrain()
     assert asyncio.run(jobs.run_due(siris, _at(1))) == {}
     assert "upkeep" in asyncio.run(jobs.run_due(siris, _at(2)))

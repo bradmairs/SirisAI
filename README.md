@@ -5301,11 +5301,9 @@ provider for the same capability actually exists to design against.
       HUD gets a "Learned today" tile.
     - **Growth jobs** (`app/second_brain/jobs.py`, on the scheduler, once
       per local day and remembered across restarts):
-      - *Meeting notes* at `SIRISAI_BRAIN_MEETING_NOTES_HOUR_LOCAL` (6):
-        a note per timed event today on the calendars named in
-        `SIRISAI_BRAIN_MEETING_CALENDARS` (e.g. `Work`). Opt-in since
-        2026-10-11: with none named it writes nothing, so connecting Gmail
-        and iCloud didn't turn every haircut and phone call into a note.
+      - *Meeting notes* (removed in 2.66): calendar events no longer
+        become notes at all, since they cluttered the brain. SirisOS shows
+        the calendar instead.
       - *Dream* at `SIRISAI_BRAIN_DREAM_HOUR_LOCAL` (23): the general model
         reads the day's conversations and memory-inbox entries and writes
         what's worth keeping as atomic notes, reusing existing titles. It
@@ -6100,6 +6098,19 @@ provider for the same capability actually exists to design against.
     audited with who tapped what. If `SIRISAI_APPROVAL_PIN_TOOLS` names
     `home_assistant_call_service`, controls refuse with 403 and the PIN is
     entered in SirisAI. Verified in `tests/test_hub_controls.py`.
+
+147. **Done** -- A tidier brain (2.66, with SirisOS 4.4 and vault 1.63).
+    - **Calendar events never become notes.** The meeting-notes job,
+      `SIRISAI_BRAIN_MEETING_NOTES_HOUR_LOCAL` and
+      `SIRISAI_BRAIN_MEETING_CALENDARS` are gone; leftover settings are
+      ignored.
+    - **Memories from SirisOS:** `POST /siris/brain/capture` with
+      `kind: "memory"` puts the text in the memory inbox instead of making a
+      note. The nightly upkeep files it onto the note it's about, e.g.
+      "Planned for Sunday: an 8 km run" lands on Running. SirisOS's wrap-up
+      uses this for the line about the day and tomorrow's top 3, so there
+      are no day notes. Verified in `tests/test_second_brain.py` and
+      `tests/test_second_brain_jobs.py`.
 
 ## Connecting your calendars (Gmail and iCloud)
 
