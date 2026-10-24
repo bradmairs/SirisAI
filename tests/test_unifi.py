@@ -570,6 +570,72 @@ def test_traffic_reads_rates_and_what_connects_through_what() -> None:
     assert sonos["name"] == "Sonos" and sonos["rx_bps"] == 0.0
 
 
+# A Cloud Gateway Ultra as it really answers: no device reports its own rx/tx_bytes-r, stat/health's
+# "wan" reads 0 between refreshes, and the steady WAN rate is on the gateway's wan1 record.
+_UCG_HEALTH = {"data": [{"subsystem": "wan", "rx_bytes-r": 0, "tx_bytes-r": 0, "isp_name": "Aussie Broadband"}]}
+_UCG_DEVICES = {"data": [
+    {"mac": "aa:00", "name": "UCG Ultra", "model": "UDRULT", "type": "udm", "state": 1,
+     "wan1": {"rx_bytes-r": 62_000, "tx_bytes-r": 70_000, "rx_rate": 496_000}, "uplink": {"rx_bytes-r": 0, "tx_bytes-r": 0}},
+    {"mac": "aa:01", "name": "Lite 8 PoE", "model": "USL8LPB", "type": "usw", "state": 1, "uplink": {"uplink_mac": "aa:00"},
+     "port_table": [{"tx_bytes-r": 2_905_394, "rx_bytes-r": 218_073}]},
+    {"mac": "aa:02", "name": "Hallway AP", "model": "UAPL6", "type": "uap", "state": 1, "uplink": {"uplink_mac": "aa:01", "rx_bytes-r": 14}},
+    {"mac": "aa:03", "name": "Garage AP", "model": "UAPL6", "type": "uap", "state": 1, "uplink": {"uplink_mac": "aa:00"}},
+    {"mac": "aa:04", "name": "Mesh AP", "model": "UAPL6", "type": "uap", "state": 1, "uplink": {"uplink_mac": "aa:02"}},
+]}
+_UCG_STA = {"data": [
+    {"mac": "bb:01", "hostname": "server", "is_wired": True, "sw_mac": "aa:01", "wired-rx_bytes-r": 800_000, "wired-tx_bytes-r": 40_000},
+    {"mac": "bb:02", "name": "Brad's iPhone", "is_wired": False, "ap_mac": "aa:02", "rx_bytes-r": 5_000, "tx_bytes-r": 1_000},
+    {"mac": "bb:03", "name": "Laptop", "is_wired": False, "ap_mac": "aa:03", "rx_bytes-r": 2_000, "tx_bytes-r": 3_000},
+    {"mac": "bb:04", "name": "Doorbell", "is_wired": False, "ap_mac": "aa:04", "rx_bytes-r": 1_000, "tx_bytes-r": 500},
+]}
+
+
+def _ucg_handler(health=_UCG_HEALTH, devices=_UCG_DEVICES, sta=_UCG_STA):
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        for suffix, body in (("/stat/health", health), ("/stat/device", devices), ("/stat/sta", sta)):
+            if path.endswith(suffix):
+                return httpx.Response(200, json=body)
+        return httpx.Response(404)
+    return handler
+
+
+def test_cloud_gateway_ultra_wan_comes_from_wan1_not_the_flickering_health_figure() -> None:
+    t = _mock_client(_ucg_handler()).traffic()
+    assert t["wan"] == {"rx_bps": 62_000.0, "tx_bps": 70_000.0, "isp": "Aussie Broadband"}
+
+
+def test_devices_without_their_own_rates_carry_what_flows_through_them() -> None:
+    by = {d["name"]: (d["rx_bps"], d["tx_bps"]) for d in _mock_client(_ucg_handler()).traffic()["devices"]}
+    assert by["UCG Ultra"] == (62_000.0, 70_000.0)               # the gateway: the WAN line
+    assert by["Mesh AP"] == (1_000.0, 500.0)                     # its one client
+    assert by["Hallway AP"] == (6_000.0, 1_500.0)                # iPhone + the mesh AP below it
+    assert by["Lite 8 PoE"] == (806_000.0, 41_500.0)             # server + the hallway AP's subtree
+    assert by["Garage AP"] == (2_000.0, 3_000.0)                 # straight into the gateway
+
+
+def test_a_second_wan_line_is_added_and_older_gateways_fall_back_to_health() -> None:
+    devices = {"data": [{**_UCG_DEVICES["data"][0], "wan2": {"rx_bytes-r": 1_000, "tx_bytes-r": 2_000}}, *_UCG_DEVICES["data"][1:]]}
+    assert _mock_client(_ucg_handler(devices=devices)).traffic()["wan"]["rx_bps"] == 63_000.0
+    old = {"data": [{"mac": "aa:00", "name": "USG", "model": "UGW3", "type": "ugw", "state": 1}]}
+    health = {"data": [{"subsystem": "wan", "rx_bytes-r": 9_000, "tx_bytes-r": 1_000, "isp_name": "ISP"}]}
+    t = _mock_client(_ucg_handler(health=health, devices=old, sta={"data": []})).traffic()
+    assert t["wan"]["rx_bps"] == 9_000.0 and t["devices"][0]["rx_bps"] == 9_000.0
+
+
+def test_a_loop_in_reported_uplinks_does_not_hang() -> None:
+    looped = {"data": [
+        {"mac": "aa:00", "name": "GW", "type": "udm", "state": 1, "wan1": {"rx_bytes-r": 1, "tx_bytes-r": 1}},
+        {"mac": "aa:05", "name": "AP one", "type": "uap", "state": 1, "uplink": {"uplink_mac": "aa:06"}},
+        {"mac": "aa:06", "name": "AP two", "type": "uap", "state": 1, "uplink": {"uplink_mac": "aa:05"}},
+    ]}
+    sta = {"data": [{"mac": "bb:09", "name": "Phone", "is_wired": False, "ap_mac": "aa:05", "rx_bytes-r": 10, "tx_bytes-r": 20}]}
+    by = {d["name"]: d["rx_bps"] for d in _mock_client(_ucg_handler(devices=looped, sta=sta)).traffic()["devices"]}
+    # It finishes, and the phone's traffic is counted once; which AP of the loop also shows it
+    # depends on the order, since a loop has no real "through".
+    assert by["AP one"] == 10.0 and by["AP two"] in (0.0, 10.0)
+
+
 def test_hub_network_shapes_the_graph(client) -> None:
     from app.core import guest
     from app.core.siris import get_siris
