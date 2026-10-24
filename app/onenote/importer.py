@@ -66,6 +66,33 @@ TRANSCRIBE_PROMPT = (
 )
 
 
+PROOFREAD_PROMPT = (
+    "Below is a first-pass transcription of the handwritten page in the image. Check it against the image "
+    "word by word. Fix words that were misread, using the image and the context (an engineer's notes: water "
+    "and wastewater projects, design, meetings, training), and fix spelling mistakes. Keep the layout and "
+    "Markdown. Keep numbers, units, names and maths exactly as written. Keep [illegible] only where the "
+    "writing truly can't be read; never add anything that isn't written. Reply with only the corrected "
+    "Markdown.\n\nFirst pass:\n\n"
+)
+_MIN_PROOFREAD_SIMILARITY = 0.5   # a "correction" less alike than this rewrote the page: keep the first pass
+
+
+def _proofread(vision: Any, tile: bytes, draft: str) -> str:
+    """A second look by the vision model, with its own draft beside the image:
+    misreads that don't make sense and spelling get fixed. A reply that isn't
+    a correction of the draft (too different, or empty) is ignored."""
+    if not draft.strip():
+        return draft
+    try:
+        fixed = vision.describe([tile], PROOFREAD_PROMPT + draft).strip()
+    except httpx.HTTPError as exc:
+        logger.warning("OneNote proofread failed: %s", exc)
+        return draft
+    if not fixed or difflib.SequenceMatcher(None, draft, fixed).ratio() < _MIN_PROOFREAD_SIMILARITY:
+        return draft
+    return fixed
+
+
 def _safe(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|#^\[\]]+', " ", name).strip()[:80] or "Untitled"
 
@@ -156,11 +183,12 @@ class _Page:
                 parts = []
                 for tile in tiles:
                     try:
-                        parts.append(vision.describe([tile], TRANSCRIBE_PROMPT).strip())
+                        draft = vision.describe([tile], TRANSCRIBE_PROMPT).strip()
+                        parts.append(_proofread(vision, tile, draft))
                     except httpx.HTTPError as exc:   # the model's down or too slow: the images are still kept
                         logger.warning("OneNote handwriting transcription failed: %s", exc)
                         parts.append("*(this part couldn't be transcribed)*")
-                handwriting = ("*Transcribed from handwriting by the local vision model: check it against the "
+                handwriting = ("*Transcribed from handwriting and proofread by the local vision model: check it against the "
                                "images below.*\n\n" + "\n\n".join(p for p in parts if p))
             else:
                 handwriting = "*Handwriting not transcribed: set SIRISAI_VISION_MODEL to have it read.*"

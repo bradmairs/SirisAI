@@ -541,3 +541,38 @@ def test_the_nightly_reads_are_capped(tmp_path: Path, monkeypatch: pytest.Monkey
     onenote = FakeOneNote(pages, {p["id"]: ('<img src="x">', "") for p in pages})
     out = importer.run_import(siris, NOW, onenote)
     assert out["skipped"] == 3 and out["waiting"] == 2
+
+
+# ---------- proofreading handwriting ----------
+
+
+class _Reply:
+    def __init__(self, text: str | Exception) -> None:
+        self.text, self.prompts = text, []
+
+    def describe(self, images: list[bytes], prompt: str | None = None) -> str:
+        self.prompts.append(prompt)
+        if isinstance(self.text, Exception):
+            raise self.text
+        return self.text
+
+
+def test_proofreading_fixes_misreads_and_spelling() -> None:
+    vision = _Reply("- Gravity sewer = straight lines between manholes\n- Low pressure system on steep slopes")
+    draft = "- Gravity sector = straight lines between man holes\n- Low presure system on steep slops"
+    assert importer._proofread(vision, b"png", draft).startswith("- Gravity sewer")
+    assert draft in vision.prompts[0]                          # the model sees its draft beside the image
+
+
+def test_a_proofread_that_rewrites_the_page_is_ignored() -> None:
+    draft = "- Pump station visit\n- Order new seals for pump 2"
+    vision = _Reply("Here is a summary of an engineering meeting about many unrelated topics and plans.")
+    assert importer._proofread(vision, b"png", draft) == draft
+
+
+def test_a_failed_or_empty_proofread_keeps_the_draft() -> None:
+    draft = "- Order new seals"
+    assert importer._proofread(_Reply(httpx.ConnectError("down")), b"png", draft) == draft
+    assert importer._proofread(_Reply(""), b"png", draft) == draft
+    silent = _Reply("unused")
+    assert importer._proofread(silent, b"png", "  ") == "  " and silent.prompts == []
