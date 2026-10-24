@@ -652,6 +652,12 @@ class Settings(BaseSettings):
     onenote_client_id: str = ""
     onenote_token_path: str = "data/onenote/token.json"
     onenote_notebooks: str = ""
+    # Notebooks never imported, comma-separated, case-insensitive, `*` wildcards
+    # (e.g. "ENC*,Project 2019"). Their sections aren't even listed.
+    onenote_skip_notebooks: str = ""
+    # Skip pages with pictures or PDF printouts (with or without handwriting on
+    # them); handwriting on a blank page is still imported.
+    onenote_skip_image_pages: bool = False
     onenote_hour_local: int | None = 1
     onenote_max_pages: int = 30
     # Email into Siris (app/gmail/): emails Brad gives the Gmail label below

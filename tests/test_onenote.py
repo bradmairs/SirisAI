@@ -265,7 +265,7 @@ def test_throttling_stops_the_run_and_tries_again_tomorrow(tmp_path: Path) -> No
     onenote = FakeOneNote(pages, {"p2": ("<p>b</p>", "")})
     onenote.throttle = {"p1"}
     out = importer.run_import(siris, NOW, onenote)
-    assert out["imported"] == [] and out["waiting"] == 1
+    assert out["imported"] == [] and out["waiting"] == 2   # p1 throttled, p2 never reached
     assert "p1" not in siris.state.get(importer.STATE_KEY)
 
 
@@ -478,3 +478,66 @@ def test_an_imported_page_with_a_meaningless_title_is_named_by_where_it_lives(tm
     siris = _siris(tmp_path)
     onenote = FakeOneNote([_page("p1", "1a")], {"p1": ("<p>working</p>", "")})
     assert importer.run_import(siris, NOW, onenote)["imported"] == ["Work - Site Visits - 1a"]
+
+
+# ---------- what Brad left out: uni notebooks and pages with pictures ----------
+
+
+def test_skipped_notebooks_are_never_listed_or_imported(tmp_path: Path) -> None:
+    siris = _siris(tmp_path, onenote_skip_notebooks="ENC*, Project 2019")
+    sections = [
+        {"id": "u1", "displayName": "Lectures", "lastModifiedDateTime": "2026-10-01T00:00:00Z", "parentNotebook": {"displayName": "ENCN371"}},
+        {"id": "u2", "displayName": "Notes", "lastModifiedDateTime": "2026-10-01T00:00:00Z", "parentNotebook": {"displayName": "ENCl335 Notes"}},
+        {"id": "u3", "displayName": "Plan", "lastModifiedDateTime": "2026-10-01T00:00:00Z", "parentNotebook": {"displayName": "project 2019"}},
+        {"id": "w1", "displayName": "Meetings", "lastModifiedDateTime": "2026-10-01T00:00:00Z", "parentNotebook": {"displayName": "Endnote"}},
+    ]
+    onenote = SectionedOneNote(sections, [_page(f"p{sid}", f"Page {sid}", section=sid) for sid in ("u1", "u2", "u3", "w1")])
+    out = importer.run_import(siris, NOW, onenote)
+    assert out["imported"] == ["Page w1"]
+    assert onenote.listed == ["w1"]                                        # skipped notebooks cost no requests
+    assert set(siris.state.get(importer.SECTIONS_KEY)) == {"w1"}
+
+
+def test_pages_with_pictures_are_skipped_and_handwriting_on_a_blank_page_kept(tmp_path: Path) -> None:
+    siris = _siris(tmp_path, onenote_skip_image_pages=True, onenote_max_pages=1)
+    onenote = FakeOneNote(
+        [_page("slides", "Lecture slides", "2026-10-01T00:00:00Z"),
+         _page("printout", "Marked-up drawing", "2026-10-02T00:00:00Z"),
+         _page("ink", "Site visit", "2026-10-03T00:00:00Z")],
+        {"slides": ('<p>Week 1</p><img src="https://graph/x" />', ""),
+         "printout": ('<IMG data-render-src="https://graph/y">', INK),
+         "ink": ("", INK)},
+    )
+    out = importer.run_import(siris, NOW, onenote)
+    assert out["imported"] == ["Site visit"] and out["handwritten"] == 1
+    assert out["skipped"] == 2 and out["waiting"] == 0      # skipped pages don't use the nightly budget
+    assert not (tmp_path / "vault" / importer.ATTACHMENTS / "Lecture slides - image 1.png").exists()
+    seen = siris.state.get(importer.STATE_KEY)
+    assert seen["slides"]["skipped"] and seen["printout"]["skipped"]
+
+    assert importer.run_import(siris, NOW, onenote)["skipped"] == 0       # not read again while unchanged
+
+
+def test_a_skipped_page_edited_to_drop_its_picture_is_imported(tmp_path: Path) -> None:
+    siris = _siris(tmp_path, onenote_skip_image_pages=True)
+    onenote = FakeOneNote([_page("p1", "Meeting notes")], {"p1": ('<p>Agenda</p><img src="x">', "")})
+    importer.run_import(siris, NOW, onenote)
+    onenote._pages = [_page("p1", "Meeting notes", "2026-10-05T00:00:00Z")]
+    onenote.content["p1"] = ("<p>Agenda</p><p>Decided: go ahead</p>", "")
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["Meeting notes"]
+
+
+def test_pictures_are_imported_when_skipping_is_off(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    onenote = FakeOneNote([_page("p1", "Pump station visit")], {"p1": ('<p>x</p><img src="https://graph/x" />', "")})
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["Pump station visit"]
+    assert (tmp_path / "vault" / importer.ATTACHMENTS / "Pump station visit - image 1.jpg").exists()
+
+
+def test_the_nightly_reads_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(importer, "_MAX_CHECKS", 3)
+    siris = _siris(tmp_path, onenote_skip_image_pages=True)
+    pages = [_page(f"p{i}", f"Slides {i}", f"2026-10-0{i}T00:00:00Z") for i in range(1, 6)]
+    onenote = FakeOneNote(pages, {p["id"]: ('<img src="x">', "") for p in pages})
+    out = importer.run_import(siris, NOW, onenote)
+    assert out["skipped"] == 3 and out["waiting"] == 2

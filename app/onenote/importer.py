@@ -29,6 +29,7 @@ few nights alongside the imports.
 from __future__ import annotations
 
 import difflib
+import fnmatch
 import hashlib
 import io
 import logging
@@ -53,6 +54,7 @@ SECTIONS_KEY = "onenote_sections"    # {section id: {modified, listed, notebook,
 LAST_RUN_KEY = "onenote_last_run"    # the last run's outcome, for the upkeep summary
 _MAX_LISTINGS = 100                  # section page-listings a night
 _RECHECKS = 10                       # of those, unchanged sections re-listed as a safety net
+_MAX_CHECKS = 120                    # pages read a night, imported or skipped (each read is a request)
 AUTH_ALERT_KEY = "onenote_auth_alerted"
 ATTACHMENTS = "03-Resources/Attachments/OneNote"
 
@@ -133,6 +135,8 @@ class _Page:
 
     def build(self, title: str) -> dict[str, Any]:
         html, ink = self.client.page_content(self.meta["id"])
+        if self.siris.settings.onenote_skip_image_pages and _has_images(html):
+            return {"skipped": "has images or PDF printouts"}
 
         def image(src: str, alt: str) -> str:
             try:
@@ -212,6 +216,20 @@ def _throttled(exc: httpx.HTTPStatusError) -> bool:
     return exc.response.status_code == 429
 
 
+def _included(notebook: str, settings: Any) -> bool:
+    """SIRISAI_ONENOTE_NOTEBOOKS (only these, if set) and SIRISAI_ONENOTE_SKIP_NOTEBOOKS
+    (never these; `*` wildcards), both case-insensitive."""
+    name = notebook.lower()
+    wanted = {n.strip().lower() for n in settings.onenote_notebooks.split(",") if n.strip()}
+    skipped = [n.strip().lower() for n in settings.onenote_skip_notebooks.split(",") if n.strip()]
+    return (not wanted or name in wanted) and not any(fnmatch.fnmatchcase(name, pattern) for pattern in skipped)
+
+
+def _has_images(html: str) -> bool:
+    """Pictures, including PDF printouts (which OneNote serves as images)."""
+    return re.search(r"<img\b", html, flags=re.I) is not None
+
+
 def _refresh_sections(siris: "SirisAI", client: OneNoteClient, now: datetime) -> tuple[dict[str, dict], int, bool]:
     """Bring the kept section page lists up to date within tonight's budget.
     Returns (sections, how many still need listing, throttled)."""
@@ -222,8 +240,9 @@ def _refresh_sections(siris: "SirisAI", client: OneNoteClient, now: datetime) ->
         if _throttled(exc):
             return cache, 0, True
         raise
+    live = [sec for sec in live if _included((sec.get("parentNotebook") or {}).get("displayName", ""), siris.settings)]
     live_ids = {sec["id"] for sec in live}
-    cache = {sid: c for sid, c in cache.items() if sid in live_ids}   # deleted sections go
+    cache = {sid: c for sid, c in cache.items() if sid in live_ids}   # deleted or excluded sections go
     changed, unchanged = [], []
     for sec in live:
         kept = cache.get(sec["id"])
@@ -257,29 +276,34 @@ def _refresh_sections(siris: "SirisAI", client: OneNoteClient, now: datetime) ->
 
 def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, Any]:
     s, brain = siris.settings, siris.second_brain
-    wanted = {n.strip().lower() for n in s.onenote_notebooks.split(",") if n.strip()}
     seen: dict[str, dict] = dict(siris.state.get(STATE_KEY) or {})
     sections, unlisted, throttled = _refresh_sections(siris, client, now)
     due = []
     for section in sections.values():
         notebook = section.get("notebook", "")
-        if wanted and notebook.lower() not in wanted:
+        if not _included(notebook, s):
             continue
         for page in section.get("pages", []):
             known = seen.get(page["id"])
             if known is None or page.get("lastModifiedDateTime", "") > known.get("modified", ""):
                 due.append((page, notebook, section.get("name", "")))
     due.sort(key=lambda d: d[0].get("lastModifiedDateTime", ""))
-    out: dict[str, Any] = {"imported": [], "updated": [], "handwritten": 0, "waiting": max(0, len(due) - s.onenote_max_pages)}
+    out: dict[str, Any] = {"imported": [], "updated": [], "handwritten": 0, "skipped": 0, "waiting": len(due)}
     if unlisted:
         out["sections_to_list"] = unlisted
     if throttled:
         out["throttled"] = "OneNote's hourly request limit; the rest carries on tomorrow night"
         return out
-    used = {v.get("title", "").lower() for v in seen.values()}
-    for page, notebook, section in due[:s.onenote_max_pages]:
+    used = {v["title"].lower() for v in seen.values() if v.get("title")}
+    handled = checked = 0
+    for page, notebook, section in due:
+        if handled >= s.onenote_max_pages or checked >= _MAX_CHECKS:
+            break
+        checked += 1
         try:
             known = seen.get(page["id"])
+            if known is not None and known.get("skipped"):
+                known = None   # skipped before and edited since: look at it afresh
             title = known["title"] if known else (page.get("title") or "").strip() or \
                 f"{section} {(page.get('createdDateTime') or '')[:10]}".strip()
             if not known:
@@ -287,6 +311,13 @@ def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, An
             if not known and title.lower() in used:   # two pages called "Notes": keep them apart
                 title = f"{title} ({section})"
             built = _Page(siris, client, page, notebook, section).build(title)
+            if built.get("skipped"):
+                seen[page["id"]] = {"modified": page.get("lastModifiedDateTime", ""), "skipped": built["skipped"]}
+                siris.state.set(STATE_KEY, seen)
+                out["skipped"] += 1
+                out["waiting"] -= 1
+                continue
+            handled += 1
             out["handwritten"] += bool(built["ink"])
             if known is None:
                 result = brain.learn([{
@@ -310,11 +341,11 @@ def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, An
                                 "text": built["typed"], "ink": built["ink"]}
             used.add(title.lower())
             siris.state.set(STATE_KEY, seen)   # after each page, so a failure keeps what's done
+            out["waiting"] -= 1
         except OneNoteAuthError:
             raise
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:   # throttled: carry on tomorrow night
-                out["waiting"] += 1
                 break
             logger.warning("OneNote page %s failed: %s", page.get("id"), exc)
             out.setdefault("failed", []).append(page.get("title") or page["id"])

@@ -5778,7 +5778,16 @@ provider for the same capability actually exists to design against.
       ended up.
     - At most `SIRISAI_ONENOTE_MAX_PAGES` (30) pages a night, oldest first,
       so a big first import spreads over a few nights.
-      `SIRISAI_ONENOTE_NOTEBOOKS` limits it to some notebooks.
+      `SIRISAI_ONENOTE_NOTEBOOKS` limits it to some notebooks, and
+      `SIRISAI_ONENOTE_SKIP_NOTEBOOKS` leaves some out (`*` wildcards, e.g.
+      `ENC*` for old uni course notebooks; their sections aren't even listed).
+    - `SIRISAI_ONENOTE_SKIP_IMAGE_PAGES=true` skips pages with pictures or PDF
+      printouts, with or without handwriting on them; handwriting on a blank
+      page is still imported. A skipped page is read again only if it's edited.
+    - Microsoft allows about 400 OneNote requests an hour, and a big account
+      can't list all its pages in one call, so each section's page list is
+      kept and re-listed only when the section changes (plus a few a night as
+      a safety net), with at most 100 listings and 120 page reads a night.
     - If the sign-in expires you get one high-priority push saying how to
       sign in again.
 
