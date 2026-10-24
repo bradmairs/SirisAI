@@ -66,6 +66,8 @@ class CaptureRequest(BaseModel):
     image: str = Field(default="", max_length=MAX_IMAGE_CHARS)
     # "chat": a whole conversation with Claude (or another assistant). It waits in the inbox and
     # the nightly upkeep pulls out what's worth keeping, then keeps the chat in 03-Resources/Claude Chats.
+    # "memory": a fact or two about the owner's day (SirisOS's wrap-up). It goes to the memory inbox,
+    # and the nightly upkeep files it onto the note it's about: no new note of its own, no day note.
     kind: str = ""
 
 
@@ -105,6 +107,14 @@ def capture(request: CaptureRequest, siris: SirisAI = Depends(get_siris)) -> dic
     }
     if url:
         item["source"] = url
+    if request.kind == "memory":
+        if not text:
+            raise HTTPException(status_code=422, detail="A memory needs some text.")
+        from app.plugins.builtin.second_brain import MEMORY_INBOX_TITLE, MEMORY_TAG
+
+        tags = sorted({MEMORY_TAG, *[t.strip().lower() for t in request.tags if t.strip()]})
+        result = brain.learn([{"title": "", "content": text, "tags": tags}])[0]
+        return {"saved": True, **result, "filed_later": result.get("title") == MEMORY_INBOX_TITLE}
     if request.kind == "chat":
         day = clock.now_local(siris.settings.timezone).date().isoformat()
         item["title"] = f"Claude Chat {day} – {request.title.strip() or capture_title(text, url)}"[:120]

@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.66 — 2026-10-24
+
+- A tidier brain: calendar events don't become notes; memories from SirisOS's wrap-up
+
 ## 2.56 — 2026-10-23
 
 - Home controls for SirisOS: lights, garage, locks and scenes

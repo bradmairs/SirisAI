@@ -214,7 +214,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
-        "brain_meeting_notes_hour_local", "brain_dream_hour_local", "brain_weekly_hour_local",
+        "brain_dream_hour_local", "brain_weekly_hour_local",
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
@@ -628,8 +628,6 @@ class Settings(BaseSettings):
     # (comma-separated, e.g. "Work"); empty = no meeting notes at all.
     # weekly_day is 0=Monday ... 6=Sunday; gap_questions is how many gaps to
     # ask about each week (0 = off).
-    brain_meeting_notes_hour_local: int | None = 6
-    brain_meeting_calendars: str = ""
     brain_dream_hour_local: int | None = 23
     brain_weekly_day: int = 6
     brain_weekly_hour_local: int | None = 18

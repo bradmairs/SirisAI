@@ -140,7 +140,7 @@ def test_a_wrong_password_alerts_once_and_a_missing_label_is_skipped(tmp_path: P
 def test_the_import_runs_nightly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
 
-    siris = _siris(tmp_path, brain_meeting_notes_hour_local=None, brain_dream_hour_local=None,
+    siris = _siris(tmp_path, brain_dream_hour_local=None,
                    brain_upkeep_hour_local=None, brain_weekly_hour_local=None)
     siris.state.set(jobs.STATE_KEY, {})
     monkeypatch.setattr(importer, "run_import", lambda s, now: {"imported": ["A"]})

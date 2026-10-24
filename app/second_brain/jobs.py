@@ -2,13 +2,6 @@
 scheduler (app/core/scheduler.py). Each runs at most once per local day (or
 week), remembered in the state store, so a restart never repeats one:
 
-- **meetings** (daily, SIRISAI_BRAIN_MEETING_NOTES_HOUR_LOCAL): a note for
-  each of today's timed events on the calendars named in
-  SIRISAI_BRAIN_MEETING_CALENDARS -- when, where, and empty Agenda / Notes /
-  Decisions / Action items sections -- linked by the engine to any person or
-  project its title mentions. Opt-in: with no calendars named it does
-  nothing, so a personal calendar (a haircut, "Call dad") never becomes
-  notes just because a calendar was connected.
 - **dream** (nightly, SIRISAI_BRAIN_DREAM_HOUR_LOCAL): the general model
   reads the day's conversations and turns what's worth keeping into proper
   atomic notes, reusing existing titles so facts land on the notes they
@@ -113,8 +106,6 @@ async def run_due(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
     due = lambda job, hour: hour is not None and local_now.hour >= hour and runs.get(job) != today.isoformat()  # noqa: E731
 
     jobs: list[tuple[str, Any]] = []
-    if due("meetings", s.brain_meeting_notes_hour_local):
-        jobs.append(("meetings", lambda: asyncio.to_thread(write_meeting_notes, siris, today)))
     if due("dream", s.brain_dream_hour_local):
         jobs.append(("dream", lambda: dream(siris, today)))
     if s.onenote_client_id and due("onenote", s.onenote_hour_local):
@@ -141,45 +132,7 @@ async def run_due(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
     return results
 
 
-# ---------- meetings ----------
-
-
-def _hhmm(iso: str | None) -> str:
-    return iso[11:16] if iso and "T" in iso else ""
-
-
-def write_meeting_notes(siris: "SirisAI", day: date) -> dict[str, Any]:
-    tool = siris.tools.get("calendar_upcoming_events")
-    if tool is None:
-        return {"skipped": "no calendar configured"}
-    allowed = {c.strip().lower() for c in siris.settings.brain_meeting_calendars.split(",") if c.strip()}
-    if not allowed:
-        return {"skipped": "no meeting calendars named (SIRISAI_BRAIN_MEETING_CALENDARS)"}
-    brain = siris.second_brain
-    items = []
-    for event in tool.run(days_ahead=1) or []:
-        start = event.get("start") or ""
-        summary = (event.get("summary") or "").strip()
-        if not summary or "T" not in start or not start.startswith(day.isoformat()):
-            continue  # all-day events and other days don't get a meeting note
-        if (event.get("calendar") or "").lower() not in allowed:
-            continue
-        title = f"{summary} ({day.isoformat()})"
-        existing = brain.get_note(title)
-        if existing is not None and existing.get("title") == title:
-            continue
-        when = _hhmm(start) + (f"–{_hhmm(event.get('end'))}" if _hhmm(event.get("end")) else "")
-        lines = [f"**When:** {day.isoformat()} {when}".rstrip()]
-        if event.get("location"):
-            lines.append(f"**Where:** {event['location']}")
-        if event.get("calendar"):
-            lines.append(f"**Calendar:** {event['calendar']}")
-        lines.append(f"**About:** {summary}")
-        lines += ["", "## Agenda", "-", "", "## Notes", "-", "", "## Decisions", "-", "", "## Action items", "- [ ]"]
-        items.append({"title": title, "content": "\n".join(lines), "tags": ["meeting"], "source": "calendar"})
-    if not items:
-        return {"created": []}
-    return {"created": [r["title"] for r in brain.learn(items)]}
+# Calendar events don't become notes (2.66: they cluttered the brain; SirisOS shows the calendar).
 
 
 # ---------- dream ----------
