@@ -42,6 +42,18 @@
     "protocol_run": {
       "$ref": "#/$defs/ProtocolRunResult"
     },
+    "protocols": {
+      "$ref": "#/$defs/ProtocolCatalogue"
+    },
+    "protocol_save": {
+      "$ref": "#/$defs/ProtocolSave"
+    },
+    "protocol_saved": {
+      "$ref": "#/$defs/ProtocolDef"
+    },
+    "protocol_deleted": {
+      "$ref": "#/$defs/ProtocolDeleted"
+    },
     "camera_look_request": {
       "$ref": "#/$defs/CameraLookRequest"
     },
@@ -2106,6 +2118,147 @@
       "title": "Presence",
       "type": "object"
     },
+    "ProtocolCatalogue": {
+      "additionalProperties": false,
+      "properties": {
+        "protocols": {
+          "items": {
+            "$ref": "#/$defs/ProtocolDef"
+          },
+          "title": "Protocols",
+          "type": "array"
+        },
+        "actions": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Home Assistant actions a step can take, per domain.",
+          "title": "Actions",
+          "type": "object"
+        },
+        "entities": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ProtocolEntity"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "home_assistant": {
+          "title": "Home Assistant",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "protocols",
+        "actions",
+        "home_assistant"
+      ],
+      "title": "ProtocolCatalogue",
+      "type": "object"
+    },
+    "ProtocolDef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "builtin": {
+          "default": false,
+          "description": "A built-in as it comes; false once it's yours (made here or in chat).",
+          "title": "Builtin",
+          "type": "boolean"
+        },
+        "customised": {
+          "default": false,
+          "description": "Your version of a built-in: deleting it brings the original back.",
+          "title": "Customised",
+          "type": "boolean"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ProtocolStepDef"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "steps"
+      ],
+      "title": "ProtocolDef",
+      "type": "object"
+    },
+    "ProtocolDeleted": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "deleted": {
+          "title": "Deleted",
+          "type": "boolean"
+        },
+        "restored_builtin": {
+          "default": false,
+          "title": "Restored Builtin",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "deleted"
+      ],
+      "title": "ProtocolDeleted",
+      "type": "object"
+    },
+    "ProtocolEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "device_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Class"
+        }
+      },
+      "required": [
+        "entity_id",
+        "name",
+        "domain"
+      ],
+      "title": "ProtocolEntity",
+      "type": "object"
+    },
     "ProtocolInfo": {
       "additionalProperties": false,
       "properties": {
@@ -2221,6 +2374,30 @@
       "title": "ProtocolRunResult",
       "type": "object"
     },
+    "ProtocolSave": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/ProtocolStepDef"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "title": "ProtocolSave",
+      "type": "object"
+    },
     "ProtocolStep": {
       "additionalProperties": false,
       "properties": {
@@ -2255,6 +2432,58 @@
         "would_run"
       ],
       "title": "ProtocolStep",
+      "type": "object"
+    },
+    "ProtocolStepDef": {
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "description": "home_assistant_call_service, notify or set_guest_mode (others only as made in chat).",
+          "title": "Tool",
+          "type": "string"
+        },
+        "arguments": {
+          "additionalProperties": true,
+          "default": {},
+          "title": "Arguments",
+          "type": "object"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "when": {
+          "default": null,
+          "description": "nobody_home, someone_home, night, day, {entity, state|not_state}, or null for always.",
+          "title": "When"
+        },
+        "undo": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A step's own undo (set in chat; kept as it is).",
+          "title": "Undo"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "title": "ProtocolStepDef",
       "type": "object"
     },
     "Reminder": {

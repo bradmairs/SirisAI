@@ -424,6 +424,47 @@ class ProtocolRunResult(_Model):
     can_undo: bool = False
 
 
+class ProtocolStepDef(_Model):
+    tool: str = Field(description="home_assistant_call_service, notify or set_guest_mode (others only as made in chat).")
+    arguments: dict[str, Any] = {}
+    label: str | None = None
+    when: Any = Field(None, description="nobody_home, someone_home, night, day, {entity, state|not_state}, or null for always.")
+    undo: dict[str, Any] | None = Field(None, description="A step's own undo (set in chat; kept as it is).")
+
+
+class ProtocolDef(_Model):
+    name: str
+    description: str = ""
+    builtin: bool = Field(False, description="A built-in as it comes; false once it's yours (made here or in chat).")
+    customised: bool = Field(False, description="Your version of a built-in: deleting it brings the original back.")
+    steps: list[ProtocolStepDef]
+
+
+class ProtocolEntity(_Model):
+    entity_id: str
+    name: str
+    domain: str
+    device_class: str | None = None
+
+
+class ProtocolCatalogue(_Model):
+    protocols: list[ProtocolDef]
+    actions: dict[str, list[str]] = Field(description="Home Assistant actions a step can take, per domain.")
+    entities: list[ProtocolEntity] = []
+    home_assistant: bool
+
+
+class ProtocolSave(_Model):
+    description: str = ""
+    steps: list[ProtocolStepDef] = Field(min_length=1, max_length=30)
+
+
+class ProtocolDeleted(_Model):
+    name: str
+    deleted: bool
+    restored_builtin: bool = False
+
+
 class CameraLookRequest(_Model):
     question: str | None = None
 
@@ -523,6 +564,10 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "protocol_preview": ProtocolPreview,
     "protocol_run_request": ProtocolRunRequest,
     "protocol_run": ProtocolRunResult,
+    "protocols": ProtocolCatalogue,
+    "protocol_save": ProtocolSave,
+    "protocol_saved": ProtocolDef,
+    "protocol_deleted": ProtocolDeleted,
     "camera_look_request": CameraLookRequest,
     "camera_look": CameraLook,
     "llm_complete_request": LLMCompleteRequest,

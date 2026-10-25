@@ -11,6 +11,9 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/attention/stream         ...live (Server-Sent Events)
     POST /siris/hub/v1/attention/{id}/act       {"action": "approve"} etc.
     POST /siris/hub/v1/attention/{id}/dismiss
+    GET  /siris/hub/v1/protocols                every protocol with its steps, and what a step can do (the editor)
+    PUT  /siris/hub/v1/protocols/{name}         create or change one (a built-in's name saves your version)
+    DELETE /siris/hub/v1/protocols/{name}       delete yours (a built-in you'd changed comes back)
     GET  /siris/hub/v1/protocols/{name}         what running it would do now
     POST /siris/hub/v1/protocols/{name}/run     {"confirmed": true}
     POST /siris/hub/v1/protocols/undo           {"confirmed": true}
@@ -195,6 +198,34 @@ def _preview(siris: SirisAI, name: str) -> c.ProtocolPreview:
         description=found.get("description") or "",
         steps=[c.ProtocolStep(label=s["step"], tool=s["tool"], would_run=bool(s["will_run"]), reason=s.get("because") or None) for s in found["steps"]],
     )
+
+
+@router.get("/protocols", response_model=c.ProtocolCatalogue)
+def protocol_catalogue(siris: SirisAI = Depends(get_siris)) -> c.ProtocolCatalogue:
+    from app.protocols import editor
+
+    _need_protocols(siris)
+    return c.ProtocolCatalogue.model_validate(editor.catalogue(siris))
+
+
+@router.put("/protocols/{name}", response_model=c.ProtocolDef)
+def protocol_save(name: str, body: c.ProtocolSave, siris: SirisAI = Depends(get_siris)) -> c.ProtocolDef:
+    from app.protocols import editor
+
+    _need_protocols(siris)
+    try:
+        saved = editor.save(siris, name, body.description, [s.model_dump(exclude_none=True) for s in body.steps])
+    except editor.Invalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return c.ProtocolDef.model_validate(saved)
+
+
+@router.delete("/protocols/{name}", response_model=c.ProtocolDeleted)
+def protocol_delete(name: str, siris: SirisAI = Depends(get_siris)) -> c.ProtocolDeleted:
+    from app.protocols import editor
+
+    _need_protocols(siris)
+    return c.ProtocolDeleted.model_validate(editor.delete(siris, name))
 
 
 @router.get("/protocols/{name}", response_model=c.ProtocolPreview)

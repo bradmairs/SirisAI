@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.91 — 2026-10-25
+
+- Protocols can be made and changed from SirisOS: the hub lists every protocol with its steps and what a step can do, and saves or deletes them, allowing only device, notification and guest-mode steps (anything else is kept as made in chat).
+
 ## 2.9 — 2026-10-25
 
 - Sudo checks over SSH mean passwordless now: an account allowed a command only with a password (pi-1's apt-get) is told so before anything runs, instead of the background update failing. A failed update says why, with the sudoers line to add.
