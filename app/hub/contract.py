@@ -286,6 +286,8 @@ class AttentionAction(_Model):
 class Presence(_Model):
     home: bool | None = Field(description="Whether the last presence check found someone home; null when presence isn't set up.")
     checked_at: str | None = None
+    since: str | None = Field(default=None, description="When that state began (an arrival or a departure); null until "
+                              "there's been a change since tracking started.")
 
 
 class Reminder(_Model):

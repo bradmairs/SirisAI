@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.89 — 2026-10-25
+
+- Presence says when you got home (or left): the hub's presence has `since`, and the first check after setup is marked as a baseline, not an arrival. For SirisOS 4.9's welcome home.
+
 ## 2.88 — 2026-10-25
 
 - OneNote pages are split across the notes they cover, like captures: the sort now sees long pages whole (Second Brain 1.76), splits only when the pieces hold most of the note, and an edit to a page that was split goes to the inbox to be sorted the same way.
