@@ -214,6 +214,87 @@ def _wire_ha(siris: SirisAI, ha: FakeHA) -> None:
             tool._client = client  # type: ignore[attr-defined]
 
 
+class _Notify(Tool):
+    name = "notify"
+    description = "test notifier"
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {"type": "object", "properties": {}}
+
+    def run(self, **kwargs: Any) -> Any:
+        return {"sent": True}
+
+
+def test_protocols_can_be_made_changed_and_deleted_from_sirisos(use) -> None:
+    ha = FakeHA()
+    siris = SirisAI(settings=Settings(home_assistant_base_url="http://ha", home_assistant_token="t", timezone="UTC"))
+    _wire_ha(siris, ha)
+    siris.tools._tools["notify"] = _Notify()
+    for proto in siris.protocols.list():
+        siris.protocols.delete(proto["name"])
+    client = use(siris)
+
+    cat = client.get("/siris/hub/v1/protocols").json()
+    names = {p["name"]: p for p in cat["protocols"]}
+    assert names["lockdown"]["builtin"] is True and names["lockdown"]["steps"][0]["arguments"]["domain"] == "lock"
+    assert "close_cover" in cat["actions"]["cover"] and cat["home_assistant"] is True
+    assert {"entity_id": "light.kitchen", "name": "light.kitchen", "domain": "light", "device_class": None} in cat["entities"]
+
+    movie = {"description": "Film time", "steps": [
+        {"tool": "home_assistant_call_service", "label": "Dim the kitchen",
+         "arguments": {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen", "service_data": {"brightness_pct": 20}}},
+        {"tool": "home_assistant_call_service", "arguments": {"domain": "cover", "service": "close_cover",
+                                                            "entity_id": {"select": {"domain": "cover", "device_class": ["blind"]}}}, "when": "night"},
+        {"tool": "notify", "arguments": {"message": "Enjoy the film", "priority": "low"}},
+    ]}
+    saved = client.put("/siris/hub/v1/protocols/Movie Night", json=movie)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["name"] == "movie_night" and saved.json()["builtin"] is False and saved.json()["customised"] is False
+    assert client.get("/siris/hub/v1/protocols/movie_night").json()["steps"][0]["label"] == "Dim the kitchen"
+    assert any(p["name"] == "movie_night" for p in client.get("/siris/hub/v1/widgets").json()["protocols"])   # Home sees it
+
+    # Your version of a built-in replaces it; deleting it brings the original back.
+    away = names["away"]
+    mine = {"description": "Out, but leave the hall light on", "steps": [s for s in away["steps"] if s["arguments"].get("domain") != "light"]}
+    assert client.put("/siris/hub/v1/protocols/away", json=mine).json()["customised"] is True
+    assert len(client.get("/siris/hub/v1/protocols/away").json()["steps"]) == len(away["steps"]) - 1
+    gone = client.delete("/siris/hub/v1/protocols/away").json()
+    assert gone == {"name": "away", "deleted": True, "restored_builtin": True}
+    assert len(client.get("/siris/hub/v1/protocols/away").json()["steps"]) == len(away["steps"])
+
+    bad = [
+        ({"steps": [{"tool": "docker_restart_container", "arguments": {"container": "plex"}}]}, "can't be added or changed here"),
+        ({"steps": [{"tool": "home_assistant_call_service", "arguments": {"domain": "alarm_control_panel", "service": "alarm_disarm", "entity_id": "all"}}]}, "can't"),
+        ({"steps": [{"tool": "home_assistant_call_service", "arguments": {"domain": "light", "service": "turn_on", "entity_id": "lock.front_door"}}]}, "light entities"),
+        ({"steps": [{"tool": "home_assistant_call_service", "arguments": {"domain": "light", "service": "turn_on", "entity_id": "all", "service_data": {"brightness_pct": 400}}}]}, "1 to 100"),
+        ({"steps": [{"tool": "notify", "arguments": {}}]}, "needs a message"),
+        ({"steps": [{"tool": "notify", "arguments": {"message": "x"}, "when": "full_moon"}]}, "Unknown condition"),
+    ]
+    for body, why in bad:
+        r = client.put("/siris/hub/v1/protocols/bad_one", json=body)
+        assert r.status_code == 422 and why in r.text, (body, r.text)
+    assert client.put("/siris/hub/v1/protocols/undo", json=movie).status_code == 422
+    assert client.delete("/siris/hub/v1/protocols/movie_night").json()["restored_builtin"] is False
+
+
+def test_a_step_made_in_chat_is_kept_when_the_rest_is_edited(use) -> None:
+    ha = FakeHA()
+    siris = SirisAI(settings=Settings(home_assistant_base_url="http://ha", home_assistant_token="t", timezone="UTC"))
+    _wire_ha(siris, ha)
+    siris.tools._tools["notify"] = _Notify()
+    chat_step = {"tool": "home_assistant_call_service", "arguments": {"domain": "light", "service": "turn_off", "entity_id": "light.hall"},
+                 "undo": {"tool": "home_assistant_call_service", "arguments": {"domain": "light", "service": "turn_on", "entity_id": "light.hall"}}}
+    siris.protocols.save("bedtime", "Night", [chat_step])
+    client = use(siris)
+    steps = next(p for p in client.get("/siris/hub/v1/protocols").json()["protocols"] if p["name"] == "bedtime")["steps"]
+    steps.append({"tool": "notify", "arguments": {"message": "Night"}})
+    r = client.put("/siris/hub/v1/protocols/bedtime", json={"description": "Night", "steps": steps})
+    assert r.status_code == 200, r.text
+    assert siris.protocols.get("bedtime")["steps"][0] == chat_step   # kept exactly, its undo too
+    steps[0]["undo"] = {"tool": "notify", "arguments": {"message": "sneaky"}}
+    assert client.put("/siris/hub/v1/protocols/bedtime", json={"steps": steps}).status_code == 422
+    siris.protocols.delete("bedtime")
+
+
 def test_protocol_preview_run_needs_confirmation_then_undo(use) -> None:
     ha = FakeHA()
     siris = SirisAI(settings=Settings(home_assistant_base_url="http://ha", home_assistant_token="t", timezone="UTC"))

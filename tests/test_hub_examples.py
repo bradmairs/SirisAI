@@ -100,6 +100,14 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["widgets"] = client.get("/siris/hub/v1/widgets", headers=h).json()
         out["protocol_preview"] = client.get("/siris/hub/v1/protocols/lockdown", headers=h).json()
         out["protocol_run_request"] = {"confirmed": True}
+        for saved in siris.protocols.list():   # only the built-ins, whatever other tests saved
+            siris.protocols.delete(saved["name"])
+        out["protocols"] = client.get("/siris/hub/v1/protocols", headers=h).json()
+        out["protocol_save"] = {"description": "Film time", "steps": [
+            {"tool": "home_assistant_call_service", "label": "Dim the lights", "when": "night",
+             "arguments": {"domain": "light", "service": "turn_on", "entity_id": "all", "service_data": {"brightness_pct": 20}}}]}
+        out["protocol_saved"] = client.put("/siris/hub/v1/protocols/movie_night", json=out["protocol_save"], headers=h).json()
+        out["protocol_deleted"] = client.delete("/siris/hub/v1/protocols/movie_night", headers=h).json()
         out["protocol_run"] = client.post("/siris/hub/v1/protocols/lockdown/run", json={"confirmed": True}, headers=h).json()
         if not any(x["name"] == "Wind down" for x in siris.scenes.list_scenes()):
             siris.scenes.create_scene("Wind down", [{"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}])
