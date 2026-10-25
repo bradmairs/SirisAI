@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 2.9 — 2026-10-25
+
+- Sudo checks over SSH mean passwordless now: an account allowed a command only with a password (pi-1's apt-get) is told so before anything runs, instead of the background update failing. A failed update says why, with the sudoers line to add.
+
 ## 2.89 — 2026-10-25
 
 - Presence says when you got home (or left): the hub's presence has `since`, and the first check after setup is marked as a baseline, not an arrival. For SirisOS 4.9's welcome home.

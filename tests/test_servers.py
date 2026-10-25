@@ -18,7 +18,7 @@ from app.db.session import SessionLocal
 from app.hub import attention
 from app.main import app
 from app.servers import checks, wake, watch
-from app.ssh.client import NEEDS_SUDO_EXIT, SshHost, parse_health
+from app.ssh.client import NEEDS_SUDO_EXIT, SshHost, parse_health, passwordless
 
 FAKE_SSH = r'''#!/usr/bin/env python3
 import json, os, sys
@@ -107,14 +107,14 @@ def test_apt_and_dnf_updates_and_the_reboot_flag_parse() -> None:
 def test_install_and_restart_commands_check_exactly_what_they_run() -> None:
     brad, root = SshHost("nas", "brad", "10.0.0.2"), SshHost("pi", "root", "10.0.0.3")
     apt = checks.install_updates_command(brad, "apt")
-    assert f"sudo -n -l {checks.APT_UPDATE} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}" in apt
-    assert f"sudo -n -l {checks.APT_UPGRADE} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}" in apt
+    assert f"{passwordless(checks.APT_UPDATE)} || exit {NEEDS_SUDO_EXIT}" in apt
+    assert f"{passwordless(checks.APT_UPGRADE)} || exit {NEEDS_SUDO_EXIT}" in apt
     assert f"nohup sh -c 'sudo -n {checks.APT_UPDATE} && sudo -n {checks.APT_UPGRADE} </dev/null" in apt and apt.endswith("& echo started")
     assert "sudo" not in checks.install_updates_command(root, "dnf")
     with pytest.raises(ValueError):
         checks.install_updates_command(root, "pacman")
     assert checks.restart_unit_command(brad, "nginx.service") == (
-        f"sudo -n -l systemctl restart nginx.service >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; sudo -n systemctl restart nginx.service && echo restarted"
+        f"{passwordless('systemctl restart nginx.service')} || exit {NEEDS_SUDO_EXIT}; sudo -n systemctl restart nginx.service && echo restarted"
     )
     for bad in ("nginx; reboot", "a b", "$(id)", ""):
         with pytest.raises(ValueError):
@@ -296,6 +296,46 @@ def test_permissions_say_what_is_missing_and_the_sudoers_line(servers: Servers) 
     )
     assert "*" not in nas["sudoers"]  # sudo-rs takes no wildcards in arguments
     assert "nginx.service" in nas["restart_services"]
+
+
+# pi-1 (Ubuntu 25.10, sudo-rs): sudo allows apt-get only with a password, but a few rules need none.
+_SUDO_RS = """#!/bin/sh
+if [ "$1 $2" = "-n true" ]; then echo "sudo-rs: interactive authentication is required" >&2; exit 1; fi
+if [ "$1 $2" = "-n -l" ] && [ $# -eq 2 ]; then
+  echo "User brad may run the following commands on pi-1:"
+  echo "    (ALL : ALL) ALL"
+  echo "    (ALL) NOPASSWD: /usr/sbin/reboot"
+  echo "    (root) NOPASSWD: /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff, /usr/sbin/shutdown"
+  exit 0
+fi
+[ "$1 $2" = "-n -l" ] && exit 0   # listing one command: allowed (with a password)
+exit 1
+"""
+
+
+def test_passwordless_means_no_password_not_just_allowed(tmp_path: Path) -> None:
+    import subprocess
+
+    sudo = tmp_path / "sudo"
+    sudo.write_text(_SUDO_RS)
+    sudo.chmod(0o755)
+    env = {"PATH": f"{tmp_path}:/usr/bin:/bin"}
+    ok = lambda cmd: subprocess.run(["sh", "-c", passwordless(cmd)], env=env).returncode == 0  # noqa: E731
+    assert not ok(checks.APT_UPDATE)          # allowed, but only with a password: it would fail in the background
+    assert ok("systemctl reboot") and ok("shutdown")
+    assert not ok("smartctl")
+    sudo.write_text("#!/bin/sh\nexit 0\n")     # NOPASSWD: ALL
+    assert ok(checks.APT_UPDATE)
+
+
+def test_a_failed_install_says_why(servers: Servers) -> None:
+    from app.servers.watch import install_failure, update_rule
+
+    host = SshHost("pi-1", "brad", "192.168.0.127")
+    assert "sudo visudo -f /etc/sudoers.d/sirisai" in install_failure(host, {"exit_code": 1, "log_tail": "sudo-rs: interactive authentication is required"})
+    assert update_rule(host).startswith("brad ALL=(root) NOPASSWD: /usr/bin/apt-get -y -q update, /usr/bin/apt-get -y -q -o")
+    assert install_failure(host, {"exit_code": 1, "log_tail": ""}) == "It stopped with exit code 1, and its log (/tmp/sirisai-updates.log) is gone from pi-1."
+    assert install_failure(host, {"exit_code": 100, "log_tail": "E: dpkg was interrupted"}) == "E: dpkg was interrupted"
 
 
 def test_install_updates_asks_first_and_reports_missing_sudo(servers: Servers) -> None:

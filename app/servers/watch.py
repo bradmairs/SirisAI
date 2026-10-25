@@ -22,12 +22,13 @@ confirmation. A non-root account needs passwordless sudo for each
 """
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.hub.attention import action, register_action
 from app.servers import checks, wake
-from app.ssh.client import HEALTH_COMMAND, SshError, SshHost, parse_health, sudo_prefix
+from app.ssh.client import HEALTH_COMMAND, SshError, SshHost, parse_health, passwordless, sudo_prefix
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -163,7 +164,7 @@ def check_updates(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
                     "key": f"server-updates:failed:{host.name}",
                     "kind": "alert",
                     "title": f"Installing updates on {host.name} failed",
-                    "body": last.get("log_tail") or "See /tmp/sirisai-updates.log on the server.",
+                    "body": install_failure(host, last),
                     "severity": "attention",
                     "actions": [action("acknowledge", "Got it")],
                 }
@@ -215,6 +216,19 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
 }
 
 
+def update_rule(host: SshHost) -> str:
+    return f"{host.user} ALL=(root) NOPASSWD: {CAPABILITIES['install updates (apt)'][1]}"
+
+
+def install_failure(host: SshHost, last: dict[str, Any]) -> str:
+    """Why the last install failed, in words: sudo wanting a password says which rule to add."""
+    tail = (last.get("log_tail") or "").strip()
+    if re.search(r"password is required|authentication is required|a terminal is required", tail, re.I):
+        return (f"{host.user} needs passwordless sudo for apt-get on {host.name}. On {host.name}, run "
+                f"`sudo visudo -f /etc/sudoers.d/sirisai` and add: {update_rule(host)}")
+    return tail or f"It stopped with exit code {last.get('exit_code')}, and its log ({checks.UPDATE_LOG}) is gone from {host.name}."
+
+
 def restart_rule(host: SshHost, unit: str) -> str:
     return f"{host.user} ALL=(root) NOPASSWD: /usr/bin/systemctl restart {unit}"
 
@@ -225,7 +239,7 @@ def permissions(siris: "SirisAI", host: SshHost) -> dict[str, Any]:
     names = list(CAPABILITIES)
     if not sudo_prefix(host):
         return {"server": host.name, "user": host.user, "root": True, "can": names, "cannot": [], "sudoers": None}
-    probe = "; ".join(f"sudo -n -l {cmd} >/dev/null 2>&1 && echo 'ok {i}' || echo 'no {i}'" for i, (cmd, _) in enumerate(CAPABILITIES.values()))
+    probe = "; ".join(f"{passwordless(cmd)} && echo 'ok {i}' || echo 'no {i}'" for i, (cmd, _) in enumerate(CAPABILITIES.values()))
     result = siris.ssh_client.run(host.name, probe, timeout=20)  # type: ignore[union-attr]
     allowed = {int(line.split()[1]) for line in result["stdout"].splitlines() if line.startswith("ok ")}
     cannot = [names[i] for i in range(len(names)) if i not in allowed]
