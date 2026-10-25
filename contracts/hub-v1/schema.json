@@ -2085,6 +2085,19 @@
           ],
           "default": null,
           "title": "Checked At"
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When that state began (an arrival or a departure); null until there's been a change since tracking started.",
+          "title": "Since"
         }
       },
       "required": [

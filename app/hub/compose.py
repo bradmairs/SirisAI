@@ -439,7 +439,11 @@ def presence(siris: "SirisAI") -> c.Presence:
 
     last = siris.events.recent_events(entity_name=_PRESENCE_ENTITY_NAME, limit=1)
     checked = last[0].get("created_at") if last else None
-    return c.Presence(home=anyone_home(siris), checked_at=str(checked) if checked else None)
+    # Events are logged on a change, so the last one is when this state began; the very first
+    # check is only a baseline (no one arrived or left then).
+    changed = bool(last) and not (last[0].get("data") or {}).get("baseline")
+    return c.Presence(home=anyone_home(siris), checked_at=str(checked) if checked else None,
+                      since=str(checked) if changed and checked else None)
 
 
 def reminders(siris: "SirisAI") -> c.ReminderList:

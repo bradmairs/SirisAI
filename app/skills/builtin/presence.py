@@ -52,7 +52,8 @@ class PresenceSkill(Skill):
         if previously_home is None:
             # First-ever check: nothing to compare against, so this
             # establishes a baseline rather than assuming a transition.
-            siris.events.log_event(_PRESENCE_EVENT_DESCRIPTION, entity_name=_PRESENCE_ENTITY_NAME, data={"home": currently_home})
+            siris.events.log_event(_PRESENCE_EVENT_DESCRIPTION, entity_name=_PRESENCE_ENTITY_NAME,
+                                   data={"home": currently_home, "baseline": True})
             return result
 
         if currently_home == previously_home:

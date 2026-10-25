@@ -66,10 +66,13 @@ def test_presence_says_when_nobody_has_checked(use) -> None:
     from app.skills.builtin.presence import _PRESENCE_ENTITY_NAME
 
     if not siris.events.recent_events(entity_name=_PRESENCE_ENTITY_NAME, limit=1):
-        assert client.get("/siris/hub/v1/presence").json() == {"home": None, "checked_at": None}
+        assert client.get("/siris/hub/v1/presence").json() == {"home": None, "checked_at": None, "since": None}
     siris.events.log_event("presence_changed", entity_name=_PRESENCE_ENTITY_NAME, data={"home": False})
     body = c.Presence.model_validate(client.get("/siris/hub/v1/presence").json())
     assert body.home is False and body.checked_at
+    assert body.since == body.checked_at   # a real change: when it began
+    siris.events.log_event("presence_changed", entity_name=_PRESENCE_ENTITY_NAME, data={"home": True, "baseline": True})
+    assert client.get("/siris/hub/v1/presence").json()["since"] is None   # the first check isn't an arrival
 
 
 def test_reminders_list_and_cancel(use) -> None:

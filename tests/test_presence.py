@@ -87,7 +87,7 @@ def test_first_check_establishes_baseline_without_activating_a_scene() -> None:
     result = PresenceSkill().run(siris)
 
     assert result == {"currently_home": True, "changed": False, "scene_activated": None}
-    assert siris.events.logged[0]["data"] == {"home": True}
+    assert siris.events.logged[0]["data"] == {"home": True, "baseline": True}   # not an arrival (hub presence: since)
     assert not any(name == "home_assistant_call_service" for name, _ in siris.run_tool_calls)
 
 
