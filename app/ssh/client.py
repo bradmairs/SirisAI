@@ -252,15 +252,26 @@ def sudo_prefix(host: SshHost) -> str:
     return "" if host.user == "root" else "sudo -n "
 
 
+def passwordless(command: str) -> str:
+    """A shell test that's true only when `command` runs through sudo without a password.
+
+    `sudo -n -l <command>` alone isn't enough: it says whether sudo allows the command at all, and
+    an account with any NOPASSWD rule (a reboot, say) can list without a password, so a command
+    allowed only *with* one passes, then fails when it runs ("interactive authentication is
+    required"). So it must also be that nothing needs a password (`sudo -n true`), or that a
+    NOPASSWD rule names the command's program. Works with classic sudo and sudo-rs."""
+    program = re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", command.split()[0].rsplit("/", 1)[-1])
+    return (f"{{ sudo -n -l {command} >/dev/null 2>&1 && {{ sudo -n true >/dev/null 2>&1 || "
+            f"sudo -n -l 2>/dev/null | grep -Eq 'NOPASSWD:.*(ALL|/{program}([ ,]|$))'; }}; }}")
+
+
 def sudo_check(host: SshHost, command: str) -> str:
     """A guard that exits 77 unless this account may run `command` through sudo
-    without a password. Asks about the exact command (`sudo -n -l <command>`),
-    so a sudoers rule allowing only that is enough. Works the same with the
-    classic sudo and with sudo-rs (Ubuntu 25.10's default), both tested. Empty
-    for root."""
+    without a password (see `passwordless`), so a sudoers rule allowing only
+    that is enough. Empty for root."""
     if not sudo_prefix(host):
         return ""
-    return f"sudo -n -l {command} >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; "
+    return f"{passwordless(command)} || exit {NEEDS_SUDO_EXIT}; "
 
 
 def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:

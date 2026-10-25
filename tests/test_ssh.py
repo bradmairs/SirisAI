@@ -13,7 +13,7 @@ from app.core.config import Settings
 from app.core.siris import SirisAI
 from app.plugins.base import ConfirmationRequired
 from app.plugins.builtin.ssh import SshPowerTool, SshRunTool
-from app.ssh.client import NEEDS_SUDO_EXIT, SshClient, SshError, SshHost, is_read_only, parse_health, parse_ssh_hosts, power_command
+from app.ssh.client import NEEDS_SUDO_EXIT, SshClient, SshError, SshHost, is_read_only, parse_health, parse_ssh_hosts, passwordless, power_command
 from app.voice.confirmations import describe_call, voice_confirmable
 
 HEALTH_OUTPUT = """##uptime
@@ -216,7 +216,7 @@ def test_power_commands_use_sudo_only_for_non_root_and_detach_immediate_ones() -
     brad, root = SshHost("nas", "brad", "10.0.0.2"), SshHost("pi", "root", "10.0.0.3")
     assert power_command(root, "reboot") == "nohup sh -c 'sleep 2; systemctl reboot' >/dev/null 2>&1 & echo started"
     assert power_command(brad, "shutdown") == (
-        f"sudo -n -l systemctl poweroff >/dev/null 2>&1 || exit {NEEDS_SUDO_EXIT}; "
+        f"{passwordless('systemctl poweroff')} || exit {NEEDS_SUDO_EXIT}; "
         "nohup sh -c 'sleep 2; sudo -n systemctl poweroff' >/dev/null 2>&1 & echo started"
     )
     assert power_command(brad, "reboot", 15).endswith("sudo -n shutdown -r +15 'SirisAI: reboot requested' && echo scheduled")
