@@ -103,3 +103,20 @@ class SentenceChunker:
                 continue
             out.append(line.strip())
         return out
+
+
+_TRAILING = " \t\n\"'”’)]*_"
+_SIGN_OFF = re.compile(r"\b(just say|say the word|let me know|just ask|if you('d)? like|happy to|either way|no rush)\b", re.I)
+
+
+def expects_answer(response: str) -> bool:
+    """Whether a reply ends by asking the user something, so a voice client
+    should listen again: its last sentence is a question, or the one before a
+    sign-off is ("Shall I turn them off? Just say the word."). A short
+    sentence after a question that isn't a sign-off is usually its answer."""
+    sentences = [s.rstrip(_TRAILING) for s in re.split(r"(?<=[.!?])\s+", response.strip()) if s.strip(_TRAILING)]
+    if not sentences:
+        return False
+    if sentences[-1].endswith("?"):
+        return True
+    return len(sentences) >= 2 and sentences[-2].endswith("?") and bool(_SIGN_OFF.search(sentences[-1]))

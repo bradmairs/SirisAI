@@ -12,22 +12,39 @@ if TYPE_CHECKING:
     from app.core.siris import SirisAI
 
 
-def _targets(siris: "SirisAI", servers: str) -> list[Any]:
+def _targets(siris: "SirisAI", servers: str, wake_only: bool = False) -> list[Any]:
+    """The named servers ('all' = every SSH server). With wake_only, computers
+    listed only for Wake-on-LAN (SIRISAI_SSH_WAKE_MACS) can be named too."""
     wanted = [s.strip() for s in (servers or "").split(",") if s.strip()]
     if not wanted:
         raise ValueError("Name the server(s), or say 'all'.")
     if any(w.lower() == "all" for w in wanted):
         return siris.ssh_client.hosts  # type: ignore[union-attr]
-    return list({siris.ssh_client.find(w).name: siris.ssh_client.find(w) for w in wanted}.values())  # type: ignore[union-attr]
+    extra = {m.name: m for m in wake.wake_only_machines(siris)} if wake_only else {}
+    found: dict[str, Any] = {}
+    for w in wanted:
+        host = extra.get(w.lower())
+        if host is None:
+            try:
+                host = siris.ssh_client.find(w)  # type: ignore[union-attr]
+            except ValueError:
+                if not extra:
+                    raise
+                raise ValueError(f"Unknown machine '{w}'. Servers: {', '.join(h.name for h in siris.ssh_client.hosts) or 'none'}; "  # type: ignore[union-attr]
+                                 f"other computers: {', '.join(extra)}.") from None
+        found[host.name] = host
+    return list(found.values())
 
 
 class SshWakeTool(Tool):
     name = "ssh_wake"
-    description = (
-        "Turn a server on with Wake-on-LAN ('wake the NAS', 'turn the Pi back on', 'wake all the servers'), then watch "
-        "for it to come up and say so in the attention feed. servers is a name, a comma-separated list, or 'all'."
+    _DESCRIPTION = (
+        "Turn a server or computer on with Wake-on-LAN ('wake the NAS', 'turn my desktop on', 'wake all the servers'), "
+        "then watch for it to come up and say so in the attention feed. Always asks the user first. servers is a name, "
+        "a comma-separated list, or 'all' (all the servers). Besides the SSH servers, computers listed for Wake-on-LAN "
+        "can be woken by name: " + "{wake_only}" + "."
     )
-    permission = ToolPermission.SAFE_ACTION
+    permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
         "properties": {"servers": {"type": "string", "description": "A server name, several separated by commas, or 'all'."}},
@@ -37,9 +54,14 @@ class SshWakeTool(Tool):
     def __init__(self, siris: "SirisAI") -> None:
         self._siris = siris
 
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        names = ", ".join(m.name for m in wake.wake_only_machines(self._siris)) or "none set up yet"
+        return self._DESCRIPTION.format(wake_only=names)
+
     def run(self, servers: str = "", **kwargs: Any) -> Any:
         results = []
-        for host in _targets(self._siris, servers):
+        for host in _targets(self._siris, servers, wake_only=True):
             try:
                 results.append(wake.wake(self._siris, host, wait=self._siris.settings.ssh_wake_timeout_seconds > 0))
             except (ValueError, RuntimeError) as exc:

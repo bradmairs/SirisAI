@@ -305,9 +305,21 @@
     return new Blob([view], { type: "audio/wav" });
   }
 
-  async function startRecording() {
+  // One audio context for the mic, made on the first tap and kept: on iPhone a
+  // context created later, without a tap (listening again for an answer), would
+  // start suspended and record silence.
+  let micCtx = null;
+  function micContext() {
+    if (!micCtx) micCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (micCtx.state === "suspended") micCtx.resume().catch(() => {});
+    return micCtx;
+  }
+
+  // followUp: listening again because SirisAI asked something. If nothing is
+  // said, it gives up quietly instead of sending silence.
+  async function startRecording(followUp = false) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = micContext();
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
@@ -324,7 +336,8 @@
     source.connect(analyser);
     source.connect(processor);
     processor.connect(ctx.destination);
-    recording = { stream, ctx, processor, source, chunks, timer: setTimeout(stopRecording, 12000) };
+    recording = { stream, ctx, processor, source, chunks, followUp, heard: () => heard,
+                  timer: setTimeout(stopRecording, followUp ? 8000 : 12000) };
     orb.className = "listening";
     hint.textContent = "Listening...";
     drawWave(analyser);
@@ -332,14 +345,17 @@
 
   async function stopRecording() {
     if (!recording) return;
-    const { stream, ctx, processor, source, chunks, timer } = recording;
+    const { stream, ctx, processor, source, chunks, timer, followUp, heard } = recording;
     recording = null;
     clearTimeout(timer);
     processor.disconnect(); source.disconnect();
     stream.getTracks().forEach((t) => t.stop());
-    const rate = ctx.sampleRate;
-    await ctx.close();
-    converse(encodeWav(chunks, rate));
+    if (followUp && !heard()) {
+      orb.className = "";
+      hint.textContent = "Tap to talk";
+      return;
+    }
+    converse(encodeWav(chunks, ctx.sampleRate));
   }
 
   // Each sentence arrives as its own MP3 clip, but starting every clip
@@ -424,10 +440,14 @@
     orb.className = "";
     hint.textContent = expectsReply ? "Tap to answer" : "Tap to talk";
     refresh();
+    if (expectsReply && !recording) {
+      startRecording(true).catch(() => { hint.textContent = "Tap to answer"; });
+    }
   }
 
   orb.addEventListener("click", () => {
     unlockAudio();
+    micContext();
     if (recording) { stopRecording(); return; }
     startRecording().catch((err) => { hint.textContent = `Microphone unavailable: ${err.message}`; });
   });

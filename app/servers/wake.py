@@ -43,14 +43,49 @@ _MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 POLL_SECONDS = 15.0
 
 
-def configured_macs(siris: "SirisAI") -> dict[str, str]:
-    out = {}
+def _entries(siris: "SirisAI") -> list[tuple[str, str, str]]:
+    """SIRISAI_SSH_WAKE_MACS as (name, mac, address): "nas=aa:bb:cc:dd:ee:ff",
+    or "desktop=aa:bb:cc:dd:ee:ff@192.168.0.50" with the address it answers on."""
+    out = []
     for entry in siris.settings.ssh_wake_macs.split(","):
-        name, _, mac = entry.partition("=")
+        name, _, rest = entry.partition("=")
+        mac, _, address = rest.partition("@")
         mac = mac.strip().lower().replace("-", ":")
         if name.strip() and _MAC_RE.match(mac):
-            out[name.strip().lower()] = mac
+            out.append((name.strip().lower(), mac, address.strip()))
     return out
+
+
+def configured_macs(siris: "SirisAI") -> dict[str, str]:
+    return {name: mac for name, mac, _ in _entries(siris)}
+
+
+def wake_only_machines(siris: "SirisAI") -> list[SshHost]:
+    """Computers in SIRISAI_SSH_WAKE_MACS that aren't SSH servers (a desktop, a
+    laptop): SirisAI can wake them, but not run anything on them."""
+    ssh_names = {h.name for h in siris.ssh_client.hosts} if siris.ssh_client is not None else set()
+    return [SshHost(name=name, user="", host=address) for name, _, address in _entries(siris) if name not in ssh_names]
+
+
+def is_wake_only(siris: "SirisAI", host: SshHost) -> bool:
+    return any(m.name == host.name for m in wake_only_machines(siris))
+
+
+_PROBE_PORTS = (22, 445, 3389, 5900, 80, 139)
+
+
+def answers(address: str, timeout: float = 2.0) -> bool:
+    """Whether a machine is on the network: any port connecting, or refusing
+    (a refusal comes from a running machine), counts."""
+    for port in _PROBE_PORTS:
+        try:
+            with socket.create_connection((address, port), timeout=timeout):
+                return True
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            continue
+    return False
 
 
 def mac_for(siris: "SirisAI", host: SshHost) -> str | None:
@@ -129,13 +164,19 @@ def send(siris: "SirisAI", host: SshHost, mac: str) -> list[str]:
 
 
 def wait_until_up(siris: "SirisAI", host: SshHost, timeout: float, poll: float = POLL_SECONDS) -> bool:
-    """Poll SSH until the server answers; say how it went in the feed."""
+    """Poll until the machine answers (SSH, or any port for a wake-only computer);
+    say how it went in the feed."""
     from app.upkeep.alerts import raise_alert
 
     start = time.monotonic()
+    wake_only = is_wake_only(siris, host)
     while time.monotonic() - start < timeout:
         try:
-            if siris.ssh_client is not None and siris.ssh_client.run(host.name, "true", timeout=8)["exit_code"] == 0:
+            if wake_only:
+                up = answers(host.host)
+            else:
+                up = siris.ssh_client is not None and siris.ssh_client.run(host.name, "true", timeout=8)["exit_code"] == 0
+            if up:
                 took = int(time.monotonic() - start)
                 siris.attention.resolve_key(f"servers:down:{host.name}", "Woke up")
                 raise_alert(siris, f"servers:woke:{host.name}", f"{host.name} is awake", f"It answered {took}s after the wake-up packet.", severity="info")
@@ -163,6 +204,8 @@ def wake(siris: "SirisAI", host: SshHost, wait: bool = True) -> dict[str, Any]:
     via = send(siris, host, mac)
     if not via:
         raise RuntimeError(f"Couldn't send the wake-up packet for {host.name} any way at all.")
+    if wait and not host.host:
+        wait = False  # a wake-only computer with no address: nothing to check it by
     if wait:
         threading.Thread(target=wait_until_up, args=(siris, host, siris.settings.ssh_wake_timeout_seconds), daemon=True).start()
     return {"server": host.name, "mac": mac, "sent_via": via, "watching": wait}

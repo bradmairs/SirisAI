@@ -176,9 +176,9 @@ def test_waking_sends_every_way_and_needs_a_mac(servers: Servers, monkeypatch: p
     s = SirisAI(settings=Settings(ssh_hosts="nas=brad@10.0.0.2,pi=root@10.0.0.3", ssh_wake_relay="pi", ssh_wake_timeout_seconds=0))
     s.ssh_client._ssh_binary = servers.siris.ssh_client._ssh_binary  # type: ignore[union-attr]
     s._home_assistant_client = FakeHA()  # type: ignore[assignment]
-    assert s.run_tool("ssh_wake", {"servers": "nas"})[0]["error"].startswith("I don't know nas's MAC")
+    assert s.run_tool("ssh_wake", {"servers": "nas"}, confirmed=True)[0]["error"].startswith("I don't know nas's MAC")
     wake.remember_mac(s, s.ssh_client.find("nas"), "aa:bb:cc:00:00:01")  # type: ignore[union-attr]
-    result = s.run_tool("ssh_wake", {"servers": "nas"})[0]
+    result = s.run_tool("ssh_wake", {"servers": "nas"}, confirmed=True)[0]
     assert result["sent_via"] == ["relay pi", "Home Assistant", "direct broadcast"] and result["watching"] is False
     assert s._home_assistant_client.calls == [("wake_on_lan", "send_magic_packet", {"mac": "aa:bb:cc:00:00:01"})]  # type: ignore[union-attr]
     assert sent == [("aa:bb:cc:00:00:01", ["255.255.255.255", "10.0.0.255"])]
@@ -375,3 +375,59 @@ def test_routes_jobs_and_the_scheduler(client: TestClient, servers: Servers) -> 
     jobs = {j.name: j for j in daily_jobs.JOBS}
     assert jobs["server_updates"].hour(no_ssh) is None and jobs["server_updates"].hour(servers.siris) == 7
     assert jobs["server_disks"].hour(servers.siris) == 6
+
+
+# -- waking: always asks, and works for computers that aren't SSH servers ------------------------
+
+
+def test_waking_asks_first(servers: Servers) -> None:
+    from app.plugins.base import ConfirmationRequired
+
+    with pytest.raises(ConfirmationRequired):
+        servers.siris.run_tool("ssh_wake", {"servers": "nas"})
+
+
+def test_a_wake_only_computer_can_be_woken_by_name_and_checked_on_its_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(wake, "send_direct", lambda mac, addresses, port=9: sent.append((mac, addresses)))
+    started: list[Any] = []
+    monkeypatch.setattr(wake.threading, "Thread", lambda target, args, daemon: type("T", (), {"start": lambda self: started.append(args)})())
+    s = SirisAI(settings=Settings(ssh_hosts="nas=brad@10.0.0.2",
+                                  ssh_wake_macs="Desktop=AA-BB-CC-00-00-09@10.0.0.50,laptop=aa:bb:cc:00:00:0a"))
+
+    assert [m.name for m in wake.wake_only_machines(s)] == ["desktop", "laptop"]
+    assert "desktop, laptop" in s.tools.get("ssh_wake").description
+
+    result = s.run_tool("ssh_wake", {"servers": "Desktop"}, confirmed=True)[0]
+    assert result["server"] == "desktop" and result["mac"] == "aa:bb:cc:00:00:09" and result["watching"] is True
+    assert sent[-1] == ("aa:bb:cc:00:00:09", ["255.255.255.255", "10.0.0.255"])
+    assert started and started[-1][1].host == "10.0.0.50"
+
+    result = s.run_tool("ssh_wake", {"servers": "laptop"}, confirmed=True)[0]
+    assert result["watching"] is False                       # no address: nothing to check it by
+
+
+def test_an_unknown_machine_names_both_kinds(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = SirisAI(settings=Settings(ssh_hosts="nas=brad@10.0.0.2", ssh_wake_macs="desktop=aa:bb:cc:00:00:09"))
+    with pytest.raises(ValueError, match="Servers: nas; other computers: desktop"):
+        s.run_tool("ssh_wake", {"servers": "toaster"}, confirmed=True)
+
+
+def test_a_wake_only_computer_is_up_when_it_answers_on_any_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket
+
+    def refused(address: tuple[str, int], timeout: float) -> Any:
+        raise ConnectionRefusedError
+    monkeypatch.setattr(socket, "create_connection", refused)
+    assert wake.answers("10.0.0.50") is True                 # a refusal still means it's running
+
+    def silent(address: tuple[str, int], timeout: float) -> Any:
+        raise TimeoutError
+    monkeypatch.setattr(socket, "create_connection", silent)
+    assert wake.answers("10.0.0.50") is False
+
+    s = SirisAI(settings=Settings(ssh_wake_macs="desktop=aa:bb:cc:00:00:09@10.0.0.50"))
+    monkeypatch.setattr(wake, "answers", lambda address, timeout=2.0: address == "10.0.0.50")
+    desktop = wake.wake_only_machines(s)[0]
+    assert wake.wait_until_up(s, desktop, timeout=1, poll=0.01) is True
+    assert "desktop is awake" in {i["title"] for i in s.attention.list()}

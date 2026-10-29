@@ -270,7 +270,7 @@ def _restart(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], tr
 
 
 def _wake(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:
-    result = siris.run_tool("ssh_wake", {"servers": payload["server"]}, trigger=trigger)
+    result = siris.run_tool("ssh_wake", {"servers": payload["server"]}, confirmed=True, trigger=trigger)
     return result, "Wake-up sent"
 
 

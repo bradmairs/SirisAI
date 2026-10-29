@@ -30,6 +30,7 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "ssh_allow_power": ("Servers", "Allow reboot and shutdown", "Always asking first", True),
     "ssh_safe_commands": ("Servers", "Extra look-only commands", "Comma-separated command names that never ask", False),
     "ssh_command_timeout_seconds": ("Servers", "Command timeout (seconds)", "", True),
+    "ssh_wake_macs": ("Servers", "Wake-on-LAN computers", "name=MAC or name=MAC@address, comma-separated; servers' MACs are learned", False),
     "ssh_wake_relay": ("Servers", "Wake-on-LAN relay server", "A server on the LAN that sends the magic packet", False),
     "ssh_wake_broadcast": ("Servers", "Wake-on-LAN broadcast address", "Blank: worked out from each server's address", False),
     "ssh_wake_timeout_seconds": ("Servers", "Wait for a woken server (seconds)", "0: don't wait", False),

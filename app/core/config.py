@@ -754,8 +754,10 @@ class Settings(BaseSettings):
     approval_pin_tools: str = ""
     approval_expiry_minutes: float = 15.0
     # Wake-on-LAN (app/servers/wake.py). MACs are learned while servers are up;
-    # "name=aa:bb:cc:dd:ee:ff,..." overrides. A relay server sends the packet
-    # from inside the LAN (a container can't broadcast to it).
+    # "name=aa:bb:cc:dd:ee:ff,..." overrides. A name that isn't an SSH server is
+    # a wake-only computer (a desktop, a laptop); add "@192.168.0.50" so SirisAI
+    # can tell when it's up. A relay server sends the packet from inside the
+    # LAN (a container can't broadcast to it).
     ssh_wake_macs: str = ""
     ssh_wake_relay: str = ""
     ssh_wake_broadcast: str = ""
