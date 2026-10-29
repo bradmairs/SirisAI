@@ -5,6 +5,13 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.01 — 2026-10-29
+
+- Waking a server or computer (`ssh_wake`) now asks first, like reboot and shutdown already did. A spoken "yes" is enough to wake something; reboot and shutdown still have to be confirmed in the app. The attention feed's Wake button counts as the confirmation.
+- Any computer on the LAN can be woken by name, not just SSH servers: list it in `SIRISAI_SSH_WAKE_MACS` as `name=MAC` or `name=MAC@address` (also editable in Settings). With an address, SirisAI watches for it to come up by whether it answers on a common port.
+- Voice: a reply counts as a question when its last sentence asks one, or the one before a sign-off does ("Shall I turn them off? Just say the word."), so the HUD and satellites listen for the answer more often.
+- The HUD now starts listening by itself after SirisAI asks something, instead of waiting for a tap, and gives up quietly after 8 seconds of silence. It keeps one microphone audio context from the first tap, so this also works on iPhone.
+
 ## 2.91 — 2026-10-25
 
 - Protocols can be made and changed from SirisOS: the hub lists every protocol with its steps and what a step can do, and saves or deletes them, allowing only device, notification and guest-mode steps (anything else is kept as made in chat).

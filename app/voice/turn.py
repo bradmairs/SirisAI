@@ -27,7 +27,7 @@ from app.voice.confirmations import (
     voice_confirmable,
 )
 from app.voice.pronunciation import for_speech
-from app.voice.sentences import SentenceChunker, speakable, strip_spoken_prefix
+from app.voice.sentences import SentenceChunker, expects_answer, speakable, strip_spoken_prefix
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -171,7 +171,7 @@ class VoiceTurn:
         else:
             remainder = strip_spoken_prefix(already_spoken, response)
             sentences = self._chunker.feed(remainder) + self._chunker.flush()
-            expects_reply = response.rstrip().endswith("?")
+            expects_reply = expects_answer(response)
 
         async for event in self._speak_all(sentences):
             yield event

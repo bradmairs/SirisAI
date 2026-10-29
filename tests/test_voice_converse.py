@@ -6,6 +6,8 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
@@ -238,3 +240,18 @@ def test_converse_with_audio_but_no_stt_is_501(client: TestClient) -> None:
         assert response.status_code == 501
     finally:
         app.dependency_overrides.pop(get_siris, None)
+
+
+@pytest.mark.parametrize("reply, expected", [
+    ("The lounge lights are on. Shall I turn them off?", True),
+    ("Shall I turn them off? Just say the word.", True),
+    ('Did you mean the office or the lounge?"', True),
+    ("Want me to check the NAS too?)", True),
+    ("It's 7pm. Anything else? I'll keep an eye on the server overnight and let you know if it changes.", False),
+    ("Done, the garage door is closed.", False),
+    ("Why does this happen? Usually a tripped breaker.", False),
+    ("", False),
+])
+def test_a_reply_that_asks_something_expects_an_answer(reply: str, expected: bool) -> None:
+    from app.voice.sentences import expects_answer
+    assert expects_answer(reply) is expected

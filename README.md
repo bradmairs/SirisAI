@@ -6011,7 +6011,13 @@ provider for the same capability actually exists to design against.
         broadcast onto the LAN), Home Assistant's `wake_on_lan`, and a
         direct broadcast;
       - it then polls SSH in the background and posts "nas is awake (took
-        48s)" or "nas didn't wake up" with what to check.
+        48s)" or "nas didn't wake up" with what to check;
+      - it always asks first (a spoken "yes" will do; reboot and shutdown
+        via `ssh_power` must be confirmed in the app);
+      - computers that aren't SSH servers can be woken too: name them in
+        `SIRISAI_SSH_WAKE_MACS` (`desktop=aa:bb:cc:dd:ee:ff@192.168.0.50`).
+        With an address, SirisAI watches for it to answer on any common port
+        (SSH, SMB, RDP, VNC, HTTP); without one it just sends the packet.
     - **The server watch** runs every `SIRISAI_SERVER_WATCH_MINUTES` (15). It
       syncs the attention feed with what's wrong right now, and items close
       themselves when fixed:
