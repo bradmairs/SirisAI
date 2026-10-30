@@ -87,6 +87,9 @@
     "health_overview": {
       "$ref": "#/$defs/HealthOverview"
     },
+    "health_workouts": {
+      "$ref": "#/$defs/HealthWorkouts"
+    },
     "controls": {
       "$ref": "#/$defs/Controls"
     },
@@ -1873,6 +1876,38 @@
         }
       },
       "title": "HealthSummary",
+      "type": "object"
+    },
+    "HealthWorkouts": {
+      "additionalProperties": false,
+      "description": "Workouts, newest first (SirisAI 3.51): for SirisOS's training plan\n(what was actually run, race predictions, heart-rate zones).",
+      "properties": {
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "workouts": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "date, name, start, minutes, km, kcal, avg_hr, max_hr, source",
+          "title": "Workouts"
+        }
+      },
+      "required": [
+        "guest_mode"
+      ],
+      "title": "HealthWorkouts",
       "type": "object"
     },
     "HubInfo": {

@@ -539,6 +539,16 @@ def health_overview(siris: "SirisAI") -> c.HealthOverview:
     return c.HealthOverview(guest_mode=False, **built)
 
 
+def health_workouts(siris: "SirisAI", days: int) -> c.HealthWorkouts:
+    from datetime import timedelta
+
+    on, _ = _guest(siris)
+    if on:
+        return c.HealthWorkouts(guest_mode=True)
+    since = (clock.now_local(siris.settings.timezone).date() - timedelta(days=days - 1)).isoformat()
+    return c.HealthWorkouts(guest_mode=False, workouts=siris.health.workouts(since))
+
+
 # -- home controls (SirisOS 4.2) ---------------------------------------------------
 
 CONTROL_DOMAINS = {"light": "light", "switch": "switch", "cover": "garage", "lock": "lock"}

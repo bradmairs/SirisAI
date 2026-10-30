@@ -6338,7 +6338,8 @@ provider for the same capability actually exists to design against.
       - a weight trend (exponentially smoothed, kg a week, weeks to a goal);
       - "getting sick": two of temperature, resting heart rate and HRV off
         their usual, two days running.
-      - All of it is at `GET /siris/hub/v1/health/overview` (additive).
+      - All of it is at `GET /siris/hub/v1/health/overview`, and workouts
+        at `GET /siris/hub/v1/health/workouts?days=` (both additive).
     - **Backfill** (`POST /siris/health/apple-export`): the Health app's
       `export.zip`, read as a stream. For counts, only the device with the
       most each day is used, so phone plus watch steps don't double.

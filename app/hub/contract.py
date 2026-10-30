@@ -371,6 +371,14 @@ class HealthOverview(_Model):
     bedtime: dict[str, Any] | None = Field(None, description="Tonight's suggested bedtime and why")
 
 
+class HealthWorkouts(_Model):
+    """Workouts, newest first (SirisAI 3.51): for SirisOS's training plan
+    (what was actually run, race predictions, heart-rate zones)."""
+
+    guest_mode: bool
+    workouts: list[dict[str, Any]] | None = Field(None, description="date, name, start, minutes, km, kcal, avg_hr, max_hr, source")
+
+
 class AttentionItem(_Model):
     id: int
     key: str = Field(description="Stable identity of the underlying thing (a suggestion, a job, an alert).")
@@ -632,6 +640,7 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "upkeep": Upkeep,
     "health_days": HealthDays,
     "health_overview": HealthOverview,
+    "health_workouts": HealthWorkouts,
     "controls": Controls,
     "control_request": ControlRequest,
     "control": ControlResult,
