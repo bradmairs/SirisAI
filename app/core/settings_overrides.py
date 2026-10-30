@@ -12,6 +12,7 @@ read each time it's used (almost all of them). The few marked
 """
 
 import json
+from datetime import UTC, datetime
 import logging
 import os
 from pathlib import Path
@@ -54,6 +55,15 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "expiry_check_servers": ("Homelab", "Also check HTTPS on each server", "", False),
     "expiry_check_hour_local": ("Homelab", "Certificate and domain check (hour)", "Blank: off", False),
     "security_cert_warn_days": ("Homelab", "Warn this many days before expiry", "", False),
+    "away_mode": ("Home", "Away mode", "ask, auto or off: when everyone leaves, offer or run the away protocol", False),
+    "away_protocol": ("Home", "Away protocol", "The protocol to run when everyone's out", False),
+    "camera_digest_hours": ("Home", "Camera digest at (hours)", "Comma-separated local hours; blank: off", False),
+    "camera_digest_push": ("Home", "Send the camera digest to my phone", "", False),
+    "energy_report_hour_local": ("Home", "Weekly energy report, Mondays (hour)", "Blank: off", False),
+    "energy_flat_rate": ("Home", "Electricity price per kWh", "Used when there's no price sensor; 0: no cost", False),
+    "energy_overnight_watts": ("Home", "Left on overnight means more than (W)", "", False),
+    "energy_ignore": ("Home", "Leave these out of the energy report", "Entity ids or names, comma-separated", False),
+    "audit_digest_hour_local": ("Approvals", "Weekly audit digest, Sundays (hour)", "Blank: off", False),
     "approval_expiry_minutes": ("Approvals", "Approvals expire after (minutes)", "0: never", False),
     "approval_pin_tools": ("Approvals", "More tools that need the PIN", "Comma-separated tool names", False),
     "briefing_hour_local": ("Daily", "Morning briefing (hour)", "Blank: off", False),
@@ -116,7 +126,28 @@ def describe(settings: "Settings") -> list[dict[str, Any]]:
     return out
 
 
-def update(siris: "SirisAI", changes: dict[str, Any]) -> dict[str, Any]:
+HISTORY_KEY = "settings_history"
+HISTORY_KEEP = 50
+
+
+def history(siris: "SirisAI") -> list[dict[str, Any]]:
+    """Changes made here, newest first: when, each setting's value before and
+    after, and whether it was set here before (so an undo can put it back to
+    .env or the default rather than pinning that value)."""
+    return list(siris.state.get(HISTORY_KEY) or [])
+
+
+def undo(siris: "SirisAI", change_id: int) -> dict[str, Any]:
+    """Put back what one change replaced (a new change, itself undoable)."""
+    entry = next((h for h in history(siris) if h["id"] == change_id), None)
+    if entry is None:
+        raise LookupError(f"No settings change {change_id}")
+    # None clears the override; a value that was set here *to* blank goes back as "" (blank = off).
+    restore = {name: (("" if c["before"] is None else c["before"]) if c["was_set_here"] else None) for name, c in entry["changes"].items()}
+    return update(siris, restore, undo_of=change_id)
+
+
+def update(siris: "SirisAI", changes: dict[str, Any], undo_of: int | None = None) -> dict[str, Any]:
     """Validate, store and apply. Raises ValueError for an unknown field or a
     bad value (nothing is stored then). A value of None clears the web
     override, going back to .env or the default."""
@@ -128,6 +159,7 @@ def update(siris: "SirisAI", changes: dict[str, Any]) -> dict[str, Any]:
     if unknown:
         raise ValueError(f"These can't be changed here: {', '.join(unknown)}")
     stored = load()
+    before = {name: {"before": getattr(siris.settings, name), "was_set_here": name in stored} for name in changes}
     for name, value in changes.items():
         if value is None:
             stored.pop(name, None)
@@ -148,4 +180,12 @@ def update(siris: "SirisAI", changes: dict[str, Any]) -> dict[str, Any]:
         setattr(siris.settings, name, getattr(fresh, name))
         (restart if EDITABLE[name][3] else applied).append(name)
     siris.audit.record("settings_update", {"changed": sorted(changes)}, result={"applied": applied, "restart": restart}, trigger="the Settings page")
-    return {"applied": applied, "needs_restart": restart}
+    past = history(siris)
+    entry = {
+        "id": (past[0]["id"] + 1) if past else 1,
+        "at": datetime.now(UTC).isoformat(),
+        "changes": {name: {**before[name], "after": getattr(fresh, name)} for name in changes},
+        "undo_of": undo_of,
+    }
+    siris.state.set(HISTORY_KEY, json.loads(json.dumps([entry, *past][:HISTORY_KEEP], default=str)))
+    return {"applied": applied, "needs_restart": restart, "change": entry}

@@ -345,6 +345,9 @@
   .setting-help { grid-column: 1 / -1; font-size: 0.75rem; opacity: 0.6; }
   .settings-hint { font-size: 0.85rem; opacity: 0.75; }
   .settings-actions { display: flex; gap: 12px; align-items: center; }
+  .settings-history-title { font-size: 12px; margin: 1.5rem 0 8px; color: var(--accent); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; }
+  .settings-change { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.08); font-size: 0.85rem; }
+  .settings-change .when { opacity: 0.6; white-space: nowrap; }
   @media (max-width: 560px) { .setting-row { grid-template-columns: 1fr; } }
   #pin-dialog { border-radius: 16px; border: 1px solid rgba(255,255,255,0.15); background: var(--bg, #111); color: inherit; padding: 18px 20px; max-width: 320px; }
   #pin-dialog::backdrop { background: rgba(0,0,0,0.55); }
@@ -507,6 +510,8 @@
         <span id="settings-status"></span>
       </div>
     </form>
+    <h3 class="settings-history-title">Recent changes</h3>
+    <div id="settings-history"></div>
   </section>
 </main>
 
@@ -2137,8 +2142,60 @@
   const settingsStatus = document.getElementById("settings-status");
   let settingsShown = [];
 
+  const settingsHistory = document.getElementById("settings-history");
+
+  // What changed, newest first, each with Undo (it puts back what that change replaced).
+  async function loadSettingsHistory() {
+    settingsHistory.innerHTML = "";
+    let changes = [];
+    try {
+      changes = (await api("/siris/settings/history")).changes;
+    } catch (err) {
+      return;
+    }
+    if (!changes.length) {
+      settingsHistory.innerHTML = '<p class="empty">No changes made here yet.</p>';
+      return;
+    }
+    const show = (v) => (v === null || v === "" ? "blank" : String(v));
+    for (const change of changes.slice(0, 15)) {
+      const row = document.createElement("div");
+      row.className = "settings-change";
+      const what = document.createElement("span");
+      what.textContent = Object.entries(change.changes)
+        .map(([name, c]) => `${change.labels[name] || name}: ${show(c.before)} \u2192 ${show(c.after)}`)
+        .join("; ") + (change.undo_of ? ` (undid change ${change.undo_of})` : "");
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = new Date(change.at).toLocaleString();
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.className = "action-btn";
+      undo.textContent = "Undo";
+      undo.addEventListener("click", async () => {
+        undo.disabled = true;
+        try {
+          const out = await withPin((pin) => api(`/siris/settings/undo/${change.id}`, { method: "POST", body: JSON.stringify({ pin }) }), "Undo a settings change");
+          renderSettings(out.settings);
+          settingsStatus.textContent = "Undone.";
+          settingsStatus.className = "ok";
+          loadSettingsHistory();
+        } catch (err) {
+          undo.disabled = false;
+          if (!err.cancelled) {
+            settingsStatus.textContent = err.message;
+            settingsStatus.className = "error";
+          }
+        }
+      });
+      row.append(what, when, undo);
+      settingsHistory.appendChild(row);
+    }
+  }
+
   async function loadSettings() {
     settingsBody.innerHTML = '<p class="empty">Loading...</p>';
+    loadSettingsHistory();
     try {
       renderSettings((await api("/siris/settings")).settings);
     } catch (err) {
@@ -2213,6 +2270,7 @@
     try {
       const out = await withPin((pin) => api("/siris/settings", { method: "PUT", body: JSON.stringify({ changes, pin }) }), "Save settings");
       renderSettings(out.settings);
+      loadSettingsHistory();
       settingsStatus.textContent = out.needs_restart.length ? `Saved. Restart SirisAI for: ${out.needs_restart.join(", ")}.` : "Saved.";
       settingsStatus.className = "ok";
     } catch (err) {

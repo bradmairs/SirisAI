@@ -239,6 +239,17 @@ def run_device_watch(siris: "SirisAI") -> dict | None:
         return None
 
 
+def run_camera_digest(siris: "SirisAI") -> dict | None:
+    """What the cameras saw (app/household/cameras.py), at the digest hours."""
+    from app.household import cameras
+
+    try:
+        return cameras.digest(siris) if cameras.due(siris) else None
+    except Exception:
+        logger.exception("Camera digest failed")
+        return None
+
+
 def run_speed_test(siris: "SirisAI") -> dict | None:
     from app.homelab import internet
 
@@ -452,6 +463,8 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             if devices_interval > 0 and time.monotonic() - last_devices >= devices_interval:
                 await asyncio.to_thread(run_device_watch, siris)
                 last_devices = time.monotonic()
+
+            await asyncio.to_thread(run_camera_digest, siris)
 
             speed_interval = siris.settings.internet_speedtest_hours * 3600
             if speed_interval > 0 and time.monotonic() - last_speed >= speed_interval:
