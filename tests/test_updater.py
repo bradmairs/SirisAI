@@ -71,7 +71,9 @@ def stage(tmp_path: Path):
         "FAKE_STATE": str(state),
         "UPDATE_DIR": str(update_dir),
         "SIRISOS_SRC": str(tmp_path / "SirisOS"),
-        "HEALTH_TIMEOUT": "1",
+        # Whole seconds (date +%s): 1 could expire before the first check when
+        # the run starts late in a second, rolling back a healthy update.
+        "HEALTH_TIMEOUT": "3",
         "HEALTH_POLL": "0.1",
     }
 
