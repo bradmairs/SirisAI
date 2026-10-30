@@ -24,6 +24,8 @@ screen, daily brief, search, inbox and controls on.
     POST /siris/hub/v1/reminders/{id}/done      cancel one that's no longer needed
     GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
     GET  /siris/hub/v1/network                  UniFi gateway, switches, APs and clients with live rates (SirisOS house view)
+    POST /siris/hub/v1/network/{mac}/block      {blocked}: block a client, or let it back in (SirisOS network alerts)
+    GET  /siris/hub/v1/energy/usage             Home Assistant's power sensors and kWh meters (SirisOS house view)
     GET  /siris/hub/v1/controls                 lights, garage doors, locks and scenes (SirisOS Home)
     POST /siris/hub/v1/controls/{entity}        {action, confirmed}: one of them (garage/unlock ask first)
     POST /siris/hub/v1/scenes/{id}/run          a Siris or Home Assistant scene
@@ -281,6 +283,25 @@ async def hub_network(siris: SirisAI = Depends(get_siris)) -> c.Network:
         return await asyncio.to_thread(compose.network, siris)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"UniFi didn't answer: {str(exc)[:200]}") from exc
+
+
+@router.post("/network/{mac}/block", response_model=c.NetworkBlockResult)
+async def hub_network_block(mac: str, body: c.NetworkBlockRequest, request: Request, siris: SirisAI = Depends(get_siris)) -> c.NetworkBlockResult:
+    trigger = f"hub: the user {'blocked' if body.blocked else 'unblocked'} {mac} in {_client_name(request)}"
+    try:
+        return await asyncio.to_thread(compose.block, siris, mac, body.blocked, trigger)
+    except compose.ControlRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"UniFi didn't do it: {str(exc)[:200]}") from exc
+
+
+@router.get("/energy/usage", response_model=c.EnergyUsage)
+async def hub_energy_usage(siris: SirisAI = Depends(get_siris)) -> c.EnergyUsage:
+    try:
+        return await asyncio.to_thread(compose.energy_usage, siris)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Home Assistant didn't answer: {str(exc)[:200]}") from exc
 
 
 @router.get("/controls", response_model=c.Controls)

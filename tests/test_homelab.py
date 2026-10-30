@@ -306,9 +306,9 @@ class FakeUniFi:
     def list_clients(self) -> list[dict[str, Any]]:
         return [{"id": f"id-{c['mac']}", "mac": c["mac"], "name": c["name"]} for c in self.clients]
 
-    def block_client(self, client_id: str) -> dict[str, Any]:
-        self.blocked.append(client_id)
-        return {"client_id": client_id, "blocked": True}
+    def set_blocked(self, mac: str, blocked: bool) -> dict[str, Any]:
+        self.blocked.append(mac)
+        return {"mac": mac, "blocked": blocked}
 
 
 def _device_siris() -> tuple[SirisAI, FakeUniFi]:
@@ -338,7 +338,8 @@ def test_a_new_device_is_raised_after_the_baseline_with_name_and_block() -> None
     assert devices.names(siris)["bb:bb:bb:00:00:02"] == "Kitchen plug"
     printer = items["New device: printer on Main"]
     closed, _ = attention.act(siris, printer["id"], "block")
-    assert fake.blocked == ["id-cc:cc:cc:00:00:03"] and closed["outcome"] == "Blocked cc:cc:cc:00:00:03"
+    assert fake.blocked == ["cc:cc:cc:00:00:03"] and closed["outcome"] == "Blocked cc:cc:cc:00:00:03"
+    assert any(e["tool_name"] == "unifi_block" for e in siris.audit.list_recent(limit=10))
 
     assert devices.find_mac(siris, "kitchen plug") == "bb:bb:bb:00:00:02"
     assert devices.find_mac(siris, "10.0.0.5") == "aa:aa:aa:00:00:01"

@@ -95,6 +95,15 @@
     },
     "network": {
       "$ref": "#/$defs/Network"
+    },
+    "network_block_request": {
+      "$ref": "#/$defs/NetworkBlockRequest"
+    },
+    "network_block": {
+      "$ref": "#/$defs/NetworkBlockResult"
+    },
+    "energy_usage": {
+      "$ref": "#/$defs/EnergyUsage"
     }
   },
   "$defs": {
@@ -1293,6 +1302,31 @@
       "title": "EmailWith",
       "type": "object"
     },
+    "EnergyMeter": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kwh": {
+          "description": "The meter's reading, a total that only goes up (kWh; Wh converted).",
+          "title": "Kwh",
+          "type": "number"
+        }
+      },
+      "required": [
+        "entity_id",
+        "name",
+        "kwh"
+      ],
+      "title": "EnergyMeter",
+      "type": "object"
+    },
     "EnergySummary": {
       "additionalProperties": false,
       "properties": {
@@ -1359,6 +1393,76 @@
         "cheap_now"
       ],
       "title": "EnergySummary",
+      "type": "object"
+    },
+    "EnergyUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "configured": {
+          "description": "Home Assistant is set up.",
+          "title": "Configured",
+          "type": "boolean"
+        },
+        "house_watts": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The whole house now: SIRISAI_ENERGY_GRID_ENTITY_ID, else none.",
+          "title": "House Watts"
+        },
+        "solar_watts": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SIRISAI_ENERGY_SOLAR_ENTITY_ID right now.",
+          "title": "Solar Watts"
+        },
+        "house_meter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SIRISAI_ENERGY_METER_ENTITY_ID: the whole house's kWh meter, if set.",
+          "title": "House Meter"
+        },
+        "power": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PowerSensor"
+          },
+          "title": "Power",
+          "type": "array"
+        },
+        "meters": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/EnergyMeter"
+          },
+          "title": "Meters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "configured"
+      ],
+      "title": "EnergyUsage",
       "type": "object"
     },
     "Forecast": {
@@ -1866,6 +1970,41 @@
       "title": "Network",
       "type": "object"
     },
+    "NetworkBlockRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked": {
+          "description": "True blocks the client; false lets it back in.",
+          "title": "Blocked",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "blocked"
+      ],
+      "title": "NetworkBlockRequest",
+      "type": "object"
+    },
+    "NetworkBlockResult": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The client's MAC address.",
+          "title": "Id",
+          "type": "string"
+        },
+        "blocked": {
+          "title": "Blocked",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "blocked"
+      ],
+      "title": "NetworkBlockResult",
+      "type": "object"
+    },
     "NetworkNode": {
       "additionalProperties": false,
       "properties": {
@@ -2069,6 +2208,31 @@
         "label"
       ],
       "title": "ParcelSummary",
+      "type": "object"
+    },
+    "PowerSensor": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "watts": {
+          "description": "Power right now, in watts (kW sensors are converted).",
+          "title": "Watts",
+          "type": "number"
+        }
+      },
+      "required": [
+        "entity_id",
+        "name",
+        "watts"
+      ],
+      "title": "PowerSensor",
       "type": "object"
     },
     "Presence": {

@@ -6142,7 +6142,20 @@ provider for the same capability actually exists to design against.
     `tests/test_unifi.py` against recorded shapes. Not yet live-tested
     against the Cloud Gateway Ultra.
 
-149. **Done** -- Homelab upkeep (`app/homelab/`): container updates, server
+149. **Done** -- Network alerts, power use and Apple Health on its own (3.11, for SirisOS 5.3 to 5.5).
+    `POST /siris/hub/v1/network/{mac}/block` blocks a client, or lets it
+    back in, through the classic `cmd/stamgr` command (it works for a device
+    that isn't connected), and is audited. `GET /siris/hub/v1/energy/usage`
+    lists every Home Assistant power sensor (W now; kW converted) and
+    energy meter (kWh total; Wh converted), plus the whole house's figures
+    from `SIRISAI_ENERGY_GRID_ENTITY_ID` and `SIRISAI_ENERGY_METER_ENTITY_ID`
+    when they're set. `POST /siris/health/metrics` now also takes Health
+    Auto Export's JSON, any number of days at once: steps, active energy
+    and exercise are summed per day, heart rates averaged, weight is the
+    last reading, sleep comes from `sleep_analysis`, and running km from
+    the run workouts. Verified in `tests/test_unifi.py`,
+    `tests/test_hub_energy_usage.py` and `tests/test_health_auto_export.py`.
+150. **Done** -- Homelab upkeep (`app/homelab/`): container updates, server
     backups, new devices, internet outages, and expiring certificates and
     domains.
     - **Container updates** (`docker_check_updates`, `docker_update_containers`,
@@ -6180,8 +6193,8 @@ provider for the same capability actually exists to design against.
         maker, network or Wi-Fi, IP and MAC;
       - **Name it** remembers the device (under the name typed in, sent as
         the act `body`), and `network_name_device` does it from chat;
-      - **Block** blocks it through `unifi_block_client` and needs the
-        approval PIN;
+      - **Block** blocks its MAC (milestone 149's `set_blocked`, so it works
+        even once the device has left) and needs the approval PIN;
       - the Home Assistant based `new_device_alert` stands down while this
         runs, so a device doesn't alert twice.
     - **Internet outages:**

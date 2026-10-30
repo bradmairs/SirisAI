@@ -7,6 +7,7 @@ left out entirely and named in `hidden`."""
 from __future__ import annotations
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
@@ -655,3 +656,66 @@ def network(siris: "SirisAI") -> c.Network:
                                 rx_bps=x["rx_bps"], tx_bps=x["tx_bps"])
                   for x in t["clients"] if x.get("mac")]
     return c.Network(configured=True, guest_mode=on, checked_at=now, wan=t["wan"], nodes=nodes)
+
+
+# -- blocking a client, and power use (SirisOS 5.3) -----------------------------------
+
+
+def block(siris: "SirisAI", mac: str, blocked: bool, trigger: str) -> c.NetworkBlockResult:
+    client = siris._unifi_client
+    if client is None:
+        raise ControlRefused("UniFi isn't set up in SirisAI.", 404)
+    if not _MAC.fullmatch(mac):
+        raise ControlRefused("That isn't a MAC address.", 422)
+    result = client.set_blocked(mac, blocked)
+    siris.audit.record("unifi_block" if blocked else "unifi_unblock", {"mac": mac.lower()}, result=result, trigger=trigger)
+    return c.NetworkBlockResult(id=mac.lower(), blocked=blocked)
+
+
+_MAC = re.compile(r"(?i)[0-9a-f]{2}(:[0-9a-f]{2}){5}")
+
+
+def _watts(state: dict) -> float | None:
+    try:
+        value = float(state.get("state"))
+    except (TypeError, ValueError):
+        return None
+    unit = str((state.get("attributes") or {}).get("unit_of_measurement") or "").strip()
+    return value * 1000 if unit == "kW" else value if unit == "W" else None
+
+
+def _kwh(state: dict) -> float | None:
+    try:
+        value = float(state.get("state"))
+    except (TypeError, ValueError):
+        return None
+    unit = str((state.get("attributes") or {}).get("unit_of_measurement") or "").strip()
+    return value if unit == "kWh" else value / 1000 if unit == "Wh" else value * 1000 if unit == "MWh" else None
+
+
+def energy_usage(siris: "SirisAI") -> c.EnergyUsage:
+    """Every Home Assistant power sensor (W now) and energy meter (kWh,
+    total so far), named, so SirisOS can put them in rooms and count a
+    day's use from the meters."""
+    ha = siris._home_assistant_client
+    if ha is None:
+        return c.EnergyUsage(configured=False)
+    s = siris.settings
+    power: list[c.PowerSensor] = []
+    meters: list[c.EnergyMeter] = []
+    by_id: dict[str, dict] = {}
+    for st in ha.list_states("sensor"):
+        eid = str(st.get("entity_id") or "")
+        by_id[eid] = st
+        attrs = st.get("attributes") or {}
+        name = str(attrs.get("friendly_name") or eid)
+        kind = attrs.get("device_class")
+        if kind == "power" and (w := _watts(st)) is not None:
+            power.append(c.PowerSensor(entity_id=eid, name=name, watts=round(w, 1)))
+        elif kind == "energy" and attrs.get("state_class") in ("total_increasing", "total") and (k := _kwh(st)) is not None:
+            meters.append(c.EnergyMeter(entity_id=eid, name=name, kwh=round(k, 3)))
+    grid = by_id.get(s.energy_grid_entity_id) if s.energy_grid_entity_id else None
+    solar = by_id.get(s.energy_solar_entity_id) if s.energy_solar_entity_id else None
+    return c.EnergyUsage(configured=True, house_watts=_watts(grid) if grid else None, solar_watts=_watts(solar) if solar else None,
+                         house_meter=s.energy_meter_entity_id or None,
+                         power=sorted(power, key=lambda p: -p.watts), meters=meters)

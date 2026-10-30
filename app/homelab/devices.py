@@ -6,8 +6,8 @@ Espressif on IoT" in the attention feed, with what UniFi knows about it
 (hostname, maker, network or Wi-Fi, IP, MAC) and:
 - **Name it**: remembers it under a name (the reply text, if the client
   sends one, else its hostname or maker) so it never alerts again;
-- **Block**: blocks it in UniFi (`unifi_block_client`). Needs the approval
-  PIN when one is set.
+- **Block**: blocks its MAC in UniFi (works even once it has left). Needs
+  the approval PIN when one is set.
 
 The first check records everything already there without alerting. Known
 devices persist across restarts (KnownDeviceStore, shared with the Home
@@ -105,11 +105,11 @@ def _name(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigg
 
 
 def _block(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:
+    # By MAC (the classic stamgr command), so it works even if the device has
+    # just left; unblock it in the UniFi app or SirisOS's network view.
     mac = payload["mac"]
-    client = next((c for c in siris._unifi_client.list_clients() if (c.get("mac") or "").lower() == mac), None)  # type: ignore[union-attr]
-    if client is None:
-        raise LookupError(f"{mac} isn't connected right now, so UniFi can't block it from here. Block it in the UniFi app.")
-    result = siris.run_tool("unifi_block_client", {"client_id": client["id"]}, confirmed=True, trigger=trigger)
+    result = siris._unifi_client.set_blocked(mac, True)  # type: ignore[union-attr]
+    siris.audit.record("unifi_block", {"mac": mac}, result=result, trigger=trigger)
     return result, f"Blocked {mac}"
 
 

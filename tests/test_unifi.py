@@ -662,3 +662,32 @@ def test_hub_network_shapes_the_graph(client) -> None:
         guest.set_mode(siris, False)
     finally:
         app.dependency_overrides.pop(get_siris, None)
+
+
+def test_block_and_unblock_by_mac_through_the_hub(client) -> None:
+    from app.core.siris import get_siris
+    from app.main import app
+    from tests.test_hub import full_siris
+
+    sent: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/proxy/network/api/s/default/cmd/stamgr":
+            import json as _json
+
+            sent.append(_json.loads(request.content))
+            return httpx.Response(200, json={"meta": {"rc": "ok"}, "data": []})
+        return httpx.Response(404)
+
+    siris = full_siris()
+    app.dependency_overrides[get_siris] = lambda: siris
+    try:
+        assert client.post("/siris/hub/v1/network/AA:BB:CC:DD:EE:01/block", json={"blocked": True}).status_code == 404
+        siris._unifi_client = _mock_client(handler)
+        r = client.post("/siris/hub/v1/network/AA:BB:CC:DD:EE:01/block", json={"blocked": True})
+        assert r.json() == {"id": "aa:bb:cc:dd:ee:01", "blocked": True}
+        client.post("/siris/hub/v1/network/aa:bb:cc:dd:ee:01/block", json={"blocked": False})
+        assert sent == [{"cmd": "block-sta", "mac": "aa:bb:cc:dd:ee:01"}, {"cmd": "unblock-sta", "mac": "aa:bb:cc:dd:ee:01"}]
+        assert client.post("/siris/hub/v1/network/not-a-mac/block", json={"blocked": True}).status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
