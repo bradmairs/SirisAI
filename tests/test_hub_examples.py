@@ -153,6 +153,7 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["upkeep"] = client.get("/siris/hub/v1/upkeep", headers=h).json()
         siris.health.record({"steps": 9120, "running_km": 5.2, "sleep_hours": 7.1}, datetime.now(UTC).date().isoformat(), user_id="brad")
         out["health_days"] = client.get("/siris/hub/v1/health/days", params={"days": 2}, headers=h).json()
+        out["health_overview"] = client.get("/siris/hub/v1/health/overview", headers=h).json()
 
         notify_confirmation_needed(siris, "routine 'morning heat'", switch.name, {"domain": "switch", "service": "turn_on", "entity_id": "switch.heater"})
         siris.attention.raise_item("push:example", "alert", "SirisAI: plex needs you", source="self-healing", severity="urgent", body="plex is down and a restart didn't fix it.")

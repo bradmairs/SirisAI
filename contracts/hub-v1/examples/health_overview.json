@@ -1,0 +1,407 @@
+{
+  "guest_mode": false,
+  "today": "2026-10-30",
+  "available": true,
+  "sources": {
+    "days": 1,
+    "imports": {}
+  },
+  "readiness": {
+    "date": "2026-10-30",
+    "score": 87,
+    "band": "Primed",
+    "advice": "A good day to push: a hard session or a long run will land well.",
+    "early": true,
+    "contributors": [
+      {
+        "key": "sleep_hours",
+        "label": "Sleep",
+        "unit": "h",
+        "value": 7.1,
+        "baseline": 7.5,
+        "score": 87,
+        "text": "Slept 7.1 h of the 7.5 h you need"
+      }
+    ],
+    "summary": "Slept 7.1 h of the 7.5 h you need"
+  },
+  "sleep": {
+    "need": 7.5,
+    "last_night": {
+      "date": "2026-10-30",
+      "hours": 7.1,
+      "deep": null,
+      "rem": null,
+      "core": null,
+      "awake": null,
+      "in_bed": null,
+      "start": null,
+      "end": null
+    },
+    "score": 95,
+    "debt_7d": 0.4,
+    "bedtime_spread_min": null,
+    "average_7d": 7.1,
+    "nights": [
+      {
+        "date": "2026-10-17",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-18",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-19",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-20",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-21",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-22",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-23",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-24",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-25",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-26",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-27",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-28",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-29",
+        "hours": null,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-10-30",
+        "hours": 7.1,
+        "deep": null,
+        "rem": null,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": null,
+        "end": null
+      }
+    ]
+  },
+  "activity": {
+    "steps": 9120.0,
+    "active_energy_kcal": null,
+    "exercise_minutes": null,
+    "stand_hours": null,
+    "load": {
+      "acute_min_per_day": 0.0,
+      "chronic_min_per_day": 0.0,
+      "ratio": null,
+      "zone": null
+    },
+    "exercise_series": [
+      {
+        "date": "2026-10-03",
+        "value": null
+      },
+      {
+        "date": "2026-10-04",
+        "value": null
+      },
+      {
+        "date": "2026-10-05",
+        "value": null
+      },
+      {
+        "date": "2026-10-06",
+        "value": null
+      },
+      {
+        "date": "2026-10-07",
+        "value": null
+      },
+      {
+        "date": "2026-10-08",
+        "value": null
+      },
+      {
+        "date": "2026-10-09",
+        "value": null
+      },
+      {
+        "date": "2026-10-10",
+        "value": null
+      },
+      {
+        "date": "2026-10-11",
+        "value": null
+      },
+      {
+        "date": "2026-10-12",
+        "value": null
+      },
+      {
+        "date": "2026-10-13",
+        "value": null
+      },
+      {
+        "date": "2026-10-14",
+        "value": null
+      },
+      {
+        "date": "2026-10-15",
+        "value": null
+      },
+      {
+        "date": "2026-10-16",
+        "value": null
+      },
+      {
+        "date": "2026-10-17",
+        "value": null
+      },
+      {
+        "date": "2026-10-18",
+        "value": null
+      },
+      {
+        "date": "2026-10-19",
+        "value": null
+      },
+      {
+        "date": "2026-10-20",
+        "value": null
+      },
+      {
+        "date": "2026-10-21",
+        "value": null
+      },
+      {
+        "date": "2026-10-22",
+        "value": null
+      },
+      {
+        "date": "2026-10-23",
+        "value": null
+      },
+      {
+        "date": "2026-10-24",
+        "value": null
+      },
+      {
+        "date": "2026-10-25",
+        "value": null
+      },
+      {
+        "date": "2026-10-26",
+        "value": null
+      },
+      {
+        "date": "2026-10-27",
+        "value": null
+      },
+      {
+        "date": "2026-10-28",
+        "value": null
+      },
+      {
+        "date": "2026-10-29",
+        "value": null
+      },
+      {
+        "date": "2026-10-30",
+        "value": null
+      }
+    ],
+    "steps_series": [
+      {
+        "date": "2026-10-17",
+        "value": null
+      },
+      {
+        "date": "2026-10-18",
+        "value": null
+      },
+      {
+        "date": "2026-10-19",
+        "value": null
+      },
+      {
+        "date": "2026-10-20",
+        "value": null
+      },
+      {
+        "date": "2026-10-21",
+        "value": null
+      },
+      {
+        "date": "2026-10-22",
+        "value": null
+      },
+      {
+        "date": "2026-10-23",
+        "value": null
+      },
+      {
+        "date": "2026-10-24",
+        "value": null
+      },
+      {
+        "date": "2026-10-25",
+        "value": null
+      },
+      {
+        "date": "2026-10-26",
+        "value": null
+      },
+      {
+        "date": "2026-10-27",
+        "value": null
+      },
+      {
+        "date": "2026-10-28",
+        "value": null
+      },
+      {
+        "date": "2026-10-29",
+        "value": null
+      },
+      {
+        "date": "2026-10-30",
+        "value": 9120.0
+      }
+    ],
+    "workouts": []
+  },
+  "vitals": [],
+  "weight": null,
+  "getting_sick": null,
+  "logged": {
+    "water_ml": null,
+    "caffeine_mg": null,
+    "alcohol_drinks": null,
+    "mood": null,
+    "notes": []
+  },
+  "insights": [],
+  "bedtime": {
+    "bedtime": "15:48",
+    "bedtime_at": "2026-10-13T15:48:00+00:00",
+    "wake": "23:45",
+    "sleep_target_h": 7.7,
+    "debt_7d": 0.4,
+    "because": "Stormwater webinar (IPWEA) at 01:00",
+    "text": "Bed by 15:48 for 7.7 h before Stormwater webinar (IPWEA) at 01:00 (23:45), catching up 12 min of this week's sleep debt."
+  }
+}

@@ -250,16 +250,15 @@ class HealthStore:
             if not source:
                 session.execute(delete(HealthSleep).where(HealthSleep.user_id == user_id, HealthSleep.day >= start, HealthSleep.day <= end))
                 session.execute(delete(HealthNote).where(HealthNote.user_id == user_id, HealthNote.day >= start, HealthNote.day <= end))
-            left = session.scalars(select(HealthReading).where(*in_range)).all()
+            left = [(r.day, r.metric, r.source, r.value) for r in session.scalars(select(HealthReading).where(*in_range))]
             session.commit()
-        best: dict[tuple[str, str], HealthReading] = {}
-        for r in left:
-            key = (r.day, r.metric)
-            if key not in best or self._rank(r.source) < self._rank(best[key].source):
-                best[key] = r
+        best: dict[tuple[str, str], tuple[str, float]] = {}
+        for day, metric, src, value in left:
+            if (day, metric) not in best or self._rank(src) < self._rank(best[(day, metric)][0]):
+                best[(day, metric)] = (src, value)
         rebuilt: dict[str, dict[str, float]] = {}
-        for (day, metric), r in best.items():
-            rebuilt.setdefault(day, {})[metric] = r.value
+        for (day, metric), (_, value) in best.items():
+            rebuilt.setdefault(day, {})[metric] = value
         with self._session_factory() as session:
             for day, metrics in rebuilt.items():
                 for metric, value in metrics.items():

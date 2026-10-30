@@ -303,7 +303,7 @@ def write_health_snapshot(siris: "SirisAI", day: date) -> dict[str, Any]:
     from app.health import insights
 
     return insights.write_week_note(siris, insights.current(siris), insights.goals_progress(siris),
-                                    datetime.combine(day, datetime.min.time(), tzinfo=UTC))
+                                    datetime.combine(day, datetime.min.time().replace(hour=12), tzinfo=UTC))
 
 
 _HOME_LAB_TOOLS = ("docker_", "unifi_", "synology_", "remediation", "service_health", "server_health",

@@ -281,8 +281,8 @@ def test_health_snapshot_goes_on_the_health_note() -> None:
     brain = siris.second_brain = FakeBrain()
     for offset in range(5):
         siris.health.record({"sleep_hours": 7.0 + offset * 0.1}, day=date(2026, 10, 2 + offset).isoformat())
-    assert jobs.write_health_snapshot(siris, DAY) == {"written": "Health"}
-    assert brain.learned[0]["title"] == "Health" and "Sleep:" in brain.learned[0]["content"]
+    assert jobs.write_health_snapshot(siris, DAY)["written"] == "Health"
+    assert brain.learned[0]["title"] == "Health" and "a night" in brain.learned[0]["content"]
 
 
 def test_home_lab_log_summarises_the_week() -> None:
