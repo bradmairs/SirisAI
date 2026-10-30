@@ -5,7 +5,7 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
-## 3.21 — 2026-10-30
+## 3.31 — 2026-10-30
 
 - Homelab upkeep: container updates with roll-back, server backup checks and tests, new network devices, an internet outage log, expiring certificates and domains
 - Container updates: a daily check for newer images, **Update all** in the feed, each container recreated with its own settings and rolled back automatically if it doesn't come up healthy (`docker_check_updates`, `docker_update_containers`).
@@ -14,6 +14,13 @@ numbered milestones hold the detailed history.
 - An internet outage log: a probe every minute, "The internet is down" while it is, speed tests every 6 hours, and a weekly summary for your ISP (`internet_outages`).
 - Certificates (including HTTPS on each server) and domains (RDAP) expiring within 14 days go to the feed (`expiry_check`).
 - Updating containers and blocking devices need the approval PIN when one is set. The new settings are on the Settings page.
+
+## 3.21 — 2026-10-30
+
+- OneNote tidied: clearer titles, deleted pages stay deleted, action items, CPEng evidence, handwriting checks
+- New OneNote pages get their section in front of generic titles, and dates as YYYY-MM-DD.
+- The nightly upkeep adds tasks from recent emails, OneNote pages and photos, and lists work notes that evidence the CPEng competencies on *CPEng Chartership*.
+- The weekly note check starts with a handwritten page. Needs the vault engine 1.86.
 
 ## 3.11 — 2026-10-30
 
