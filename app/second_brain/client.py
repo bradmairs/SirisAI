@@ -224,6 +224,11 @@ class SecondBrainClient:
         return self._write(["unrelate", "--output", "json", "--", a, b],
                            message=lambda r: f"siris: {r.get('a', a)} and {r.get('b', b)} aren't related")
 
+    def add_line(self, note: str, heading: str, line: str) -> dict:
+        """Add one line under a heading of a note, once (`action` added or already-there)."""
+        return self._write(["add-line", "--output", "json", "--", note, heading, line],
+                           message=lambda r: f"siris: added to {r.get('title', note)}")
+
     def duplicates(self) -> list[dict]:
         """Pairs of notes that look like one topic written twice: [{a, b, score, why}]."""
         self._maybe_pull()

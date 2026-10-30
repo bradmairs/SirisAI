@@ -35,7 +35,7 @@ import hashlib
 import io
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -132,13 +132,42 @@ def _shrink(data: bytes) -> tuple[bytes, str]:
     return (small, "jpg") if len(small) < len(data) else (data, _ext(data))
 
 
+_SLASH_DATE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2}(?:\d{2})?)\b")
+# The same rules as the vault engine's onenote_title (tools/brain.py), which refiled the older pages.
+_GENERIC_SECTION = re.compile(r"^(new section \d*|other sections?|general|misc\w*|notes|meetings?|in person meetings?|untitled.*)$", re.I)
+_GENERIC_TITLE = re.compile(r"^(session|speaker|meeting|meetings|initial notes|notes|workshop|planning|introduction|intro|"
+                            r"catch-?up|weekly meeting|update|untitled|new section|questions?|minutes|agenda|summary|"
+                            r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*)\b", re.I)
+
+
+def _iso_dates(text: str) -> str:
+    """"17/3/22" (day first) as 2022-03-17, so a date survives being a file name."""
+    def fix(m: re.Match) -> str:
+        d, mo, y = int(m.group(1)), int(m.group(2)), m.group(3)
+        try:
+            return date(int(y) + (2000 if len(y) == 2 else 0), mo, d).isoformat()
+        except ValueError:
+            return m.group(0)
+    return _SLASH_DATE.sub(fix, text)
+
+
 def _page_title(title: str, notebook: str, section: str) -> str:
-    """OneNote titles like "1a", "J" or "-" make meaningless note names, so a
-    title with fewer than three letters gets its notebook and section in front."""
-    if sum(c.isalpha() for c in title) >= 3:
-        return title
-    rest = f" - {title}" if any(c.isalnum() for c in title) else ""
-    return f"{notebook} - {section}{rest}".strip(" -")
+    """A note name that makes sense out of its notebook. OneNote titles like "1a", "J" or "-" get
+    the notebook and section in front; generic ones ("Session 1", "Initial Notes", "Speaker 2:
+    Tina Porou") get their section (or the notebook, for "New Section 1"); dates become YYYY-MM-DD."""
+    if sum(c.isalpha() for c in title) < 3:
+        rest = f" - {title}" if any(c.isalnum() for c in title) else ""
+        return f"{notebook} - {section}{rest}".strip(" -")
+    title = _iso_dates(title)
+    context = notebook if _GENERIC_SECTION.match(section) else section
+    speaker = re.match(r"(?i)speaker \d+\s*:\s*", title)
+    if speaker:
+        title = title[speaker.end():]
+    bare = re.sub(r"\d{4}-\d{2}-\d{2}|[-–:#\d\s]+", " ", title).split()
+    stem = lambda t: {w.rstrip("s") for w in re.findall(r"[a-z0-9]{3,}", t.lower())}  # noqa: E731
+    if (len(bare) <= 2 or _GENERIC_TITLE.match(title) or speaker) and not stem(context) & stem(title):
+        title = f"{context} – {title}"
+    return re.sub(r"\s+", " ", title).strip(" -–")
 
 
 def _push(siris: "SirisAI", message: str, title: str, priority: str | None = None) -> None:
@@ -365,6 +394,12 @@ def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, An
                     "source": f"OneNote: {notebook} › {section} › {page.get('title') or title}",
                     "tags": ["onenote"] + (["handwriting"] if built["ink"] else []), "inbox_if_new": True,
                 }])[0]
+                if result.get("action") == "skipped":   # Brad deleted this page's note: it stays deleted
+                    seen[page["id"]] = {"modified": page.get("lastModifiedDateTime", ""), "skipped": "deleted in Siris"}
+                    siris.state.set(STATE_KEY, seen)
+                    out["skipped"] += 1
+                    out["waiting"] -= 1
+                    continue
                 title = result["title"]
                 out["imported"].append(title)
             else:
@@ -385,8 +420,10 @@ def _run(siris: "SirisAI", client: OneNoteClient, now: datetime) -> dict[str, An
                                                "source": source, "tags": ["onenote"], "inbox_if_new": True}])[0]
                         out["updated"].append(result["title"])
                     else:
-                        brain.learn([{"title": target, "content": "Updated in OneNote:\n\n" + "\n".join(added), "source": source}])
-                        out["updated"].append(target)
+                        result = brain.learn([{"title": target, "content": "Updated in OneNote:\n\n" + "\n".join(added),
+                                               "source": source}])[0]
+                        if result.get("action") != "skipped":   # skipped: its note was deleted, and stays so
+                            out["updated"].append(target)
             seen[page["id"]] = {"modified": page.get("lastModifiedDateTime", ""), "title": title,
                                 "text": built["typed"], "ink": built["ink"]}
             used.add(title.lower())

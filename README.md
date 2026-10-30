@@ -6156,6 +6156,28 @@ provider for the same capability actually exists to design against.
     the run workouts. Verified in `tests/test_unifi.py`,
     `tests/test_hub_energy_usage.py` and `tests/test_health_auto_export.py`.
 
+150. **Done** -- OneNote, tidied (3.21, with vault engine 1.86).
+    - New OneNote pages get titles that make sense outside their notebook:
+      generic ones ("Session 1", "Initial Notes", "Speaker 2: Tina Porou")
+      get their section first, and dates like 17/3/22 become 2022-03-17.
+      Pages from work notebooks are filed under `Work/` by the vault's
+      `tools/work_notebooks.json`.
+    - A page whose note Brad deleted is never imported again, even when
+      it's edited in OneNote (the vault engine refuses it; the import
+      records it as skipped).
+    - **Action items.** Before the nightly sort, the general model reads
+      emails, OneNote pages and photo transcriptions written in the last
+      30 days and adds what Brad has to do as `- [ ] … 📅 date` tasks, so
+      they show in insights and SirisOS's task list.
+    - **CPEng evidence.** After the sort, a few work notes a night (the
+      backlog first) are checked against Engineers Australia's 16
+      chartered competency elements; ones that show them are listed on
+      *CPEng Chartership* under "Evidence from your notes", with the
+      elements and why.
+    - The weekly "check these notes" push starts with a handwritten page,
+      to compare the transcription with its images.
+    Verified in `tests/test_second_brain_jobs.py`, `tests/test_onenote.py`
+    and `tests/test_second_brain.py`.
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

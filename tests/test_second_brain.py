@@ -138,6 +138,10 @@ FAKE_ENGINE = textwrap.dedent(
             sys.exit("No note called " + repr(args[-2] if a is None else args[-1]))
         print(json.dumps({"action": "merged", "from": a, "into": b} if cmd == "merge" else {"action": "distinct", "a": a, "b": b}))
         sys.exit(0)
+    if cmd == "add-line":
+        note, heading, line = args[args.index("--") + 1:]
+        print(json.dumps({"action": "added", "title": note}))
+        sys.exit(0)
     if cmd == "duplicates":
         print(json.dumps([{"a": "GVW Project Closure", "b": "GVW Contract Closure", "score": 0.9, "why": "90% similar"}]))
         sys.exit(0)
@@ -870,3 +874,9 @@ def test_merge_distinct_duplicates_and_project_pages(tmp_path: Path) -> None:
     assert _calls(vault)[-1]["args"] == ["project-pages", "--apply", "--output", "json"]
     client.file_note("I’ve decided…", "note", new_title="Where I Capture Things")
     assert _calls(vault)[-1]["args"][-4:] == ["--title", "Where I Capture Things", "--", "I’ve decided…"]
+
+
+def test_add_line(tmp_path: Path) -> None:
+    vault = _vault(tmp_path / "vault", {"CPEng Chartership": "# CPEng"})
+    assert SecondBrainClient(str(vault)).add_line("CPEng Chartership", "## Evidence from your notes", "- [[X]]: 14")["action"] == "added"
+    assert _calls(vault)[-1]["args"] == ["add-line", "--output", "json", "--", "CPEng Chartership", "## Evidence from your notes", "- [[X]]: 14"]
