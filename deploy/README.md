@@ -250,6 +250,21 @@ All of these are on the Settings page too.
 - **Audit digest and settings history:** a weekly summary on Sundays of what
   SirisAI did, and **Undo** next to each change on the Settings page.
 
+### Health
+
+SirisAI is the one place health data lives; SirisOS 5.8 shows it.
+
+- **Apple Health** arrives through Health Auto Export (set up on SirisOS's
+  Training page). If it stops for 36 hours, the feed says so.
+- **Years of history:** in the Health app, tap your picture → Export All
+  Health Data, then upload `export.zip` on SirisOS's Health page (or
+  `POST /siris/health/apple-export`).
+- **Privacy:** with a cloud model for chat, health answers come from SirisAI's
+  own words or a local Ollama model (`SIRISAI_FAST_LLM_PROVIDER=ollama`),
+  never the cloud one (`SIRISAI_HEALTH_PRIVATE`).
+- **Export or delete** a date range from SirisOS's Health page; there's also a
+  printable summary for a doctor.
+
 ## Data and backups
 
 Everything that matters is in `./data`:

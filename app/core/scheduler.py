@@ -250,6 +250,17 @@ def run_camera_digest(siris: "SirisAI") -> dict | None:
         return None
 
 
+def run_health_checks(siris: "SirisAI") -> None:
+    """The wind-down nudge (once an evening) and the stalled-import alert."""
+    from app.health import insights, overview
+
+    for name, job in (("wind-down", insights.wind_down_check), ("stale import", overview.check_stale)):
+        try:
+            job(siris)
+        except Exception:
+            logger.exception("Health %s check failed", name)
+
+
 def run_speed_test(siris: "SirisAI") -> dict | None:
     from app.homelab import internet
 
@@ -393,6 +404,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_attention = time.monotonic()  # the feed syncs itself when asked; no need to at boot
     last_servers = 0.0
     last_devices = 0.0
+    last_health_checks = 0.0
     last_speed = time.monotonic()  # the first speed test one interval after startup
     brain_task: asyncio.Task | None = None
     internet_task = asyncio.create_task(_internet_loop(siris))
@@ -465,6 +477,10 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
                 last_devices = time.monotonic()
 
             await asyncio.to_thread(run_camera_digest, siris)
+
+            if time.monotonic() - last_health_checks >= 300:
+                await asyncio.to_thread(run_health_checks, siris)
+                last_health_checks = time.monotonic()
 
             speed_interval = siris.settings.internet_speedtest_hours * 3600
             if speed_interval > 0 and time.monotonic() - last_speed >= speed_interval:

@@ -1,6 +1,15 @@
-"""Health data pushed from a phone (an Apple Shortcuts automation reading
-Apple Health, or anything that can POST JSON) -- sleep, steps, heart rate --
-so briefings and bedtime nudges know how you're actually doing.
+"""Health data pushed from a phone (Health Auto Export, an Apple Shortcuts
+automation, an Apple Health backfill, or anything that can POST JSON) --
+sleep, steps, heart rate, vitals, workouts -- so briefings, the Health
+section and bedtime nudges know how you're actually doing.
+
+Since 3.51 this is the one health store, for SirisOS too: every metric
+Apple Health gives (see auto_export.py), the night's sleep times, each
+workout, and notes logged by voice. Each source's reading is kept
+(HealthReading) and the one to trust is written to HealthSample by
+SIRISAI_HEALTH_SOURCE_PRIORITY, so a Shortcut and Health Auto Export
+reporting the same day don't count twice. Workouts from two sources within
+five minutes of each other are the same workout.
 
 Per user (X-Siris-User / voice recognition), one value per metric per day.
 The summary compares the latest day with your own 30-day baseline rather
@@ -8,15 +17,21 @@ than generic targets: "slept 5.9h, about 1.4h under your usual" means more
 than "below 7h".
 """
 
-from datetime import date, timedelta
+import csv
+import io
+from collections.abc import Iterable
+from datetime import UTC, date, datetime, timedelta
 from statistics import mean
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.user_context import get_current_user_id
-from app.db.models import HealthSample
+from app.db.models import HealthNote, HealthReading, HealthSample, HealthSleep, HealthWorkout
+from app.health.auto_export import COMBINE
+
+DEFAULT_PRIORITY = ("health_auto_export", "apple_export", "shortcut", "sirisos", "manual")
 
 # Accepted metric names, with the aliases common exports use.
 METRICS = {
@@ -29,6 +44,12 @@ METRICS = {
     "exercise_minutes": ("exercise_minutes", "exercise_time", "workout_minutes"),
     "running_km": ("running_km", "run_km", "running_distance_km", "distance_running_km"),
 }
+# Every other metric Apple Health gives, under its own name only.
+for _name in sorted(COMBINE):
+    METRICS.setdefault(_name, (_name,))
+METRICS.update({"water_ml": ("water_ml", "water"), "caffeine_mg": ("caffeine_mg", "caffeine"), "mood": ("mood",),
+                "energy_level": ("energy_level",), "alcohol_drinks": ("alcohol_drinks", "alcohol", "drinks"),
+                "meal_kcal_estimate": ("meal_kcal_estimate",), "meal_protein_g_estimate": ("meal_protein_g_estimate",)})
 _ALIASES = {alias: name for name, aliases in METRICS.items() for alias in aliases}
 _LABELS = {
     "sleep_hours": ("slept", "h"),
@@ -68,22 +89,94 @@ def normalize(metrics: dict[str, Any]) -> tuple[dict[str, float], list[str]]:
 
 
 class HealthStore:
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: sessionmaker, priority: Iterable[str] = DEFAULT_PRIORITY) -> None:
         self._session_factory = session_factory
+        self.priority = list(priority)
 
-    def record(self, metrics: dict[str, float], day: str, user_id: str | None = None) -> int:
+    def _rank(self, source: str) -> int:
+        return self.priority.index(source) if source in self.priority else len(self.priority)
+
+    def record(self, metrics: dict[str, float], day: str, user_id: str | None = None, source: str = "shortcut") -> int:
+        return self.record_days({day: metrics}, user_id, source)
+
+    def record_days(self, days: dict[str, dict[str, float]], user_id: str | None = None, source: str = "shortcut") -> int:
+        """Keep each value as this source's reading, then make the trusted
+        value (HealthSample) the best-ranked source's. Returns readings kept."""
+        user_id = user_id or get_current_user_id()
+        if not days:
+            return 0
+        count = 0
+        with self._session_factory() as session:
+            wanted = sorted(days)
+            for chunk in (wanted[i:i + 300] for i in range(0, len(wanted), 300)):
+                readings = session.scalars(select(HealthReading).where(HealthReading.user_id == user_id, HealthReading.day.in_(chunk))).all()
+                samples = session.scalars(select(HealthSample).where(HealthSample.user_id == user_id, HealthSample.day.in_(chunk))).all()
+                by_key: dict[tuple[str, str], list[HealthReading]] = {}
+                for r in readings:
+                    by_key.setdefault((r.day, r.metric), []).append(r)
+                sample_by_key = {(r.day, r.metric): r for r in samples}
+                for day in chunk:
+                    for metric, value in days[day].items():
+                        rows = by_key.setdefault((day, metric), [])
+                        mine = next((r for r in rows if r.source == source), None)
+                        if mine is None:
+                            mine = HealthReading(user_id=user_id, metric=metric, day=day, source=source, value=float(value))
+                            session.add(mine)
+                            rows.append(mine)
+                        else:
+                            mine.value, mine.updated_at = float(value), datetime.now(UTC)
+                        count += 1
+                        best = min(rows, key=lambda r: self._rank(r.source))
+                        sample = sample_by_key.get((day, metric))
+                        if sample is None:
+                            sample = HealthSample(user_id=user_id, metric=metric, day=day, value=best.value)
+                            session.add(sample)
+                            sample_by_key[(day, metric)] = sample
+                        else:
+                            sample.value = best.value
+            session.commit()
+        return count
+
+    def record_sleep(self, times: dict[str, dict[str, str]], user_id: str | None = None) -> None:
         user_id = user_id or get_current_user_id()
         with self._session_factory() as session:
-            for metric, value in metrics.items():
-                row = session.scalars(
-                    select(HealthSample).where(HealthSample.user_id == user_id, HealthSample.metric == metric, HealthSample.day == day)
-                ).first()
-                if row is None:
-                    session.add(HealthSample(user_id=user_id, metric=metric, day=day, value=value))
-                else:
-                    row.value = value
+            for day, t in times.items():
+                row = session.scalars(select(HealthSleep).where(HealthSleep.user_id == user_id, HealthSleep.day == day)).first()
+                row = row or HealthSleep(user_id=user_id, day=day)
+                row.start, row.end = str(t.get("start") or "")[:25], str(t.get("end") or "")[:25]
+                session.add(row)
             session.commit()
-        return len(metrics)
+
+    def record_workouts(self, workouts: dict[str, list[dict[str, Any]]], user_id: str | None = None, source: str = "health_auto_export") -> int:
+        """A day's workouts from this source replace its earlier ones; a
+        workout another source already has (start within 5 minutes) is kept
+        from whichever source ranks higher."""
+        user_id = user_id or get_current_user_id()
+        added = 0
+        with self._session_factory() as session:
+            for day, items in workouts.items():
+                session.execute(delete(HealthWorkout).where(HealthWorkout.user_id == user_id, HealthWorkout.day == day, HealthWorkout.source == source))
+                others = session.scalars(select(HealthWorkout).where(HealthWorkout.user_id == user_id, HealthWorkout.day == day)).all()
+                for w in items:
+                    start = _parse_time(w.get("start"))
+                    twin = next((o for o in others if start and (t := _parse_time(o.start)) and abs((t - start).total_seconds()) <= 300), None)
+                    if twin is not None:
+                        if self._rank(twin.source) <= self._rank(source):
+                            continue
+                        session.delete(twin)
+                    session.add(HealthWorkout(user_id=user_id, day=day, source=source, start=str(w.get("start") or "")[:25],
+                                              name=str(w.get("name") or "Workout")[:60], minutes=w.get("minutes"), km=w.get("km"),
+                                              kcal=w.get("kcal"), avg_hr=w.get("avg_hr"), max_hr=w.get("max_hr")))
+                    added += 1
+            session.commit()
+        return added
+
+    def store_parsed(self, parsed: dict[str, Any], source: str, user_id: str | None = None) -> dict[str, int]:
+        """Everything one import brought (auto_export.parse / apple_export)."""
+        readings = self.record_days(parsed.get("metrics") or {}, user_id, source)
+        self.record_sleep(parsed.get("sleep") or {}, user_id)
+        workouts = self.record_workouts(parsed.get("workouts") or {}, user_id, source)
+        return {"days": len(parsed.get("metrics") or {}), "readings": readings, "workouts": workouts}
 
     def series(self, metric: str, since: str, user_id: str | None = None) -> list[tuple[str, float]]:
         user_id = user_id or get_current_user_id()
@@ -94,6 +187,109 @@ class HealthStore:
                 .order_by(HealthSample.day)
             ).all()
             return [(r.day, r.value) for r in rows]
+
+    def days(self, since: str, until: str | None = None, user_id: str | None = None) -> dict[str, dict[str, float]]:
+        """Day -> every trusted metric that day."""
+        user_id = user_id or get_current_user_id()
+        out: dict[str, dict[str, float]] = {}
+        with self._session_factory() as session:
+            stmt = select(HealthSample).where(HealthSample.user_id == user_id, HealthSample.day >= since)
+            if until:
+                stmt = stmt.where(HealthSample.day <= until)
+            for r in session.scalars(stmt):
+                out.setdefault(r.day, {})[r.metric] = r.value
+        return out
+
+    def sleep_times(self, since: str, user_id: str | None = None) -> dict[str, dict[str, str]]:
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            rows = session.scalars(select(HealthSleep).where(HealthSleep.user_id == user_id, HealthSleep.day >= since)).all()
+            return {r.day: {"start": r.start, "end": r.end} for r in rows}
+
+    def workouts(self, since: str, user_id: str | None = None) -> list[dict[str, Any]]:
+        """Newest first."""
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            rows = session.scalars(
+                select(HealthWorkout).where(HealthWorkout.user_id == user_id, HealthWorkout.day >= since).order_by(HealthWorkout.start.desc())
+            ).all()
+            return [{"date": r.day, "name": r.name, "start": r.start, "minutes": r.minutes, "km": r.km, "kcal": r.kcal,
+                     "avg_hr": r.avg_hr, "max_hr": r.max_hr, "source": r.source} for r in rows]
+
+    def add_note(self, kind: str, text: str, day: str, user_id: str | None = None) -> dict[str, Any]:
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            row = HealthNote(user_id=user_id, day=day, kind=kind, text=text[:500])
+            session.add(row)
+            session.commit()
+            return {"id": row.id, "day": day, "kind": kind, "text": row.text}
+
+    def notes(self, since: str, user_id: str | None = None) -> list[dict[str, Any]]:
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            rows = session.scalars(select(HealthNote).where(HealthNote.user_id == user_id, HealthNote.day >= since).order_by(HealthNote.at.desc())).all()
+            return [{"id": r.id, "day": r.day, "kind": r.kind, "text": r.text, "at": r.at.isoformat()} for r in rows]
+
+    def last_day(self, user_id: str | None = None) -> str | None:
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            row = session.scalars(select(HealthReading).where(HealthReading.user_id == user_id).order_by(HealthReading.updated_at.desc())).first()
+            return row.updated_at.replace(tzinfo=UTC).isoformat() if row else None
+
+    def delete(self, start: str, end: str, source: str | None = None, user_id: str | None = None) -> dict[str, int]:
+        """Remove a date range (inclusive), all of it or one source's. The
+        trusted values are rebuilt from whatever is left."""
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            in_range = (HealthReading.user_id == user_id, HealthReading.day >= start, HealthReading.day <= end)
+            stmt = delete(HealthReading).where(*in_range, *([HealthReading.source == source] if source else []))
+            readings = session.execute(stmt).rowcount or 0
+            session.execute(delete(HealthSample).where(HealthSample.user_id == user_id, HealthSample.day >= start, HealthSample.day <= end))
+            ws = delete(HealthWorkout).where(HealthWorkout.user_id == user_id, HealthWorkout.day >= start, HealthWorkout.day <= end, *([HealthWorkout.source == source] if source else []))
+            workouts = session.execute(ws).rowcount or 0
+            if not source:
+                session.execute(delete(HealthSleep).where(HealthSleep.user_id == user_id, HealthSleep.day >= start, HealthSleep.day <= end))
+                session.execute(delete(HealthNote).where(HealthNote.user_id == user_id, HealthNote.day >= start, HealthNote.day <= end))
+            left = [(r.day, r.metric, r.source, r.value) for r in session.scalars(select(HealthReading).where(*in_range))]
+            session.commit()
+        best: dict[tuple[str, str], tuple[str, float]] = {}
+        for day, metric, src, value in left:
+            if (day, metric) not in best or self._rank(src) < self._rank(best[(day, metric)][0]):
+                best[(day, metric)] = (src, value)
+        rebuilt: dict[str, dict[str, float]] = {}
+        for (day, metric), (_, value) in best.items():
+            rebuilt.setdefault(day, {})[metric] = value
+        with self._session_factory() as session:
+            for day, metrics in rebuilt.items():
+                for metric, value in metrics.items():
+                    session.add(HealthSample(user_id=user_id, metric=metric, day=day, value=value))
+            session.commit()
+        return {"readings": readings, "workouts": workouts}
+
+    def export_csv(self, start: str, end: str, user_id: str | None = None) -> str:
+        """date, metric, value (the trusted values), then the workouts."""
+        out = io.StringIO()
+        writer = csv.writer(out)
+        writer.writerow(["date", "metric", "value"])
+        for day, metrics in sorted(self.days(start, end, user_id).items()):
+            for metric, value in sorted(metrics.items()):
+                writer.writerow([day, metric, value])
+        writer.writerow([])
+        writer.writerow(["workout_date", "name", "start", "minutes", "km", "kcal", "avg_hr", "max_hr"])
+        for w in reversed(self.workouts(start, user_id)):
+            if w["date"] <= end:
+                writer.writerow([w["date"], w["name"], w["start"], w["minutes"], w["km"], w["kcal"], w["avg_hr"], w["max_hr"]])
+        return out.getvalue()
+
+
+def _parse_time(text: Any) -> datetime | None:
+    raw = str(text or "").strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S %z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw[:25], fmt).replace(tzinfo=None)
+        except ValueError:
+            continue
+    return None
 
 
 def _fmt(metric: str, value: float) -> str:

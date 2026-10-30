@@ -432,6 +432,16 @@ async def hub_upkeep(siris: SirisAI = Depends(get_siris)) -> c.Upkeep:
     return await asyncio.to_thread(compose.upkeep, siris)
 
 
+@router.get("/health/overview", response_model=c.HealthOverview)
+async def hub_health_overview(siris: SirisAI = Depends(get_siris)) -> c.HealthOverview:
+    return await asyncio.to_thread(compose.health_overview, siris)
+
+
+@router.get("/health/workouts", response_model=c.HealthWorkouts)
+async def hub_health_workouts(days: int = Query(42, ge=1, le=400), siris: SirisAI = Depends(get_siris)) -> c.HealthWorkouts:
+    return await asyncio.to_thread(compose.health_workouts, siris, days)
+
+
 @router.get("/health/days", response_model=c.HealthDays)
 async def hub_health_days(days: int = Query(7, ge=1, le=400), siris: SirisAI = Depends(get_siris)) -> c.HealthDays:
     return await asyncio.to_thread(compose.health_days, siris, days)

@@ -110,7 +110,9 @@ def test_bedtime_is_registered_as_a_skill() -> None:
 
 def test_briefing_uses_ha_calendar_todo_forecast_and_todays_reminders_when_available() -> None:
     real = SirisAI(settings=Settings(timezone="Australia/Melbourne"))
-    reminder = real.reminders.create("call the plumber", datetime.now(UTC) + timedelta(minutes=5))
+    # Due now, not a few minutes ahead: in the last minutes before midnight
+    # (Melbourne) that would be tomorrow, and rightly left out of today.
+    reminder = real.reminders.create("call the plumber", datetime.now(UTC))
     siris = _FakeSiris(
         {
             "weather_forecast": [{"conditions": "clear", "low_c": 9, "high_c": 18, "rain_chance_percent": 5}],

@@ -6,7 +6,8 @@ step can be any registered tool (notify, set_guest_mode, a Docker restart, a
 UniFi block...), can be conditional (`when`: "nobody_home", "someone_home",
 "night", "day", or {"entity": ..., "state"/"not_state": ...}), and can target
 Home Assistant entities by selector ({"select": {"domain": "cover",
-"device_class": ["garage", "gate"]}}) instead of hard-coded ids.
+"device_class": ["garage", "gate"]}}, optionally "state": "on") instead of
+hard-coded ids.
 
 Undo: before each Home Assistant step the affected entities' states are
 recorded, and the inverse call for anything that changed is saved (a light
@@ -129,6 +130,14 @@ def builtin_protocols(siris: "SirisAI") -> dict[str, dict[str, Any]]:
                 {"tool": "notify", "arguments": {"title": "SirisAI: away", "message": "Away protocol ran: house secured."}, "label": "Notify"},
             ],
         },
+        "wind_down": {
+            "description": "Bedtime's coming: lights down to a third, a reminder to put the phone away.",
+            "steps": [
+                {"tool": HA, "arguments": {"domain": "light", "service": "turn_on", "entity_id": {"select": {"domain": "light", "state": "on"}}, "brightness_pct": 30},
+                 "label": "Dim the lights that are on"},
+                {"tool": "notify", "arguments": {"title": "SirisAI: wind down", "message": "Time to wind down: screens away, lights low."}, "label": "Remind"},
+            ],
+        },
         "guest": {
             "description": "Visitors over: guest mode on for 24 hours (no personal info volunteered), guest Wi-Fi on.",
             "steps": [
@@ -202,10 +211,12 @@ def _expand_entities(siris: "SirisAI", entity: Any) -> Any:
     spec = entity["select"]
     classes = spec.get("device_class")
     classes = {classes} if isinstance(classes, str) else set(classes or [])
+    wanted_state = spec.get("state")  # e.g. only the lights that are on
     return [
         s["entity_id"]
         for s in client.list_states(spec.get("domain"))
-        if not classes or (s.get("attributes") or {}).get("device_class") in classes
+        if (not classes or (s.get("attributes") or {}).get("device_class") in classes)
+        and (wanted_state is None or s.get("state") == wanted_state)
     ]
 
 

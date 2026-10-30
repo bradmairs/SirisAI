@@ -23,11 +23,13 @@ BODY = {"data": {
 
 
 def test_parses_days_and_combines_each_metric_its_own_way():
-    days, ignored = auto_export.parse(BODY)
+    parsed = auto_export.parse(BODY)
+    days = parsed["metrics"]
     assert days["2026-10-28"] == {"steps": 8123, "resting_heart_rate": 57, "active_energy_kcal": 500.0, "sleep_hours": 7.2,
-                                  "weight_kg": 78.4, "running_km": 9.81}
+                                  "in_bed_h": 7.9, "weight_kg": 78.4, "running_km": 9.81}
     assert days["2026-10-27"] == {"steps": 9000}
-    assert ignored == ["walking_speed"]
+    assert parsed["ignored"] == ["walking_speed"]
+    assert [w["name"] for w in parsed["workouts"]["2026-10-28"]] == ["Outdoor Run", "Outdoor Run", "Outdoor Walk"]
 
 
 def test_the_route_takes_it(client):

@@ -153,6 +153,31 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["upkeep"] = client.get("/siris/hub/v1/upkeep", headers=h).json()
         siris.health.record({"steps": 9120, "running_km": 5.2, "sleep_hours": 7.1}, datetime.now(UTC).date().isoformat(), user_id="brad")
         out["health_days"] = client.get("/siris/hub/v1/health/days", params={"days": 2}, headers=h).json()
+        # Its own person with every section filled, so the example's shape
+        # doesn't depend on what other tests left behind.
+        hx = {**h, "X-Siris-User": "example-health"}
+        from app.health import insights as health_insights
+        from app.health import overview as health_overview
+
+        siris.state.set(health_overview.IMPORTS_KEY, {"health_auto_export": {"at": "2026-10-30T06:00:00+00:00", "days": 1, "readings": 12, "workouts": 1}})
+        siris.state.set(health_insights.INSIGHTS_KEY, {"at": "2026-10-26T09:00:00+00:00", "insights": [
+            {"factor": "late_meeting", "minutes": -38, "nights_with": 6, "nights_without": 31,
+             "text": "After a meeting past 8pm you sleep 38 minutes less (6 nights vs 31)."}]})
+        today = datetime.now(UTC).date()
+        for i in range(21):
+            d = (today - timedelta(days=i)).isoformat()
+            siris.health.record({"sleep_hours": 7.2, "sleep_deep_h": 1.2, "sleep_rem_h": 1.6, "heart_rate_variability": 58 + i % 3,
+                                 "resting_heart_rate": 54, "respiratory_rate": 14, "wrist_temperature": 0.1, "blood_oxygen": 97,
+                                 "weight_kg": 80 - i * 0.05, "exercise_minutes": 30, "steps": 9000, "water_ml": 1500},
+                                d, user_id="example-health", source="health_auto_export")
+        siris.health.record_sleep({today.isoformat(): {"start": f"{(today - timedelta(days=1)).isoformat()} 22:45:00 +1100",
+                                                       "end": f"{today.isoformat()} 06:30:00 +1100"}}, user_id="example-health")
+        siris.health.record_workouts({today.isoformat(): [{"name": "Outdoor Run", "start": f"{today.isoformat()} 06:40:00 +1100",
+                                                            "minutes": 32, "km": 6.1, "kcal": 410, "avg_hr": 148, "max_hr": 171}]},
+                                     user_id="example-health")
+        siris.health.add_note("supplement", "Vitamin D", today.isoformat(), user_id="example-health")
+        out["health_overview"] = client.get("/siris/hub/v1/health/overview", headers=hx).json()
+        out["health_workouts"] = client.get("/siris/hub/v1/health/workouts", params={"days": 7}, headers=hx).json()
 
         notify_confirmation_needed(siris, "routine 'morning heat'", switch.name, {"domain": "switch", "service": "turn_on", "entity_id": "switch.heater"})
         siris.attention.raise_item("push:example", "alert", "SirisAI: plex needs you", source="self-healing", severity="urgent", body="plex is down and a restart didn't fix it.")

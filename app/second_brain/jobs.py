@@ -296,31 +296,14 @@ def ask_to_review_notes(siris: "SirisAI") -> dict[str, Any]:
     return {"asked": [q["title"] for q in queue]}
 
 
-_HEALTH_LABELS = {
-    "sleep_hours": ("Sleep", "h", 1), "steps": ("Steps", "", 0), "exercise_minutes": ("Exercise", " min", 0),
-    "resting_heart_rate": ("Resting heart rate", " bpm", 0), "heart_rate_variability": ("HRV", " ms", 0),
-    "active_energy_kcal": ("Active energy", " kcal", 0), "weight_kg": ("Weight", " kg", 1),
-}
-
-
 def write_health_snapshot(siris: "SirisAI", day: date) -> dict[str, Any]:
-    from app.health.service import summary
+    """The week's health in the vault's Health note: readiness, sleep, workouts,
+    weight, signs of illness, what sleep goes with, goals and logged symptoms
+    (app/health/insights.py)."""
+    from app.health import insights
 
-    metrics = summary(siris.health, day)["metrics"]
-    lines = []
-    for metric, (label, unit, digits) in _HEALTH_LABELS.items():
-        m = metrics.get(metric)
-        if not m or m.get("week_average") is None:
-            continue
-        line = f"- {label}: {m['week_average']:,.{digits}f}{unit} a day this week"
-        if m.get("baseline") is not None:
-            line += f" (30-day usual {m['baseline']:,.{digits}f}{unit})"
-        lines.append(line)
-    if not lines:
-        return {"skipped": "no health data this week"}
-    content = f"**Health snapshot, week to {day.isoformat()}:**\n" + "\n".join(lines)
-    siris.second_brain.learn([{"title": "Health", "content": content, "tags": ["health-snapshot"], "source": "SirisAI health data"}])
-    return {"written": "Health"}
+    return insights.write_week_note(siris, insights.current(siris), insights.goals_progress(siris),
+                                    datetime.combine(day, datetime.min.time().replace(hour=12), tzinfo=UTC))
 
 
 _HOME_LAB_TOOLS = ("docker_", "unifi_", "synology_", "remediation", "service_health", "server_health",

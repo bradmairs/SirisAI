@@ -84,6 +84,12 @@
     "health_days": {
       "$ref": "#/$defs/HealthDays"
     },
+    "health_overview": {
+      "$ref": "#/$defs/HealthOverview"
+    },
+    "health_workouts": {
+      "$ref": "#/$defs/HealthWorkouts"
+    },
     "controls": {
       "$ref": "#/$defs/Controls"
     },
@@ -1680,6 +1686,175 @@
       "title": "HealthMetric",
       "type": "object"
     },
+    "HealthOverview": {
+      "additionalProperties": false,
+      "description": "Everything the Health section shows (SirisAI 3.51; SirisOS 5.8 reads it\ninstead of keeping its own store). The sections are open objects so they\ncan grow without a v2; see app/health/overview.py and scores.py.",
+      "properties": {
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "today": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Today"
+        },
+        "available": {
+          "default": false,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "sources": {
+          "additionalProperties": true,
+          "default": {},
+          "title": "Sources",
+          "type": "object"
+        },
+        "readiness": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary",
+          "title": "Readiness"
+        },
+        "sleep": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "need, last_night (hours, stages, start, end), score, debt_7d, bedtime_spread_min, average_7d, nights",
+          "title": "Sleep"
+        },
+        "activity": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "steps, energy, exercise, load (ratio, zone), series, workouts",
+          "title": "Activity"
+        },
+        "vitals": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vitals"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "latest, trend (smoothed), per_week, goal_kg, to_go_kg, weeks_to_goal, series",
+          "title": "Weight"
+        },
+        "getting_sick": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when temperature, resting heart rate and HRV point to illness two days running",
+          "title": "Getting Sick"
+        },
+        "logged": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Today's water, caffeine, drinks, mood, and the week's notes (symptoms, supplements, meals)",
+          "title": "Logged"
+        },
+        "insights": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Findings like 'after a late meeting you sleep 40 min less'",
+          "title": "Insights"
+        },
+        "bedtime": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tonight's suggested bedtime and why",
+          "title": "Bedtime"
+        }
+      },
+      "required": [
+        "guest_mode"
+      ],
+      "title": "HealthOverview",
+      "type": "object"
+    },
     "HealthSummary": {
       "additionalProperties": false,
       "properties": {
@@ -1701,6 +1876,38 @@
         }
       },
       "title": "HealthSummary",
+      "type": "object"
+    },
+    "HealthWorkouts": {
+      "additionalProperties": false,
+      "description": "Workouts, newest first (SirisAI 3.51): for SirisOS's training plan\n(what was actually run, race predictions, heart-rate zones).",
+      "properties": {
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "workouts": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "date, name, start, minutes, km, kcal, avg_hr, max_hr, source",
+          "title": "Workouts"
+        }
+      },
+      "required": [
+        "guest_mode"
+      ],
+      "title": "HealthWorkouts",
       "type": "object"
     },
     "HubInfo": {
