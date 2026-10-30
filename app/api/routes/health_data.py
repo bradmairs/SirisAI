@@ -7,6 +7,10 @@ Apple Shortcuts "Get Contents of URL" step after "Find Health Samples":
 
 A flat {"steps": 8123, ...} body works too; `date` defaults to today in
 SIRISAI_TIMEZONE. Unknown metric names are reported back, not stored.
+
+Health Auto Export's own JSON ({"data": {"metrics": [...], "workouts":
+[...]}}) works too, with any number of days in one post
+(app/health/auto_export.py), so Apple Health can arrive on its own.
 """
 
 from datetime import date as date_type
@@ -18,6 +22,7 @@ from app.core import clock
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import get_current_user_id, resolve_user_id
+from app.health import auto_export
 from app.health.service import normalize, summary
 
 router = APIRouter(prefix="/siris/health", tags=["health"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)])
@@ -31,6 +36,13 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
         raise HTTPException(status_code=422, detail="Send JSON.") from None
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="Send a JSON object.")
+    if auto_export.looks_like(body):
+        days, ignored = auto_export.parse(body)
+        if not days:
+            raise HTTPException(status_code=422, detail=f"No recognised metrics (got: {', '.join(ignored) or 'nothing'}).")
+        for day, metrics in sorted(days.items()):
+            siris.health.record(metrics, day)
+        return {"user_id": get_current_user_id(), "format": "health_auto_export", "days": days, "ignored": ignored}
     raw_date = body.get("date")
     raw_metrics = body.get("metrics") if isinstance(body.get("metrics"), dict) else {k: v for k, v in body.items() if k != "date"}
     day = str(raw_date)[:10] if raw_date else clock.now_local(siris.settings.timezone).date().isoformat()

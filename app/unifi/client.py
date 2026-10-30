@@ -204,6 +204,16 @@ class UniFiClient:
             for e in self._unwrap(response.json())
         ]
 
+    def set_blocked(self, mac: str, blocked: bool) -> dict:
+        """Block or unblock a client by MAC through the classic stamgr command
+        (SirisOS 5.3's network alerts). Unlike the Integration API's actions,
+        it works for a client that isn't connected right now, so a device
+        blocked earlier can be let back in."""
+        response = self._client.post(f"/proxy/network/api/s/{self._site}/cmd/stamgr",
+                                     json={"cmd": "block-sta" if blocked else "unblock-sta", "mac": mac.lower()})
+        response.raise_for_status()
+        return {"mac": mac.lower(), "blocked": blocked}
+
     def traffic(self) -> dict:
         """Live traffic for SirisOS's house view (2.76): the gateway's WAN
         rates, each UniFi device (gateway, switches, access points) and each
