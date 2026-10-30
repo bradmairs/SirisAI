@@ -44,6 +44,12 @@ class NewDeviceAlertSkill(Skill):
     def run(self, siris: "SirisAI", **kwargs: Any) -> Any:
         if siris.tools.get("home_assistant_list_entities") is None:
             return {"checked": False, "new_devices": [], "warnings": []}
+        from app.homelab import devices
+
+        if devices.enabled(siris):
+            # UniFi's client list is watched instead (app/homelab/devices.py),
+            # with Name it / Block in the feed; don't alert twice.
+            return {"checked": False, "new_devices": [], "warnings": [], "note": "UniFi's device watch is on"}
 
         entities = siris.run_tool("home_assistant_list_entities", {"domain": "device_tracker"})
         current_ids = {e["entity_id"] for e in entities}

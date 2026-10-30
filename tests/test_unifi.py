@@ -115,6 +115,7 @@ def test_list_clients_reuses_cached_site_id_across_calls() -> None:
     assert first == [
         {
             "id": None,
+            "mac": None,
             "name": "brads-laptop",
             "ip_address": "192.168.1.50",
             "connected_at": "t",
@@ -146,6 +147,7 @@ def test_list_clients_handles_bare_list_response_for_devices_and_clients() -> No
     assert result == [
         {
             "id": None,
+            "mac": None,
             "name": "brads-laptop",
             "ip_address": "192.168.1.50",
             "connected_at": "t",

@@ -218,7 +218,8 @@ class Settings(BaseSettings):
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
-        "server_updates_hour_local", "server_disks_hour_local", "onenote_hour_local", "gmail_hour_local",
+        "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
+        "internet_report_hour_local", "expiry_check_hour_local", "onenote_hour_local", "gmail_hour_local",
         mode="before",
     )
     @classmethod
@@ -768,6 +769,31 @@ class Settings(BaseSettings):
     server_disk_warn_percent: int = 90
     server_updates_hour_local: int | None = 7
     server_disks_hour_local: int | None = 6
+    # Homelab (app/homelab/). Container image updates on the Docker host
+    # (daily check, blank hour = off; names to leave alone; how long a new
+    # container has to come up healthy before it's rolled back).
+    container_updates_hour_local: int | None = 5
+    container_update_exclude: str = ""
+    container_update_health_seconds: float = 90.0
+    # Backups on the SSH servers: "nas:zfs:tank/data,nas:path:/mnt/backups/restic".
+    # Checked daily (blank hour = off), read back on the 1st of each month.
+    server_backups: str = ""
+    server_backup_max_age_hours: float = 26.0
+    server_backups_hour_local: int | None = 8
+    # New devices on the network, from UniFi's client list, every N minutes (0 = off).
+    network_device_watch_minutes: float = 5.0
+    # Internet outage log: a probe every N seconds (0 = off) to these
+    # host:port targets (down = none answer), a speed test every N hours
+    # (0 = off), and a weekly summary on Mondays (blank hour = off).
+    internet_probe_seconds: float = 60.0
+    internet_probe_targets: str = "1.1.1.1:443,8.8.8.8:53,9.9.9.9:443"
+    internet_speedtest_hours: float = 6.0
+    internet_report_hour_local: int | None = 8
+    # Certificates and domains about to expire (security_cert_warn_days ahead),
+    # daily (blank hour = off); also port 443 on each SSH server.
+    security_domains: str = ""
+    expiry_check_hour_local: int | None = 9
+    expiry_check_servers: bool = True
 
     # Conversation handoff between rooms (app/satellites/service.py,
     # milestone 75). Each satellite process keeps its own local

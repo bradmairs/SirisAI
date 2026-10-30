@@ -374,7 +374,7 @@ class AttentionList(_Model):
 
 class AttentionActRequest(_Model):
     action: str
-    body: str | None = Field(None, max_length=20000, description="For a triage reply's 'send': the reply as edited, instead of the draft.")
+    body: str | None = Field(None, max_length=20000, description="For a triage reply's 'send': the reply as edited, instead of the draft. For a new device's 'name': the name to give it.")
     pin: str | None = Field(
         None,
         max_length=32,

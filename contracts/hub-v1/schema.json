@@ -116,7 +116,7 @@
             }
           ],
           "default": null,
-          "description": "For a triage reply's 'send': the reply as edited, instead of the draft.",
+          "description": "For a triage reply's 'send': the reply as edited, instead of the draft. For a new device's 'name': the name to give it.",
           "title": "Body"
         },
         "pin": {

@@ -117,6 +117,7 @@ class UniFiClient:
         return [
             {
                 "id": item.get("id"),  # needed by block_client()/unblock_client()
+                "mac": (item.get("macAddress") or item.get("mac") or "").lower() or None,
                 "name": item.get("name") or item.get("hostname"),
                 "ip_address": item.get("ipAddress") or item.get("ip"),
                 "connected_at": item.get("connectedAt"),
@@ -250,6 +251,29 @@ class UniFiClient:
         self._fill_device_rates(devices, clients, (wan_rx, wan_tx))
         return {"wan": {"rx_bps": wan_rx, "tx_bps": wan_tx, "isp": health_wan.get("isp_name")},
                 "devices": devices, "clients": clients}
+
+    def client_details(self) -> list[dict]:
+        """Who's connected, with what the new-device watch needs (app/homelab/
+        devices.py): MAC, the name set in UniFi, hostname, the maker from the
+        MAC's OUI, and which network or Wi-Fi it's on. Classic stat/sta, like
+        traffic()."""
+        response = self._client.get(f"/proxy/network/api/s/{self._site}/stat/sta")
+        response.raise_for_status()
+        return [
+            {
+                "mac": (c.get("mac") or "").lower(),
+                "name": c.get("name"),
+                "hostname": c.get("hostname"),
+                "vendor": c.get("oui"),
+                "network": c.get("network") or c.get("essid") or ("wired" if c.get("is_wired") else None),
+                "ssid": c.get("essid"),
+                "ip": c.get("ip"),
+                "wired": bool(c.get("is_wired")),
+                "first_seen": c.get("first_seen"),
+            }
+            for c in self._unwrap(response.json())
+            if c.get("mac")
+        ]
 
     @staticmethod
     def _fill_device_rates(devices: list[dict], clients: list[dict], wan: tuple[float, float]) -> None:

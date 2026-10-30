@@ -460,6 +460,8 @@ def act(
         if not body.strip():
             raise UnknownAction("An edited reply can't be empty")
         payload = {**payload, "body": body.strip()}
+    elif body is not None and body.strip() and item["source"] == "devices" and action_id == "name":
+        payload = {**payload, "body": body.strip()[:80]}  # the name typed in
     trigger = f"attention feed: the user chose '{action_id}' on '{item['title']}' in {client}"
     result: Any = None
 

@@ -209,6 +209,32 @@ SirisAI down with it, until someone turns it back on.
   over `.env` and survive restarts and updates. Most apply at once; the
   page says which need a restart (`docker compose restart sirisai`).
 
+### Homelab upkeep
+
+- **Container updates:** with the Docker socket mounted (it is in this
+  stack), SirisAI checks every morning for containers whose image has a
+  newer version, and offers **Update all** in the feed. Each one is
+  recreated with the same settings and rolled back if it doesn't come up
+  healthy. SirisAI never updates itself this way (see "Updates that apply
+  themselves"). To leave a container alone, add its name to
+  `SIRISAI_CONTAINER_UPDATE_EXCLUDE` or give it the label `siris.update=false`.
+- **Backups on your servers:** list them in `SIRISAI_SERVER_BACKUPS`, e.g.
+  `nas:zfs:tank/data,nas:path:/mnt/backups/restic`. One more than 26 hours
+  old shows up in the feed, and on the 1st of each month SirisAI reads a
+  random file back out of each. Reading may need the SSH account to be able
+  to read the backup folder.
+- **New devices on the network:** with UniFi set up, a device that joins and
+  hasn't been seen before appears with **Name it** and **Block**.
+- **Internet outages:** SirisAI checks the connection every minute and
+  posts a weekly summary on Mondays, with a speed test every 6 hours. Ask
+  "how many times did the internet drop this month?" for evidence for your
+  ISP.
+- **Certificates and domains:** add domains to `SIRISAI_SECURITY_DOMAINS` and
+  any HTTPS hosts to `SIRISAI_SECURITY_CERT_HOSTS`. HTTPS on each SSH server
+  is checked anyway. Anything expiring within 14 days appears in the feed.
+
+All of these are on the Settings page too.
+
 ## Data and backups
 
 Everything that matters is in `./data`:

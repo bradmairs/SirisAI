@@ -235,6 +235,15 @@ from app.plugins.builtin.servers import (
     SshServerUpdatesTool,
     SshWakeTool,
 )
+from app.plugins.builtin.homelab import (
+    DockerCheckUpdatesTool,
+    DockerUpdateContainersTool,
+    ExpiryCheckTool,
+    InternetOutagesTool,
+    NetworkNameDeviceTool,
+    ServerBackupsCheckTool,
+    ServerBackupTestTool,
+)
 from app.ssh.client import SshClient, parse_ssh_hosts
 from app.frigate.client import FrigateClient
 from app.listenarr.client import ListenarrClient
@@ -780,6 +789,8 @@ class SirisAI:
                     self._docker_client, self.entities, self._plex_client
                 )
             )
+            self.tools.register(DockerCheckUpdatesTool(self))
+            self.tools.register(DockerUpdateContainersTool(self))
 
         if self.settings.unifi_base_url and self.settings.unifi_api_key:
             self._unifi_client = UniFiClient(
@@ -795,6 +806,7 @@ class SirisAI:
             self.tools.register(UniFiUnblockClientTool(self._unifi_client))
             self.tools.register(UniFiReconnectClientTool(self._unifi_client))
             self.tools.register(UniFiRestartDeviceTool(self._unifi_client))
+            self.tools.register(NetworkNameDeviceTool(self))
 
             if self.settings.presence_device_names:
                 self.tools.register(
@@ -1027,6 +1039,9 @@ class SirisAI:
             )
             for server_tool in (SshWakeTool, SshServerUpdatesTool, SshInstallUpdatesTool, SshDiskHealthTool, SshServerPermissionsTool):
                 self.tools.register(server_tool(self))
+            if self.settings.server_backups:
+                self.tools.register(ServerBackupsCheckTool(self))
+                self.tools.register(ServerBackupTestTool(self))
             self.tools.register(
                 SshPowerTool(
                     self.ssh_client,
@@ -1034,6 +1049,9 @@ class SirisAI:
                     allowed=self.settings.ssh_allow_power and self.settings.ssh_allow_changes,
                 )
             )
+
+        self.tools.register(InternetOutagesTool(self))
+        self.tools.register(ExpiryCheckTool(self))
 
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite

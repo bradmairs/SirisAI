@@ -51,8 +51,68 @@ class DockerClient:
         response.raise_for_status()
         return _demux_log_stream(response.content)
 
+    # -- updating containers (app/homelab/containers.py) --------------------------
+
+    def _json(self, method: str, path: str, **kwargs) -> dict:
+        response = self._client.request(method, path, **kwargs)
+        response.raise_for_status()
+        return response.json() if response.content else {}
+
+    def inspect_container(self, container: str) -> dict:
+        return self._json("GET", f"/containers/{container}/json")
+
+    def inspect_image(self, image: str) -> dict:
+        return self._json("GET", f"/images/{image}/json")
+
+    def remote_digest(self, image: str) -> str | None:
+        """The registry's current digest for an image reference, asked through
+        the daemon (so it uses the daemon's own registry logins)."""
+        return (self._json("GET", f"/distribution/{image}/json").get("Descriptor") or {}).get("digest")
+
+    def pull(self, image: str, timeout: float = 900.0) -> None:
+        name, tag = _split_ref(image)
+        response = self._client.post("/images/create", params={"fromImage": name, "tag": tag}, timeout=timeout)
+        response.raise_for_status()
+        # The body streams progress as JSON lines; a failure shows up there, not in the status.
+        for line in response.text.splitlines():
+            if '"error"' in line:
+                raise RuntimeError(line[-300:])
+
+    def stop(self, container: str, timeout_seconds: int = 20) -> None:
+        response = self._client.post(f"/containers/{container}/stop", params={"t": timeout_seconds}, timeout=timeout_seconds + 30)
+        if response.status_code not in (204, 304):
+            response.raise_for_status()
+
+    def start(self, container: str) -> None:
+        response = self._client.post(f"/containers/{container}/start")
+        if response.status_code not in (204, 304):
+            response.raise_for_status()
+
+    def rename(self, container: str, name: str) -> None:
+        self._client.post(f"/containers/{container}/rename", params={"name": name}).raise_for_status()
+
+    def create(self, name: str, config: dict) -> str:
+        return self._json("POST", "/containers/create", params={"name": name}, json=config)["Id"]
+
+    def connect(self, network: str, container: str, endpoint: dict) -> None:
+        self._client.post(f"/networks/{network}/connect", json={"Container": container, "EndpointConfig": endpoint}).raise_for_status()
+
+    def remove(self, container: str, force: bool = True) -> None:
+        response = self._client.delete(f"/containers/{container}", params={"force": "true" if force else "false"})
+        if response.status_code != 404:
+            response.raise_for_status()
+
     def close(self) -> None:
         self._client.close()
+
+
+def _split_ref(image: str) -> tuple[str, str]:
+    """'lscr.io/linuxserver/plex:latest' -> ('lscr.io/linuxserver/plex', 'latest');
+    a registry port isn't a tag ('host:5000/app' -> latest)."""
+    name, sep, tag = image.rpartition(":")
+    if not sep or "/" in tag:
+        return image, "latest"
+    return name, tag
 
 
 def _demux_log_stream(raw: bytes) -> str:
