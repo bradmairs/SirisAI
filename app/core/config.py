@@ -219,7 +219,7 @@ class Settings(BaseSettings):
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
-        "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "onenote_hour_local", "gmail_hour_local",
+        "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "onenote_hour_local", "gmail_hour_local",
         mode="before",
     )
     @classmethod
@@ -392,6 +392,25 @@ class Settings(BaseSettings):
     # at these local hours (blank = off), also pushed to the phone.
     camera_digest_hours: str = "12,18,22"
     camera_digest_push: bool = True
+    # Health (app/health/): which source wins when two report the same day,
+    # a goal weight for the trend (blank = none), how long without new data
+    # before the feed says the import has stopped (0 = never), and whether
+    # health answers stay off cloud models (a local model, or SirisAI's own
+    # words, answers them instead).
+    health_source_priority: str = "health_auto_export,apple_export,shortcut,sirisos,manual"
+    health_weight_goal_kg: float | None = None
+    health_stale_hours: float = 36.0
+    health_private: bool = True
+    # Health insights (app/health/insights.py): the getting-sick check's hour
+    # (blank = off), Home Assistant sensors for the sleep insights (blank =
+    # not used), how long before tomorrow's first event to wake, and the
+    # wind-down nudge before bedtime ("ask", "auto" or "off").
+    health_check_hour_local: int | None = 10
+    health_bedroom_temperature_entity: str = ""
+    health_screen_entity: str = ""
+    health_morning_buffer_minutes: float = 75.0
+    health_wind_down: Literal["off", "ask", "auto"] = "ask"
+    health_wind_down_minutes: float = 45.0
     # The weekly audit digest (app/audit/digest.py), Sundays at this hour (blank = off).
     audit_digest_hour_local: int | None = 18
 

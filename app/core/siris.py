@@ -311,7 +311,7 @@ from app.plugins.builtin.sirisos import (
 )
 from app.sirisos.client import SirisOSClient
 from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
-from app.plugins.builtin.health_data import HealthSummaryTool
+from app.plugins.builtin.health_data import HEALTH_TOOLS, HealthSummaryTool
 from app.plugins.builtin.autonomy import WhatDidYouDoTool
 from app.plugins.builtin.learning import WhatHaveYouLearnedTool
 from app.goals import review as _goal_review  # noqa: F401 - registers its attention actions
@@ -337,6 +337,7 @@ from app.weather.client import WeatherClient
 # lands, same as every other tool wiring in this file.
 _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("home_assistant_", "home_assistant"),
+    ("health_", "health"),
     ("docker_", "docker"),
     ("plex_", "plex"),
     ("unifi_", "unifi"),
@@ -522,6 +523,7 @@ class SirisAI:
     outcomes: OutcomeStore = field(default_factory=lambda: OutcomeStore(SessionLocal))
 
     def __post_init__(self) -> None:
+        self.health.priority = [p.strip() for p in self.settings.health_source_priority.split(",") if p.strip()]
         if self.llm is None:
             # Wrapped in MeteredLLMClient (milestone 47) so every call's
             # token usage, when the backend reports any, is recorded into
@@ -1089,6 +1091,8 @@ class SirisAI:
             self.tools.register(SkillTool(IntruderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(SkillTool(DepartureCheckSkill(), self, permission=ToolPermission.SAFE_ACTION))
         self.tools.register(HealthSummaryTool(self))
+        for health_tool in HEALTH_TOOLS:
+            self.tools.register(health_tool(self))
         self.tools.register(ParcelAddTool(self))
         self.tools.register(ParcelListTool(self))
         self.tools.register(ParcelDoneTool(self))

@@ -351,6 +351,26 @@ class HealthDays(_Model):
     days: list[HealthDay] | None = Field(None, description="Oldest first; null in guest mode.")
 
 
+class HealthOverview(_Model):
+    """Everything the Health section shows (SirisAI 3.51; SirisOS 5.8 reads it
+    instead of keeping its own store). The sections are open objects so they
+    can grow without a v2; see app/health/overview.py and scores.py."""
+
+    guest_mode: bool
+    today: str | None = None
+    available: bool = False
+    sources: dict[str, Any] = {}
+    readiness: dict[str, Any] | None = Field(None, description="score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary")
+    sleep: dict[str, Any] | None = Field(None, description="need, last_night (hours, stages, start, end), score, debt_7d, bedtime_spread_min, average_7d, nights")
+    activity: dict[str, Any] | None = Field(None, description="steps, energy, exercise, load (ratio, zone), series, workouts")
+    vitals: list[dict[str, Any]] | None = None
+    weight: dict[str, Any] | None = Field(None, description="latest, trend (smoothed), per_week, goal_kg, to_go_kg, weeks_to_goal, series")
+    getting_sick: dict[str, Any] | None = Field(None, description="Set when temperature, resting heart rate and HRV point to illness two days running")
+    logged: dict[str, Any] | None = Field(None, description="Today's water, caffeine, drinks, mood, and the week's notes (symptoms, supplements, meals)")
+    insights: list[dict[str, Any]] | None = Field(None, description="Findings like 'after a late meeting you sleep 40 min less'")
+    bedtime: dict[str, Any] | None = Field(None, description="Tonight's suggested bedtime and why")
+
+
 class AttentionItem(_Model):
     id: int
     key: str = Field(description="Stable identity of the underlying thing (a suggestion, a job, an alert).")
@@ -611,6 +631,7 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "email_with": EmailWith,
     "upkeep": Upkeep,
     "health_days": HealthDays,
+    "health_overview": HealthOverview,
     "controls": Controls,
     "control_request": ControlRequest,
     "control": ControlResult,

@@ -154,6 +154,32 @@ class ToolCallOutcome:
     result: Any
 
 
+# Tools whose results are personal health data (SIRISAI_HEALTH_PRIVATE).
+PRIVATE_TOOLS = frozenset({"health_summary", "health_overview", "health_insights", "health_goals"})
+
+
+def _local_client(siris: "SirisAI") -> Any:
+    """A model that runs on this machine, if there is one: the general model
+    when it's Ollama, else the fast one when that's Ollama."""
+    if siris.settings.llm_provider == "ollama":
+        return siris.llm
+    if siris.settings.fast_llm_provider == "ollama":
+        return getattr(siris.model_router, "_fast", None)
+    return None
+
+
+def _is_local(siris: "SirisAI", client: Any) -> bool:
+    return client is None or siris.settings.llm_provider == "ollama" and client is siris.llm or (
+        siris.settings.fast_llm_provider == "ollama" and client is getattr(siris.model_router, "_fast", None)
+    )
+
+
+def _health_text(siris: "SirisAI") -> str:
+    from app.health import overview
+
+    return overview.text(overview.build(siris))
+
+
 @dataclass
 class CortexResult:
     conversation_id: str
@@ -523,6 +549,8 @@ class Cortex:
             return CortexResult(conversation_id=conversation_id, model_role=model_role, error=f"Tool '{name}' failed.")
 
         await self._emit({"type": "tool_end", "name": name, "status": "ok"})
+        if name in PRIVATE_TOOLS and siris.settings.health_private and not _is_local(siris, llm_client):
+            return await self._private_answer(siris, conversation_id, name, arguments, output, messages, model_role)
         siris.conversation.add_message(
             conversation_id, role="tool", content=json.dumps(output), tool_name=name, tool_arguments=arguments
         )
@@ -555,6 +583,37 @@ class Cortex:
 
         return CortexResult(conversation_id=conversation_id, tool_call=tool_call, model_role=model_role)
 
+    async def _private_answer(
+        self, siris: "SirisAI", conversation_id: str, name: str, arguments: dict[str, Any], output: Any,
+        messages: list[dict[str, Any]] | None, model_role: str,
+    ) -> CortexResult:
+        """Health data never goes to a cloud model (SIRISAI_HEALTH_PRIVATE): a
+        local model writes the answer when one is set up, else SirisAI's own
+        summary is the answer. The conversation keeps a placeholder instead of
+        the numbers, so later turns sent to the cloud model don't carry them."""
+        local = _local_client(siris)
+        text = None
+        if local is not None and messages is not None:
+            follow_up_messages = [
+                *messages,
+                {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": name, "arguments": arguments}}]},
+                {"role": "tool", "content": json.dumps(output, default=str)},
+                {"role": "system", "content": _SYNTHESIS_HONESTY_NUDGE},
+            ]
+            await self._emit({"type": "status", "message": "Writing answer (on this computer)"})
+            try:
+                text = (await generate_with_events(local, follow_up_messages, self.on_event)).text
+            except Exception:
+                logger.exception("Local model failed on a private health answer")
+        if not text:
+            text = output.get("text") if isinstance(output, dict) and output.get("text") else _health_text(siris)
+        siris.conversation.add_message(
+            conversation_id, role="tool", content=json.dumps({"private": f"{name} result kept on this computer"}), tool_name=name, tool_arguments=arguments
+        )
+        siris.conversation.add_message(conversation_id, role="assistant", content=f"[Answered from private health data with {name}; kept local.]")
+        tool_call = ToolCallOutcome(name=name, arguments=arguments, result=output)
+        return CortexResult(conversation_id=conversation_id, response=text, tool_call=tool_call, model_role="local" if local else model_role)
+
     async def _run_planned(
         self,
         siris: "SirisAI",
@@ -564,6 +623,10 @@ class Cortex:
         llm_client: Any,
         model_role: str,
     ) -> CortexResult:
+        if tools and siris.settings.health_private and not _is_local(siris, llm_client):
+            # A plan feeds every result straight back to the model, so health
+            # data (SIRISAI_HEALTH_PRIVATE) isn't offered to a cloud one here.
+            tools = [t for t in tools if (t.get("function") or t).get("name") not in PRIVATE_TOOLS]
         try:
             plan_result = await Planner(max_steps=self.max_plan_steps, on_event=self.on_event).run(
                 siris, conversation_id, messages, tools, llm_client

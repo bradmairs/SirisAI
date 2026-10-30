@@ -622,6 +622,68 @@ class HealthSample(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
+class HealthReading(Base):
+    """One source's value of one health metric for one person on one day
+    (app/health/service.py). Several sources can report the same thing
+    (Health Auto Export, an Apple Health backfill, a Shortcut, SirisOS's
+    old store); the one to trust is picked by SIRISAI_HEALTH_SOURCE_PRIORITY
+    and written to HealthSample, which everything else reads."""
+
+    __tablename__ = "health_readings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    metric: Mapped[str] = mapped_column(Text, index=True)
+    day: Mapped[str] = mapped_column(Text, index=True)
+    source: Mapped[str] = mapped_column(Text, index=True)
+    value: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class HealthSleep(Base):
+    """When a night's sleep started and ended (the morning you woke up)."""
+
+    __tablename__ = "health_sleep"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    day: Mapped[str] = mapped_column(Text, index=True)
+    start: Mapped[str] = mapped_column(Text, default="")
+    end: Mapped[str] = mapped_column(Text, default="")
+
+
+class HealthWorkout(Base):
+    """One workout: what, when, how long and far, energy and heart rate."""
+
+    __tablename__ = "health_workouts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    day: Mapped[str] = mapped_column(Text, index=True)
+    start: Mapped[str] = mapped_column(Text, default="")
+    name: Mapped[str] = mapped_column(Text, default="Workout")
+    minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
+    km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    kcal: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(Text, default="")
+
+
+class HealthNote(Base):
+    """Something logged by voice or chat that isn't a number per day: a
+    symptom, a supplement or medication taken, a meal estimate's description."""
+
+    __tablename__ = "health_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    day: Mapped[str] = mapped_column(Text, index=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    kind: Mapped[str] = mapped_column(Text)  # symptom, supplement, medication, meal, feeling, note
+    text: Mapped[str] = mapped_column(Text, default="")
+
+
 class Parcel(Base):
     """A tracked delivery (app/parcels/service.py)."""
 

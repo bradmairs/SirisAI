@@ -527,6 +527,18 @@ def health_days(siris: "SirisAI", days: int) -> c.HealthDays:
     return c.HealthDays(guest_mode=False, days=[c.HealthDay(date=d, metrics=m) for d, m in sorted(by_day.items())])
 
 
+def health_overview(siris: "SirisAI") -> c.HealthOverview:
+    from app.health import insights, overview
+
+    on, _ = _guest(siris)
+    if on:
+        return c.HealthOverview(guest_mode=True)
+    built = overview.build(siris)
+    built["insights"] = insights.current(siris)
+    built["bedtime"] = insights.bedtime(siris)
+    return c.HealthOverview(guest_mode=False, **built)
+
+
 # -- home controls (SirisOS 4.2) ---------------------------------------------------
 
 CONTROL_DOMAINS = {"light": "light", "switch": "switch", "cover": "garage", "lock": "lock"}
