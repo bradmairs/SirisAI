@@ -5,6 +5,17 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.51 — 2026-10-30
+
+- Health in one place, with insights: every Apple Health metric, workouts and sleep in SirisAI; readiness for chat and voice; backfill, illness warning, sleep insights, bedtime, goals, quick logs, privacy, export
+- One health store for SirisAI and SirisOS: every metric Apple Health gives, sleep times and stages, workouts and voice-logged notes, per person, with source priority so two imports of the same day don't double up.
+- Readiness, sleep score, training load, vitals, a smoothed weight trend and a getting-sick check, worked out in SirisAI and shared at `/siris/hub/v1/health/overview`, so "how ready am I?" works in chat and by voice.
+- Backfill years of history from the Health app's `export.zip` (phone and watch steps not doubled).
+- "Health data hasn't arrived" in the feed when Health Auto Export stops for 36 hours.
+- Insights: a getting-sick warning with **Block my evening**, what your sleep goes with (late meetings, workouts, caffeine, drinks, a warm room, late TV), tonight's bedtime with a wind-down nudge and protocol, and goals like "run 1,000 km this year".
+- Log water, caffeine, drinks, mood, symptoms, supplements and meals by voice; a meal photo gets a rough estimate from the local vision model.
+- Health answers never go to a cloud model (`SIRISAI_HEALTH_PRIVATE`); CSV export, a printable doctor summary, and delete by date range or source.
+
 ## 3.41 — 2026-10-30
 
 - Home and safety: a weekly energy report, away mode, a camera digest, a weekly audit digest, and settings history with undo

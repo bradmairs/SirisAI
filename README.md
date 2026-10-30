@@ -6315,6 +6315,87 @@ provider for the same capability actually exists to design against.
         the old value back and listed the undo.
       - **Not tested live:** Home Assistant energy data and Frigate events,
         since neither is reachable from the sandbox.
+
+153. **Done** -- Health in one place, with insights (3.51, for SirisOS 5.8).
+    - **One store** (`app/health/service.py`):
+      - **What it keeps:** every metric Apple Health gives (about 35:
+        sleep stages, vitals, VO₂ max, body composition, water, caffeine),
+        the night's sleep times, each workout, and notes logged by voice.
+        Per person.
+      - **Sources:** each source's reading is kept (`health_readings`), and
+        the one to trust goes to `health_samples` by
+        `SIRISAI_HEALTH_SOURCE_PRIORITY`. So a Shortcut, Health Auto
+        Export and a backfill reporting the same day don't double up.
+      - **Workouts:** two sources within five minutes are the same workout.
+      - **Before this,** SirisOS kept its own richer copy and SirisAI only
+        eight metrics, so chat and voice couldn't see readiness.
+    - **One reader** (`app/health/auto_export.py`): Health Auto Export's JSON
+      and SirisAI's own shape (SirisOS sends its old store across in it once).
+      SirisOS's two copies of this reader go in 5.8.
+    - **Scores in SirisAI** (`app/health/scores.py`, moved from SirisOS):
+      - readiness, the sleep score, training load and vitals against your
+        own baseline;
+      - a weight trend (exponentially smoothed, kg a week, weeks to a goal);
+      - "getting sick": two of temperature, resting heart rate and HRV off
+        their usual, two days running.
+      - All of it is at `GET /siris/hub/v1/health/overview` (additive).
+    - **Backfill** (`POST /siris/health/apple-export`): the Health app's
+      `export.zip`, read as a stream. For counts, only the device with the
+      most each day is used, so phone plus watch steps don't double.
+    - **Import health:** "Health data hasn't arrived for 2 days" in the feed
+      when nothing new has come in for 36 hours. It clears itself.
+    - **Insights** (`app/health/insights.py`):
+      - **Getting sick** (10am): a warning with this evening's plans and
+        **Block my evening** (a Rest event).
+      - **What sleep goes with** (weekly): late meetings, late workouts,
+        caffeine, alcohol, a warm bedroom, late TV. Nights with and without
+        each are compared, with at least 4 each way and 20 minutes to count.
+      - **Bedtime:** from your need, this week's debt and tomorrow's first
+        event, with a wind-down nudge 45 minutes before and a new
+        `wind_down` protocol (dims the lights that are on). Protocol
+        selectors can now filter by state.
+      - **Goals** tied to a number ("run 1,000 km this year"): progress and
+        pace weekly.
+      - **The vault's weekly Health note** now has readiness, sleep,
+        workouts, weight, signs of illness, these insights, goals and
+        logged symptoms.
+    - **Logging by voice and photo:**
+      - `health_log`: water, caffeine, drinks, mood and energy, symptoms,
+        supplements, medications;
+      - `health_log_meal`, and `POST /siris/health/meal` with a photo for the
+        local vision model's rough estimate, always labelled an estimate.
+    - **Privacy** (`SIRISAI_HEALTH_PRIVATE`, on):
+      - **Chat answers:** health tool results never go to a cloud model. A
+        local Ollama model writes the answer, or SirisAI's own summary is
+        the answer.
+      - **History:** the conversation keeps a placeholder, so later cloud
+        turns don't carry the numbers.
+      - **Planner:** in planner mode a cloud model isn't offered the health
+        tools.
+      - **Guest mode** hides all `health_*` tools and endpoints.
+    - **Export and delete:**
+      - `GET /siris/health/export.csv`;
+      - `GET /siris/health/report`, a printable summary for a doctor (print
+        to PDF);
+      - `DELETE /siris/health/data?start=&end=&source=`, which rebuilds the
+        trusted values from what's left.
+    - **Verified:**
+      - **New tests:** 13 in `tests/test_health_store.py`:
+        - source priority and falling back after a delete;
+        - workout de-duplication;
+        - the native import feeding the overview;
+        - the weight trend and the illness rule;
+        - an `export.zip` (phone and watch steps not doubled, sleep stages,
+          a workout) through the upload route;
+        - export, report, delete and guest mode;
+        - quick logs, meals and goals;
+        - the stale alert;
+        - the sick warning blocking the evening;
+        - sleep insights, bedtime and wind-down once an evening;
+        - a cloud model never being sent health data or seeing it in
+          history.
+      - **Updated tests:** the Health Auto Export test, the vault note test
+        and the hub examples.
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
