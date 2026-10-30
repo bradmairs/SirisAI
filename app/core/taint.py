@@ -87,6 +87,9 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         "ssh_server_health",
         "ssh_server_updates",
         "ssh_disk_health",
+        "server_backups_check",
+        "server_backup_test",
+        "docker_check_updates",
     }
 )
 

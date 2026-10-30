@@ -33,9 +33,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-HIGH_RISK_TOOLS = frozenset({"ssh_power", "ssh_install_updates", "ssh_run"})
+HIGH_RISK_TOOLS = frozenset({"ssh_power", "ssh_install_updates", "ssh_run", "docker_update_containers", "unifi_block_client"})
 # Feed buttons that do a high-risk thing directly (app/servers/watch.py).
-HIGH_RISK_ACTIONS = frozenset({("server-updates", "reboot"), ("server-updates", "install"), ("servers", "restart")})
+HIGH_RISK_ACTIONS = frozenset(
+    {("server-updates", "reboot"), ("server-updates", "install"), ("servers", "restart"), ("devices", "block"), ("containers", "update")}
+)
 LOCK_AFTER = 5
 LOCK_FOR = timedelta(minutes=10)
 FAILURES_KEY = "approval_pin_failures"

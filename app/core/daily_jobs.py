@@ -96,6 +96,36 @@ def _server_updates(siris: "SirisAI", now: datetime) -> Any:
     return watch.check_updates(siris, now) if siris.ssh_client is not None else {"skipped": "no SSH servers"}
 
 
+def _container_updates(siris: "SirisAI", now: datetime) -> Any:
+    from app.homelab import containers
+
+    return containers.check(siris, now)
+
+
+def _server_backups(siris: "SirisAI", now: datetime) -> Any:
+    from app.homelab import backups
+
+    return backups.check(siris, now)
+
+
+def _server_backup_test(siris: "SirisAI", now: datetime) -> Any:
+    from app.homelab import backups
+
+    return backups.restore_test(siris, now)
+
+
+def _internet_weekly(siris: "SirisAI", now: datetime) -> Any:
+    from app.homelab import internet
+
+    return internet.weekly(siris, now)
+
+
+def _expiry(siris: "SirisAI", now: datetime) -> Any:
+    from app.homelab import expiry
+
+    return expiry.check(siris, now)
+
+
 def _server_disks(siris: "SirisAI", now: datetime) -> Any:
     from app.servers import watch
 
@@ -113,6 +143,11 @@ JOBS: list[DailyJob] = [
     DailyJob("career_capture", lambda s: s.settings.career_capture_hour_local, _career_capture),
     DailyJob("server_updates", lambda s: s.settings.server_updates_hour_local if s.ssh_client is not None else None, _server_updates),
     DailyJob("server_disks", lambda s: s.settings.server_disks_hour_local if s.ssh_client is not None else None, _server_disks),
+    DailyJob("container_updates", lambda s: s.settings.container_updates_hour_local if getattr(s, "_docker_client", None) is not None else None, _container_updates),
+    DailyJob("server_backups", lambda s: s.settings.server_backups_hour_local if s.settings.server_backups and s.ssh_client is not None else None, _server_backups),
+    DailyJob("server_backup_test", lambda s: s.settings.server_backups_hour_local if s.settings.server_backups and s.ssh_client is not None else None, _server_backup_test, monthday=1),
+    DailyJob("internet_weekly", lambda s: s.settings.internet_report_hour_local if s.settings.internet_probe_seconds > 0 else None, _internet_weekly, weekday=lambda s: 0),
+    DailyJob("expiry_check", lambda s: s.settings.expiry_check_hour_local if (s.settings.security_cert_hosts or s.settings.security_domains or (s.settings.expiry_check_servers and s.ssh_client is not None)) else None, _expiry),
     DailyJob("model_trial", lambda s: s.settings.model_trial_hour_local if s.settings.candidate_models else None, _model_trial, weekday=lambda s: s.settings.model_trial_day),
 ]
 

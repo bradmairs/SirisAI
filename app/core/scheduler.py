@@ -226,6 +226,44 @@ def run_server_watch(siris: "SirisAI") -> dict | None:
         return None
 
 
+def run_device_watch(siris: "SirisAI") -> dict | None:
+    """New devices on the network (app/homelab/devices.py)."""
+    from app.homelab import devices
+
+    if not devices.enabled(siris):
+        return None
+    try:
+        return devices.check(siris)
+    except Exception:
+        logger.exception("Network device watch failed")
+        return None
+
+
+def run_speed_test(siris: "SirisAI") -> dict | None:
+    from app.homelab import internet
+
+    try:
+        return internet.speed_test(siris)
+    except Exception:
+        logger.exception("Scheduled speed test failed")
+        return None
+
+
+async def _internet_loop(siris: "SirisAI") -> None:
+    """The outage log's probe (app/homelab/internet.py), on its own so a long
+    job in the main loop can't leave gaps in it."""
+    from app.homelab import internet
+
+    while True:
+        interval = siris.settings.internet_probe_seconds
+        if interval > 0:
+            try:
+                await asyncio.to_thread(internet.probe, siris)
+            except Exception:
+                logger.exception("Internet probe failed")
+        await asyncio.sleep(interval if interval > 0 else 60)
+
+
 def report_update(siris: "SirisAI") -> None:
     """Say how the last self-update went (app/upkeep/updates.py), once."""
     from app.upkeep import updates
@@ -343,7 +381,10 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     last_eval = time.monotonic()
     last_attention = time.monotonic()  # the feed syncs itself when asked; no need to at boot
     last_servers = 0.0
+    last_devices = 0.0
+    last_speed = time.monotonic()  # the first speed test one interval after startup
     brain_task: asyncio.Task | None = None
+    internet_task = asyncio.create_task(_internet_loop(siris))
     while True:
         try:
             due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
@@ -407,6 +448,16 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
                 await asyncio.to_thread(run_server_watch, siris)
                 last_servers = time.monotonic()
 
+            devices_interval = siris.settings.network_device_watch_minutes * 60
+            if devices_interval > 0 and time.monotonic() - last_devices >= devices_interval:
+                await asyncio.to_thread(run_device_watch, siris)
+                last_devices = time.monotonic()
+
+            speed_interval = siris.settings.internet_speedtest_hours * 3600
+            if speed_interval > 0 and time.monotonic() - last_speed >= speed_interval:
+                await asyncio.to_thread(run_speed_test, siris)
+                last_speed = time.monotonic()
+
             # Nightly reflection, weekly goal review and the other once-a-day jobs.
             await asyncio.to_thread(run_daily_jobs, siris)
 
@@ -419,6 +470,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
         except asyncio.CancelledError:
             if brain_task is not None:
                 brain_task.cancel()
+            internet_task.cancel()
             raise
         except Exception:
             logger.exception("Scheduler tick failed")

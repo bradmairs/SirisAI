@@ -6155,7 +6155,6 @@ provider for the same capability actually exists to design against.
     last reading, sleep comes from `sleep_analysis`, and running km from
     the run workouts. Verified in `tests/test_unifi.py`,
     `tests/test_hub_energy_usage.py` and `tests/test_health_auto_export.py`.
-
 150. **Done** -- OneNote, tidied (3.21, with vault engine 1.86).
     - New OneNote pages get titles that make sense outside their notebook:
       generic ones ("Session 1", "Initial Notes", "Speaker 2: Tina Porou")
@@ -6178,6 +6177,83 @@ provider for the same capability actually exists to design against.
       to compare the transcription with its images.
     Verified in `tests/test_second_brain_jobs.py`, `tests/test_onenote.py`
     and `tests/test_second_brain.py`.
+
+151. **Done** -- Homelab upkeep (`app/homelab/`): container updates, server
+    backups, new devices, internet outages, and expiring certificates and
+    domains.
+    - **Container updates** (`docker_check_updates`, `docker_update_containers`,
+      daily at 5am):
+      - **Checking:** for each running container, the daemon asks the
+        registry for the image's current digest, which is compared with the
+        digests the local image was pulled as.
+      - **Skipped:** digest-pinned images, locally built images, containers
+        labelled `siris.update=false` (or Watchtower's opt-out), containers
+        in `SIRISAI_CONTAINER_UPDATE_EXCLUDE`, and SirisAI itself.
+      - **Feed:** "2 container updates: plex, sonarr" with **Update all**.
+      - **Updating** works as Watchtower does:
+        - pull the new image;
+        - stop the old container and rename it aside;
+        - create the new one from the old one's settings, minus what came
+          from the old image (its env, command and labels), so the new
+          image's defaults apply;
+        - connect the extra networks and start it.
+      - **Roll-back:** if the new container stops or its health check fails
+        within `SIRISAI_CONTAINER_UPDATE_HEALTH_SECONDS` (90), it's removed
+        and the old one is renamed back and started. The feed then says
+        "plex's update was rolled back".
+    - **Server backups** (`SIRISAI_SERVER_BACKUPS`, `server:zfs:dataset` or
+      `server:path:/folder`, daily at 8am):
+      - each backup's newest snapshot or file is checked against
+        `SIRISAI_SERVER_BACKUP_MAX_AGE_HOURS` (26), urgently at twice that;
+      - an empty backup or one that can't be checked is raised too;
+      - on the 1st of each month a random file is read back out of the
+        newest snapshot or the folder (archives are listed or gzip-tested),
+        posting "Backup test passed" or an urgent "failed". This proves the
+        backup can be read back, not that every file is intact.
+    - **New network devices** (every 5 minutes, from UniFi's `stat/sta`):
+      - the first check records what's there without alerting;
+      - after that, "New device: Espressif on IoT" shows the hostname,
+        maker, network or Wi-Fi, IP and MAC;
+      - **Name it** remembers the device (under the name typed in, sent as
+        the act `body`), and `network_name_device` does it from chat;
+      - **Block** blocks its MAC (milestone 149's `set_blocked`, so it works
+        even once the device has left) and needs the approval PIN;
+      - the Home Assistant based `new_device_alert` stands down while this
+        runs, so a device doesn't alert twice.
+    - **Internet outages:**
+      - **Probing:** a TCP probe every minute to Cloudflare, Google and
+        Quad9, in its own loop so long jobs don't leave gaps. The internet
+        counts as down when none of them answer.
+      - **While down:** after two failed probes, "The internet is down
+        (since 14:02)" appears in the feed, closing with "Back after 25
+        minutes".
+      - **Speed:** a speed test every 6 hours; a dip is under half the
+        30-day median.
+      - **Weekly**, on Mondays: "Internet last week: 3 drops, 41 minutes in
+        total, the worst Tue 02:00 for 25 minutes. Speed averaged 480/38
+        Mbps with 2 dips." `internet_outages` reports any period.
+      - Time SirisAI was stopped isn't counted as an outage.
+    - **Certificates and domains** (`expiry_check`, daily at 9am):
+      - certificates on `SIRISAI_SECURITY_CERT_HOSTS` and on port 443 of
+        each SSH server (skipped quietly where there's no HTTPS);
+      - domain registrations in `SIRISAI_SECURITY_DOMAINS`, from RDAP;
+      - the feed gets anything expiring within 14 days, urgent inside a
+        week, and the items close when renewed.
+    - **Safety:** container updates and blocking a device need the approval
+      PIN when one is set. All the new settings are on the Settings page.
+    - **Verified:** 15 tests in `tests/test_homelab.py`, against a stand-in
+      Docker Engine, SSH client and UniFi.
+      - **Live, against a real Docker daemon** with a local registry, two
+        containers whose image tags were moved to new builds:
+        - `demo` was recreated on v2 and came up healthy, keeping its env,
+          both networks, volume, restart policy and compose label, with the
+          new image's defaults;
+        - `other`, whose new image never passed its health check, was rolled
+          back and is still running v1.
+      - **Backups:** the commands ran in a real shell, listing a tarball,
+        reading a file, and catching a corrupt archive.
+      - **Not tested live:** RDAP (blocked in the test sandbox) and UniFi's
+        `stat/sta` (it uses the same endpoint as milestone 148).
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

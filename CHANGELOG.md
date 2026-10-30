@@ -5,6 +5,16 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.31 — 2026-10-30
+
+- Homelab upkeep: container updates with roll-back, server backup checks and tests, new network devices, an internet outage log, expiring certificates and domains
+- Container updates: a daily check for newer images, **Update all** in the feed, each container recreated with its own settings and rolled back automatically if it doesn't come up healthy (`docker_check_updates`, `docker_update_containers`).
+- Server backups (`SIRISAI_SERVER_BACKUPS`: ZFS snapshots or backup folders): overdue ones go to the feed, and on the 1st of each month a random file is read back out of each.
+- New devices on the network, from UniFi, with **Name it** and **Block** (`network_name_device` from chat).
+- An internet outage log: a probe every minute, "The internet is down" while it is, speed tests every 6 hours, and a weekly summary for your ISP (`internet_outages`).
+- Certificates (including HTTPS on each server) and domains (RDAP) expiring within 14 days go to the feed (`expiry_check`).
+- Updating containers and blocking devices need the approval PIN when one is set. The new settings are on the Settings page.
+
 ## 3.21 — 2026-10-30
 
 - OneNote tidied: clearer titles, deleted pages stay deleted, action items, CPEng evidence, handwriting checks
