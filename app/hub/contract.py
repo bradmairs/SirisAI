@@ -527,6 +527,39 @@ class ControlResult(_Model):
     state: str | None = None
 
 
+class NetworkBlockRequest(_Model):
+    blocked: bool = Field(description="True blocks the client; false lets it back in.")
+
+
+class NetworkBlockResult(_Model):
+    id: str = Field(description="The client's MAC address.")
+    blocked: bool
+
+
+# -- Power use (/siris/hub/v1/energy/usage, SirisOS 5.3's house view) -----------
+
+
+class PowerSensor(_Model):
+    entity_id: str
+    name: str
+    watts: float = Field(description="Power right now, in watts (kW sensors are converted).")
+
+
+class EnergyMeter(_Model):
+    entity_id: str
+    name: str
+    kwh: float = Field(description="The meter's reading, a total that only goes up (kWh; Wh converted).")
+
+
+class EnergyUsage(_Model):
+    configured: bool = Field(description="Home Assistant is set up.")
+    house_watts: float | None = Field(None, description="The whole house now: SIRISAI_ENERGY_GRID_ENTITY_ID, else none.")
+    solar_watts: float | None = Field(None, description="SIRISAI_ENERGY_SOLAR_ENTITY_ID right now.")
+    house_meter: str | None = Field(None, description="SIRISAI_ENERGY_METER_ENTITY_ID: the whole house's kWh meter, if set.")
+    power: list[PowerSensor] = []
+    meters: list[EnergyMeter] = []
+
+
 # -- The network, live (/siris/hub/v1/network, SirisOS 4.5's house view) -----------
 
 
@@ -582,6 +615,9 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "control_request": ControlRequest,
     "control": ControlResult,
     "network": Network,
+    "network_block_request": NetworkBlockRequest,
+    "network_block": NetworkBlockResult,
+    "energy_usage": EnergyUsage,
 }
 
 

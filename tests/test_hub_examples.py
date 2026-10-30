@@ -18,6 +18,7 @@ from app.core.config import Settings
 from app.core.siris import SirisAI, get_siris
 from app.db.models import AttentionItem
 from app.db.session import SessionLocal
+from app.hub import compose
 from app.hub import contract as c
 from app.main import app
 from app.notify.confirmation import notify_confirmation_needed
@@ -116,6 +117,13 @@ def produced(client: TestClient) -> dict[str, Any]:
         siris._unifi_client = _mock_client(_traffic_handler)
         out["network"] = client.get("/siris/hub/v1/network", headers=h).json()
         out["network"]["checked_at"] = "2026-10-24T10:00:00+00:00"
+        out["network_block_request"] = {"blocked": True}
+        out["network_block"] = c.NetworkBlockResult(id="aa:bb:cc:dd:ee:01", blocked=True).model_dump(mode="json")
+        from tests.test_hub_energy_usage import FakeHA as EnergyHA
+
+        energy_siris = full_siris(energy_grid_entity_id="sensor.house_power")
+        energy_siris._home_assistant_client = EnergyHA()
+        out["energy_usage"] = compose.energy_usage(energy_siris).model_dump(mode="json")
         out["controls"] = client.get("/siris/hub/v1/controls", headers=h).json()
         out["control_request"] = {"action": "turn_off"}
         out["control"] = client.post("/siris/hub/v1/controls/light.kitchen", json=out["control_request"], headers=h).json()

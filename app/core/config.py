@@ -368,6 +368,11 @@ class Settings(BaseSettings):
     energy_solar_min_watts: float = 1500.0
     energy_price_entity_id: str = ""
     energy_price_max: float | None = None
+    # Power use for SirisOS's house (5.3, /siris/hub/v1/energy/usage): the
+    # whole house's power sensor (W or kW) and its kWh meter, if Home
+    # Assistant has them. Every other power and energy sensor is listed too.
+    energy_grid_entity_id: str = ""
+    energy_meter_entity_id: str = ""
 
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own

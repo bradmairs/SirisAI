@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.11 — 2026-10-30
+
+- Network alerts (block by MAC), power use from Home Assistant, and Health Auto Export's JSON for Apple Health
+
 ## 3.01 — 2026-10-29
 
 - Waking a server or computer (`ssh_wake`) now asks first, like reboot and shutdown already did. A spoken "yes" is enough to wake something; reboot and shutdown still have to be confirmed in the app. The attention feed's Wake button counts as the confirmation.
