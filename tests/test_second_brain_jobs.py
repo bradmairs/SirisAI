@@ -788,3 +788,74 @@ def test_the_upkeep_summary_mentions_photos_pages_and_emails() -> None:
     assert "Read 1 photo in the inbox." in message
     assert "Project pages refreshed: Melrose East Pump Station." in message
     assert "Brought in 2 emails labelled Siris." in message
+
+
+# ---------- action items and CPEng evidence ----------
+
+NOW_OCT = datetime(2026, 10, 29, 14, 0, tzinfo=UTC)
+
+
+def test_recent_imports_get_their_action_items_and_old_ones_dont() -> None:
+    siris = _siris()
+    siris.state.set(jobs.ACTIONS_KEY, [])
+    brain = siris.second_brain = FakeBrain(inbox_notes=[
+        {"title": "Pump quote", "path": "00-Inbox/Pump quote.md", "source": "Email from Dave, 2026-10-28",
+         "text": "*Emailed to Siris: from Dave, 2026-10-28.*\n\nPlease send the revised quote by Friday 31 October."},
+        {"title": "Old meeting", "path": "00-Inbox/Old meeting.md", "source": "OneNote: NZDF › Meetings › Old meeting",
+         "text": "*From OneNote: NZDF › Meetings, created 2021-11-22.*\n\nTony to send consents."},
+        {"title": "A thought", "path": "00-Inbox/A thought.md", "source": "", "text": "Maybe paint the fence."},
+    ])
+    siris.llm = FakeLLM('{"tasks": [{"task": "Send Dave the revised quote", "due": "2026-10-31"}, {"task": "", "due": null}]}')
+    out = asyncio.run(jobs.extract_actions(siris, NOW_OCT))
+    assert out == {"tasks": {"Pump quote": 1}}
+    assert brain.learned[0]["title"] == "Pump quote"
+    assert "- [ ] Send Dave the revised quote 📅 2026-10-31" in brain.learned[0]["content"]
+    assert asyncio.run(jobs.extract_actions(siris, NOW_OCT)) == {"tasks": {}}   # each note is read once
+    siris.llm = None
+    assert "skipped" in asyncio.run(jobs.extract_actions(siris, NOW_OCT))
+
+
+class CPEngBrain(FakeBrain):
+    def __init__(self) -> None:
+        super().__init__(notes={"CPEng Chartership": "# CPEng", "Dellows Underslip – Outlet Options": "Chose riprap over a drop structure.",
+                                "Water Asset Forum – Tina Porou": "Talk notes."})
+        self.lines: list[tuple[str, str, str]] = []
+
+    def list_notes(self) -> list[dict]:
+        return [{"title": "CPEng Chartership", "type": "project", "path": "01-Projects/CPEng Chartership.md"},
+                {"title": "Dellows Underslip – Outlet Options", "type": "note", "path": "Work/WSP/Dellows Underslip – Outlet Options.md"},
+                {"title": "Dellows Underslip", "type": "project", "path": "Work/WSP/Projects/Dellows Underslip.md"},
+                {"title": "Water Asset Forum – Tina Porou", "type": "note", "path": "Work/Professional Development/x.md"}]
+
+    def add_line(self, note: str, heading: str, line: str) -> dict:
+        self.lines.append((note, heading, line))
+        return {"action": "added", "title": note}
+
+
+class SwitchLLM:
+    async def generate(self, messages: list[dict], **kwargs: Any) -> LLMResponse:
+        if "riprap" in messages[-1]["content"]:
+            return LLMResponse(text='{"evidence": true, "elements": [4, 14, 99], "why": "He compared outlet options and picked riprap."}')
+        return LLMResponse(text='{"evidence": false, "elements": [], "why": ""}')
+
+
+def test_work_notes_that_show_competencies_are_listed_on_the_cpeng_note() -> None:
+    siris = _siris()
+    siris.state.set(jobs.CPENG_KEY, [])
+    brain = siris.second_brain = CPEngBrain()
+    siris.llm = SwitchLLM()
+    out = asyncio.run(jobs.cpeng_evidence(siris))
+    assert out == {"added": ["Dellows Underslip – Outlet Options"], "read": 2}   # project pages aren't read
+    assert brain.lines == [("CPEng Chartership", "## Evidence from your notes",
+                            "- [[Dellows Underslip – Outlet Options]]: 4 Develop safe and sustainable solutions, "
+                            "14 Problem analysis. He compared outlet options and picked riprap.")]
+    assert asyncio.run(jobs.cpeng_evidence(siris)) == {"added": [], "read": 0}
+
+
+def test_the_weekly_check_points_at_handwriting() -> None:
+    siris = _siris(brain_review_notes=2)
+    brain = siris.second_brain = FakeBrain()
+    brain.queue = [{"title": "Site Notes", "as_of": "2026-10-20", "excerpt": "Riprap", "handwriting": True}]
+    siris._notify_client = FakeNotify()
+    jobs.ask_to_review_notes(siris)
+    assert "Site Notes (as of 2026-10-20) [handwriting: compare the transcription with the page's images]" in siris._notify_client.sent[0][1]

@@ -271,7 +271,7 @@ def test_same_titles_are_kept_apart_and_the_nightly_budget_holds(tmp_path: Path)
     pages = [_page(f"p{i}", "Notes", f"2026-10-0{i}T00:00:00Z") for i in range(1, 4)]
     onenote = FakeOneNote(pages, {p["id"]: ("<p>x</p>", "") for p in pages})
     out = importer.run_import(siris, NOW, onenote)
-    assert out["imported"] == ["Notes", "Notes (Site Visits)"]   # oldest first
+    assert out["imported"] == ["Site Visits – Notes", "Site Visits – Notes (Site Visits)"]   # oldest first
     assert out["waiting"] == 1
 
 
@@ -362,7 +362,7 @@ def test_only_new_or_changed_sections_are_listed_again(tmp_path: Path, monkeypat
     siris = _siris(tmp_path)
     onenote = SectionedOneNote([_section("a", "2026-10-01T00:00:00Z"), _section("b", "2026-10-01T00:00:00Z")],
                                [_page("p1", "One", section="a"), _page("p2", "Two", section="b")])
-    assert importer.run_import(siris, NOW, onenote)["imported"] == ["One", "Two"]
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["A – One", "B – Two"]
     assert sorted(onenote.listed) == ["a", "b"]
 
     onenote.listed.clear()
@@ -372,7 +372,7 @@ def test_only_new_or_changed_sections_are_listed_again(tmp_path: Path, monkeypat
     onenote._sections[1] = _section("b", "2026-10-09T00:00:00Z")   # a page in b was added
     onenote._pages.append(_page("p3", "Three", "2026-10-09T00:00:00Z", section="b"))
     onenote.content["p3"] = ("<p>three</p>", "")
-    assert importer.run_import(siris, NOW, onenote)["imported"] == ["Three"]
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["B – Three"]
     assert onenote.listed == ["b"]
 
 
@@ -413,7 +413,7 @@ def test_a_throttle_while_listing_ends_the_night_and_keeps_what_was_listed(tmp_p
     onenote.throttle_listing = set()
     onenote.listed.clear()
     out = importer.run_import(siris, NOW, onenote)
-    assert out["imported"] == ["One", "Two"]
+    assert out["imported"] == ["A – One", "B – Two"]
     assert "b" in onenote.listed
 
 
@@ -483,7 +483,10 @@ def test_small_images_and_non_images_are_kept_exactly() -> None:
     ("J", "ENCL335 - Assignment 1 - J"),
     ("-", "ENCL335 - Assignment 1"),
     ("16082018", "ENCL335 - Assignment 1 - 16082018"),
-    ("Site Visit", "Site Visit"),
+    ("Site Visit", "Assignment 1 – Site Visit"),   # too generic on its own: its section goes first
+    ("Culvert Sizing for 0.5 m Freeboard", "Culvert Sizing for 0.5 m Freeboard"),
+    ("Weekly Meeting - 24/02/23", "Assignment 1 – Weekly Meeting - 2023-02-24"),
+    ("Assignment 1 marking", "Assignment 1 marking"),   # already says where it's from
     ("ENCN253 17S2 HW2", "ENCN253 17S2 HW2"),
 ])
 def test_meaningless_page_titles_get_their_notebook_and_section(title: str, expected: str) -> None:
@@ -509,7 +512,7 @@ def test_skipped_notebooks_are_never_listed_or_imported(tmp_path: Path) -> None:
     ]
     onenote = SectionedOneNote(sections, [_page(f"p{sid}", f"Page {sid}", section=sid) for sid in ("u1", "u2", "u3", "w1")])
     out = importer.run_import(siris, NOW, onenote)
-    assert out["imported"] == ["Page w1"]
+    assert out["imported"] == ["Endnote – Page w1"]
     assert onenote.listed == ["w1"]                                        # skipped notebooks cost no requests
     assert set(siris.state.get(importer.SECTIONS_KEY)) == {"w1"}
 
@@ -540,7 +543,7 @@ def test_a_skipped_page_edited_to_drop_its_picture_is_imported(tmp_path: Path) -
     importer.run_import(siris, NOW, onenote)
     onenote._pages = [_page("p1", "Meeting notes", "2026-10-05T00:00:00Z")]
     onenote.content["p1"] = ("<p>Agenda</p><p>Decided: go ahead</p>", "")
-    assert importer.run_import(siris, NOW, onenote)["imported"] == ["Meeting notes"]
+    assert importer.run_import(siris, NOW, onenote)["imported"] == ["Site Visits – Meeting notes"]
 
 
 def test_pictures_are_imported_when_skipping_is_off(tmp_path: Path) -> None:
@@ -611,5 +614,21 @@ def test_an_empty_page_is_skipped_not_imported(tmp_path: Path) -> None:
     onenote = FakeOneNote([_page("p1", "Workshop"), _page("p2", "Agenda", "2026-10-02T00:00:00Z")],
                           {"p1": ("<p> </p>", ""), "p2": ("<p>Item one</p>", "")})
     out = importer.run_import(siris, NOW, onenote)
-    assert out["imported"] == ["Agenda"] and out["skipped"] == 1
+    assert out["imported"] == ["Site Visits – Agenda"] and out["skipped"] == 1
     assert siris.state.get(importer.STATE_KEY)["p1"]["skipped"] == "empty page"
+
+
+def test_a_page_deleted_in_siris_stays_deleted(tmp_path: Path) -> None:
+    siris = _siris(tmp_path)
+    onenote = FakeOneNote([_page("p1", "Pump station visit"), _page("p2", "Old page")],
+                          {"p1": ("<p>Line one</p>", ""), "p2": ("<p>Gone</p>", "")})
+    brain = siris.second_brain
+    learn = brain.learn
+    brain.learn = lambda items: [{"action": "skipped", "title": i["title"]} if "Old page" in i["title"]
+                                 else learn([i])[0] for i in items]
+    out = importer.run_import(siris, NOW, onenote)
+    assert out["imported"] == ["Pump station visit"] and out["skipped"] == 1   # the engine refused a deleted one
+    onenote._pages = [_page("p1", "Pump station visit", "2026-10-05T00:00:00Z")]
+    onenote.content["p1"] = ("<p>Line one</p><p>Line two</p>", "")
+    brain.learn = lambda items: [{"action": "skipped", "title": i["title"]} for i in items]   # since deleted too
+    assert importer.run_import(siris, NOW, onenote)["updated"] == []
