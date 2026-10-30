@@ -6254,6 +6254,67 @@ provider for the same capability actually exists to design against.
         reading a file, and catching a corrupt archive.
       - **Not tested live:** RDAP (blocked in the test sandbox) and UniFi's
         `stat/sta` (it uses the same endpoint as milestone 148).
+
+152. **Done** -- Home and safety: a weekly energy report, away mode, a camera
+    digest, a weekly audit digest, and settings history with undo.
+    - **Energy report** (`energy_report`, Mondays at 8am, `app/household/energy.py`):
+      - **Sources:** Home Assistant's energy meters (kWh counters that only
+        count up, with resets handled) and power sensors, fetched in one
+        history request.
+      - **Total:** `SIRISAI_ENERGY_METER_ENTITY_ID` (milestone 149's house
+        meter) when set, otherwise the devices added up. Solar, export and
+        return meters are left out.
+      - **Cost:** from the price sensor at the time each kWh was used, or
+        `SIRISAI_ENERGY_FLAT_RATE`.
+      - **Compared** with the week before, with the biggest users.
+      - **Left on overnight:** power sensors averaging over 25 W between
+        midnight and 5am on at least 3 of the last 7 nights, minus
+        `SIRISAI_ENERGY_IGNORE`.
+    - **Away mode** (`SIRISAI_AWAY_MODE`: ask, auto or off; `app/household/away.py`):
+      - **Leaving:** when presence sees everyone leave, the feed and the phone
+        get "Everyone's out. Run away?", listing the steps, with **Run it**.
+        "auto" runs it and says so.
+      - **Returning:** the protocol's undo is applied, except for unlocking,
+        opening covers or disarming. A phone joining the Wi-Fi isn't proof
+        enough to open the house. An unanswered offer closes itself.
+      - **Scope:** only a run made by away mode is undone, never one made
+        since by something else.
+    - **Camera digest** (`SIRISAI_CAMERA_DIGEST_HOURS`, "12,18,22";
+      `camera_summary` in chat; `app/household/cameras.py`):
+      - Frigate's events since the last digest, per camera: "Front Door: 2
+        people (Brad at 09:30, a courier at 11:04), 1 package. Driveway: 1
+        car."
+      - Couriers come from Frigate+ labels or sub-labels, and faces from
+        sub-labels.
+      - Frigate's own descriptions are listed under the summary.
+      - It goes to the feed and the phone. When nothing was seen there's no
+        digest.
+    - **Weekly audit digest** (`audit_digest`, Sundays at 6pm, `app/audit/digest.py`):
+      - what SirisAI did on its own (the autonomy timeline's classification),
+        what it held for your OK, and what it was refused;
+      - wrong approval PINs and lockouts, and settings changes;
+      - its own background jobs (away mode, camera digest, internet log) now
+        count as autonomous.
+    - **Settings history** (`GET /siris/settings/history`,
+      `POST /siris/settings/undo/{id}`):
+      - every change on the Settings page records each value before and
+        after, and whether it had been set there before;
+      - **Undo** puts back what a change replaced, going back to `.env` or
+        the default when the setting hadn't been set there, rather than
+        pinning that value;
+      - an undo is itself a change you can undo, and it needs the PIN like
+        saving;
+      - the page lists the last 15 changes.
+    - **Verified:**
+      - **Tests:** 9 in `tests/test_household.py` (energy against a stand-in
+        Home Assistant, including the real client's history shape; away mode
+        offer, run and the secure undo; the camera digest's wording and
+        schedule), 2 more in `tests/test_settings_ui.py` and 1 in
+        `tests/test_audit_digest.py`.
+      - **In Chromium:** saving a setting listed the change, and **Undo** put
+        the old value back and listed the undo.
+      - **Not tested live:** Home Assistant energy data and Frigate events,
+        since neither is reachable from the sandbox.
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

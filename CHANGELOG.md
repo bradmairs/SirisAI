@@ -5,6 +5,15 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.41 — 2026-10-30
+
+- Home and safety: a weekly energy report, away mode, a camera digest, a weekly audit digest, and settings history with undo
+- Energy report (Mondays, `energy_report`): kWh and cost against the week before, the biggest users, and anything left on overnight, from Home Assistant's energy and power sensors.
+- Away mode (`SIRISAI_AWAY_MODE`): when everyone leaves, offer (or run) the away protocol; undo it when someone's back, keeping doors locked and the garage shut.
+- Camera digest (12pm, 6pm, 10pm; `camera_summary`): one message saying what Frigate saw, with couriers and known faces, instead of an alert per event.
+- Weekly audit digest (Sundays, `audit_digest`): what SirisAI did on its own, held for your OK or was refused, plus wrong PINs and settings changes.
+- Settings history: every change on the Settings page is listed with **Undo**, which puts back what it replaced (needs the PIN, like saving).
+
 ## 3.31 — 2026-10-30
 
 - Homelab upkeep: container updates with roll-back, server backup checks and tests, new network devices, an internet outage log, expiring certificates and domains

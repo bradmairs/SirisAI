@@ -126,6 +126,18 @@ def _expiry(siris: "SirisAI", now: datetime) -> Any:
     return expiry.check(siris, now)
 
 
+def _energy_weekly(siris: "SirisAI", now: datetime) -> Any:
+    from app.household import energy
+
+    return energy.weekly(siris, now)
+
+
+def _audit_weekly(siris: "SirisAI", now: datetime) -> Any:
+    from app.audit import digest
+
+    return digest.weekly(siris, now)
+
+
 def _server_disks(siris: "SirisAI", now: datetime) -> Any:
     from app.servers import watch
 
@@ -147,6 +159,8 @@ JOBS: list[DailyJob] = [
     DailyJob("server_backups", lambda s: s.settings.server_backups_hour_local if s.settings.server_backups and s.ssh_client is not None else None, _server_backups),
     DailyJob("server_backup_test", lambda s: s.settings.server_backups_hour_local if s.settings.server_backups and s.ssh_client is not None else None, _server_backup_test, monthday=1),
     DailyJob("internet_weekly", lambda s: s.settings.internet_report_hour_local if s.settings.internet_probe_seconds > 0 else None, _internet_weekly, weekday=lambda s: 0),
+    DailyJob("energy_weekly", lambda s: s.settings.energy_report_hour_local if getattr(s, "_home_assistant_client", None) is not None else None, _energy_weekly, weekday=lambda s: 0),
+    DailyJob("audit_weekly", lambda s: s.settings.audit_digest_hour_local, _audit_weekly, weekday=lambda s: 6),
     DailyJob("expiry_check", lambda s: s.settings.expiry_check_hour_local if (s.settings.security_cert_hosts or s.settings.security_domains or (s.settings.expiry_check_servers and s.ssh_client is not None)) else None, _expiry),
     DailyJob("model_trial", lambda s: s.settings.model_trial_hour_local if s.settings.candidate_models else None, _model_trial, weekday=lambda s: s.settings.model_trial_day),
 ]

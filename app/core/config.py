@@ -7,7 +7,7 @@ variables (or a `.env` file). Nothing else in the app should call
 
 import os
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -219,7 +219,7 @@ class Settings(BaseSettings):
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
-        "internet_report_hour_local", "expiry_check_hour_local", "onenote_hour_local", "gmail_hour_local",
+        "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "onenote_hour_local", "gmail_hour_local",
         mode="before",
     )
     @classmethod
@@ -374,6 +374,26 @@ class Settings(BaseSettings):
     # Assistant has them. Every other power and energy sensor is listed too.
     energy_grid_entity_id: str = ""
     energy_meter_entity_id: str = ""
+    # The weekly energy report (app/household/energy.py): Mondays at this hour
+    # (blank = off), a flat price per kWh when there's no price sensor (0 = no
+    # cost), the currency symbol, what counts as "left on overnight", and
+    # sensors to leave out (entity ids or names, e.g. the fridge).
+    energy_report_hour_local: int | None = 8
+    energy_flat_rate: float = 0.0
+    energy_currency: str = "$"
+    energy_overnight_watts: float = 25.0
+    energy_ignore: str = ""
+    # Away mode (app/household/away.py): when everyone leaves, "ask" offers the
+    # away protocol, "auto" runs it, "off" does nothing; undone on return
+    # (doors stay locked).
+    away_mode: Literal["off", "ask", "auto"] = "ask"
+    away_protocol: str = "away"
+    # Camera digest (app/household/cameras.py): what Frigate saw, summarised
+    # at these local hours (blank = off), also pushed to the phone.
+    camera_digest_hours: str = "12,18,22"
+    camera_digest_push: bool = True
+    # The weekly audit digest (app/audit/digest.py), Sundays at this hour (blank = off).
+    audit_digest_hour_local: int | None = 18
 
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own

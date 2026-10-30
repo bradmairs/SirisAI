@@ -83,6 +83,12 @@ class PresenceSkill(Skill):
             )
             result["scene_activated"] = scene_entity_id
 
+        from app.household import away
+
+        away_result = away.on_change(siris, currently_home)
+        if away_result is not None:
+            result["away_mode"] = away_result
+
         if not currently_home and siris.tools.get("departure_check") is not None:
             # Everyone just left: anything open, coming up, or wet?
             try:

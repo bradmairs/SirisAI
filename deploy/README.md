@@ -235,6 +235,21 @@ SirisAI down with it, until someone turns it back on.
 
 All of these are on the Settings page too.
 
+### Home: energy, away mode, cameras
+
+- **Energy report:** every Monday, from Home Assistant's energy and power
+  sensors. Set `SIRISAI_ENERGY_METER_ENTITY_ID` to the house meter for the
+  total, and `SIRISAI_ENERGY_FLAT_RATE` if there's no price sensor. Leave the
+  fridge out of "left on overnight" with `SIRISAI_ENERGY_IGNORE`.
+- **Away mode:** when presence says everyone's out, SirisAI offers the
+  `away` protocol (or runs it with `SIRISAI_AWAY_MODE=auto`) and undoes it
+  when someone's back. Doors stay locked and the garage stays shut.
+- **Camera digest:** at 12pm, 6pm and 10pm, one message summarising what
+  Frigate saw. Turn off per-event notifications in Frigate or Home Assistant
+  to get the benefit.
+- **Audit digest and settings history:** a weekly summary on Sundays of what
+  SirisAI did, and **Undo** next to each change on the Settings page.
+
 ## Data and backups
 
 Everything that matters is in `./data`:

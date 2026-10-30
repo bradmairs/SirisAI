@@ -235,6 +235,7 @@ from app.plugins.builtin.servers import (
     SshServerUpdatesTool,
     SshWakeTool,
 )
+from app.plugins.builtin.household import AuditDigestTool, CameraSummaryTool, EnergyReportTool
 from app.plugins.builtin.homelab import (
     DockerCheckUpdatesTool,
     DockerUpdateContainersTool,
@@ -1052,6 +1053,11 @@ class SirisAI:
 
         self.tools.register(InternetOutagesTool(self))
         self.tools.register(ExpiryCheckTool(self))
+        self.tools.register(AuditDigestTool(self))
+        if self._home_assistant_client is not None:
+            self.tools.register(EnergyReportTool(self))
+        if self._frigate_client is not None:
+            self.tools.register(CameraSummaryTool(self))
 
         # Room-aware voice push (milestone 48) -- needs a real TTS backend
         # to synthesize speech, independent of whether any satellite

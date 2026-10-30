@@ -30,6 +30,10 @@ _AUTONOMOUS_PREFIXES = (
     "automatic memory extraction",
     "geofence",
     "event_reaction",
+    "presence:",
+    "away mode",
+    "camera digest",
+    "internet log",
 )
 
 # Scheduled watchers that run every few minutes and usually find nothing.

@@ -175,6 +175,29 @@ class HomeAssistantClient:
         entries = series[0] if series else []
         return [{"state": e.get("state"), "last_changed": e.get("last_changed")} for e in entries]
 
+    def get_history_many(self, entity_ids: list[str], start: datetime, end: datetime | None = None) -> dict[str, list[tuple[datetime, str]]]:
+        """Each entity's (time, state) series between start and end, in one
+        request (the energy report, app/household/energy.py)."""
+        if not entity_ids:
+            return {}
+        params = {"filter_entity_id": ",".join(entity_ids), "minimal_response": "", "no_attributes": ""}
+        if end is not None:
+            params["end_time"] = end.isoformat()
+        response = self._client.get(f"/api/history/period/{start.isoformat()}", params=params, timeout=60.0)
+        response.raise_for_status()
+        out: dict[str, list[tuple[datetime, str]]] = {}
+        for series in response.json():
+            if not series:
+                continue
+            entity = series[0].get("entity_id")
+            points = []
+            for entry in series:
+                stamp = entry.get("last_changed") or entry.get("last_updated")
+                if stamp:
+                    points.append((datetime.fromisoformat(stamp.replace("Z", "+00:00")), str(entry.get("state"))))
+            out[entity] = points
+        return out
+
     def render_template(self, template: str) -> str:
         """Evaluates a Jinja2 template against Home Assistant's current
         state (https://www.home-assistant.io/docs/configuration/templating/)

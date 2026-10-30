@@ -100,6 +100,29 @@ class FrigateClient:
             for event in response.json()
         ]
 
+    def events_since(self, after: datetime, limit: int = 300) -> list[dict]:
+        """Every detection event since `after`, oldest first, for the camera
+        digest (app/household/cameras.py): what was seen, where, any
+        sub-label (a recognised face, a courier from Frigate+), and Frigate's
+        own description when generative AI is on."""
+        response = self._client.get("/api/events", params={"after": int(after.timestamp()), "limit": limit})
+        response.raise_for_status()
+        out = []
+        for event in response.json():
+            sub = event.get("sub_label")
+            out.append(
+                {
+                    "id": event.get("id"),
+                    "camera": event.get("camera"),
+                    "label": event.get("label"),
+                    "sub_label": sub[0] if isinstance(sub, list) and sub else sub,
+                    "zones": event.get("zones", []),
+                    "start_time": _to_iso(event.get("start_time")),
+                    "description": ((event.get("data") or {}).get("description") or "").strip() or None,
+                }
+            )
+        return sorted(out, key=lambda e: e["start_time"] or "")
+
     def latest_snapshot(self, camera: str, height: int = 720) -> bytes:
         """The camera's current frame as a JPEG (Frigate's /api/<camera>/latest.jpg)."""
         response = self._client.get(f"/api/{camera}/latest.jpg", params={"h": height})
