@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.core import clock
 from app.core.user_context import get_current_user_id
-from app.health import battery, scores
+from app.health import battery, scores, strain
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -51,14 +51,49 @@ def days(siris: "SirisAI", on: date, n: int = 70) -> scores.Days:
     return siris.health.days((on - timedelta(days=n)).isoformat(), on.isoformat())
 
 
-def note_import(siris: "SirisAI", source: str, result: dict[str, Any]) -> None:
+def note_import(siris: "SirisAI", source: str, result: dict[str, Any], meta: dict[str, Any] | None = None) -> None:
+    """Keep when each source last sent, and (Health Auto Export, 4.03) what the
+    export looked like, metrics and workouts separately, for setup_check."""
     kept = dict(siris.state.get(IMPORTS_KEY) or {})
-    kept[source] = {"at": datetime.now(UTC).isoformat(), **{k: result.get(k) for k in ("days", "readings", "workouts")}}
+    entry = {"at": datetime.now(UTC).isoformat(), **{k: result.get(k) for k in ("days", "readings", "workouts")}, **(meta or {})}
+    key = f"{source}:workouts" if meta and meta.get("kind") == "workouts" else source
+    kept[key] = entry
     siris.state.set(IMPORTS_KEY, kept)
 
 
 def imports(siris: "SirisAI") -> dict[str, Any]:
     return dict(siris.state.get(IMPORTS_KEY) or {})
+
+
+def _factors(siris: "SirisAI") -> list[dict[str, Any]]:
+    from app.health import insights
+
+    try:
+        return list(insights.current(siris) or [])
+    except Exception:  # noqa: BLE001 - the report stands without them
+        return []
+
+
+def setup_check(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
+    """Is Health Auto Export set up the way SirisAI needs (4.03)? From what the
+    last imports looked like: grouped by hour, sending whole days (the
+    previous 7), and a workouts automation too. Each problem says which
+    setting to change."""
+    kept = imports(siris)
+    hae = {k: v for k, v in kept.items() if k.startswith("health_auto_export")}
+    metrics, workouts = hae.get("health_auto_export"), hae.get("health_auto_export:workouts")
+    problems = []
+    if not hae:
+        return {"connected": False, "problems": ["Nothing from Health Auto Export yet: set up the automation (SirisOS → Training → Apple Health)."]}
+    if metrics and metrics.get("aggregation") == "day":
+        problems.append("Health metrics arrive grouped by day: set Aggregate (time grouping) to Hours, so readiness can use your overnight HRV and energy can follow the day.")
+    if metrics and metrics.get("days_covered") == 1 and (metrics.get("first_hour") or 0) >= 3:
+        problems.append("The last health export only held part of today: set the date range to Previous 7 Days, so each sync sends whole days.")
+    if not workouts:
+        problems.append("No workouts have arrived: add a second automation for Workouts (Previous 7 Days, hourly), or running km and strain won't count.")
+    elif workouts.get("days_covered") == 1:
+        problems.append("The workouts export only held one day: set its date range to Previous 7 Days, or an earlier workout that day can be replaced.")
+    return {"connected": True, "metrics": metrics, "workouts": workouts, "problems": problems}
 
 
 def build(siris: "SirisAI", on: date | None = None, now: datetime | None = None) -> dict[str, Any]:
@@ -75,7 +110,10 @@ def build(siris: "SirisAI", on: date | None = None, now: datetime | None = None)
         "sources": {"days": len(data), "imports": imports(siris)},
         "readiness": ready,
         "energy": battery.today(siris, ready, data, on, now) if on == now.date() else None,
+        "strain": strain.build(siris, ready, on),
         "sleep": scores.sleep(data, siris.health.sleep_times((on - timedelta(days=15)).isoformat()), on),
+        "sleep_week": scores.sleep_week(data, siris.health.sleep_times((on - timedelta(days=8)).isoformat()), on, _factors(siris)),
+        "setup": setup_check(siris, now),
         "activity": {
             "steps": today_m.get("steps"), "active_energy_kcal": today_m.get("active_energy_kcal"),
             "exercise_minutes": today_m.get("exercise_minutes"), "stand_hours": today_m.get("stand_hours"),
@@ -102,6 +140,9 @@ def text(overview: dict[str, Any]) -> str:
     r = overview.get("readiness")
     if r:
         parts.append(f"Readiness {r['score']}, {r['band'].lower()}: {r['advice']}")
+    st = overview.get("strain")
+    if st:
+        parts.append(f"Strain {st['today']} today, {st['status']} for a {st['target'][0]}-{st['target'][1]} target.")
     e = overview.get("energy")
     if e:
         parts.append(f"Energy is at {e['now']} (it started at {e['start']}). {e['summary']}")

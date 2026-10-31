@@ -6475,6 +6475,38 @@ provider for the same capability actually exists to design against.
     6.3 adds home jobs and appliances to search, so "heat pump" says when
     it was last serviced. Verified in `tests/test_health_energy.py`.
 
+160. **Done** -- Strain, a weekly sleep report, a Health Auto Export check, the brief spoken, and an updater you can see (4.03, for SirisOS 6.4).
+    - **Strain** (`app/health/strain.py`, `strain` in the health
+      overview): 0 to 21 from heart rate against your maximum, in five
+      weighted zones (an hour at 70-80% is about 14), per workout and for
+      the day. The day also counts the hours' heart rate from Health Auto
+      Export at a quarter weight. Today's target comes from readiness:
+      Primed 14-18, Steady 10-14, Recover 4-9. Max heart rate is
+      SIRISAI_HEALTH_MAX_HR, else the highest a workout reached in six
+      months.
+    - **The week's sleep** (`sleep_week`): average against need, debt,
+      bedtime regularity, the best and worst nights, what went with
+      shorter sleep, and one thing to try.
+    - **Setup check** (`setup`): what the last exports looked like. It
+      flags data grouped by day, a partial day (the wrong date range), and
+      no workouts automation, each with the setting to change.
+    - **Spoken brief** (`app/voice/morning.py`): the first time
+      SIRISAI_SPOKEN_BRIEF_TRIGGER turns on within
+      SIRISAI_SPOKEN_BRIEF_HOURS (5-11), the weather, first events,
+      readiness, strain target and inbox are spoken on
+      SIRISAI_SPOKEN_BRIEF_PLAYER through SIRISAI_SPOKEN_BRIEF_TTS (HA's
+      tts.speak). Once a day, never in guest mode.
+    - **The updater checks in**: `deploy/updater.sh` writes a heartbeat
+      each minute. The upkeep status says whether it's running, what's
+      waiting and how the last update went, so SirisOS can offer an
+      Update button.
+    - **`scripts/check.sh` and a pre-push hook** run what CI runs: clear
+      bytecode caches, check the contract schema, and run the suite on
+      Python 3.12.
+
+    Verified in `tests/test_health_energy.py`, `tests/test_spoken_brief.py`
+    and `tests/test_updater.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

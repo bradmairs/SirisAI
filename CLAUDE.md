@@ -30,7 +30,11 @@ PR touches something the user asked to approve first.
 
 - Each feature gets a numbered milestone in `README.md` ("NNN. **Done** -- ...")
   describing what it does and how it was verified.
-- Run the full suite before pushing: `python -m pytest -q`. It shares one
+- Run the full suite before pushing: `python -m pytest -q`. Better, turn on
+  the pre-push hook once per clone (`git config core.hooksPath .githooks`):
+  it runs `scripts/check.sh`, which clears bytecode caches, checks the hub
+  contract schema and runs the suite on Python 3.12 (CI's version) when
+  it's installed. The suite shares one
   SQLite database across tests, so a test that needs tables should take
   the `client` fixture. Run a single file after `tests/test_api.py`, or it
   will fail on missing tables.

@@ -62,7 +62,10 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
             raise HTTPException(status_code=422, detail=f"No recognised metrics (got: {', '.join(parsed['ignored']) or 'nothing'}).")
         result = siris.health.store_parsed(parsed, source)
         battery.keep_intraday(siris, parsed.get("intraday") or {})
-        overview.note_import(siris, source, result)
+        meta = parsed.get("meta")
+        overview.note_import(siris, source, result, meta)
+        if meta and meta.get("kind") == "metrics" and meta.get("workouts_sent"):  # one automation sending both
+            overview.note_import(siris, source, result, {"kind": "workouts", "days_covered": meta.get("workout_days"), "workouts_sent": meta["workouts_sent"]})
         return {"user_id": get_current_user_id(), "format": "health_auto_export" if auto_export.looks_like(body) else "sirisai",
                 "source": source, "days": parsed["metrics"], "workouts": result["workouts"], "ignored": parsed["ignored"]}
     raw_date = body.get("date")

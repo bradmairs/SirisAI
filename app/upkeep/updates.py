@@ -136,6 +136,14 @@ def status(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
                 out[key] = json.loads(path.read_text())
             except (OSError, json.JSONDecodeError):
                 out[key] = {"unreadable": True}
+    beat = folder / "heartbeat"
+    try:
+        seen = datetime.fromisoformat(beat.read_text().strip().replace("Z", "+00:00")) if beat.exists() else None
+    except (OSError, ValueError):
+        seen = None
+    # The updater writes a heartbeat every minute (4.03); none for 5 minutes and it isn't running.
+    out["updater_seen"] = seen.isoformat() if seen else None
+    out["updater_running"] = bool(seen and (now or datetime.now(UTC)) - seen < timedelta(minutes=5))
     pending = out.get("pending")
     if pending and pending.get("requested_at"):
         waited = (now or datetime.now(UTC)) - datetime.fromisoformat(pending["requested_at"])

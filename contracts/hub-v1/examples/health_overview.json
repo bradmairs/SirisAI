@@ -70,6 +70,87 @@
     "locked": true,
     "locked_at": "2026-10-31T12:00"
   },
+  "strain": {
+    "today": 11.3,
+    "target": [
+      14,
+      18
+    ],
+    "status": "under",
+    "workouts": [
+      {
+        "name": "Outdoor Run",
+        "start": "2026-10-31 06:40:00 +1100",
+        "minutes": 32.0,
+        "strain": 11.3
+      }
+    ],
+    "week": [
+      {
+        "date": "2026-10-25",
+        "strain": 0.0
+      },
+      {
+        "date": "2026-10-26",
+        "strain": 0.0
+      },
+      {
+        "date": "2026-10-27",
+        "strain": 0.0
+      },
+      {
+        "date": "2026-10-28",
+        "strain": 0.0
+      },
+      {
+        "date": "2026-10-29",
+        "strain": 0.0
+      },
+      {
+        "date": "2026-10-30",
+        "strain": 0.0
+      },
+      {
+        "date": "2026-10-31",
+        "strain": 11.3
+      }
+    ],
+    "max_hr": 171.0,
+    "advice": "Room for more: 14-18 suits today's readiness."
+  },
+  "sleep_week": {
+    "nights": 7,
+    "average": 7.2,
+    "need": 7.2,
+    "debt": 0.0,
+    "bedtime_spread_min": null,
+    "short_nights": 0,
+    "best": {
+      "date": "2026-10-25",
+      "hours": 7.2
+    },
+    "worst": {
+      "date": "2026-10-25",
+      "hours": 7.2
+    },
+    "factors": [
+      "After a meeting past 8pm you sleep 38 minutes less (6 nights vs 31)."
+    ],
+    "tip": "A good week: keep the same routine."
+  },
+  "setup": {
+    "connected": true,
+    "metrics": {
+      "at": "2026-10-30T06:00:00+00:00",
+      "days": 1,
+      "readings": 12,
+      "workouts": 1
+    },
+    "workouts": null,
+    "problems": [
+      "No workouts have arrived: add a second automation for Workouts (Previous 7 Days, hourly), or running km and strain won't count."
+    ]
+  },
   "energy": {
     "now": 62,
     "start": 82,
@@ -1465,7 +1546,7 @@
         "day": "2026-10-31",
         "kind": "supplement",
         "text": "Vitamin D",
-        "at": "2026-10-31T08:16:15.017517"
+        "at": "2026-10-31T11:47:08.196839"
       }
     ]
   },

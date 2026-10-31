@@ -1731,6 +1731,48 @@
           "description": "score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary; locked (kept as it was this morning, 3.62) and locked_at",
           "title": "Readiness"
         },
+        "strain": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Strain 0-21 (4.03): today, target [lo, hi] from readiness, status, workouts [{name, start, minutes, strain}], week [{date, strain}], max_hr, advice",
+          "title": "Strain"
+        },
+        "sleep_week": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The week's sleep report (4.03): nights, average, need, debt, bedtime_spread_min, short_nights, best, worst, factors, tip",
+          "title": "Sleep Week"
+        },
+        "setup": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Health Auto Export set up right (4.03): connected, metrics and workouts (what the last exports looked like), problems (each names the setting to change)",
+          "title": "Setup"
+        },
         "energy": {
           "anyOf": [
             {
@@ -3194,6 +3236,59 @@
           ],
           "default": null,
           "title": "Checked At"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SIRISAI_UPDATE_MODE: notify, auto or off (4.03).",
+          "title": "Mode"
+        },
+        "updater_running": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "deploy/updater.sh has checked in within 5 minutes (4.03); false: run make auto-update on the server.",
+          "title": "Updater Running"
+        },
+        "waiting": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The version an update has been asked for and the updater hasn't finished (4.03).",
+          "title": "Waiting"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the last update went: state, detail, version (the updater's status.json).",
+          "title": "Last"
         }
       },
       "required": [

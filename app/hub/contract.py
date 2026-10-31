@@ -334,6 +334,10 @@ class UpdateStatus(_Model):
     latest: str | None = None
     available: bool = False
     checked_at: str | None = None
+    mode: str | None = Field(None, description="SIRISAI_UPDATE_MODE: notify, auto or off (4.03).")
+    updater_running: bool | None = Field(None, description="deploy/updater.sh has checked in within 5 minutes (4.03); false: run make auto-update on the server.")
+    waiting: str | None = Field(None, description="The version an update has been asked for and the updater hasn't finished (4.03).")
+    last: dict[str, Any] | None = Field(None, description="How the last update went: state, detail, version (the updater's status.json).")
 
 
 class Upkeep(_Model):
@@ -361,6 +365,9 @@ class HealthOverview(_Model):
     available: bool = False
     sources: dict[str, Any] = {}
     readiness: dict[str, Any] | None = Field(None, description="score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary; locked (kept as it was this morning, 3.62) and locked_at")
+    strain: dict[str, Any] | None = Field(None, description="Strain 0-21 (4.03): today, target [lo, hi] from readiness, status, workouts [{name, start, minutes, strain}], week [{date, strain}], max_hr, advice")
+    sleep_week: dict[str, Any] | None = Field(None, description="The week's sleep report (4.03): nights, average, need, debt, bedtime_spread_min, short_nights, best, worst, factors, tip")
+    setup: dict[str, Any] | None = Field(None, description="Health Auto Export set up right (4.03): connected, metrics and workouts (what the last exports looked like), problems (each names the setting to change)")
     energy: dict[str, Any] | None = Field(None, description="Today's energy (3.62): now and start (0-100), wake, timeline [{time, value}], spent {awake, activity, stress}, regained, summary, estimated")
     sleep: dict[str, Any] | None = Field(None, description="need, last_night (hours, stages, start, end), score, debt_7d, bedtime_spread_min, average_7d, nights")
     activity: dict[str, Any] | None = Field(None, description="steps, energy, exercise, load (ratio, zone), series, workouts")
