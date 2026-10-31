@@ -9,7 +9,11 @@ Espressif on IoT" in the attention feed, with what UniFi knows about it
 - **Block**: blocks its MAC in UniFi (works even once it has left). Needs
   the approval PIN when one is set.
 
-The first check records everything already there without alerting. Known
+The first check records everything already there without alerting. A device
+UniFi first saw more than NEW_WITHIN_HOURS ago (24) isn't new, however long
+it was away (a sleeping Apple TV, a phone on holiday): it's just reconnecting,
+so it's recorded quietly, and an alert already raised for it is closed
+(3.52). Neither is a device you've named in UniFi. Known
 devices persist across restarts (KnownDeviceStore, shared with the Home
 Assistant based `new_device_alert`, which stands down while this runs).
 `network_name_device` names a device from chat.
@@ -28,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 NAMES_KEY = "network_device_names"
 PREFIX = "unifi:"
+NEW_WITHIN_HOURS = 24
 
 
 def enabled(siris: "SirisAI") -> bool:
@@ -49,8 +54,15 @@ def check(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     if not known:
         siris.known_devices.mark_known(current)
         return {"baseline": len(current), "new": []}
-    new = [current[k] for k in sorted(set(current) - known)]
-    siris.known_devices.mark_known(PREFIX + d["mac"] for d in new)
+    unseen = [current[k] for k in sorted(set(current) - known)]
+    siris.known_devices.mark_known(PREFIX + d["mac"] for d in unseen)
+    stamp = (now or datetime.now(UTC)).timestamp()
+    new = [d for d in unseen if genuinely_new(d, stamp)]
+    open_alerts = {i.get("key") for i in siris.attention.list("open") if str(i.get("key") or "").startswith("devices:new:")}
+    for device in current.values():
+        key = f"devices:new:{device['mac']}"
+        if key in open_alerts and not genuinely_new(device, stamp):
+            siris.attention.resolve_key(key, "Already known to UniFi")
     for device in new:
         where = device.get("ssid") or device.get("network") or ("wired" if device.get("wired") else "the network")
         facts = [
@@ -72,6 +84,18 @@ def check(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
             payload={"mac": device["mac"], "suggested_name": describe(device)},
         )
     return {"new": [{"mac": d["mac"], "name": describe(d)} for d in new], "checked_at": (now or datetime.now(UTC)).isoformat()}
+
+
+def genuinely_new(device: dict[str, Any], now: float) -> bool:
+    """New to the gateway itself, not just new to SirisAI's list: UniFi first
+    saw it within NEW_WITHIN_HOURS, and nobody has named it in UniFi."""
+    if device.get("name"):
+        return False
+    try:
+        first = float(device.get("first_seen") or 0)
+    except (TypeError, ValueError):
+        first = 0
+    return not first or now - first <= NEW_WITHIN_HOURS * 3600
 
 
 def name_device(siris: "SirisAI", mac: str, name: str) -> dict[str, Any]:

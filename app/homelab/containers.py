@@ -17,11 +17,19 @@
   stops), the new one is removed and the old one renamed back and started.
   Only once the new one is healthy is the old container removed (its image
   stays, for a manual roll-back).
+- **From the feed** (3.52) the update runs in the background and the button
+  answers at once: 22 pulls and health checks take minutes, far longer than
+  a phone waits for a reply. The front doors (the Caddy containers in front
+  of SirisAI and SirisOS) go last, since restarting them drops connections.
+  When it's done, a notice says what was updated; anything rolled back or
+  failed gets its own alert, as before.
 """
 
+import contextvars
 import hashlib
 import logging
 import socket
+import threading
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -258,11 +266,46 @@ def update_many(siris: "SirisAI", names: list[str]) -> list[dict[str, Any]]:
     return results
 
 
+_running = threading.Lock()
+_worker: threading.Thread | None = None  # the last background run (tests join it)
+
+
+def front_doors_last(names: list[str]) -> list[str]:
+    """Reverse proxies last: restarting one drops the connection you asked through."""
+    def door(n: str) -> bool:
+        low = n.lower()
+        return "caddy" in low or "https" in low or "proxy" in low or "traefik" in low or "nginx" in low
+    return [n for n in names if not door(n)] + [n for n in names if door(n)]
+
+
+def _finish(siris: "SirisAI", names: list[str], trigger: str) -> None:
+    try:
+        result = siris.run_tool("docker_update_containers", {"containers": ",".join(names)}, confirmed=True, trigger=trigger)
+        done = [r["container"] for r in result if r["status"] == "updated"]
+        same = [r["container"] for r in result if r["status"] in ("up to date", "skipped")]
+        back = [r["container"] for r in result if r["status"] in ("rolled back", "failed")]
+        title = f"Updated {len(done)} of {len(names)} containers" + (f"; {len(back)} rolled back" if back else "")
+        body = "\n".join(x for x in [f"Updated: {', '.join(done)}" if done else "", f"Already current: {', '.join(same)}" if same else "",
+                                      f"Rolled back or failed (see their own alerts): {', '.join(back)}" if back else ""] if x)
+        siris.attention.raise_item(f"containers:done:{int(time.time())}", "notice", title, source="containers-done",
+                                   severity="attention" if back else "info", body=body or None)
+    except Exception as exc:  # noqa: BLE001 - say so rather than fail silently in a thread
+        logger.exception("Background container update failed")
+        siris.attention.raise_item(f"containers:done:{int(time.time())}", "alert", "The container update stopped", source="containers-done",
+                                   severity="attention", body=f"{type(exc).__name__}: {str(exc)[:300]}")
+    finally:
+        _running.release()
+
+
 def _update_action(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:
-    result = siris.run_tool("docker_update_containers", {"containers": ",".join(payload["containers"])}, confirmed=True, trigger=trigger)
-    done = sum(1 for r in result if r["status"] == "updated")
-    back = [r["container"] for r in result if r["status"] in ("rolled back", "failed")]
-    return result, f"Updated {done}" + (f"; rolled back {', '.join(back)}" if back else "")
+    global _worker
+    names = front_doors_last(list(payload["containers"]))
+    if not _running.acquire(blocking=False):
+        return {"started": 0}, "An update is already running"
+    ctx = contextvars.copy_context()  # who asked (the user) carries into the thread
+    _worker = threading.Thread(target=ctx.run, args=(_finish, siris, names, trigger), name="container-updates", daemon=True)
+    _worker.start()
+    return {"started": len(names), "order": names}, f"Updating {len(names)} in the background; a notice follows when it's done"
 
 
 register_action("containers", "update", _update_action)
