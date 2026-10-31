@@ -143,3 +143,21 @@ def test_hourly_buckets_from_the_import_feed_the_overview(client: TestClient) ->
     built = overview.build(siris, now=datetime(2026, 10, 31, 9, 0))
     assert built["energy"]["spent"]["activity"] >= 27
     assert "Energy is at" in overview.text(built)
+
+
+def test_history_compares_a_stretch_with_the_month_before() -> None:
+    """3.93: 'how did I sleep the week before the deadline' answered from the store."""
+    from app.plugins.builtin.health_data import HealthHistoryTool
+
+    siris = _siris()
+    for i in range(1, 41):
+        d = (ON - timedelta(days=i)).isoformat()
+        siris.health.record({"sleep_hours": 6.0 if i <= 7 else 7.5, "steps": 8000}, d, USER, source="health_auto_export")
+    siris.state.set(f"health_readiness:{USER}", {(ON - timedelta(days=2)).isoformat(): {"score": 41}})
+    out = HealthHistoryTool(siris).run(start=(ON - timedelta(days=7)).isoformat(), end=(ON - timedelta(days=1)).isoformat(), metrics="sleep_hours")
+    sleep = out["metrics"]["sleep_hours"]
+    assert sleep["average"] == 6.0 and sleep["usual_before"] == 7.5 and sleep["change_pct"] == -20.0 and sleep["days"] == 7
+    assert "steps" not in out["metrics"] and out["readiness_by_day"] == {(ON - timedelta(days=2)).isoformat(): 41}
+    from app.cortex.orchestrator import PRIVATE_TOOLS
+
+    assert "health_history" in PRIVATE_TOOLS  # never sent to a cloud model

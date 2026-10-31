@@ -6464,6 +6464,17 @@ provider for the same capability actually exists to design against.
     knows as known, and leaves new devices to SirisAI rather than alerting
     twice. Verified by the hub contract examples.
 
+159. **Done** -- Ask about your own past (3.93).
+    `health_history` answers questions about any stretch of days: "how did
+    I sleep the week before the deadline", "was my HRV down in September".
+    For each metric it gives the average, lowest, highest, days with data,
+    and the change against the 30 days before. It also returns the morning
+    readiness scores kept for those days and the workouts. Chat finds the
+    dates first (calendar, notes) when a question names an event. Like the
+    other health tools it's private: never sent to a cloud model. SirisOS
+    6.3 adds home jobs and appliances to search, so "heat pump" says when
+    it was last serviced. Verified in `tests/test_health_energy.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
