@@ -414,6 +414,13 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
             await asyncio.to_thread(tick, siris, datetime.now(UTC), due_health)
             if due_health:
                 last_health = time.monotonic()
+            try:
+                from app.voice import morning
+
+                if morning.configured(siris):
+                    await asyncio.to_thread(morning.check, siris)
+            except Exception:  # noqa: BLE001 - never stop the loop for it
+                logger.exception("Spoken brief failed")
 
             proactive_interval = siris.settings.proactive_check_interval_minutes * 60
             if proactive_interval > 0 and time.monotonic() - last_proactive >= proactive_interval:

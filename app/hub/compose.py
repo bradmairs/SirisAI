@@ -506,7 +506,12 @@ def upkeep(siris: "SirisAI") -> c.Upkeep:
         found = c.BackupStatus(newest=items[0]["at"] if items else None, count=len(items), stale=backups.freshness(siris) is not None)
     offered = [i for i in siris.attention.list("open") if i.get("source") == updates.SOURCE and str(i.get("key", "")).startswith("update:")]
     latest = offered[0]["key"].split(":", 1)[1] if offered else None
-    return c.Upkeep(backups=found, update=c.UpdateStatus(current=__version__, latest=latest, available=bool(latest)))
+    st = updates.status(siris)
+    waiting = (st.get("processing") or st.get("pending") or {}).get("version")
+    last = st.get("last")
+    return c.Upkeep(backups=found, update=c.UpdateStatus(current=__version__, latest=latest, available=bool(latest), mode=st.get("mode"),
+                                                         updater_running=st.get("updater_running"), waiting=waiting,
+                                                         last={k: last.get(k) for k in ("state", "detail", "version", "at") if k in last} if isinstance(last, dict) else None))
 
 
 def health_days(siris: "SirisAI", days: int) -> c.HealthDays:

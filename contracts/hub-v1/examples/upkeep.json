@@ -7,9 +7,13 @@
     "drill_ok": null
   },
   "update": {
-    "current": "2.04",
+    "current": "3.93",
     "latest": null,
     "available": false,
-    "checked_at": null
+    "checked_at": null,
+    "mode": "notify",
+    "updater_running": false,
+    "waiting": null,
+    "last": null
   }
 }

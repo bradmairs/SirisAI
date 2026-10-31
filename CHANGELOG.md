@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.03 — 2026-10-31
+
+- Strain, a weekly sleep report, a Health Auto Export setup check, the morning brief spoken, an updater heartbeat, and a pre-push check
+
 ## 3.93 — 2026-10-31
 
 - health_history: your health over any stretch of days against the month before, for questions about the past

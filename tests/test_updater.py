@@ -96,6 +96,23 @@ def _calls(stage) -> str:
 def test_nothing_to_do_without_a_request(stage) -> None:
     assert stage() is None
     assert not (stage.state / "calls").exists()
+    # Every run leaves a heartbeat (4.03), so SirisAI can tell the updater is installed.
+    assert (stage.update_dir / "heartbeat").read_text().strip().endswith("Z")
+
+
+def test_the_status_says_whether_the_updater_is_running(tmp_path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.config import Settings
+    from app.core.siris import SirisAI
+    from app.upkeep import updates
+
+    siris = SirisAI(settings=Settings(update_dir=str(tmp_path)))
+    assert updates.status(siris)["updater_running"] is False
+    now = datetime(2026, 11, 2, 9, 0, tzinfo=UTC)
+    (tmp_path / "heartbeat").write_text((now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    assert updates.status(siris, now)["updater_running"] is True
+    assert updates.status(siris, now + timedelta(minutes=10))["updater_running"] is False
 
 
 def test_an_update_is_applied_and_checked(stage) -> None:

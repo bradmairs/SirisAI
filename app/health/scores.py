@@ -315,3 +315,28 @@ def trends(days: Days, on: date) -> list[dict[str, Any]]:
         out.append({"key": key, "label": label, "unit": unit, "week": round(w, 1), "baseline": round(b, 1),
                     "change_pct": round(change, 1), "direction": direction, "good": good})
     return out
+
+
+def sleep_week(days: Days, times: dict[str, dict[str, str]], on: date, factors: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
+    """The week's sleep in one report (4.03): average against need, debt,
+    how regular bedtime was, the best and worst nights, what went with
+    shorter sleep (the insights), and one thing to try next week."""
+    s = sleep(days, times, on, nights=7)
+    nights = [n for n in s["nights"] if n["hours"]]
+    if len(nights) < 3:
+        return None
+    best = max(nights, key=lambda n: n["hours"])
+    worst = min(nights, key=lambda n: n["hours"])
+    short = sum(1 for n in nights if n["hours"] < s["need"] - 1)
+    spread = s["bedtime_spread_min"]
+    if spread is not None and spread > 60:
+        tip = f"Bedtimes varied by about {spread} minutes: keep them within half an hour of each other next week."
+    elif s["debt_7d"] >= 3:
+        tip = f"You're {s['debt_7d']:.1f} h short this week: two nights 45 minutes earlier would pay most of it back."
+    elif (s["average_7d"] or 0) < s["need"] - 0.25:
+        tip = f"Averaging {s['average_7d']} h against the {s['need']} h you need: aim for 20 minutes earlier each night."
+    else:
+        tip = "A good week: keep the same routine."
+    return {"nights": len(nights), "average": s["average_7d"], "need": s["need"], "debt": s["debt_7d"], "bedtime_spread_min": spread,
+            "short_nights": short, "best": {"date": best["date"], "hours": best["hours"]}, "worst": {"date": worst["date"], "hours": worst["hours"]},
+            "factors": [f["text"] for f in (factors or [])[:2]], "tip": tip}

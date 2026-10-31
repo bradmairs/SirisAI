@@ -115,7 +115,8 @@ once() {
 }
 
 case "${1:-once}" in
-  once) mkdir -p "$UPDATE_DIR"; once ;;
+  # The heartbeat tells SirisAI (and SirisOS's Update button) the updater is installed and running.
+  once) mkdir -p "$UPDATE_DIR"; date -u +%FT%TZ >"$UPDATE_DIR/heartbeat"; once ;;
   install)
     mkdir -p "$UPDATE_DIR"
     ( crontab -l 2>/dev/null | grep -v '# siris-updater'; echo "* * * * * $DEPLOY/updater.sh once >/dev/null 2>&1 # siris-updater" ) | crontab -

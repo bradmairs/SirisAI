@@ -167,6 +167,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
             "workouts": {d: list(ws) for d, ws in (body.get("workouts") or {}).items() if _day(d) and isinstance(ws, list)},
             "ignored": [],
             "intraday": {},
+            "meta": None,
         }
     data = body.get("data") or {}
     readings: dict[tuple[str, str], list[float]] = defaultdict(list)
@@ -241,7 +242,30 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
         metrics[day][metric] = combine(metric, values)
     intraday = {day: {hour: {k: round(sum(v) if k in ("kcal", "steps", "mindful") else mean(v), 1) for k, v in vals.items()}
                       for hour, vals in hours.items()} for day, hours in hourly.items()}
-    return {"metrics": dict(metrics), "sleep": sleep_times, "workouts": dict(workouts), "ignored": sorted(ignored), "intraday": intraday}
+    return {"metrics": dict(metrics), "sleep": sleep_times, "workouts": dict(workouts), "ignored": sorted(ignored), "intraday": intraday,
+            "meta": describe(data)}
+
+
+def describe(data: dict[str, Any]) -> dict[str, Any]:
+    """What an export looked like (4.03), for the setup check: metrics or
+    workouts, grouped by day, hour or not at all, how many days it covered,
+    and the first hour it held of its last day (a 'since last sync' export
+    starts late in the day)."""
+    times = [t for m in data.get("metrics") or [] if isinstance(m, dict) and str(m.get("name") or "").lower() != "sleep_analysis"
+             for r in m.get("data") or [] if isinstance(r, dict) and (t := when(r.get("date")))]
+    workout_days = {d for w in data.get("workouts") or [] if isinstance(w, dict) and (d := _day(w.get("start")))}
+    if not times:
+        return {"kind": "workouts", "days_covered": len(workout_days), "workouts_sent": len(data.get("workouts") or [])}
+    if all((t.hour, t.minute, t.second) == (0, 0, 0) for t in times):
+        aggregation = "day"
+    elif all((t.minute, t.second) == (0, 0) for t in times):
+        aggregation = "hour"
+    else:
+        aggregation = "none"
+    last = max(t.date() for t in times)
+    return {"kind": "metrics", "aggregation": aggregation, "days_covered": len({t.date() for t in times}),
+            "first_hour": min(t.hour for t in times if t.date() == last), "workouts_sent": len(data.get("workouts") or []),
+            "workout_days": len(workout_days)}
 
 
 def _midnight_only(metric: dict[str, Any]) -> bool:

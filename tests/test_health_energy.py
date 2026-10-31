@@ -27,7 +27,7 @@ def _clean(client: TestClient):
             session.query(model).filter(model.user_id == USER).delete(synchronize_session=False)
         session.commit()
     s = SirisAI(settings=Settings())
-    for key in (f"health_readiness:{USER}", f"health_intraday:{USER}"):
+    for key in (f"health_readiness:{USER}", f"health_intraday:{USER}", overview.IMPORTS_KEY):
         s.state.delete(key)
     set_current_user_id(USER)
     yield
@@ -161,3 +161,50 @@ def test_history_compares_a_stretch_with_the_month_before() -> None:
     from app.cortex.orchestrator import PRIVATE_TOOLS
 
     assert "health_history" in PRIVATE_TOOLS  # never sent to a cloud model
+
+
+def test_strain_from_workouts_and_the_day_with_a_target() -> None:
+    """4.03: an hour at 70-80% of max is about 14; the target follows readiness."""
+    from app.health import strain
+
+    assert strain.to_strain(60 * 3) == 13.9
+    assert strain.zone_weight(150, 190) == 3 and strain.zone_weight(80, 190) == 0.5
+    value, each = strain.day_strain([{"name": "Outdoor Run", "start": "2026-10-20 07:00:00 +1100", "minutes": 60, "avg_hr": 150}],
+                                    {"07": {"hr": 150}, "12": {"hr": 120}}, 190)
+    assert each[0]["strain"] == 13.9 and value > 13.9  # the hour of the run isn't counted twice; noon adds a little
+    siris = _siris()
+    siris.health.record_workouts({ON.isoformat(): [{"name": "Outdoor Run", "start": f"{ON.isoformat()} 07:00:00 +1100", "minutes": 30,
+                                                    "avg_hr": 160, "max_hr": 182}]}, USER)
+    built = strain.build(siris, {"band": "Recover"}, ON)
+    assert built["target"] == [4, 9] and built["max_hr"] == 182 and built["status"] in ("in range", "over")
+    assert [d["date"] for d in built["week"]][-1] == ON.isoformat()
+
+
+def test_the_week_of_sleep_in_one_report() -> None:
+    from app.health import scores
+
+    days = {(ON - timedelta(days=i)).isoformat(): {"sleep_hours": 7.5} for i in range(8, 40)}
+    for i, h in enumerate([6.0, 7.8, 5.5, 7.0, 6.2, 7.9, 6.4]):
+        days[(ON - timedelta(days=i)).isoformat()] = {"sleep_hours": h}
+    times = {(ON - timedelta(days=i)).isoformat(): {"start": f"{(ON - timedelta(days=i + 1)).isoformat()} {22 + i % 2}:{'00' if i % 3 else '45'}:00"}
+             for i in range(7)}
+    week = scores.sleep_week(days, times, ON, [{"text": "After a meeting past 8pm you sleep 38 minutes less."}])
+    assert week["worst"]["hours"] == 5.5 and week["best"]["hours"] == 7.9 and week["nights"] == 7
+    assert week["debt"] > 3 and week["tip"].startswith("You're") and week["factors"] == ["After a meeting past 8pm you sleep 38 minutes less."]
+
+
+def test_the_setup_check_says_which_setting_to_change(client: TestClient) -> None:
+    """4.03: grouped by day, a partial day, and no workouts each name the fix."""
+    by_day = {"data": {"metrics": [{"name": "step_count", "units": "count", "data": [{"date": "2026-10-30 00:00:00 +1100", "qty": 9000},
+                                                                                    {"date": "2026-10-31 00:00:00 +1100", "qty": 3000}]}]}}
+    assert client.post("/siris/health/metrics", json=by_day, headers=H).status_code == 200
+    siris = _siris()
+    check = overview.setup_check(siris)
+    assert any("Aggregate" in p and "Hours" in p for p in check["problems"])
+    assert any("Workouts" in p for p in check["problems"])
+    partial = {"data": {"metrics": [{"name": "step_count", "units": "count", "data": [{"date": "2026-10-31 14:00:00 +1100", "qty": 300}]}],
+                        "workouts": [{"name": "Outdoor Run", "start": "2026-10-31 07:00:00 +1100", "duration": 1800}]}}
+    client.post("/siris/health/metrics", json=partial, headers=H)
+    check = overview.setup_check(siris)
+    assert any("Previous 7 Days" in p for p in check["problems"]) and not any("Aggregate" in p for p in check["problems"])
+    assert any("workouts export only held one day" in p for p in check["problems"])
