@@ -67,10 +67,11 @@
       }
     ],
     "summary": "Yesterday 30 min of exercise",
-    "locked": false
+    "locked": true,
+    "locked_at": "2026-10-31T12:00"
   },
   "energy": {
-    "now": 69,
+    "now": 62,
     "start": 82,
     "wake": "06:30",
     "timeline": [
@@ -83,12 +84,28 @@
         "value": 70
       },
       {
-        "time": "07:51",
-        "value": 69
+        "time": "08:00",
+        "value": 68
+      },
+      {
+        "time": "09:00",
+        "value": 67
+      },
+      {
+        "time": "10:00",
+        "value": 65
+      },
+      {
+        "time": "11:00",
+        "value": 64
+      },
+      {
+        "time": "12:00",
+        "value": 62
       }
     ],
     "spent": {
-      "awake": 2,
+      "awake": 9,
       "activity": 11,
       "stress": 0
     },
@@ -1448,7 +1465,7 @@
         "day": "2026-10-31",
         "kind": "supplement",
         "text": "Vitamin D",
-        "at": "2026-10-31T07:51:14.070744"
+        "at": "2026-10-31T08:16:15.017517"
       }
     ]
   },
