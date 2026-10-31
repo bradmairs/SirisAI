@@ -221,10 +221,17 @@ def test_update_all_from_the_feed(docker) -> None:
     from app.hub import attention
 
     closed, result = attention.act(siris, item["id"], "update")
-    assert result[0]["status"] == "updated" and closed["outcome"] == "Updated 1"
+    # Answers at once and works in the background (3.52), then says how it went.
+    assert result["started"] == 1 and closed["outcome"].startswith("Updating 1 in the background")
+    containers._worker.join(10)
     assert not _items(siris, "containers")  # nothing left to update
+    assert "Updated 1 of 1 containers" in _items(siris, "containers-done")
     with_pin = SirisAI(settings=Settings(approval_pin="1234"))
     assert approvals.action_needs_pin(with_pin, item, "update", {})
+
+
+def test_the_front_doors_update_last() -> None:
+    assert containers.front_doors_last(["sirisos-https", "mealie", "sirisai-https-1", "plex"]) == ["mealie", "plex", "sirisos-https", "sirisai-https-1"]
 
 
 # -- server backups -----------------------------------------------------------------------
@@ -345,6 +352,35 @@ def test_a_new_device_is_raised_after_the_baseline_with_name_and_block() -> None
     assert devices.find_mac(siris, "10.0.0.5") == "aa:aa:aa:00:00:01"
     with_pin = SirisAI(settings=Settings(approval_pin="1234"))
     assert approvals.action_needs_pin(with_pin, printer, "block", {})
+
+
+def test_a_device_unifi_has_known_for_a_while_is_never_new() -> None:
+    siris, fake = _device_siris()
+    devices.check(siris, NOW)
+    long_ago = NOW.timestamp() - 90 * 86400
+    # Asleep at the baseline, back now: UniFi first saw it months ago, so it's quietly recorded.
+    fake.clients.append({"mac": "dd:dd:dd:00:00:04", "name": None, "hostname": "Lounge", "vendor": "Apple, Inc.", "network": "Main",
+                         "ssid": "Main", "ip": "192.168.0.11", "wired": False, "first_seen": long_ago})
+    # Named in UniFi: you know it.
+    fake.clients.append({"mac": "ee:ee:ee:00:00:05", "name": "Garage camera", "hostname": None, "vendor": "Ubiquiti", "network": "IoT",
+                         "ssid": None, "ip": "10.0.20.3", "wired": True, "first_seen": NOW.timestamp() - 60})
+    # Really new to the gateway: alerted.
+    fake.clients.append({"mac": "ff:ff:ff:00:00:06", "name": None, "hostname": None, "vendor": "Tuya", "network": "IoT",
+                         "ssid": "IoT", "ip": "10.0.20.44", "wired": False, "first_seen": NOW.timestamp() - 600})
+    assert [d["mac"] for d in devices.check(siris, NOW)["new"]] == ["ff:ff:ff:00:00:06"]
+    assert list(_items(siris, "devices")) == ["New device: Tuya on IoT"]
+
+
+def test_an_alert_raised_before_for_an_old_device_is_closed() -> None:
+    siris, fake = _device_siris()
+    devices.check(siris, NOW)
+    fake.clients.append({"mac": "dd:dd:dd:00:00:04", "name": None, "hostname": "Lounge", "vendor": "Apple", "network": "Main", "ssid": "Main",
+                         "ip": "192.168.0.11", "wired": False})  # an older UniFi without first_seen: alerted
+    devices.check(siris, NOW)
+    assert "New device: Lounge on Main" in _items(siris, "devices")
+    fake.clients[-1]["first_seen"] = NOW.timestamp() - 30 * 86400
+    devices.check(siris, NOW)
+    assert not _items(siris, "devices")
 
 
 # -- internet outage log -------------------------------------------------------------------

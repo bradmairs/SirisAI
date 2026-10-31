@@ -6397,6 +6397,16 @@ provider for the same capability actually exists to design against.
           history.
       - **Updated tests:** the Health Auto Export test, the vault note test
         and the hub examples.
+154. **Done** -- Quieter device alerts and container updates in the background (3.52).
+    A device only counts as new when UniFi itself first saw it within 24
+    hours and nobody has named it in UniFi. A device that is just
+    reconnecting is recorded quietly, and an alert already open for it is
+    closed. "Update all" in the feed now starts the update in the
+    background and answers at once. The proxy containers (caddy, traefik,
+    nginx, https) update last, so the phone isn't cut off mid-request, and
+    a notice saying how many updated follows. Verified in
+    `tests/test_homelab.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
