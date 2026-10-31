@@ -176,7 +176,15 @@ def produced(client: TestClient) -> dict[str, Any]:
                                                             "minutes": 32, "km": 6.1, "kcal": 410, "avg_hr": 148, "max_hr": 171}]},
                                      user_id="example-health")
         siris.health.add_note("supplement", "Vitamin D", today.isoformat(), user_id="example-health")
-        out["health_overview"] = client.get("/siris/hub/v1/health/overview", headers=hx).json()
+        # Midday, so the example has the same shape whenever it runs: readiness
+        # kept for the day, and energy since waking (3.62).
+        from unittest import mock
+
+        from app.core import clock as core_clock
+
+        noon = datetime.combine(today, datetime.min.time()).replace(hour=12, tzinfo=UTC)
+        with mock.patch.object(core_clock, "now_local", lambda tz=None: noon):
+            out["health_overview"] = client.get("/siris/hub/v1/health/overview", headers=hx).json()
         out["health_workouts"] = client.get("/siris/hub/v1/health/workouts", params={"days": 7}, headers=hx).json()
 
         notify_confirmation_needed(siris, "routine 'morning heat'", switch.name, {"domain": "switch", "service": "turn_on", "entity_id": "switch.heater"})

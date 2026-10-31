@@ -673,11 +673,14 @@ def network(siris: "SirisAI") -> c.Network:
                            rx_bps=d["rx_bps"], tx_bps=d["tx_bps"])
              for d in t["devices"] if d.get("mac")]
     if not on:
-        nodes += [c.NetworkNode(id=x["mac"], name=str(x["name"]), kind="client", wired=x["wired"],
+        nodes += [c.NetworkNode(id=x["mac"], name=str(x["name"]), kind="client", wired=x["wired"], named=x.get("named"),
+                                first_seen=float(x["first_seen"]) if x.get("first_seen") else None,
                                 uplink=x["uplink_mac"] if x.get("uplink_mac") in infra and x["uplink_mac"] != gateway else None,
                                 rx_bps=x["rx_bps"], tx_bps=x["tx_bps"])
                   for x in t["clients"] if x.get("mac")]
-    return c.Network(configured=True, guest_mode=on, checked_at=now, wan=t["wan"], nodes=nodes)
+    from app.homelab import devices
+
+    return c.Network(configured=True, guest_mode=on, checked_at=now, wan=t["wan"], nodes=nodes, device_alerts=devices.enabled(siris))
 
 
 # -- blocking a client, and power use (SirisOS 5.3) -----------------------------------

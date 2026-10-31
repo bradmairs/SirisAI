@@ -35,7 +35,7 @@ def morning_readiness(siris: "SirisAI", on: date, data: scores.Days, now: dateti
     night_in = (data.get(on.isoformat()) or {}).get("sleep_hours") is not None
     hour = now.hour if now.date() == on else 24 if now.date() > on else -1
     if live is None or not (hour >= LATEST_LOCK_HOUR or (night_in and hour >= siris.settings.health_readiness_lock_hour)):
-        return {**live, "locked": False} if live else None
+        return {**live, "locked": False, "locked_at": None} if live else None
     kept[on.isoformat()] = {**live, "locked": True, "locked_at": now.isoformat(timespec="minutes")}
     for day in sorted(kept)[:-120]:
         kept.pop(day)
