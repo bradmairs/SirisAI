@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.62 — 2026-10-31
+
+- Readiness from the night (kept once the morning is over) and an energy score for the day
+
 ## 3.52 — 2026-10-31
 
 - New-device alerts only for devices new to UniFi; container updates run in the background

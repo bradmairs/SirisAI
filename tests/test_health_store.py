@@ -34,7 +34,8 @@ def _clean(client: TestClient):
         session.query(AttentionItem).delete()
         session.commit()
     s = SirisAI(settings=Settings())
-    for key in (overview.IMPORTS_KEY, insights.INSIGHTS_KEY, insights.GOALS_KEY, insights.WIND_DOWN_KEY):
+    for key in (overview.IMPORTS_KEY, insights.INSIGHTS_KEY, insights.GOALS_KEY, insights.WIND_DOWN_KEY,
+                f"health_readiness:{USER}", "health_readiness:default", f"health_intraday:{USER}", "health_intraday:default"):
         s.state.delete(key)
     set_current_user_id("default")
     yield

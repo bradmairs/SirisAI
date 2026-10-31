@@ -29,7 +29,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.user_context import get_current_user_id
 from app.db.models import HealthNote, HealthReading, HealthSample, HealthSleep, HealthWorkout
-from app.health.auto_export import COMBINE
+from app.health.auto_export import COMBINE, SLEEP_FIELDS, when
 
 DEFAULT_PRIORITY = ("health_auto_export", "apple_export", "shortcut", "sirisos", "manual")
 
@@ -86,6 +86,24 @@ def normalize(metrics: dict[str, Any]) -> tuple[dict[str, float], list[str]]:
             continue
         clean[name] = number
     return clean, ignored
+
+
+NIGHT_ENDS_BY = 14  # a sleep that ends after 2pm has a nap folded in
+
+
+def replaces_night(old: dict[str, str], new: dict[str, str]) -> bool:
+    """Whether a newly exported night should replace the one on file. Health
+    Auto Export re-sends the day all day long: a later export can fold an
+    afternoon nap into "last night" (it ends after 2pm), or, sent "since the
+    last sync", hold only the tail end of it (it starts later). Neither is a
+    better view of the night, so the first full one stands. One that started
+    as early and ended later (the first was sent mid-sleep) does replace it."""
+    a0, a1, b0, b1 = when(old.get("start")), when(old.get("end")), when(new.get("start")), when(new.get("end"))
+    if not (a0 and a1 and b0 and b1):
+        return True
+    if b1.hour >= NIGHT_ENDS_BY and a1.hour < NIGHT_ENDS_BY:
+        return False
+    return (b0 - a0).total_seconds() <= 30 * 60 and b1 >= a1
 
 
 class HealthStore:
@@ -172,9 +190,19 @@ class HealthStore:
         return added
 
     def store_parsed(self, parsed: dict[str, Any], source: str, user_id: str | None = None) -> dict[str, int]:
-        """Everything one import brought (auto_export.parse / apple_export)."""
-        readings = self.record_days(parsed.get("metrics") or {}, user_id, source)
-        self.record_sleep(parsed.get("sleep") or {}, user_id)
+        """Everything one import brought (auto_export.parse / apple_export).
+        A night already recorded isn't replaced by a smaller view of it (3.62):
+        see replaces_night."""
+        metrics = {d: dict(m) for d, m in (parsed.get("metrics") or {}).items()}
+        sleep = dict(parsed.get("sleep") or {})
+        known = self.sleep_times(min(sleep), user_id) if sleep else {}
+        for day, new in list(sleep.items()):
+            if day in known and not replaces_night(known[day], new):
+                sleep.pop(day)
+                for metric in set(SLEEP_FIELDS.values()):
+                    (metrics.get(day) or {}).pop(metric, None)
+        readings = self.record_days(metrics, user_id, source)
+        self.record_sleep(sleep, user_id)
         workouts = self.record_workouts(parsed.get("workouts") or {}, user_id, source)
         return {"days": len(parsed.get("metrics") or {}), "readings": readings, "workouts": workouts}
 

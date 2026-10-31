@@ -16,13 +16,23 @@ Formats:
   kept before 5.8; it sends its history across in this form once.
 
 The day is the reading's own local date, as the phone wrote it. Units are
-converted to kg, km, kcal, °C and percent. SirisOS used to keep its own
+converted to kg, km, kcal, °C and percent.
+
+**Overnight HRV** (3.62): when readings carry their time (aggregated by hour,
+or not at all), the HRV taken while asleep (inside the night's sleep, else
+before 7am) is also kept as `hrv_overnight`, for the wake-up day. The whole
+day's HRV falls with every workout and stressful hour, so readiness uses the
+overnight figure. **Hourly** buckets of heart rate, active energy, steps,
+HRV and mindful minutes come back as `intraday` for the energy score
+(app/health/battery.py). A day-aggregated export (every reading at
+midnight) has neither. SirisOS used to keep its own
 copies of this reader; since 5.8 it passes the raw export here instead.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timedelta
 from statistics import mean
 from typing import Any
 
@@ -61,7 +71,7 @@ SLEEP_FIELDS = {"totalSleep": "sleep_hours", "asleep": "sleep_hours", "deep": "s
 # How each metric adds up within a day (for the ones not listed above).
 COMBINE: dict[str, str] = {metric: how for metric, how in METRICS.values()}
 COMBINE.update({m: "sum" for m in SLEEP_FIELDS.values()})
-COMBINE.update({"heart_rate_min": "min", "heart_rate_max": "max", "heart_rate_avg": "mean", "running_km": "sum"})
+COMBINE.update({"heart_rate_min": "min", "heart_rate_max": "max", "heart_rate_avg": "mean", "running_km": "sum", "hrv_overnight": "mean"})
 
 
 def looks_like(body: Any) -> bool:
@@ -78,6 +88,32 @@ def looks_native(body: Any) -> bool:
 def _day(value: Any) -> str | None:
     text = str(value or "").strip()
     return text[:10] if len(text) >= 10 and text[4] == "-" and text[7] == "-" else None
+
+
+def when(value: Any) -> datetime | None:
+    """The reading's local wall-clock time ("2026-10-28 03:00:00 +1100")."""
+    text = str(value or "").strip().replace("T", " ")
+    try:
+        return datetime.strptime(text[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        try:
+            return datetime.strptime(text[:16], "%Y-%m-%d %H:%M")
+        except ValueError:
+            return None
+
+
+def night_of(t: datetime, windows: dict[str, tuple[datetime, datetime]]) -> str | None:
+    """The wake-up day whose sleep this moment falls in, else (no sleep
+    recorded around it) its own day if it's before 7am."""
+    for day, (start, end) in windows.items():
+        if start <= t <= end:
+            return day
+    near = any(abs((t - end).total_seconds()) < 18 * 3600 for _, end in windows.values())
+    return t.date().isoformat() if not near and t.hour < 7 else None
+
+
+INTRADAY = {"heart_rate": "hr", "active_energy": "kcal", "step_count": "steps", "heart_rate_variability": "hrv",
+            "heart_rate_variability_sdnn": "hrv", "mindful_minutes": "mindful"}
 
 
 def _num(value: Any) -> float | None:
@@ -130,11 +166,19 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
             "sleep": {d: t for d, t in (body.get("sleep") or {}).items() if _day(d) and isinstance(t, dict)},
             "workouts": {d: list(ws) for d, ws in (body.get("workouts") or {}).items() if _day(d) and isinstance(ws, list)},
             "ignored": [],
+            "intraday": {},
         }
     data = body.get("data") or {}
     readings: dict[tuple[str, str], list[float]] = defaultdict(list)
     sleep_times: dict[str, dict[str, str]] = {}
     ignored: set[str] = set()
+    windows: dict[str, tuple[datetime, datetime]] = {}
+    for m in data.get("metrics") or []:
+        if isinstance(m, dict) and str(m.get("name") or "").strip().lower() == "sleep_analysis":
+            for r in m.get("data") or []:
+                if isinstance(r, dict) and (day := _day(r.get("date"))) and (a := when(r.get("sleepStart"))) and (b := when(r.get("sleepEnd"))):
+                    windows[day] = (a - timedelta(minutes=15), b)
+    hourly: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for m in data.get("metrics") or []:
         if not isinstance(m, dict):
             continue
@@ -143,6 +187,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
         if name not in METRICS and name not in ("sleep_analysis", "heart_rate"):
             ignored.add(name)
             continue
+        by_day = _midnight_only(m)
         for r in m.get("data") or []:
             if not isinstance(r, dict) or not (day := _day(r.get("date"))):
                 continue
@@ -163,6 +208,17 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
                 v = _num(r.get("qty"))
                 if v is not None:
                     readings[(day, metric)].append(convert(metric, units, v))
+            t = when(r.get("date"))
+            if t is None or by_day:
+                continue  # aggregated by day: no time of day to go on
+            if name in INTRADAY:
+                v = _num(r.get("Avg") if name == "heart_rate" else r.get("qty"))
+                if v is not None:
+                    v = convert("active_energy_kcal", units, v) if name == "active_energy" else v
+                    hourly[day][f"{t.hour:02d}"][INTRADAY[name]].append(v)
+            if name in ("heart_rate_variability", "heart_rate_variability_sdnn") and (v := _num(r.get("qty"))) is not None:
+                if (night := night_of(t, windows)):
+                    readings[(night, "hrv_overnight")].append(v)
     workouts: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for w in data.get("workouts") or []:
         if not isinstance(w, dict) or not (day := _day(w.get("start"))):
@@ -183,4 +239,12 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
     metrics: dict[str, dict[str, float]] = defaultdict(dict)
     for (day, metric), values in readings.items():
         metrics[day][metric] = combine(metric, values)
-    return {"metrics": dict(metrics), "sleep": sleep_times, "workouts": dict(workouts), "ignored": sorted(ignored)}
+    intraday = {day: {hour: {k: round(sum(v) if k in ("kcal", "steps", "mindful") else mean(v), 1) for k, v in vals.items()}
+                      for hour, vals in hours.items()} for day, hours in hourly.items()}
+    return {"metrics": dict(metrics), "sleep": sleep_times, "workouts": dict(workouts), "ignored": sorted(ignored), "intraday": intraday}
+
+
+def _midnight_only(metric: dict[str, Any]) -> bool:
+    """Every reading at midnight: the export is aggregated by day."""
+    times = [str(r.get("date") or "")[11:19] for r in metric.get("data") or [] if isinstance(r, dict)]
+    return bool(times) and all(t in ("00:00:00", "") for t in times)

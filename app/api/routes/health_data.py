@@ -40,7 +40,7 @@ from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import get_current_user_id, resolve_user_id
 from app.core import guest
-from app.health import apple_export, auto_export, overview, report
+from app.health import apple_export, auto_export, battery, overview, report
 from app.health.service import normalize, summary
 
 router = APIRouter(prefix="/siris/health", tags=["health"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)])
@@ -61,6 +61,7 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
         if not (parsed["metrics"] or parsed["workouts"]):
             raise HTTPException(status_code=422, detail=f"No recognised metrics (got: {', '.join(parsed['ignored']) or 'nothing'}).")
         result = siris.health.store_parsed(parsed, source)
+        battery.keep_intraday(siris, parsed.get("intraday") or {})
         overview.note_import(siris, source, result)
         return {"user_id": get_current_user_id(), "format": "health_auto_export" if auto_export.looks_like(body) else "sirisai",
                 "source": source, "days": parsed["metrics"], "workouts": result["workouts"], "ignored": parsed["ignored"]}

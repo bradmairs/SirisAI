@@ -360,7 +360,8 @@ class HealthOverview(_Model):
     today: str | None = None
     available: bool = False
     sources: dict[str, Any] = {}
-    readiness: dict[str, Any] | None = Field(None, description="score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary")
+    readiness: dict[str, Any] | None = Field(None, description="score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary; locked (kept as it was this morning, 3.62) and locked_at")
+    energy: dict[str, Any] | None = Field(None, description="Today's energy (3.62): now and start (0-100), wake, timeline [{time, value}], spent {awake, activity, stress}, regained, summary, estimated")
     sleep: dict[str, Any] | None = Field(None, description="need, last_night (hours, stages, start, end), score, debt_7d, bedtime_spread_min, average_7d, nights")
     activity: dict[str, Any] | None = Field(None, description="steps, energy, exercise, load (ratio, zone), series, workouts")
     vitals: list[dict[str, Any]] | None = None

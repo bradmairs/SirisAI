@@ -1,5 +1,5 @@
 """Everything the Health section shows, worked out in one place (SirisAI
-3.51): readiness, sleep, activity and load, vitals, the weight trend, the
+3.51): readiness (kept as it was each morning, 3.62), energy (3.62), sleep, activity and load, vitals, the weight trend, the
 getting-sick warning, recent notes, and how the imports are doing. SirisOS
 shows this (GET /siris/hub/v1/health/overview); chat and voice read it
 through health_overview."""
@@ -10,12 +10,37 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from app.core import clock
-from app.health import scores
+from app.core.user_context import get_current_user_id
+from app.health import battery, scores
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
 
 IMPORTS_KEY = "health_imports"
+LATEST_LOCK_HOUR = 14
+
+
+def morning_readiness(siris: "SirisAI", on: date, data: scores.Days, now: datetime | None = None) -> dict[str, Any] | None:
+    """Readiness, kept once the morning is over (3.62). It's worked out live
+    until the night is in (today's sleep has arrived) and it's past
+    SIRISAI_HEALTH_READINESS_LOCK_HOUR, or until 2pm whatever's arrived;
+    from then on the kept one is returned, so daytime HRV, a workout or a
+    nap don't move it. Past days are kept the first time they're asked for."""
+    now = now or clock.now_local(siris.settings.timezone).replace(tzinfo=None)
+    key = f"health_readiness:{get_current_user_id()}"
+    kept = dict(siris.state.get(key) or {})
+    if on.isoformat() in kept:
+        return kept[on.isoformat()]
+    live = scores.readiness(data, on)
+    night_in = (data.get(on.isoformat()) or {}).get("sleep_hours") is not None
+    hour = now.hour if now.date() == on else 24 if now.date() > on else -1
+    if live is None or not (hour >= LATEST_LOCK_HOUR or (night_in and hour >= siris.settings.health_readiness_lock_hour)):
+        return {**live, "locked": False} if live else None
+    kept[on.isoformat()] = {**live, "locked": True, "locked_at": now.isoformat(timespec="minutes")}
+    for day in sorted(kept)[:-120]:
+        kept.pop(day)
+    siris.state.set(key, kept)
+    return kept[on.isoformat()]
 
 
 def today(siris: "SirisAI") -> date:
@@ -36,9 +61,11 @@ def imports(siris: "SirisAI") -> dict[str, Any]:
     return dict(siris.state.get(IMPORTS_KEY) or {})
 
 
-def build(siris: "SirisAI", on: date | None = None) -> dict[str, Any]:
-    on = on or today(siris)
+def build(siris: "SirisAI", on: date | None = None, now: datetime | None = None) -> dict[str, Any]:
+    now = now or clock.now_local(siris.settings.timezone).replace(tzinfo=None)
+    on = on or now.date()
     data = days(siris, on)
+    ready = morning_readiness(siris, on, data, now)
     since = (on - timedelta(days=21)).isoformat()
     workouts = siris.health.workouts(since)
     today_m = data.get(on.isoformat()) or {}
@@ -46,7 +73,8 @@ def build(siris: "SirisAI", on: date | None = None) -> dict[str, Any]:
         "today": on.isoformat(),
         "available": bool(data),
         "sources": {"days": len(data), "imports": imports(siris)},
-        "readiness": scores.readiness(data, on),
+        "readiness": ready,
+        "energy": battery.today(siris, ready, data, on, now) if on == now.date() else None,
         "sleep": scores.sleep(data, siris.health.sleep_times((on - timedelta(days=15)).isoformat()), on),
         "activity": {
             "steps": today_m.get("steps"), "active_energy_kcal": today_m.get("active_energy_kcal"),
@@ -73,6 +101,9 @@ def text(overview: dict[str, Any]) -> str:
     r = overview.get("readiness")
     if r:
         parts.append(f"Readiness {r['score']}, {r['band'].lower()}: {r['advice']}")
+    e = overview.get("energy")
+    if e:
+        parts.append(f"Energy is at {e['now']} (it started at {e['start']}). {e['summary']}")
     last = (overview.get("sleep") or {}).get("last_night")
     if last and last.get("hours"):
         score = overview["sleep"].get("score")
