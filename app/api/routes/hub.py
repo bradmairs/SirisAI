@@ -156,10 +156,36 @@ async def attention_stream(
     return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+LONG_ACTION_SECONDS = 20.0
+
+
+def _report_late(siris: SirisAI, item: dict[str, Any] | None, action: str, task: "asyncio.Future[Any]") -> None:
+    title = (item or {}).get("title") or "that"
+    try:
+        closed, _ = task.result()
+        outcome = (closed or {}).get("outcome")
+        siris.attention.raise_item(f"late:{(item or {}).get('id')}:{action}", "notice", f"Done: {title}", source="actions", severity="info",
+                                   body=outcome or f"'{action}' finished.")
+    except Exception as exc:  # noqa: BLE001 - say so; nobody is waiting on the request any more
+        logger.warning("A slow attention action failed: %s", exc)
+        siris.attention.raise_item(f"late:{(item or {}).get('id')}:{action}", "alert", f"That didn't work: {title}", source="actions",
+                                   severity="attention", body=str(exc)[:300])
+
+
 @router.post("/attention/{item_id}/act", response_model=c.AttentionActResult)
 async def attention_act(item_id: int, body: c.AttentionActRequest, request: Request, siris: SirisAI = Depends(get_siris)) -> c.AttentionActResult:
+    # A slow action (a reboot, a big update on a SirisAI that doesn't run it
+    # in the background) answers after LONG_ACTION_SECONDS instead of holding
+    # the request until the phone gives up ("Load failed"); it carries on,
+    # and a notice says how it went (3.72).
+    work = asyncio.ensure_future(asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request), body.body, body.pin))
+    done, _ = await asyncio.wait({work}, timeout=LONG_ACTION_SECONDS)
+    if work not in done:
+        before = siris.attention.get(item_id)
+        work.add_done_callback(lambda t: _report_late(siris, before, body.action, t))
+        return c.AttentionActResult(item=before, result={"pending": True, "message": "Still working on it; a notice will say how it went."})
     try:
-        item, result = await asyncio.to_thread(attention.act, siris, item_id, body.action, _client_name(request), body.body, body.pin)
+        item, result = work.result()
     except approvals.ApprovalExpired as exc:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     except LookupError as exc:

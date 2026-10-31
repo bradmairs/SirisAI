@@ -820,6 +820,7 @@ class Settings(BaseSettings):
     container_updates_hour_local: int | None = 5
     container_update_exclude: str = ""
     container_update_health_seconds: float = 90.0
+    container_update_watch_minutes: float = 10.0
     # Backups on the SSH servers: "nas:zfs:tank/data,nas:path:/mnt/backups/restic".
     # Checked daily (blank hour = off), read back on the 1st of each month.
     server_backups: str = ""

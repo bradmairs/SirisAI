@@ -6428,6 +6428,23 @@ provider for the same capability actually exists to design against.
     hour; otherwise it's estimated from the day's totals and workouts.
     Verified in `tests/test_health_energy.py`.
 
+156. **Done** -- Container updates you can follow, and a watch afterwards (3.72).
+    While "Update all" runs, one feed item says where it's got to
+    ("Updating 7 of 22: sonarr"), live in SirisOS's Inbox, and closes when
+    the run finishes. A container that fails its update or is rolled back
+    has its last log lines in the alert. For
+    SIRISAI_CONTAINER_UPDATE_WATCH_MINUTES (10; 0 turns it off) afterwards,
+    each updated container is checked every 30 seconds. One that stops,
+    keeps restarting or turns unhealthy is put back on its previous image
+    with the same settings and networks, audited and alerted. Verified in
+    `tests/test_homelab.py` (a crash after the update rolls back; a healthy
+    one is left alone; progress shown and closed).
+    Any feed action that takes longer than 20 seconds (a reboot, or an update
+    on an older SirisAI that ran it in the request) now answers then with
+    "still working", carries on, and raises a notice ("Done: ...") or an
+    alert when it ends. A phone gives up on a request after about a minute
+    ("Load failed"). Verified in `tests/test_attention.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

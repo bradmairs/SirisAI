@@ -227,3 +227,35 @@ def test_stream_sends_a_snapshot_then_live_changes(use) -> None:
     assert upsert.type == "upsert" and upsert.items[0].title == "Just happened"
     assert upsert.counts.urgent == 1
     assert siris.attention._subscribers == []  # cleaned up after the stream ended
+
+
+def test_a_slow_action_answers_at_once_and_reports_later(use, monkeypatch) -> None:
+    """3.72: a phone gives up after about a minute ("Load failed"); a slow
+    action answers within LONG_ACTION_SECONDS and a notice follows."""
+    import time
+
+    from app.api.routes import hub as hub_routes
+
+    release = threading.Event()
+
+    def slow(siris, item, payload, trigger):
+        release.wait(5)
+        time.sleep(0.05)
+        return {"ok": True}, "Rebooted nas"
+
+    attention.register_action("slowtest", "go", slow)
+    siris = SirisAI(settings=Settings(timezone="UTC"))
+    siris.attention.raise_item("slow:1", "suggestion", "Reboot nas", source="slowtest", actions=[attention.action("go", "Go", "primary")])
+    item = siris.attention.list()[0]
+    monkeypatch.setattr(hub_routes, "LONG_ACTION_SECONDS", 0.2)
+    client = use(siris)
+    r = client.post(f"/siris/hub/v1/attention/{item['id']}/act", json={"action": "go"})
+    assert r.status_code == 200 and r.json()["result"]["pending"] is True
+    release.set()
+    for _ in range(100):
+        notices = [i for i in siris.attention.list() if i["source"] == "actions"]
+        if notices:
+            break
+        time.sleep(0.05)
+    assert notices and notices[0]["title"] == "Done: Reboot nas" and notices[0]["body"] == "Rebooted nas"
+    assert siris.attention.get(item["id"])["outcome"] == "Rebooted nas"
