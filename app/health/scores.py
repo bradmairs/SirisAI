@@ -62,7 +62,7 @@ LABELS: dict[str, tuple[str, str]] = {
     "active_energy_kcal": ("Active energy", "kcal"),
     "exercise_minutes": ("Exercise", "min"),
 }
-VITALS = ["heart_rate_variability", "resting_heart_rate", "respiratory_rate", "blood_oxygen", "wrist_temperature",
+VITALS = ["hrv_overnight", "heart_rate_variability", "resting_heart_rate", "respiratory_rate", "blood_oxygen", "wrist_temperature",
           "walking_heart_rate", "vo2_max", "weight_kg", "body_fat_pct"]
 
 
@@ -279,7 +279,39 @@ def illness_signals(days: Days, on: date) -> list[str]:
 
 
 def getting_sick(days: Days, on: date) -> dict[str, Any] | None:
+    """Two of the three signs two days running is `likely`; two of them
+    today alone is an `early` heads-up, a day before it's sure (3.82)."""
     today, yesterday = illness_signals(days, on), illness_signals(days, on - timedelta(days=1))
     if len(today) >= 2 and len(yesterday) >= 2:
-        return {"date": on.isoformat(), "today": today, "yesterday": yesterday}
+        return {"date": on.isoformat(), "today": today, "yesterday": yesterday, "level": "likely"}
+    if len(today) >= 2:
+        return {"date": on.isoformat(), "today": today, "yesterday": yesterday, "level": "early"}
     return None
+
+
+# (metric, higher is better?) for the week-against-your-month trends.
+TREND_METRICS = [("hrv_overnight", True), ("heart_rate_variability", True), ("resting_heart_rate", False), ("sleep_hours", True),
+                 ("respiratory_rate", False), ("steps", True), ("exercise_minutes", True), ("vo2_max", True)]
+
+
+def trends(days: Days, on: date) -> list[dict[str, Any]]:
+    """This week's average against your last 30 days (3.82): each metric
+    with at least 4 days this week and 10 in the month before it. A change
+    of under 3% is "steady"; otherwise up or down, and whether that's good."""
+    week_start, month_start = (on - timedelta(days=6)).isoformat(), (on - timedelta(days=36)).isoformat()
+    out = []
+    for key, higher_good in TREND_METRICS:
+        if key == "heart_rate_variability" and any(t["key"] == "hrv_overnight" for t in out):
+            continue  # the overnight figure says it better
+        week = [float(m[key]) for d, m in days.items() if week_start <= d <= on.isoformat() and m.get(key) is not None]
+        month = [float(m[key]) for d, m in days.items() if month_start <= d < week_start and m.get(key) is not None]
+        if len(week) < 4 or len(month) < 10:
+            continue
+        w, b = mean(week), mean(month)
+        change = (w - b) / b * 100 if b else 0.0
+        direction = "steady" if abs(change) < 3 else "up" if change > 0 else "down"
+        good = None if direction == "steady" else (direction == "up") == higher_good
+        label, unit = LABELS.get(key, (key, ""))
+        out.append({"key": key, "label": label, "unit": unit, "week": round(w, 1), "baseline": round(b, 1),
+                    "change_pct": round(change, 1), "direction": direction, "good": good})
+    return out

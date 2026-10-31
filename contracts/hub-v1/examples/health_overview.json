@@ -70,7 +70,7 @@
     "locked": false
   },
   "energy": {
-    "now": 70,
+    "now": 69,
     "start": 82,
     "wake": "06:30",
     "timeline": [
@@ -83,12 +83,12 @@
         "value": 70
       },
       {
-        "time": "07:10",
-        "value": 70
+        "time": "07:51",
+        "value": 69
       }
     ],
     "spent": {
-      "awake": 1,
+      "awake": 2,
       "activity": 11,
       "stress": 0
     },
@@ -1375,6 +1375,68 @@
     ]
   },
   "getting_sick": null,
+  "trends": [
+    {
+      "key": "heart_rate_variability",
+      "label": "HRV",
+      "unit": "ms",
+      "week": 58.9,
+      "baseline": 59.1,
+      "change_pct": -0.4,
+      "direction": "steady",
+      "good": null
+    },
+    {
+      "key": "resting_heart_rate",
+      "label": "Resting heart rate",
+      "unit": "bpm",
+      "week": 54.0,
+      "baseline": 54.0,
+      "change_pct": 0.0,
+      "direction": "steady",
+      "good": null
+    },
+    {
+      "key": "sleep_hours",
+      "label": "Sleep",
+      "unit": "h",
+      "week": 7.2,
+      "baseline": 7.2,
+      "change_pct": 0.0,
+      "direction": "steady",
+      "good": null
+    },
+    {
+      "key": "respiratory_rate",
+      "label": "Respiratory rate",
+      "unit": "/min",
+      "week": 14.0,
+      "baseline": 14.0,
+      "change_pct": 0.0,
+      "direction": "steady",
+      "good": null
+    },
+    {
+      "key": "steps",
+      "label": "Steps",
+      "unit": "",
+      "week": 9000.0,
+      "baseline": 9000.0,
+      "change_pct": 0.0,
+      "direction": "steady",
+      "good": null
+    },
+    {
+      "key": "exercise_minutes",
+      "label": "Exercise",
+      "unit": "min",
+      "week": 30.0,
+      "baseline": 30.0,
+      "change_pct": 0.0,
+      "direction": "steady",
+      "good": null
+    }
+  ],
   "logged": {
     "water_ml": 1500.0,
     "caffeine_mg": null,
@@ -1386,7 +1448,7 @@
         "day": "2026-10-31",
         "kind": "supplement",
         "text": "Vitamin D",
-        "at": "2026-10-31T07:10:28.861493"
+        "at": "2026-10-31T07:51:14.070744"
       }
     ]
   },

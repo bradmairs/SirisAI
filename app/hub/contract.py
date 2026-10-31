@@ -366,7 +366,8 @@ class HealthOverview(_Model):
     activity: dict[str, Any] | None = Field(None, description="steps, energy, exercise, load (ratio, zone), series, workouts")
     vitals: list[dict[str, Any]] | None = None
     weight: dict[str, Any] | None = Field(None, description="latest, trend (smoothed), per_week, goal_kg, to_go_kg, weeks_to_goal, series")
-    getting_sick: dict[str, Any] | None = Field(None, description="Set when temperature, resting heart rate and HRV point to illness two days running")
+    getting_sick: dict[str, Any] | None = Field(None, description="Set when temperature, resting heart rate and HRV point to illness: level 'likely' (two days running) or 'early' (today, 3.82)")
+    trends: list[dict[str, Any]] | None = Field(None, description="This week against your last 30 days (3.82): key, label, unit, week, baseline, change_pct, direction (up/down/steady), good")
     logged: dict[str, Any] | None = Field(None, description="Today's water, caffeine, drinks, mood, and the week's notes (symptoms, supplements, meals)")
     insights: list[dict[str, Any]] | None = Field(None, description="Findings like 'after a late meeting you sleep 40 min less'")
     bedtime: dict[str, Any] | None = Field(None, description="Tonight's suggested bedtime and why")

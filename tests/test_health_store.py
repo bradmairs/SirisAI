@@ -93,6 +93,19 @@ def test_imports_keep_everything_and_the_overview_scores_it(client: TestClient) 
     assert "Readiness" in overview.text(built)
 
 
+def test_trends_compare_this_week_with_the_month_before() -> None:
+    on = date(2026, 10, 30)
+    days = {(on - timedelta(days=i)).isoformat(): {"hrv_overnight": 70, "heart_rate_variability": 50, "resting_heart_rate": 55, "sleep_hours": 7.5}
+            for i in range(7, 37)}
+    for i in range(7):
+        days[(on - timedelta(days=i)).isoformat()] = {"hrv_overnight": 60, "heart_rate_variability": 40, "resting_heart_rate": 55.5, "sleep_hours": 8.1}
+    by = {t["key"]: t for t in scores.trends(days, on)}
+    assert by["hrv_overnight"]["direction"] == "down" and by["hrv_overnight"]["good"] is False and by["hrv_overnight"]["change_pct"] == -14.3
+    assert "heart_rate_variability" not in by  # the overnight one stands for it
+    assert by["resting_heart_rate"]["direction"] == "steady" and by["resting_heart_rate"]["good"] is None
+    assert by["sleep_hours"]["direction"] == "up" and by["sleep_hours"]["good"] is True
+
+
 def test_weight_trend_smooths_and_counts_down_to_a_goal() -> None:
     on = date(2026, 10, 30)
     days = {(on - timedelta(days=i)).isoformat(): {"weight_kg": 80 - (40 - i) * 0.07 + (0.8 if i == 3 else 0)} for i in range(40)}
@@ -107,8 +120,12 @@ def test_getting_sick_needs_two_signs_two_days_running() -> None:
     days[(on - timedelta(days=1)).isoformat()] = {"wrist_temperature": 0.7, "resting_heart_rate": 61, "heart_rate_variability": 58}
     days[on.isoformat()] = {"wrist_temperature": 0.6, "resting_heart_rate": 60, "heart_rate_variability": 45}
     found = scores.getting_sick(days, on)
-    assert found and len(found["today"]) == 3 and len(found["yesterday"]) == 2
+    assert found and len(found["today"]) == 3 and len(found["yesterday"]) == 2 and found["level"] == "likely"
     days[(on - timedelta(days=1)).isoformat()]["resting_heart_rate"] = 55
+    # Only today: an early heads-up, not the warning (3.82).
+    assert scores.getting_sick(days, on)["level"] == "early"
+    days[on.isoformat()]["resting_heart_rate"] = 55
+    days[on.isoformat()]["heart_rate_variability"] = 60
     assert scores.getting_sick(days, on) is None
 
 
