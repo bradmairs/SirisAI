@@ -80,6 +80,15 @@ def check_sick(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] 
     found = scores.getting_sick(data, on)
     if not found:
         return None
+    if found.get("level") == "early":
+        # One day of it (3.82): a heads-up a day before it's sure, without blocking anything.
+        siris.attention.raise_item(
+            f"health:sick-early:{on.isoformat()}", "notice", "Early signs you may be getting run down", source="health", severity="info",
+            body="Today: " + ", ".join(found["today"]) + ". Nothing certain yet; an easy day and an early night help if it is something. "
+            "If it's the same tomorrow, SirisAI will say so.",
+        )
+        _push(siris, "Early signs you may be getting run down", ", ".join(found["today"]) + ". An easy day and an early night help.")
+        return found
     evening = _evening_events(siris, on)
     plans = "\n".join(f"- {e['summary']} at {str(e['start'])[11:16]}" for e in evening[:6]) or "Nothing in the calendar this evening."
     actions = [action("acknowledge", "Got it")]

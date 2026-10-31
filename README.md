@@ -6445,6 +6445,17 @@ provider for the same capability actually exists to design against.
     alert when it ends. A phone gives up on a request after about a minute
     ("Load failed"). Verified in `tests/test_attention.py`.
 
+157. **Done** -- Health trends and an early heads-up (3.82, for SirisOS 6.1).
+    The health overview has `trends`: this week's average against the 30
+    days before it, for overnight HRV (or the day's HRV without it),
+    resting heart rate, sleep, respiratory rate, steps, exercise and VO2
+    max. Each gives the change, up/down/steady (under 3% is steady) and
+    whether that's good for you. The getting-sick check now has a level.
+    Two of the three signs (temperature, resting heart rate, HRV) today
+    alone is `early`: an info notice and a push, a day before the
+    two-days-running `likely` warning, which still blocks the evening and
+    rests the training plan. Verified in `tests/test_health_store.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

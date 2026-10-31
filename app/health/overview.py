@@ -87,6 +87,7 @@ def build(siris: "SirisAI", on: date | None = None, now: datetime | None = None)
         "vitals": scores.vitals(data, on),
         "weight": scores.weight_trend(data, on, siris.settings.health_weight_goal_kg),
         "getting_sick": scores.getting_sick(data, on),
+        "trends": scores.trends(data, on),
         "logged": {
             "water_ml": today_m.get("water_ml"), "caffeine_mg": today_m.get("caffeine_mg"),
             "alcohol_drinks": today_m.get("alcohol_drinks"), "mood": today_m.get("mood"),
@@ -110,7 +111,8 @@ def text(overview: dict[str, Any]) -> str:
         parts.append(f"You slept {last['hours']:.1f} hours" + (f" (sleep score {score})" if score is not None else "") + ".")
     sick = overview.get("getting_sick")
     if sick:
-        parts.append("Your body may be fighting something off: " + ", ".join(sick["today"]) + ".")
+        lead = "Early signs your body may be fighting something off" if sick.get("level") == "early" else "Your body may be fighting something off"
+        parts.append(f"{lead}: " + ", ".join(sick["today"]) + ".")
     w = overview.get("weight")
     if w and w.get("per_week") is not None:
         parts.append(f"Weight trend {w['trend']:.1f} kg ({w['per_week']:+.1f} kg a week).")

@@ -1814,8 +1814,25 @@
             }
           ],
           "default": null,
-          "description": "Set when temperature, resting heart rate and HRV point to illness two days running",
+          "description": "Set when temperature, resting heart rate and HRV point to illness: level 'likely' (two days running) or 'early' (today, 3.82)",
           "title": "Getting Sick"
+        },
+        "trends": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "This week against your last 30 days (3.82): key, label, unit, week, baseline, change_pct, direction (up/down/steady), good",
+          "title": "Trends"
         },
         "logged": {
           "anyOf": [
