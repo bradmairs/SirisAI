@@ -1728,8 +1728,22 @@
             }
           ],
           "default": null,
-          "description": "score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary",
+          "description": "score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary; locked (kept as it was this morning, 3.62) and locked_at",
           "title": "Readiness"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Today's energy (3.62): now and start (0-100), wake, timeline [{time, value}], spent {awake, activity, stress}, regained, summary, estimated",
+          "title": "Energy"
         },
         "sleep": {
           "anyOf": [

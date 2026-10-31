@@ -400,6 +400,7 @@ class Settings(BaseSettings):
     health_source_priority: str = "health_auto_export,apple_export,shortcut,sirisos,manual"
     health_weight_goal_kg: float | None = None
     health_stale_hours: float = 36.0
+    health_readiness_lock_hour: int = 10
     health_private: bool = True
     # Health insights (app/health/insights.py): the getting-sick check's hour
     # (blank = off), Home Assistant sensors for the sleep insights (blank =

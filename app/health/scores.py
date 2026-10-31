@@ -3,8 +3,14 @@ population average. Moved here from SirisOS 5.7 (SirisAI 3.51) so chat,
 voice, the brief and SirisOS all use the same numbers.
 
 **Readiness** (0 to 100): how ready your body is to take on strain today.
-- Heart rate variability against your last 30 days (35%): higher than your
-  usual is good.
+It's a morning score, from the night (3.62): overnight HRV, resting heart
+rate, sleep and overnight vitals. Once the night is in and it's past
+SIRISAI_HEALTH_READINESS_LOCK_HOUR (10am; 2pm at the latest) it's kept as it
+was (app/health/overview.py), so a hard session or a stressful afternoon
+doesn't rewrite it. How the day is going is the energy score
+(app/health/battery.py).
+- Heart rate variability while asleep against your last 30 nights (35%):
+  higher than your usual is good.
 - Resting heart rate against your usual (20%): lower is good.
 - Last night's sleep against what you need (30%): what you usually sleep,
   but at least 7 hours and no more than 9.
@@ -42,6 +48,7 @@ Days = dict[str, dict[str, float]]
 
 LABELS: dict[str, tuple[str, str]] = {
     "heart_rate_variability": ("HRV", "ms"),
+    "hrv_overnight": ("Overnight HRV", "ms"),
     "resting_heart_rate": ("Resting heart rate", "bpm"),
     "sleep_hours": ("Sleep", "h"),
     "respiratory_rate": ("Respiratory rate", "/min"),
@@ -91,6 +98,17 @@ def _z(value: float, base: tuple[float, float], floor_share: float) -> float:
     return (value - mu) / max(sd, abs(mu) * floor_share, 1e-6)
 
 
+def night_hrv(days: Days, on: date) -> tuple[str, tuple[str, float] | None, tuple[float, float] | None]:
+    """Last night's HRV against your usual overnight HRV (3.62). Falls back to
+    the whole day's average (which exercise and stress pull down) only until
+    there are five nights of overnight readings to compare with."""
+    night = (days.get(on.isoformat()) or {}).get("hrv_overnight")
+    base = baseline(days, "hrv_overnight", on)
+    if night is not None and base:
+        return "hrv_overnight", (on.isoformat(), float(night)), base
+    return "heart_rate_variability", latest(days, "heart_rate_variability", on), baseline(days, "heart_rate_variability", on)
+
+
 def readiness(days: Days, on: date) -> dict[str, Any] | None:
     parts: list[tuple[str, float, float, dict[str, Any]]] = []  # key, weight, score, detail
     history = sum(1 for d in days if d < on.isoformat())
@@ -100,11 +118,12 @@ def readiness(days: Days, on: date) -> dict[str, Any] | None:
         parts.append((key, weight, clamp(score), {"key": key, "label": label, "unit": unit, "value": value, "baseline": base,
                                                    "score": round(clamp(score)), "text": text}))
 
-    hrv, base = latest(days, "heart_rate_variability", on), baseline(days, "heart_rate_variability", on)
+    hrv_key, hrv, base = night_hrv(days, on)
     if hrv and base:
         z = _z(hrv[1], base, 0.08)
+        what = "Overnight HRV" if hrv_key == "hrv_overnight" else "HRV"
         add("heart_rate_variability", 0.35, 60 + 22 * z, round(hrv[1]), round(base[0]),
-            f"HRV {hrv[1]:.0f} ms, {'above' if z > 0.3 else 'below' if z < -0.3 else 'around'} your usual {base[0]:.0f}")
+            f"{what} {hrv[1]:.0f} ms, {'above' if z > 0.3 else 'below' if z < -0.3 else 'around'} your usual {base[0]:.0f}")
     rhr, base = latest(days, "resting_heart_rate", on), baseline(days, "resting_heart_rate", on)
     if rhr and base:
         z = _z(rhr[1], base, 0.03)
@@ -252,7 +271,8 @@ def illness_signals(days: Days, on: date) -> list[str]:
     r, rb = (days.get(on.isoformat()) or {}).get("resting_heart_rate"), baseline(days, "resting_heart_rate", on)
     if r is not None and rb and r - rb[0] >= 4:
         signals.append(f"resting heart rate +{r - rb[0]:.0f} bpm")
-    h, hb = (days.get(on.isoformat()) or {}).get("heart_rate_variability"), baseline(days, "heart_rate_variability", on)
+    key, hv, hb = night_hrv(days, on)
+    h = hv[1] if hv and hv[0] == on.isoformat() else None
     if h is not None and hb and hb[0] > 0 and (hb[0] - h) / hb[0] >= 0.15:
         signals.append(f"HRV {round((hb[0] - h) / hb[0] * 100)}% down")
     return signals

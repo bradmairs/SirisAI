@@ -372,7 +372,7 @@ def write_week_note(siris: "SirisAI", found: list[dict[str, Any]], goals: list[d
     built = overview.build(siris, on)
     data = overview.days(siris, on, 8)
     week = [(on - timedelta(days=i)).isoformat() for i in range(7)]
-    readiness = [r["score"] for d in week if (r := scores.readiness(overview.days(siris, date.fromisoformat(d), 40), date.fromisoformat(d)))]
+    readiness = [r["score"] for d in week if (r := overview.morning_readiness(siris, date.fromisoformat(d), overview.days(siris, date.fromisoformat(d), 40)))]
     sleeps = [data[d]["sleep_hours"] for d in week if (data.get(d) or {}).get("sleep_hours")]
     workouts = [w for w in built["activity"]["workouts"] if w["date"] in week]
     lines = []

@@ -6407,6 +6407,27 @@ provider for the same capability actually exists to design against.
     a notice saying how many updated follows. Verified in
     `tests/test_homelab.py`.
 
+155. **Done** -- Readiness from the night, and an energy score for the day (3.62, for SirisOS 5.9).
+    Readiness moved during the day for two reasons. The day's HRV was an
+    average of every reading, so a workout or a stressful afternoon pulled
+    it down. And each new Health Auto Export rewrote the day, including
+    "last night's" sleep, with an afternoon nap folded in or only the tail
+    of the night. Now:
+    - HRV measured while asleep is kept as `hrv_overnight`, for the
+      wake-up day, and readiness uses it.
+    - A night on file is only replaced by a fuller view of it.
+    - Once the night is in and it's past
+      SIRISAI_HEALTH_READINESS_LOCK_HOUR (10am; 2pm at the latest), the
+      score is kept as it was.
+
+    The new energy score (`energy` in the health overview,
+    `app/health/battery.py`) is a Body Battery. It starts from readiness at
+    waking, drains with time awake, active energy and stress (heart rate
+    well over resting while still), and gets a little back from rest and
+    mindful minutes. It uses hourly data when the export is aggregated by
+    hour; otherwise it's estimated from the day's totals and workouts.
+    Verified in `tests/test_health_energy.py`.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
