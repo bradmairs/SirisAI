@@ -23,6 +23,14 @@
   of SirisAI and SirisOS) go last, since restarting them drops connections.
   When it's done, a notice says what was updated; anything rolled back or
   failed gets its own alert, as before.
+- **Progress** (3.72): while it runs, one feed item says where it's got to
+  ("Updating 7 of 22: sonarr"), so the Inbox shows it live; a container that
+  fails or is rolled back has the last lines of its log in its alert.
+- **Watching afterwards** (3.72): for SIRISAI_CONTAINER_UPDATE_WATCH_MINUTES
+  (10; 0 turns it off) after the run, each updated container is checked
+  every half minute. One that stops, restarts or turns unhealthy is put back
+  on the image it had before (kept for exactly this) with the same settings,
+  and an alert says so with its last log lines.
 """
 
 import contextvars
@@ -231,7 +239,9 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
         if not ok:
             raise RuntimeError(how)
     except Exception as exc:  # noqa: BLE001 - every failure rolls back
+        logs = ""
         if new_id:
+            logs = _tail(client, new_id)
             try:
                 client.remove(new_id)
             except Exception:  # noqa: BLE001
@@ -239,14 +249,31 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
         client.rename(old["Id"], name)
         if was_running:
             client.start(old["Id"])
-        return {"container": name, "status": "rolled back", "why": str(exc)[:300]}
+        return {"container": name, "status": "rolled back", "why": str(exc)[:300], "logs": logs}
+    _previous[name] = {"config": {**new_config(old, old_image, old["Image"]), "_extra_networks": extra}, "image": old["Image"]}
     client.remove(old["Id"])
     return {"container": name, "status": "updated", "image": ref, "health": how}
 
 
+# What each container ran before its update, for a roll-back while it's watched.
+_previous: dict[str, dict[str, Any]] = {}
+# Set by the background run so update_many can say how far it's got.
+_progress: contextvars.ContextVar[Any] = contextvars.ContextVar("container_update_progress", default=None)
+
+
+def _tail(client: DockerClient, container: str, lines: int = 15) -> str:
+    try:
+        return client.get_container_logs(container, tail=lines)[-1500:]
+    except Exception:  # noqa: BLE001 - logs are a nicety
+        return ""
+
+
 def update_many(siris: "SirisAI", names: list[str]) -> list[dict[str, Any]]:
     results = []
-    for name in names:
+    report = _progress.get()
+    for i, name in enumerate(names):
+        if report:
+            report(i, len(names), name)
         try:
             results.append(update(siris, name))
         except Exception as exc:  # noqa: BLE001 - say which one, carry on with the rest
@@ -260,8 +287,9 @@ def update_many(siris: "SirisAI", names: list[str]) -> list[dict[str, Any]]:
                 f"{r['container']}'s update was rolled back" if back else f"Updating {r['container']} failed",
                 source="containers-failed",
                 severity="attention",
-                body=(f"The new version didn't come up: {r['why']}. The old one is running again; its logs may say why."
-                      if back else f"{r['why']}. Check that {r['container']} is running."),
+                body=(f"The new version didn't come up: {r['why']}. The old one is running again."
+                      if back else f"{r['why']}. Check that {r['container']} is running.")
+                + (f"\n\nIts last log lines:\n{r['logs']}" if r.get("logs") else ""),
             )
     return results
 
@@ -278,23 +306,110 @@ def front_doors_last(names: list[str]) -> list[str]:
     return [n for n in names if not door(n)] + [n for n in names if door(n)]
 
 
-def _finish(siris: "SirisAI", names: list[str], trigger: str) -> None:
+def _finish(siris: "SirisAI", names: list[str], trigger: str, watch_poll: float = 30.0) -> None:
+    run = int(time.time())
+    progress_key = f"containers:progress:{run}"
+
+    def report(i: int, n: int, name: str) -> None:
+        siris.attention.raise_item(progress_key, "notice", f"Updating {i + 1} of {n}: {name}", source="containers-progress",
+                                   severity="info", body="Pulling the new image and checking it comes up healthy. You can leave this; a notice follows.")
+
+    token = _progress.set(report)
+    updated: list[str] = []
     try:
         result = siris.run_tool("docker_update_containers", {"containers": ",".join(names)}, confirmed=True, trigger=trigger)
+        updated = [r["container"] for r in result if r["status"] == "updated"]
         done = [r["container"] for r in result if r["status"] == "updated"]
         same = [r["container"] for r in result if r["status"] in ("up to date", "skipped")]
         back = [r["container"] for r in result if r["status"] in ("rolled back", "failed")]
         title = f"Updated {len(done)} of {len(names)} containers" + (f"; {len(back)} rolled back" if back else "")
         body = "\n".join(x for x in [f"Updated: {', '.join(done)}" if done else "", f"Already current: {', '.join(same)}" if same else "",
                                       f"Rolled back or failed (see their own alerts): {', '.join(back)}" if back else ""] if x)
-        siris.attention.raise_item(f"containers:done:{int(time.time())}", "notice", title, source="containers-done",
+        minutes = siris.settings.container_update_watch_minutes
+        if done and minutes > 0:
+            body += f"\nWatching them for {minutes:g} minutes; any that falls over goes back to the version it had."
+        siris.attention.raise_item(f"containers:done:{run}", "notice", title, source="containers-done",
                                    severity="attention" if back else "info", body=body or None)
     except Exception as exc:  # noqa: BLE001 - say so rather than fail silently in a thread
         logger.exception("Background container update failed")
-        siris.attention.raise_item(f"containers:done:{int(time.time())}", "alert", "The container update stopped", source="containers-done",
+        siris.attention.raise_item(f"containers:done:{run}", "alert", "The container update stopped", source="containers-done",
                                    severity="attention", body=f"{type(exc).__name__}: {str(exc)[:300]}")
     finally:
-        _running.release()
+        _progress.reset(token)
+        siris.attention.resolve_key(progress_key, "Finished")
+        try:
+            if updated and siris.settings.container_update_watch_minutes > 0:
+                watch(siris, updated, siris.settings.container_update_watch_minutes * 60, watch_poll)
+        except Exception:  # noqa: BLE001
+            logger.exception("Watching the updated containers failed")
+        finally:
+            _running.release()
+
+
+def _trouble(info: dict[str, Any], restarts: int) -> str | None:
+    state = info.get("State") or {}
+    if state.get("Restarting") or int(info.get("RestartCount") or 0) > restarts:
+        return "it kept restarting"
+    if not state.get("Running"):
+        return f"it stopped (exit code {state.get('ExitCode')})"
+    if (state.get("Health") or {}).get("Status") == "unhealthy":
+        return "its health check started failing"
+    return None
+
+
+def watch(siris: "SirisAI", names: list[str], seconds: float, poll: float = 30.0) -> list[dict[str, Any]]:
+    """Check freshly updated containers for a while; put any that falls over
+    back on its previous image. Returns what was rolled back."""
+    client = _client(siris)
+    restarts = {}
+    for n in names:
+        try:
+            restarts[n] = int(client.inspect_container(n).get("RestartCount") or 0)
+        except Exception:  # noqa: BLE001
+            restarts[n] = 0
+    watching, rolled = set(names), []
+    deadline = time.monotonic() + seconds
+    while watching:
+        for name in sorted(watching):
+            try:
+                why = _trouble(client.inspect_container(name), restarts[name])
+            except Exception as exc:  # noqa: BLE001 - gone altogether
+                why = f"it disappeared ({str(exc)[:80]})"
+            if why and name in _previous:
+                rolled.append(_roll_back(siris, client, name, why))
+                watching.discard(name)
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(poll)
+    for name in names:
+        _previous.pop(name, None)
+    return rolled
+
+
+def _roll_back(siris: "SirisAI", client: DockerClient, name: str, why: str) -> dict[str, Any]:
+    prev = _previous[name]
+    logs = _tail(client, name)
+    config = dict(prev["config"])
+    extra = config.pop("_extra_networks", {}) or {}
+    try:
+        try:
+            client.stop(name)
+        except Exception:  # noqa: BLE001 - already stopped
+            pass
+        client.remove(name)
+        new_id = client.create(name, config)
+        for network, endpoint in extra.items():
+            client.connect(network, new_id, endpoint)
+        client.start(new_id)
+        title, outcome = f"{name} was rolled back after its update", "rolled back"
+        body = f"The new version ran at first, then {why}. It's back on the image it had before ({prev['image'][:19]})."
+    except Exception as exc:  # noqa: BLE001
+        title, outcome = f"{name} fell over after its update, and rolling it back failed", "failed"
+        body = f"After the update {why}. Putting the old version back failed: {str(exc)[:200]}. Check {name} by hand."
+    siris.audit.record("docker_update_rollback", {"container": name, "why": why}, result=outcome, trigger="the container update's watch")
+    siris.attention.raise_item(f"containers:failed:{name}", "alert", title, source="containers-failed", severity="attention",
+                               body=body + (f"\n\nIts last log lines:\n{logs}" if logs else ""))
+    return {"container": name, "status": outcome, "why": why}
 
 
 def _update_action(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:

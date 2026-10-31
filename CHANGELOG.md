@@ -5,6 +5,11 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.72 — 2026-10-31
+
+- Container updates show live progress, and anything that falls over afterwards is rolled back
+- Any feed action that takes over 20 seconds answers "still working" and reports with a notice, instead of the phone giving up ("Load failed")
+
 ## 3.62 — 2026-10-31
 
 - Readiness from the night (kept once the morning is over) and an energy score for the day

@@ -110,7 +110,7 @@ class FakeDocker:
             body = json.loads(request.content)
             self._n += 1
             cid = f"{self._n:012d}" + "e" * 52
-            self.containers[cid] = {"Id": cid, "Name": "/" + request.url.params["name"], "Image": self.tags[body["Image"]], "Config": body, "HostConfig": body["HostConfig"], "NetworkSettings": {"Networks": {}}, "State": {"Running": False}, "connected": []}
+            self.containers[cid] = {"Id": cid, "Name": "/" + request.url.params["name"], "Image": self.tags.get(body["Image"], body["Image"]), "Config": body, "HostConfig": body["HostConfig"], "NetworkSettings": {"Networks": {}}, "State": {"Running": False}, "connected": []}
             return httpx.Response(201, json={"Id": cid})
         parts = path.split("/")
         if parts[1] == "networks" and parts[3] == "connect":
@@ -142,7 +142,7 @@ class FakeDocker:
 @pytest.fixture
 def docker() -> tuple[SirisAI, FakeDocker]:
     fake = FakeDocker()
-    siris = SirisAI(settings=Settings(container_update_health_seconds=0.05, container_update_exclude="db"))
+    siris = SirisAI(settings=Settings(container_update_health_seconds=0.05, container_update_exclude="db", container_update_watch_minutes=0))
     siris._docker_client = DockerClient("http://docker", transport=httpx.MockTransport(fake.handler))
     from app.plugins.builtin.homelab import DockerCheckUpdatesTool, DockerUpdateContainersTool
 
@@ -226,8 +226,35 @@ def test_update_all_from_the_feed(docker) -> None:
     containers._worker.join(10)
     assert not _items(siris, "containers")  # nothing left to update
     assert "Updated 1 of 1 containers" in _items(siris, "containers-done")
+    # Where it had got to was in the feed while it ran (3.72), and closed when it finished.
+    progress = [i for i in siris.attention.list(None) if i["source"] == "containers-progress"]
+    assert [i["title"] for i in progress] == ["Updating 1 of 1: plex"] and progress[0]["status"] == "done"
     with_pin = SirisAI(settings=Settings(approval_pin="1234"))
     assert approvals.action_needs_pin(with_pin, item, "update", {})
+
+
+def test_a_container_that_falls_over_after_its_update_goes_back(docker) -> None:
+    siris, fake = docker
+    _setup_containers(fake)
+    [result] = containers.update_many(siris, ["plex"])
+    assert result["status"] == "updated"
+    [plex] = [c for c in fake.containers.values() if c["Name"] == "/plex"]
+    assert plex["Image"] == "sha256:new"
+    plex["State"] = {"Running": False, "ExitCode": 137}  # crashes a few minutes in
+    [rolled] = containers.watch(siris, ["plex"], seconds=0.2, poll=0.05)
+    assert rolled == {"container": "plex", "status": "rolled back", "why": "it stopped (exit code 137)"}
+    [plex] = [c for c in fake.containers.values() if c["Name"] == "/plex"]
+    assert plex["Image"] == "sha256:old" and plex["State"]["Running"]
+    assert plex["Config"]["Env"] == ["TZ=Australia/Melbourne"] and plex["connected"] == ["proxy"]
+    assert "It's back on the image it had before" in _items(siris, "containers-failed")["plex was rolled back after its update"]["body"]
+
+
+def test_a_healthy_update_is_left_alone_by_the_watch(docker) -> None:
+    siris, fake = docker
+    _setup_containers(fake)
+    containers.update_many(siris, ["plex"])
+    assert containers.watch(siris, ["plex"], seconds=0.1, poll=0.05) == []
+    assert [c["Image"] for c in fake.containers.values() if c["Name"] == "/plex"] == ["sha256:new"]
 
 
 def test_the_front_doors_update_last() -> None:
