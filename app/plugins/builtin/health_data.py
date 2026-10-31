@@ -183,4 +183,60 @@ class HealthGoalsTool(_HealthTool):
         return insights.goals_progress(self._siris)
 
 
-HEALTH_TOOLS = (HealthOverviewTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)
+class HealthHistoryTool(_HealthTool):
+    name = "health_history"
+    description = (
+        "The user's health over any stretch of days, against the 30 days before it: sleep, overnight HRV, resting heart rate, "
+        "steps, exercise, weight and the rest (average, lowest, highest, change), the morning readiness scores kept for those days, "
+        "and the workouts. For questions about the past: 'how did I sleep the week before the deadline', 'was my HRV down in "
+        "September', 'how much did I run in the fortnight after the race'. Find the dates first (calendar, notes) when the "
+        "question names an event, then pass start and end."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "start": {"type": "string", "description": "First day, YYYY-MM-DD."},
+            "end": {"type": "string", "description": "Last day, YYYY-MM-DD (default: start)."},
+            "metrics": {"type": "string", "description": "Comma-separated metrics to keep it short (e.g. sleep_hours,hrv_overnight); default: all."},
+        },
+        "required": ["start"],
+    }
+
+    def run(self, start: str = "", end: str = "", metrics: str = "", **kwargs: Any) -> Any:
+        from datetime import date as date_type
+        from statistics import mean
+
+        from app.core.user_context import get_current_user_id
+
+        first = date_type.fromisoformat(start[:10])
+        last = date_type.fromisoformat((end or start)[:10])
+        if last < first:
+            first, last = last, first
+        if (last - first).days > 400:
+            raise ValueError("Ask about a year or less at a time.")
+        before = first - timedelta(days=30)
+        days = self._siris.health.days(before.isoformat(), last.isoformat())
+        wanted = {m.strip() for m in metrics.split(",") if m.strip()}
+        period: dict[str, list[float]] = {}
+        usual: dict[str, list[float]] = {}
+        for d, ms in days.items():
+            into = period if d >= first.isoformat() else usual
+            for k, v in ms.items():
+                if not wanted or k in wanted:
+                    into.setdefault(k, []).append(float(v))
+        out = {}
+        for k, vals in sorted(period.items()):
+            b = usual.get(k)
+            avg = mean(vals)
+            out[k] = {"average": round(avg, 1), "lowest": round(min(vals), 1), "highest": round(max(vals), 1), "days": len(vals),
+                      "usual_before": round(mean(b), 1) if b and len(b) >= 5 else None,
+                      "change_pct": round((avg - mean(b)) / mean(b) * 100, 1) if b and len(b) >= 5 and mean(b) else None}
+        kept = self._siris.state.get(f"health_readiness:{get_current_user_id()}") or {}
+        readiness = {d: r["score"] for d, r in sorted(kept.items()) if first.isoformat() <= d <= last.isoformat()}
+        workouts = [w for w in self._siris.health.workouts(first.isoformat()) if w["date"] <= last.isoformat()]
+        return {"from": first.isoformat(), "to": last.isoformat(), "metrics": out, "readiness_by_day": readiness,
+                "workouts": workouts[:30], "note": "usual_before is the 30 days before the period; nothing for days with no data."}
+
+
+HEALTH_TOOLS = (HealthOverviewTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)
