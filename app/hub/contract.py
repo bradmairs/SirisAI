@@ -603,10 +603,13 @@ class NetworkNode(_Model):
     uplink: str | None = Field(None, description="The id of the switch or access point it connects through (null: the gateway).")
     rx_bps: float = Field(0, description="Bytes per second it's receiving now.")
     tx_bps: float = Field(0, description="Bytes per second it's sending now.")
+    named: bool | None = Field(None, description="A client with a name set in UniFi (3.83).")
+    first_seen: float | None = Field(None, description="When UniFi first saw this client, epoch seconds (3.83).")
 
 
 class Network(_Model):
     configured: bool
+    device_alerts: bool = Field(False, description="SirisAI raises its own new-device alerts (3.83), so other apps needn't.")
     guest_mode: bool
     checked_at: str
     wan: dict[str, float | str | None] | None = Field(None, description="The internet link: rx_bps, tx_bps, isp.")

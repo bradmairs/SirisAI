@@ -6456,6 +6456,14 @@ provider for the same capability actually exists to design against.
     two-days-running `likely` warning, which still blocks the evening and
     rests the training plan. Verified in `tests/test_health_store.py`.
 
+158. **Done** -- Network nodes say what UniFi knows (3.83, for SirisOS 6.2).
+    Each client in `/siris/hub/v1/network` now carries `named` (a name is
+    set in UniFi) and `first_seen` (when UniFi first saw it, epoch seconds).
+    The network as a whole says `device_alerts` when SirisAI raises its own
+    new-device alerts. With these, SirisOS treats a device UniFi already
+    knows as known, and leaves new devices to SirisAI rather than alerting
+    twice. Verified by the hub contract examples.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

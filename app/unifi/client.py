@@ -254,6 +254,7 @@ class UniFiClient:
         clients = [{
             "mac": c.get("mac"), "name": c.get("name") or c.get("hostname") or c.get("oui") or c.get("mac"),
             "ip": c.get("ip"), "wired": bool(c.get("is_wired")),
+            "named": bool(c.get("name")), "first_seen": c.get("first_seen"),
             "uplink_mac": c.get("sw_mac") if c.get("is_wired") else c.get("ap_mac"),
             "rx_bps": rate(c, "wired-rx_bytes-r" if c.get("is_wired") else "rx_bytes-r"),
             "tx_bps": rate(c, "wired-tx_bytes-r" if c.get("is_wired") else "tx_bytes-r"),

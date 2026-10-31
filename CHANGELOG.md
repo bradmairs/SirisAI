@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 3.83 — 2026-10-31
+
+- Network nodes carry UniFi's name flag and first-seen date, and the network says whether SirisAI alerts on new devices
+
 ## 3.82 — 2026-10-31
 
 - Health trends (this week against your month) and an early heads-up a day before the getting-sick warning

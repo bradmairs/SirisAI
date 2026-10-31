@@ -2157,6 +2157,12 @@
           "title": "Configured",
           "type": "boolean"
         },
+        "device_alerts": {
+          "default": false,
+          "description": "SirisAI raises its own new-device alerts (3.92), so other apps needn't.",
+          "title": "Device Alerts",
+          "type": "boolean"
+        },
         "guest_mode": {
           "title": "Guest Mode",
           "type": "boolean"
@@ -2318,6 +2324,32 @@
           "description": "Bytes per second it's sending now.",
           "title": "Tx Bps",
           "type": "number"
+        },
+        "named": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A client with a name set in UniFi (3.92).",
+          "title": "Named"
+        },
+        "first_seen": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When UniFi first saw this client, epoch seconds (3.92).",
+          "title": "First Seen"
         }
       },
       "required": [
