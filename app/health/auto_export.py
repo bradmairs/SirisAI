@@ -183,6 +183,8 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
                     windows[day] = (night["start"] - timedelta(minutes=15), night["end"])
                     sleep_times[day] = {"start": night["raw_start"], "end": night["raw_end"]}
     hourly: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    # 4.17: every summed metric hour by hour, so a sync split into several requests adds up instead of replacing the day.
+    sums: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
     for m in data.get("metrics") or []:
         if not isinstance(m, dict):
             continue
@@ -210,6 +212,9 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
             t = when(r.get("date"))
             if t is None or by_day:
                 continue  # aggregated by day: no time of day to go on
+            if name in METRICS and METRICS[name][1] == "sum" and (v := _num(r.get("qty"))) is not None:
+                metric = METRICS[name][0]
+                sums[day][metric][f"{t.hour:02d}"] += convert(metric, units, v)
             if name in INTRADAY:
                 v = _num(r.get("Avg") if name == "heart_rate" else r.get("qty"))
                 if v is not None:
@@ -241,7 +246,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
     intraday = {day: {hour: {k: round(sum(v) if k in ("kcal", "steps", "mindful") else mean(v), 1) for k, v in vals.items()}
                       for hour, vals in hours.items()} for day, hours in hourly.items()}
     return {"metrics": dict(metrics), "sleep": sleep_times, "workouts": dict(workouts), "ignored": sorted(ignored), "intraday": intraday,
-            "meta": describe(data)}
+            "hour_sums": {d: {m: dict(h) for m, h in ms.items()} for d, ms in sums.items()}, "meta": describe(data)}
 
 
 SEGMENT_STAGES = {"core": "core", "deep": "deep", "rem": "rem", "awake": "awake", "inbed": "inBed", "asleep": "asleep", "unspecified": "asleep",

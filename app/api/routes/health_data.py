@@ -60,6 +60,14 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
         source = source or ("health_auto_export" if auto_export.looks_like(body) else "sirisos")
         if not (parsed["metrics"] or parsed["workouts"]):
             raise HTTPException(status_code=422, detail=f"No recognised metrics (got: {', '.join(parsed['ignored']) or 'nothing'}).")
+        if request.query_params.get("dry_run") in ("1", "true"):
+            # 4.17: what an export would give, without keeping it (SirisOS's "Test the sync").
+            return {"dry_run": True, "format": "health_auto_export" if auto_export.looks_like(body) else "sirisai", "meta": parsed.get("meta"),
+                    "days": parsed["metrics"], "sleep": parsed["sleep"], "workouts": {d: len(w) for d, w in parsed["workouts"].items()},
+                    "ignored": parsed["ignored"]}
+        from app.health.service import merge_hour_sums
+
+        parsed = merge_hour_sums(siris.state, parsed, get_current_user_id())
         result = siris.health.store_parsed(parsed, source)
         battery.keep_intraday(siris, parsed.get("intraday") or {})
         meta = parsed.get("meta")
@@ -96,6 +104,12 @@ async def post_gym(request: Request, siris: SirisAI = Depends(get_siris)) -> dic
         raise HTTPException(status_code=422, detail="Send SirisGYM's summary as a JSON object (under 200 KB).")
     gym.keep(siris, body)
     return {"kept": True, "lifts": len(body.get("lifts") or {})}
+
+
+@router.get("/sources")
+def get_sources(day: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"), siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Every source's value for each metric on a day, and which one counts (4.17)."""
+    return siris.health.sources(day)
 
 
 @router.get("/summary")

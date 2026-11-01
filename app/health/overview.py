@@ -179,14 +179,30 @@ def text(overview: dict[str, Any]) -> str:
 
 def check_stale(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | None:
     """'Health data has stopped arriving' when nothing new has come in for
-    SIRISAI_HEALTH_STALE_HOURS (36). Health Auto Export fails quietly (iOS
-    stops background refresh, the phone stays locked, a key changes); this
-    says so. It closes itself when data arrives again."""
+    SIRISAI_HEALTH_STALE_HOURS (6 since 4.17; it was 36). Health Auto Export
+    fails quietly (iOS stops background refresh, the phone stays locked, a key
+    changes); this says so, and goes to the phone as a push through SirisOS's
+    inbox. 4.17: it goes by Health Auto Export's own last import (SirisGYM and
+    Shortcuts don't count), only between 10am and 10pm (a phone asleep
+    overnight is normal), and it also says when exports keep arriving without
+    today in them (a Date Range that stops at yesterday). Each closes itself
+    when data arrives again."""
     hours = siris.settings.health_stale_hours
-    last = siris.health.last_day()
+    now = now or datetime.now(UTC)
+    local = now.astimezone(clock.get_zone(siris.settings.timezone))
+    awake = 10 <= local.hour < 22
+    hae = imports(siris).get("health_auto_export") or {}
+    last = hae.get("at") or siris.health.last_day()
     wanted = []
-    if hours and last:
-        age = ((now or datetime.now(UTC)) - datetime.fromisoformat(last)).total_seconds() / 3600
+    if hae.get("last_day") and hae["last_day"] < local.date().isoformat() and awake and hae.get("sent_on") == local.date().isoformat():
+        wanted.append({
+            "key": "health:today", "kind": "alert", "severity": "attention",
+            "title": "Today's health data isn't arriving",
+            "body": f"Health Auto Export is sending, but its last export only went up to {hae['last_day']}. In the app, set Date Range to Default "
+                    "(all of yesterday plus today so far) on both automations.",
+        })
+    if hours and last and awake:
+        age = (now - datetime.fromisoformat(last)).total_seconds() / 3600
         if age > hours:
             wanted.append({
                 "key": "health:stale",

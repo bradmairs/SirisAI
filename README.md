@@ -6515,6 +6515,8 @@ provider for the same capability actually exists to design against.
 
 164. **Done** -- Ask about your training (4.16): SirisOS 6.9 posts SirisGYM's summary after each workout (`POST /siris/health/gym`: recent workouts, each main lift's estimated 1RM over its last sessions, this week by muscle, records in 30 days, deload state, the next routine day with weights). The `gym_progress` tool answers "how's my bench trending", "what should I do in the gym today", "am I training legs enough" from it (`app/health/gym.py`); it's a private health tool, kept off cloud models with SIRISAI_HEALTH_PRIVATE, and the tool selector picks it for gym words. The weekly Health note gets a gym line. Verified with tests for the endpoint, the tool's answers, privacy and selection.
 
+165. **Done** -- Health data you can trust (4.17). Split syncs: summed metrics are kept hour by hour (`service.merge_hour_sums`), so Health Auto Export's Batch Requests add up and re-sends replace their hour. Alerts: `check_stale` goes by Health Auto Export's own last import, defaults to 6 hours (was 36), speaks only 10am-10pm, and adds "Today's health data isn't arriving" when exports stop at yesterday. `POST /siris/health/metrics?dry_run=1` parses without keeping (SirisOS's Test the sync). `GET /siris/health/sources?day=` shows each source's value per metric and which counts. New private tool `health_explain` (why readiness was low: the weakest contributors and the evening before). A monthly training and health report goes to the Health note on the 1st (`insights.monthly`). Verified with tests for each.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
