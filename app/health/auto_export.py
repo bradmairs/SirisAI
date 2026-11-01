@@ -176,9 +176,12 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
     windows: dict[str, tuple[datetime, datetime]] = {}
     for m in data.get("metrics") or []:
         if isinstance(m, dict) and str(m.get("name") or "").strip().lower() == "sleep_analysis":
-            for r in m.get("data") or []:
-                if isinstance(r, dict) and (day := _day(r.get("date"))) and (a := when(r.get("sleepStart"))) and (b := when(r.get("sleepEnd"))):
-                    windows[day] = (a - timedelta(minutes=15), b)
+            for day, night in nights(m.get("data") or [], str(m.get("units") or "")).items():
+                for metric, v in night["hours"].items():
+                    readings[(day, metric)].append(v)
+                if night.get("start") is not None:
+                    windows[day] = (night["start"] - timedelta(minutes=15), night["end"])
+                    sleep_times[day] = {"start": night["raw_start"], "end": night["raw_end"]}
     hourly: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for m in data.get("metrics") or []:
         if not isinstance(m, dict):
@@ -193,12 +196,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(r, dict) or not (day := _day(r.get("date"))):
                 continue
             if name == "sleep_analysis":
-                for field, metric in SLEEP_FIELDS.items():
-                    v = _num(r.get(field))
-                    if v is not None and not (field == "asleep" and r.get("totalSleep") is not None):
-                        readings[(day, metric)].append(v / 60 if units.lower().startswith("min") else v)
-                if r.get("sleepStart") or r.get("sleepEnd"):
-                    sleep_times[day] = {"start": str(r.get("sleepStart") or "")[:25], "end": str(r.get("sleepEnd") or "")[:25]}
+                continue  # read whole nights above (nights())
             elif name == "heart_rate":
                 for field, metric in (("Avg", "heart_rate_avg"), ("Min", "heart_rate_min"), ("Max", "heart_rate_max")):
                     v = _num(r.get(field))
@@ -246,6 +244,85 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
             "meta": describe(data)}
 
 
+SEGMENT_STAGES = {"core": "core", "deep": "deep", "rem": "rem", "awake": "awake", "inbed": "inBed", "asleep": "asleep", "unspecified": "asleep",
+                  "asleepcore": "core", "asleepdeep": "deep", "asleeprem": "rem", "asleepunspecified": "asleep"}
+NIGHT_GAP = timedelta(hours=2)
+
+
+def nights(records: list[Any], units: str = "hr") -> dict[str, dict[str, Any]]:
+    """Health Auto Export's sleep, whichever way it's sent (4.04), as one
+    night per wake-up day: {day: {hours: {metric: h}, start, end, raw_start,
+    raw_end}}.
+    - Summarised a night at a time (one record with sleepStart/sleepEnd).
+    - Summarised but grouped by hour: several records for one night, some
+      dated before midnight. They're joined back into the night, which
+      belongs to the morning you woke up (before 4.04 the part before
+      midnight went to the previous day and the night looked short).
+    - Not summarised: a segment per stage (startDate, endDate, value "Core"/
+      "Deep"/"REM"/"Awake"/"In Bed"). Before 4.04 these were dropped, so
+      sleep showed nothing.
+    Pieces less than two hours apart are one sleep; when a day has more than
+    one (a nap), the longest is the night."""
+    per_hour = 1 / 60 if units.lower().startswith("min") else 1.0
+    pieces: list[tuple[datetime, datetime, str, str, dict[str, float]]] = []
+    untimed: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        stage = str(r.get("value") or "").lower().replace(" ", "").replace("_", "")
+        if r.get("startDate") and r.get("endDate") and stage:
+            a, b = when(r.get("startDate")), when(r.get("endDate"))
+            field = SEGMENT_STAGES.get(stage)
+            if a and b and b > a and field:
+                pieces.append((a, b, str(r["startDate"])[:25], str(r["endDate"])[:25], {field: (b - a).total_seconds() / 3600, "_seg": 1.0}))
+            continue
+        hours: dict[str, float] = {}
+        for field in SLEEP_FIELDS:
+            v = _num(r.get(field))
+            if v is not None and not (field == "asleep" and r.get("totalSleep") is not None):
+                hours[field] = v * per_hour
+        raw_a = r.get("sleepStart") or r.get("inBedStart")
+        raw_b = r.get("sleepEnd") or r.get("inBedEnd")
+        a, b = when(raw_a), when(raw_b)
+        if a and b and b >= a:
+            pieces.append((a, b, str(raw_a)[:25], str(raw_b)[:25], hours))
+        elif (day := _day(r.get("date"))):
+            for field, v in hours.items():
+                untimed[day][field] += v
+    sessions: list[dict[str, Any]] = []
+    for a, b, ra, rb, hours in sorted(pieces, key=lambda p: p[0]):
+        cur = sessions[-1] if sessions else None
+        if cur and a <= cur["end"] + NIGHT_GAP:
+            if b > cur["end"]:
+                cur["end"], cur["raw_end"] = b, rb
+            for field, v in hours.items():
+                cur["fields"][field] = cur["fields"].get(field, 0.0) + v
+        else:
+            sessions.append({"start": a, "end": b, "raw_start": ra, "raw_end": rb, "fields": dict(hours)})
+            cur = sessions[-1]
+        if cur["fields"].pop("_seg", None):
+            cur["segments"] = True
+    out: dict[str, dict[str, Any]] = {}
+    for sess in sessions:
+        day = sess["end"].date().isoformat()
+        if day in out and (out[day]["end"] - out[day]["start"]) >= (sess["end"] - sess["start"]):
+            continue  # a nap: the night stands
+        out[day] = sess
+    result: dict[str, dict[str, Any]] = {}
+    for day, sess in out.items():
+        f = dict(sess["fields"])
+        if sess.get("segments"):  # stages add up to the sleep; "asleep" alone is the unstaged part
+            f["asleep"] = f.get("asleep", 0.0) + sum(f.get(k, 0.0) for k in ("core", "deep", "rem"))
+            if not f["asleep"]:
+                f.pop("asleep")
+        result[day] = {"hours": {SLEEP_FIELDS[k]: round(v, 2) for k, v in f.items()}, "start": sess["start"], "end": sess["end"],
+                       "raw_start": sess["raw_start"], "raw_end": sess["raw_end"]}
+    for day, f in untimed.items():
+        if day not in result:
+            result[day] = {"hours": {SLEEP_FIELDS[k]: round(v, 2) for k, v in f.items()}}
+    return result
+
+
 def describe(data: dict[str, Any]) -> dict[str, Any]:
     """What an export looked like (4.03), for the setup check: metrics or
     workouts, grouped by day, hour or not at all, how many days it covered,
@@ -263,7 +340,7 @@ def describe(data: dict[str, Any]) -> dict[str, Any]:
     else:
         aggregation = "none"
     last = max(t.date() for t in times)
-    return {"kind": "metrics", "aggregation": aggregation, "days_covered": len({t.date() for t in times}),
+    return {"kind": "metrics", "aggregation": aggregation, "days_covered": len({t.date() for t in times}), "last_day": last.isoformat(),
             "first_hour": min(t.hour for t in times if t.date() == last), "workouts_sent": len(data.get("workouts") or []),
             "workout_days": len(workout_days)}
 

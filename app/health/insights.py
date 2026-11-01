@@ -261,14 +261,21 @@ def bedtime(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | N
     wake = datetime.combine(tomorrow, time(usual // 60, usual % 60), zone)
     because = "your usual wake-up"
     if siris.calendar is not None:
+        lo, hi = datetime.combine(tomorrow, time(4), zone), datetime.combine(tomorrow, time(12), zone)
+
+        def _local(e: dict[str, Any]) -> datetime | None:
+            t = _parse(e.get("start")) if len(str(e.get("start") or "")) > 10 else None
+            return (t.astimezone(zone) if t.tzinfo else t.replace(tzinfo=zone)) if t else None
+
         try:
-            first = next((e for e in siris.calendar.events_between(datetime.combine(tomorrow, time(4), zone), datetime.combine(tomorrow, time(12), zone))
-                          if len(str(e.get("start") or "")) > 10), None)
+            # Only what *starts* tomorrow morning (4.04): a trip that began today
+            # and runs into tomorrow overlaps the window too, and set "bed by 07:28".
+            first = next((e for e in sorted(siris.calendar.events_between(lo, hi), key=lambda e: str(e.get("start") or ""))
+                          if (t := _local(e)) and lo <= t < hi), None)
         except Exception:  # noqa: BLE001
             first = None
         if first:
-            start = _parse(first["start"])
-            start = start.astimezone(zone) if start and start.tzinfo else start
+            start = _local(first)
             needed = start - timedelta(minutes=siris.settings.health_morning_buffer_minutes) if start else None
             if needed and needed < wake:
                 wake, because = needed, f"{first.get('summary') or 'your first event'} at {start:%H:%M}"

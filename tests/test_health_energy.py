@@ -193,8 +193,14 @@ def test_the_week_of_sleep_in_one_report() -> None:
     assert week["debt"] > 3 and week["tip"].startswith("You're") and week["factors"] == ["After a meeting past 8pm you sleep 38 minutes less."]
 
 
-def test_the_setup_check_says_which_setting_to_change(client: TestClient) -> None:
-    """4.03: grouped by day, a partial day, and no workouts each name the fix."""
+def test_the_setup_check_says_which_setting_to_change(client: TestClient, monkeypatch) -> None:
+    """4.03: grouped by day, a partial day, and no workouts each name the fix.
+    4.04: an export sent today that stops at yesterday ("Previous 7 Days") says to use Default."""
+    from datetime import datetime as dt
+    from zoneinfo import ZoneInfo
+
+    sent = {"day": "2026-10-31"}
+    monkeypatch.setattr(overview.clock, "now_local", lambda tz=None: dt.fromisoformat(f"{sent['day']}T15:00:00").replace(tzinfo=ZoneInfo("Australia/Melbourne")))
     by_day = {"data": {"metrics": [{"name": "step_count", "units": "count", "data": [{"date": "2026-10-30 00:00:00 +1100", "qty": 9000},
                                                                                     {"date": "2026-10-31 00:00:00 +1100", "qty": 3000}]}]}}
     assert client.post("/siris/health/metrics", json=by_day, headers=H).status_code == 200
@@ -206,5 +212,9 @@ def test_the_setup_check_says_which_setting_to_change(client: TestClient) -> Non
                         "workouts": [{"name": "Outdoor Run", "start": "2026-10-31 07:00:00 +1100", "duration": 1800}]}}
     client.post("/siris/health/metrics", json=partial, headers=H)
     check = overview.setup_check(siris)
-    assert any("Previous 7 Days" in p for p in check["problems"]) and not any("Aggregate" in p for p in check["problems"])
-    assert any("workouts export only held one day" in p for p in check["problems"])
+    assert any("part of today" in p and "Default" in p for p in check["problems"]) and not any("Aggregate" in p for p in check["problems"])
+    assert not any("Workouts" in p for p in check["problems"])
+    sent["day"] = "2026-11-01"  # the next morning, the export still ends on the 31st
+    client.post("/siris/health/metrics", json=partial, headers=H)
+    check = overview.setup_check(siris)
+    assert any("stopped at yesterday" in p and "Default" in p for p in check["problems"])
