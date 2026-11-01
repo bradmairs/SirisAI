@@ -429,3 +429,98 @@ def _push(siris: "SirisAI", title: str, message: str) -> None:
 
 register_action("health", "block", _block_evening)
 register_action("health", "wind_down", _wind_down)
+
+
+# -- what changed (4.17) ---------------------------------------------------------------------
+
+
+def explain(siris: "SirisAI", on: date | None = None, days: int = 7) -> dict[str, Any]:
+    """Why readiness was low: each of the last `days` mornings' kept score,
+    and for the low ones (Recover, or under 50) what pulled it down (its
+    weakest contributors) and what the evening before had (a late workout or
+    meeting, caffeine, a drink, a warm bedroom, late TV, a hard day's strain)."""
+    from app.health import strain as strain_mod
+
+    on = on or overview.today(siris)
+    data = overview.days(siris, on, days + 40)
+    evenings = _nightly(siris, on + timedelta(days=1), days + 1)
+    hist = siris.health.workouts((on - timedelta(days=days + 1)).isoformat())
+    hr_max = strain_mod.max_hr(siris, hist)
+    mornings = []
+    for i in range(days - 1, -1, -1):
+        d = on - timedelta(days=i)
+        r = overview.morning_readiness(siris, d, overview.days(siris, d, 40))
+        if not r:
+            continue
+        entry: dict[str, Any] = {"date": d.isoformat(), "score": r.get("score"), "band": r.get("band")}
+        if r.get("band") == "Recover" or (r.get("score") or 100) < 50:
+            entry["why"] = [c["text"] for c in (r.get("contributors") or []) if c.get("score", 100) < 50][:3]
+            before = (d - timedelta(days=1)).isoformat()
+            factors = sorted(FACTOR_TEXT[f] for f in (evenings.get(before) or {}).get("factors") or set())
+            day_strain, _ = strain_mod.day_strain(strain_mod.without_doubles([w for w in hist if w["date"] == before]), {}, hr_max)
+            if day_strain >= 14:
+                factors.append(f"a hard day (strain {day_strain:g})")
+            entry["evening_before"] = factors
+        mornings.append(entry)
+    scores = [m["score"] for m in mornings if m["score"] is not None]
+    low = [m for m in mornings if "why" in m]
+    lines = []
+    if scores:
+        lines.append(f"Readiness averaged {mean(scores):.0f} over the last {len(scores)} mornings.")
+    for m in low:
+        day = date.fromisoformat(m["date"]).strftime("%A")
+        bits = "; ".join(m["why"]) or "several things a little under your usual"
+        lines.append(f"{day} was {m['score']} ({m['band']}): {bits}." + (f" The evening before had {', '.join(m['evening_before'])}." if m["evening_before"] else ""))
+    if scores and not low:
+        lines.append("No low mornings: nothing to explain.")
+    common = {}
+    for m in low:
+        for f in m["evening_before"]:
+            common[f] = common.get(f, 0) + 1
+    if (top := max(common.items(), key=lambda t: t[1], default=None)) and top[1] >= 2:
+        lines.append(f"{top[0][0].upper() + top[0][1:]} came before {top[1]} of the low mornings.")
+    return {"text": " ".join(lines) or "Not enough readiness history yet.", "mornings": mornings}
+
+
+def monthly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
+    """The month's training and health (4.17), written to the second brain's
+    Health note on the 1st: readiness, sleep, workouts, the weight trend, and
+    SirisGYM's lifts and measurements. Kept on this server, like the weekly one."""
+    from app.health import gym
+
+    today = overview.today(siris) if now is None else now.astimezone(_zone(siris)).date()
+    last = today.replace(day=1) - timedelta(days=1)
+    first = last.replace(day=1)
+    days = [(first + timedelta(days=i)) for i in range((last - first).days + 1)]
+    data = overview.days(siris, last, len(days) + 1)
+    lines = []
+    ready = [r["score"] for d in days if (r := overview.morning_readiness(siris, d, overview.days(siris, d, 40))) and r.get("score") is not None]
+    if ready:
+        lines.append(f"- Readiness averaged {mean(ready):.0f} (lowest {min(ready)}, highest {max(ready)})")
+    sleeps = [data[d.isoformat()]["sleep_hours"] for d in days if (data.get(d.isoformat()) or {}).get("sleep_hours")]
+    if sleeps:
+        lines.append(f"- Slept {mean(sleeps):.1f} h a night over {len(sleeps)} nights")
+    workouts = [w for w in siris.health.workouts(first.isoformat()) if w["date"] <= last.isoformat()]
+    if workouts:
+        lines.append(f"- {len(workouts)} workouts, {sum(w['minutes'] or 0 for w in workouts):.0f} min"
+                     + (f", {sum(w['km'] or 0 for w in workouts):.1f} km" if any(w["km"] for w in workouts) else ""))
+    weights = [(d.isoformat(), data[d.isoformat()]["weight_kg"]) for d in days if (data.get(d.isoformat()) or {}).get("weight_kg")]
+    if len(weights) >= 2:
+        lines.append(f"- Weight {weights[0][1]:.1f} → {weights[-1][1]:.1f} kg ({weights[-1][1] - weights[0][1]:+.1f})")
+    g = gym.latest(siris)
+    if g:
+        for name, lift in list((g.get("lifts") or {}).items())[:4]:
+            pts = [p for p in lift.get("last") or [] if p.get("date", "") <= last.isoformat()]
+            if pts:
+                lines.append(f"- {name}: estimated 1RM {pts[-1]['e1rm']:g} kg (best {lift.get('best'):g})")
+        ms = [m for m in g.get("measurements") or [] if first.isoformat() <= m.get("date", "") <= last.isoformat()]
+        if ms:
+            m = ms[-1]
+            lines.append("- Measured " + ", ".join(f"{k} {v:g} cm" for k, v in m.items() if isinstance(v, (int, float)) and k != "date"))
+    if not lines:
+        return {"skipped": "no health data last month"}
+    content = f"**Health and training, {first:%B %Y}:**\n" + "\n".join(lines)
+    if siris.second_brain is None:
+        return {"skipped": "no second brain connected", "month": first.strftime("%Y-%m"), "content": content}
+    siris.second_brain.learn([{"title": "Health", "content": content, "tags": ["health-snapshot", "monthly"], "source": "SirisAI health data"}])
+    return {"written": "Health", "month": first.strftime("%Y-%m"), "lines": len(lines)}

@@ -239,6 +239,21 @@ class HealthHistoryTool(_HealthTool):
                 "workouts": workouts[:30], "note": "usual_before is the 30 days before the period; nothing for days with no data."}
 
 
+class HealthExplainTool(_HealthTool):
+    name = "health_explain"
+    description = (
+        "Why the user's readiness was low on recent mornings: each morning's score, what pulled the low ones down "
+        "(sleep, overnight HRV, resting heart rate), and what the evening before had (a late workout or meeting, "
+        "caffeine, alcohol, a warm bedroom, late TV, a hard day). For 'why was my readiness low this week', "
+        "'why am I so flat', 'what changed'."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {"days": {"type": "integer", "description": "How many mornings back (default 7)"}}, "required": []}
+
+    def run(self, days: int = 7, **kwargs: Any) -> Any:
+        return insights.explain(self._siris, days=max(2, min(int(days or 7), 30)))
+
+
 class GymProgressTool(_HealthTool):
     name = "gym_progress"
     description = (
@@ -260,4 +275,4 @@ class GymProgressTool(_HealthTool):
                 "week": s.get("week"), "deload": s.get("deload")}
 
 
-HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)
+HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, HealthExplainTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)

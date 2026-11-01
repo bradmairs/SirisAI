@@ -399,7 +399,7 @@ class Settings(BaseSettings):
     # words, answers them instead).
     health_source_priority: str = "health_auto_export,apple_export,shortcut,sirisos,manual"
     health_weight_goal_kg: float | None = None
-    health_stale_hours: float = 36.0
+    health_stale_hours: float = 6.0  # 4.17: was 36; only said between 10am and 10pm
     health_readiness_lock_hour: int = 10
     health_max_hr: float | None = None
     spoken_brief_trigger: str = ""

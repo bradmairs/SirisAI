@@ -251,3 +251,52 @@ def test_gym_progress_answers_from_sirisgyms_summary(client: TestClient) -> None
     specs.append({"type": "function", "function": {"name": "gym_progress", "description": "strength training", "parameters": {}}})
     picked = ToolSelector(max_tools=8).select("how's my bench trending", specs)
     assert any((s.get("function") or s).get("name") == "gym_progress" for s in picked)
+
+
+def test_a_split_sync_adds_up_and_a_resend_never_doubles(client: TestClient) -> None:
+    """4.17: Batch Requests send a day in parts; summed metrics merge hour by hour."""
+    def part(hours: range, qty: float = 100) -> dict:
+        return {"data": {"metrics": [{"name": "step_count", "units": "count",
+                                      "data": [{"date": f"2026-10-20 {h:02d}:00:00 +1100", "qty": qty} for h in hours]}]}}
+    for body in (part(range(0, 12)), part(range(12, 24)), part(range(12, 24))):  # the second half sent twice
+        assert client.post("/siris/health/metrics", json=body, headers=H).status_code == 200
+    siris = _siris()
+    assert siris.health.days("2026-10-20")["2026-10-20"]["steps"] == 2400
+    client.post("/siris/health/metrics", json=part(range(5, 6), 900), headers=H)  # an hour corrected
+    assert siris.health.days("2026-10-20")["2026-10-20"]["steps"] == 3200
+
+
+def test_a_dry_run_keeps_nothing_and_the_inspector_shows_each_source(client: TestClient) -> None:
+    body = {"data": {"metrics": [{"name": "step_count", "units": "count", "data": [{"date": "2026-10-21 09:00:00 +1100", "qty": 50}]}]}}
+    r = client.post("/siris/health/metrics?dry_run=1", json=body, headers=H).json()
+    assert r["dry_run"] and r["days"] == {"2026-10-21": {"steps": 50.0}} and r["meta"]["last_day"] == "2026-10-21"
+    siris = _siris()
+    assert "2026-10-21" not in siris.health.days("2026-10-21")
+    client.post("/siris/health/metrics", json=body, headers=H)
+    client.post("/siris/health/metrics", json={"date": "2026-10-21", "metrics": {"steps": 70}}, headers=H)
+    src = client.get("/siris/health/sources?day=2026-10-21", headers=H).json()
+    steps = next(m for m in src["metrics"] if m["metric"] == "steps")
+    assert steps["trusted"] == "health_auto_export" and steps["value"] == 50 and [s["source"] for s in steps["sources"]] == ["health_auto_export", "shortcut"]
+
+
+def test_why_readiness_was_low_and_the_monthly_report(client: TestClient) -> None:
+    """4.17: health_explain names the low mornings and what came before; monthly writes the month to the Health note."""
+    from app.health import insights
+
+    siris = _siris()
+    on = date(2026, 10, 20)
+    for i in range(40, 0, -1):
+        d = (on - timedelta(days=i)).isoformat()
+        siris.health.record({"sleep_hours": 7.6, "heart_rate_variability": 60, "hrv_overnight": 62, "resting_heart_rate": 55}, d, source="health_auto_export")
+    siris.health.record({"sleep_hours": 4.9, "heart_rate_variability": 38, "hrv_overnight": 36, "resting_heart_rate": 64}, on.isoformat(), source="health_auto_export")
+    siris.health.record({"alcohol_drinks": 3}, (on - timedelta(days=1)).isoformat(), source="health_auto_export")
+    out = insights.explain(siris, on=on, days=3)
+    low = [m for m in out["mornings"] if "why" in m]
+    assert low and low[-1]["date"] == "2026-10-20" and "a drink" in low[-1]["evening_before"]
+    assert "Tuesday was" in out["text"] and "The evening before had a drink" in out["text"]
+    learned = []
+    from types import SimpleNamespace
+    from datetime import timezone
+    siris.second_brain = SimpleNamespace(learn=lambda items: learned.extend(items))  # type: ignore[assignment]
+    r = insights.monthly(siris, datetime(2026, 11, 1, 19, tzinfo=timezone.utc))
+    assert r["month"] == "2026-10" and "Health and training, October 2026" in learned[0]["content"] and "Slept" in learned[0]["content"]

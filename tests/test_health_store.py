@@ -206,12 +206,42 @@ def test_quick_logs_meals_and_goals() -> None:
     assert siris.tools.get("health_overview").run()["text"]
 
 
+def _local_noon_plus(siris, hours: float) -> datetime:
+    """A time `hours` after the last import that falls at noon local, when the check speaks (4.17)."""
+    from app.core import clock
+
+    tz = clock.get_zone(siris.settings.timezone)
+    noon = (datetime.now(tz) + timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
+    return noon.astimezone(UTC)
+
+
 def test_a_stalled_import_is_raised_and_clears() -> None:
     siris = _siris(health_stale_hours=36)
     siris.health.record({"steps": 1}, "2026-10-01", source="health_auto_export")
-    assert overview.check_stale(siris, datetime.now(UTC) + timedelta(hours=40))
-    assert "Health data hasn't arrived for 40 hours" in _items(siris, "health-import")
-    assert overview.check_stale(siris) is None and not _items(siris, "health-import")
+    at = _local_noon_plus(siris, 40)
+    last = siris.health.last_day()
+    age = round((at - datetime.fromisoformat(last)).total_seconds() / 3600)
+    assert overview.check_stale(siris, at)
+    assert any(k.startswith("Health data hasn't arrived for") for k in _items(siris, "health-import")) and age > 36
+    assert overview.check_stale(siris, datetime.now(UTC)) is None and not _items(siris, "health-import")
+
+
+def test_quiet_overnight_and_says_when_today_never_arrives() -> None:
+    """4.17: not between 10pm and 10am; and exports that stop at yesterday say so."""
+    from app.core import clock
+
+    siris = _siris(health_stale_hours=6)
+    tz = clock.get_zone(siris.settings.timezone)
+    siris.health.record({"steps": 1}, "2026-10-01", source="health_auto_export")
+    night = (datetime.now(tz) + timedelta(days=1)).replace(hour=3, minute=0).astimezone(UTC)
+    assert overview.check_stale(siris, night) is None
+    today = datetime.now(tz).replace(hour=12, minute=0)
+    overview.note_import(siris, "health_auto_export", {"days": 7}, {"kind": "metrics", "last_day": (today - timedelta(days=1)).date().isoformat()})
+    kept = overview.imports(siris)["health_auto_export"]
+    kept["sent_on"] = today.date().isoformat()
+    siris.state.set(overview.IMPORTS_KEY, {"health_auto_export": kept})
+    overview.check_stale(siris, today.astimezone(UTC))
+    assert "Today's health data isn't arriving" in _items(siris, "health-import")
 
 
 class FakeCalendar:

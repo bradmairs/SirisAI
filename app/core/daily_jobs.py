@@ -150,6 +150,12 @@ def _health_weekly(siris: "SirisAI", now: datetime) -> Any:
     return insights.weekly(siris, now)
 
 
+def _health_monthly(siris: "SirisAI", now: datetime) -> Any:
+    from app.health import insights
+
+    return insights.monthly(siris, now)
+
+
 def _server_disks(siris: "SirisAI", now: datetime) -> Any:
     from app.servers import watch
 
@@ -175,6 +181,7 @@ JOBS: list[DailyJob] = [
     DailyJob("audit_weekly", lambda s: s.settings.audit_digest_hour_local, _audit_weekly, weekday=lambda s: 6),
     DailyJob("health_check", lambda s: s.settings.health_check_hour_local, _health_check),
     DailyJob("health_weekly", lambda s: 19, _health_weekly, weekday=lambda s: 6),
+    DailyJob("health_monthly", lambda s: 19, _health_monthly, monthday=1),
     DailyJob("expiry_check", lambda s: s.settings.expiry_check_hour_local if (s.settings.security_cert_hosts or s.settings.security_domains or (s.settings.expiry_check_servers and s.ssh_client is not None)) else None, _expiry),
     DailyJob("model_trial", lambda s: s.settings.model_trial_hour_local if s.settings.candidate_models else None, _model_trial, weekday=lambda s: s.settings.model_trial_day),
 ]

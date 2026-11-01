@@ -106,6 +106,35 @@ def replaces_night(old: dict[str, str], new: dict[str, str]) -> bool:
     return (b0 - a0).total_seconds() <= 30 * 60 and b1 >= a1
 
 
+HOUR_SUMS_KEY = "health_hour_sums"
+
+
+def merge_hour_sums(state: Any, parsed: dict[str, Any], user_id: str, keep_days: int = 10) -> dict[str, Any]:
+    """Split syncs (4.17): Health Auto Export's Batch Requests send one sync as
+    several requests, each with part of a day. Summed metrics (steps, energy,
+    exercise minutes) are kept hour by hour, an hour sent again replacing
+    itself, and the day's total is the sum of every hour received, so the
+    parts add up and re-sends never double. Exports grouped by day (no hours)
+    are left as they are."""
+    sums = parsed.get("hour_sums") or {}
+    if not sums:
+        return parsed
+    key = f"{HOUR_SUMS_KEY}:{user_id}"
+    kept = dict(state.get(key) or {})
+    metrics = {d: dict(m) for d, m in (parsed.get("metrics") or {}).items()}
+    for day, by_metric in sums.items():
+        known = dict(kept.get(day) or {})
+        for metric, hours in by_metric.items():
+            merged = {**(known.get(metric) or {}), **{h: round(v, 3) for h, v in hours.items()}}
+            known[metric] = merged
+            metrics.setdefault(day, {})[metric] = round(sum(merged.values()), 2)
+        kept[day] = known
+    for day in sorted(kept)[:-keep_days]:
+        kept.pop(day)
+    state.set(key, kept)
+    return {**parsed, "metrics": metrics}
+
+
 class HealthStore:
     def __init__(self, session_factory: sessionmaker, priority: Iterable[str] = DEFAULT_PRIORITY) -> None:
         self._session_factory = session_factory
@@ -205,6 +234,25 @@ class HealthStore:
         self.record_sleep(sleep, user_id)
         workouts = self.record_workouts(parsed.get("workouts") or {}, user_id, source)
         return {"days": len(parsed.get("metrics") or {}), "readings": readings, "workouts": workouts}
+
+    def sources(self, day: str, user_id: str | None = None) -> dict[str, Any]:
+        """Each metric on a day with every source's value and the one trusted (4.17), for SirisOS's data inspector."""
+        user_id = user_id or get_current_user_id()
+        with self._session_factory() as session:
+            readings = session.scalars(select(HealthReading).where(HealthReading.user_id == user_id, HealthReading.day == day)).all()
+            out: dict[str, dict[str, Any]] = {}
+            for r in readings:
+                entry = out.setdefault(r.metric, {"metric": r.metric, "sources": []})
+                entry["sources"].append({"source": r.source, "value": r.value, "updated_at": r.updated_at.replace(tzinfo=UTC).isoformat() if r.updated_at else None})
+            for entry in out.values():
+                entry["sources"].sort(key=lambda s: self._rank(s["source"]))
+                entry["trusted"] = entry["sources"][0]["source"]
+                entry["value"] = entry["sources"][0]["value"]
+            workouts = session.scalars(select(HealthWorkout).where(HealthWorkout.user_id == user_id, HealthWorkout.day == day)).all()
+            sleep = session.scalars(select(HealthSleep).where(HealthSleep.user_id == user_id, HealthSleep.day == day)).first()
+            return {"day": day, "priority": self.priority, "metrics": sorted(out.values(), key=lambda e: e["metric"]),
+                    "workouts": [{"name": w.name, "start": w.start, "minutes": w.minutes, "source": w.source} for w in workouts],
+                    "sleep": {"start": sleep.start, "end": sleep.end} if sleep else None}
 
     def series(self, metric: str, since: str, user_id: str | None = None) -> list[tuple[str, float]]:
         user_id = user_id or get_current_user_id()

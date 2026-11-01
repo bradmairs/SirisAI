@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.17 — 2026-11-01
+
+- Health data you can trust: split syncs add up, faster stalled/today-missing alerts, per-source inspector, dry runs, why readiness was low, a monthly report
+
 ## 4.16 — 2026-11-01
 
 - Ask about your training: gym_progress answers from SirisGYM's summary (lift trends, what to lift next, muscles under target, records, deloads)
