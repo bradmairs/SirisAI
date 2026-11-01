@@ -239,4 +239,25 @@ class HealthHistoryTool(_HealthTool):
                 "workouts": workouts[:30], "note": "usual_before is the 30 days before the period; nothing for days with no data."}
 
 
-HEALTH_TOOLS = (HealthOverviewTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)
+class GymProgressTool(_HealthTool):
+    name = "gym_progress"
+    description = (
+        "The user's strength training in SirisGYM (SirisOS): each main lift's estimated one-rep max over recent sessions, "
+        "this week's sets by muscle against a target, records, whether a deload week is due, and the next routine day "
+        "with the weights to lift. For 'how's my bench trending', 'what should I do in the gym today', 'am I training legs "
+        "enough', 'did I set any PRs'. Pass exercise for one lift."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {"exercise": {"type": "string", "description": "A lift, e.g. bench, squat, deadlift"}}, "required": []}
+
+    def run(self, exercise: str | None = None, **kwargs: Any) -> Any:
+        from app.health import gym
+
+        s = gym.latest(self._siris)
+        if not s:
+            return {"text": "Nothing from SirisGYM yet: it sends a summary after each workout (SirisOS 6.9 or later)."}
+        return {"text": gym.text(s, exercise), "as_of": s.get("received_at"), "lifts": s.get("lifts"), "next": s.get("next"),
+                "week": s.get("week"), "deload": s.get("deload")}
+
+
+HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)

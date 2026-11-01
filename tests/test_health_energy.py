@@ -228,3 +228,26 @@ def test_a_sirisgym_session_counts_in_strain_unless_the_watch_has_it() -> None:
     assert strain.without_doubles([gym]) == [gym] and strain.workout_load(gym, 190) == 90
     native = {"metrics": {"2026-11-02": {}}, "workouts": {"2026-11-02": [{k: v for k, v in gym.items() if k != "source"}]}}
     assert auto_export.parse(native)["workouts"]["2026-11-02"][0]["minutes"] == 60
+
+
+def test_gym_progress_answers_from_sirisgyms_summary(client: TestClient) -> None:
+    """4.16: SirisOS posts a summary after each workout; the tool answers from it."""
+    summary = {"total_sessions": 120, "streak_weeks": 6, "week": {"sessions": 2, "volume": 15200, "sets_by_muscle": {"chest": 12}},
+               "muscles": [{"muscle": "back", "sets": 4, "target": [10, 20], "status": "under"}],
+               "lifts": {"Bench Press": {"best": 116.7, "last": [{"date": "2026-10-01", "e1rm": 110.0, "top": 95}, {"date": "2026-10-29", "e1rm": 116.7, "top": 100}]}},
+               "records_30d": ["Bench Press: heaviest ever, 100"], "deload": {"active": False, "suggest": False, "why": []},
+               "next": {"routine": "Push, pull, legs", "day": "Push", "exercises": [{"name": "Bench Press", "sets": 3, "reps": "5-8", "weight": 102.5, "why": ""}]}}
+    assert client.post("/siris/health/gym", json=summary, headers=H).json() == {"kept": True, "lifts": 1}
+    siris = _siris()
+    out = siris.run_tool("gym_progress", {"exercise": "bench"})
+    assert out["text"].startswith("Bench Press: estimated 1RM 116.7 kg on 2026-10-29 (top set 100 kg), up 6.7 kg over 2 sessions")
+    whole = siris.run_tool("gym_progress", {})["text"]
+    assert "120 workouts logged, 6 weeks in a row." in whole and "Under 10-20 sets this week: back." in whole
+    assert "Next: Push, pull, legs, Push: Bench Press 3×5-8 at 102.5 kg." in whole
+    from app.cortex.orchestrator import PRIVATE_TOOLS
+    from app.plugins.selector import ToolSelector
+    assert "gym_progress" in PRIVATE_TOOLS
+    specs = [{"type": "function", "function": {"name": f"tool_{i}", "description": "something else", "parameters": {}}} for i in range(40)]
+    specs.append({"type": "function", "function": {"name": "gym_progress", "description": "strength training", "parameters": {}}})
+    picked = ToolSelector(max_tools=8).select("how's my bench trending", specs)
+    assert any((s.get("function") or s).get("name") == "gym_progress" for s in picked)
