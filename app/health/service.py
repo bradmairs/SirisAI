@@ -56,7 +56,7 @@ _LABELS = {
     "steps": ("walked", " steps"),
     "resting_heart_rate": ("resting heart rate", " bpm"),
     "heart_rate_variability": ("HRV", " ms"),
-    "active_energy_kcal": ("active energy", " kcal"),
+    "active_energy_kcal": ("active energy", " kJ"),  # kept in kcal, shown in kJ (SI, 4.05)
     "weight_kg": ("weight", " kg"),
     "exercise_minutes": ("exercise", " min"),
     "running_km": ("ran", " km"),
@@ -320,8 +320,14 @@ def _parse_time(text: Any) -> datetime | None:
     return None
 
 
+def kj(kcal: float) -> float:
+    """Energy is stored in kcal, as Apple Health sends it, and shown in kJ (SI)."""
+    return kcal * 4.184
+
+
 def _fmt(metric: str, value: float) -> str:
     label, unit = _LABELS[metric]
+    value = kj(value) if metric == "active_energy_kcal" else value
     shown = f"{value:,.0f}" if metric in ("steps", "active_energy_kcal") else f"{value:g}" if metric != "sleep_hours" else f"{value:.1f}"
     return f"{label} {shown}{unit}"
 

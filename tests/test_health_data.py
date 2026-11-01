@@ -69,3 +69,10 @@ def test_health_summary_tool_and_briefing_line_are_per_user(client: TestClient) 
     finally:
         set_current_user_id("default")
     assert siris.run_tool("health_summary", {})["metrics"].get("steps", {}).get("latest") != 10234
+
+
+def test_energy_is_shown_in_kilojoules() -> None:
+    """Kept in kcal as Apple Health sends it, said and shown in kJ (SI, 4.05)."""
+    from app.health.service import _fmt
+
+    assert _fmt("active_energy_kcal", 500) == "active energy 2,092 kJ"

@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.05 — 2026-11-01
+
+- SI units everywhere: energy said and shown in kJ, car range in km
+
 ## 4.04 — 2026-11-01
 
 - Health Auto Export: today arrives again (Date Range Default, not Previous 7 Days), and hourly-grouped or per-stage sleep is read as one night

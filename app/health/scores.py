@@ -59,7 +59,7 @@ LABELS: dict[str, tuple[str, str]] = {
     "weight_kg": ("Weight", "kg"),
     "body_fat_pct": ("Body fat", "%"),
     "steps": ("Steps", ""),
-    "active_energy_kcal": ("Active energy", "kcal"),
+    "active_energy_kcal": ("Active energy", "kJ"),  # values converted where shown (SI, 4.05)
     "exercise_minutes": ("Exercise", "min"),
 }
 VITALS = ["hrv_overnight", "heart_rate_variability", "resting_heart_rate", "respiratory_rate", "blood_oxygen", "wrist_temperature",
@@ -312,6 +312,8 @@ def trends(days: Days, on: date) -> list[dict[str, Any]]:
         direction = "steady" if abs(change) < 3 else "up" if change > 0 else "down"
         good = None if direction == "steady" else (direction == "up") == higher_good
         label, unit = LABELS.get(key, (key, ""))
+        if key == "active_energy_kcal":
+            w, b = w * 4.184, b * 4.184
         out.append({"key": key, "label": label, "unit": unit, "week": round(w, 1), "baseline": round(b, 1),
                     "change_pct": round(change, 1), "direction": direction, "good": good})
     return out

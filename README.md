@@ -6509,6 +6509,8 @@ provider for the same capability actually exists to design against.
 
 161. **Done** -- Health Auto Export today and sleep fix (4.04): "Previous 7 Days" sends the seven *full* days before today, so today's sleep, steps, strain and energy never arrived. The setup check now flags an export sent today that stops at yesterday and says to use Date Range **Default** (all of yesterday plus today so far). Sleep sent grouped by hour (split at midnight) or as one segment per stage (Core/Deep/REM/Awake) is joined back into one night on the wake-up day; a nap doesn't replace the night. Bedtime no longer counts a trip that started today and runs over tomorrow morning as tomorrow's first event (it said "bed by 07:28" at breakfast). Verified with tests for both sleep shapes and the new check.
 
+162. **Done** -- SI units everywhere (4.05): active energy in spoken and chat health summaries, goal titles and meal notes is given in kJ (stored in kcal as Apple Health sends it; `service.kj`), and a car range reported in miles is converted to km. Verified with tests for the kJ wording and the miles-to-km range.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
