@@ -405,6 +405,10 @@ def write_week_note(siris: "SirisAI", found: list[dict[str, Any]], goals: list[d
         lines.append("- Signs of getting sick: " + ", ".join(built["getting_sick"]["today"]))
     lines += [f"- {f['text']}" for f in found[:3]]
     lines += [f"- Goal: {g['title']}: {g['done']:,.0f} ({'on pace' if g['on_pace'] else 'behind'})" for g in goals]
+    from app.health import gym
+
+    if line := gym.week_line(siris):
+        lines.append(line)
     notes = [n for n in built["logged"]["notes"] if n["kind"] in ("symptom", "medication", "feeling")]
     lines += [f"- {n['day']}: {n['kind']} — {n['text']}" for n in notes[:5]]
     if not lines:

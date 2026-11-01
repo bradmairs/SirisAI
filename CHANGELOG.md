@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.16 — 2026-11-01
+
+- Ask about your training: gym_progress answers from SirisGYM's summary (lift trends, what to lift next, muscles under target, records, deloads)
+
 ## 4.06 — 2026-11-01
 
 - SirisGYM sessions count in strain (not twice with the Watch); recent mornings' readiness for the deload check

@@ -83,6 +83,21 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
     return {"user_id": get_current_user_id(), "date": day, "stored": metrics, "ignored": ignored}
 
 
+@router.post("/gym")
+async def post_gym(request: Request, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """SirisGYM's training summary from SirisOS (4.16), for the gym_progress tool."""
+    from app.health import gym
+
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Send JSON.") from None
+    if not isinstance(body, dict) or len(str(body)) > 200_000:
+        raise HTTPException(status_code=422, detail="Send SirisGYM's summary as a JSON object (under 200 KB).")
+    gym.keep(siris, body)
+    return {"kept": True, "lifts": len(body.get("lifts") or {})}
+
+
 @router.get("/summary")
 def get_summary(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     return summary(siris.health, clock.now_local(siris.settings.timezone).date())

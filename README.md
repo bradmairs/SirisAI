@@ -6513,6 +6513,8 @@ provider for the same capability actually exists to design against.
 
 163. **Done** -- SirisGYM in strain and readiness history (4.06): SirisOS 6.8 sends each day's gym sessions (source `sirisgym`, SirisAI's own shape). Strain counts one at a resistance-training weight (1.5 per minute) unless it overlaps a workout from another source (the Watch), which says it better (`strain.without_doubles`). The health overview adds `readiness_recent`, the last five mornings' kept readiness, which SirisGYM uses to suggest a deload. Verified with tests for the overlap, the load and the shape SirisOS sends.
 
+164. **Done** -- Ask about your training (4.16): SirisOS 6.9 posts SirisGYM's summary after each workout (`POST /siris/health/gym`: recent workouts, each main lift's estimated 1RM over its last sessions, this week by muscle, records in 30 days, deload state, the next routine day with weights). The `gym_progress` tool answers "how's my bench trending", "what should I do in the gym today", "am I training legs enough" from it (`app/health/gym.py`); it's a private health tool, kept off cloud models with SIRISAI_HEALTH_PRIVATE, and the tool selector picks it for gym words. The weekly Health note gets a gym line. Verified with tests for the endpoint, the tool's answers, privacy and selection.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
