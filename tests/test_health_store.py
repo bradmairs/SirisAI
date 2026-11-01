@@ -269,6 +269,9 @@ def test_sleep_insights_bedtime_and_wind_down() -> None:
     assert insights.wind_down_check(siris, nudge_at)["offered"]
     assert insights.wind_down_check(siris, nudge_at + timedelta(minutes=5)) is None  # once an evening
     assert "Time to wind down" in _items(siris, "health")
+    # 4.04: a trip that started today and runs over tomorrow morning isn't tomorrow's first event.
+    siris.calendar = FakeCalendar([{"summary": "Gold Coast Trip", "start": "2026-10-30T17:00:00+00:00", "end": "2026-11-02T10:00:00+00:00"}])  # type: ignore[assignment]
+    assert insights.bedtime(siris, datetime(2026, 10, 30, 9, tzinfo=UTC))["because"] == "your usual wake-up"
 
 
 class CloudLLM:

@@ -55,7 +55,8 @@ def note_import(siris: "SirisAI", source: str, result: dict[str, Any], meta: dic
     """Keep when each source last sent, and (Health Auto Export, 4.03) what the
     export looked like, metrics and workouts separately, for setup_check."""
     kept = dict(siris.state.get(IMPORTS_KEY) or {})
-    entry = {"at": datetime.now(UTC).isoformat(), **{k: result.get(k) for k in ("days", "readings", "workouts")}, **(meta or {})}
+    entry = {"at": datetime.now(UTC).isoformat(), "sent_on": clock.now_local(siris.settings.timezone).date().isoformat(),
+             **{k: result.get(k) for k in ("days", "readings", "workouts")}, **(meta or {})}
     key = f"{source}:workouts" if meta and meta.get("kind") == "workouts" else source
     kept[key] = entry
     siris.state.set(IMPORTS_KEY, kept)
@@ -78,7 +79,11 @@ def setup_check(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]
     """Is Health Auto Export set up the way SirisAI needs (4.03)? From what the
     last imports looked like: grouped by hour, sending whole days (the
     previous 7), and a workouts automation too. Each problem says which
-    setting to change."""
+    setting to change. 4.04: the date range to use is **Default** (all of
+    yesterday plus today so far). "Previous 7 Days" means the seven *full*
+    days before today, so today never arrived: no sleep, steps, strain or
+    energy for today. An export sent today that stops at yesterday is
+    flagged."""
     kept = imports(siris)
     hae = {k: v for k, v in kept.items() if k.startswith("health_auto_export")}
     metrics, workouts = hae.get("health_auto_export"), hae.get("health_auto_export:workouts")
@@ -87,12 +92,13 @@ def setup_check(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]
         return {"connected": False, "problems": ["Nothing from Health Auto Export yet: set up the automation (SirisOS → Training → Apple Health)."]}
     if metrics and metrics.get("aggregation") == "day":
         problems.append("Health metrics arrive grouped by day: set Aggregate (time grouping) to Hours, so readiness can use your overnight HRV and energy can follow the day.")
-    if metrics and metrics.get("days_covered") == 1 and (metrics.get("first_hour") or 0) >= 3:
-        problems.append("The last health export only held part of today: set the date range to Previous 7 Days, so each sync sends whole days.")
+    if metrics and metrics.get("last_day") and metrics.get("sent_on") and metrics["last_day"] < metrics["sent_on"]:
+        problems.append("The last health export stopped at yesterday, so today's sleep, steps, strain and energy are missing: "
+                        "set Date Range to Default (all of yesterday plus today so far). \"Previous 7 Days\" leaves today out.")
+    elif metrics and metrics.get("days_covered") == 1 and (metrics.get("first_hour") or 0) >= 3:
+        problems.append("The last health export only held part of today: set Date Range to Default (all of yesterday plus today so far), so each sync sends whole days.")
     if not workouts:
-        problems.append("No workouts have arrived: add a second automation for Workouts (Previous 7 Days, hourly), or running km and strain won't count.")
-    elif workouts.get("days_covered") == 1:
-        problems.append("The workouts export only held one day: set its date range to Previous 7 Days, or an earlier workout that day can be replaced.")
+        problems.append("No workouts have arrived: add a second automation for Workouts (Date Range Default, hourly), or running km and strain won't count.")
     return {"connected": True, "metrics": metrics, "workouts": workouts, "problems": problems}
 
 

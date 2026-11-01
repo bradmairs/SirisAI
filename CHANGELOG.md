@@ -5,6 +5,12 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.04 — 2026-11-01
+
+- Health Auto Export: today arrives again (Date Range Default, not Previous 7 Days), and hourly-grouped or per-stage sleep is read as one night
+- The setup check flags an export sent today that stops at yesterday, and names Date Range Default
+- Bedtime ignores an event that started today and runs over tomorrow morning
+
 ## 4.03 — 2026-10-31
 
 - Strain, a weekly sleep report, a Health Auto Export setup check, the morning brief spoken, an updater heartbeat, and a pre-push check

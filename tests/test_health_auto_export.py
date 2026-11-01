@@ -38,3 +38,22 @@ def test_the_route_takes_it(client):
     assert r.status_code == 200 and r.json()["format"] == "health_auto_export"
     assert sorted(r.json()["days"]) == ["2026-10-27", "2026-10-28"]
     assert client.post("/siris/health/metrics", json={"data": {"metrics": []}}, headers={"X-Siris-User": "hae-test"}).status_code == 422
+
+
+def test_sleep_grouped_by_hour_or_sent_as_stages_is_one_night_on_the_wake_up_day() -> None:
+    """4.04: an hourly-grouped export splits the night at midnight, and an
+    unsummarised one sends a segment per stage; both are one night."""
+    z = " +1100"
+    hourly = [{"date": "2026-10-31 23:00:00" + z, "asleep": 0.5, "core": 0.4, "deep": 0.1, "inBed": 0.5,
+               "sleepStart": "2026-10-31 23:30:00" + z, "sleepEnd": "2026-11-01 00:00:00" + z},
+              {"date": "2026-11-01 00:00:00" + z, "asleep": 6.5, "core": 4, "deep": 1, "rem": 1.5, "awake": 0.2, "inBed": 6.7,
+               "sleepStart": "2026-11-01 00:00:00" + z, "sleepEnd": "2026-11-01 06:40:00" + z},
+              {"date": "2026-11-01 14:00:00" + z, "asleep": 0.4, "sleepStart": "2026-11-01 14:00:00" + z, "sleepEnd": "2026-11-01 14:25:00" + z}]
+    stages = [{"startDate": "2026-10-31 23:30:00" + z, "endDate": "2026-11-01 01:00:00" + z, "qty": 1.5, "value": "Core"},
+              {"startDate": "2026-11-01 01:00:00" + z, "endDate": "2026-11-01 02:00:00" + z, "qty": 1, "value": "Deep"},
+              {"startDate": "2026-11-01 02:00:00" + z, "endDate": "2026-11-01 02:10:00" + z, "qty": 0.17, "value": "Awake"},
+              {"startDate": "2026-11-01 02:10:00" + z, "endDate": "2026-11-01 06:40:00" + z, "qty": 4.5, "value": "REM"}]
+    for data, hours in ((hourly, 7.0), (stages, 7.0)):
+        p = auto_export.parse({"data": {"metrics": [{"name": "sleep_analysis", "units": "hr", "data": data}]}})
+        assert list(p["metrics"]) == ["2026-11-01"] and p["metrics"]["2026-11-01"]["sleep_hours"] == hours  # the nap isn't the night
+        assert p["sleep"]["2026-11-01"] == {"start": "2026-10-31 23:30:00 +1100", "end": "2026-11-01 06:40:00 +1100"}
