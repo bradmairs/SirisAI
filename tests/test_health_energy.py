@@ -13,7 +13,7 @@ from app.core.siris import SirisAI
 from app.core.user_context import set_current_user_id
 from app.db.models import HealthReading, HealthSample, HealthSleep, HealthWorkout
 from app.db.session import SessionLocal
-from app.health import auto_export, battery, overview, scores
+from app.health import auto_export, battery, overview, scores, strain
 
 USER = "health-energy-user"
 H = {"X-Siris-User": USER}
@@ -218,3 +218,13 @@ def test_the_setup_check_says_which_setting_to_change(client: TestClient, monkey
     client.post("/siris/health/metrics", json=partial, headers=H)
     check = overview.setup_check(siris)
     assert any("stopped at yesterday" in p and "Default" in p for p in check["problems"])
+
+
+def test_a_sirisgym_session_counts_in_strain_unless_the_watch_has_it() -> None:
+    """4.06: SirisOS sends the day's gym sessions; one the Watch also recorded isn't counted twice."""
+    gym = {"source": "sirisgym", "name": "SirisGYM: Push", "start": "2026-11-02 18:00:00 +1100", "minutes": 60}
+    watch = {"source": "health_auto_export", "name": "Traditional Strength Training", "start": "2026-11-02 18:04:00 +1100", "minutes": 58, "avg_hr": 120}
+    assert strain.without_doubles([gym, watch]) == [watch]
+    assert strain.without_doubles([gym]) == [gym] and strain.workout_load(gym, 190) == 90
+    native = {"metrics": {"2026-11-02": {}}, "workouts": {"2026-11-02": [{k: v for k, v in gym.items() if k != "source"}]}}
+    assert auto_export.parse(native)["workouts"]["2026-11-02"][0]["minutes"] == 60

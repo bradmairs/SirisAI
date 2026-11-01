@@ -365,6 +365,7 @@ class HealthOverview(_Model):
     available: bool = False
     sources: dict[str, Any] = {}
     readiness: dict[str, Any] | None = Field(None, description="score 0-100, band (Primed/Steady/Recover), advice, early, contributors, summary; locked (kept as it was this morning, 3.62) and locked_at")
+    readiness_recent: list[dict[str, Any]] | None = Field(None, description="The last mornings' kept readiness (4.06), oldest first: [{date, score, band}], for SirisGYM's deload check")
     strain: dict[str, Any] | None = Field(None, description="Strain 0-21 (4.03): today, target [lo, hi] from readiness, status, workouts [{name, start, minutes, strain}], week [{date, strain}], max_hr, advice")
     sleep_week: dict[str, Any] | None = Field(None, description="The week's sleep report (4.03): nights, average, need, debt, bedtime_spread_min, short_nights, best, worst, factors, tip")
     setup: dict[str, Any] | None = Field(None, description="Health Auto Export set up right (4.03): connected, metrics and workouts (what the last exports looked like), problems (each names the setting to change)")

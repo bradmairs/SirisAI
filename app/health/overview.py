@@ -43,6 +43,13 @@ def morning_readiness(siris: "SirisAI", on: date, data: scores.Days, now: dateti
     return kept[on.isoformat()]
 
 
+def recent_readiness(siris: "SirisAI", on: date, n: int = 5) -> list[dict[str, Any]]:
+    """The kept readiness of the last n mornings, oldest first (4.06)."""
+    kept = dict(siris.state.get(f"health_readiness:{get_current_user_id()}") or {})
+    days = [(on - timedelta(days=i)).isoformat() for i in range(n - 1, -1, -1)]
+    return [{"date": d, "score": kept[d].get("score"), "band": kept[d].get("band")} for d in days if isinstance(kept.get(d), dict)]
+
+
 def today(siris: "SirisAI") -> date:
     return clock.now_local(siris.settings.timezone).date()
 
@@ -115,6 +122,7 @@ def build(siris: "SirisAI", on: date | None = None, now: datetime | None = None)
         "available": bool(data),
         "sources": {"days": len(data), "imports": imports(siris)},
         "readiness": ready,
+        "readiness_recent": recent_readiness(siris, on),
         "energy": battery.today(siris, ready, data, on, now) if on == now.date() else None,
         "strain": strain.build(siris, ready, on),
         "sleep": scores.sleep(data, siris.health.sleep_times((on - timedelta(days=15)).isoformat()), on),

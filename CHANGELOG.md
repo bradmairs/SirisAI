@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.06 — 2026-11-01
+
+- SirisGYM sessions count in strain (not twice with the Watch); recent mornings' readiness for the deload check
+
 ## 4.05 — 2026-11-01
 
 - SI units everywhere: energy said and shown in kJ, car range in km

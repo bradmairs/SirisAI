@@ -1,6 +1,6 @@
 {
   "guest_mode": false,
-  "today": "2026-10-31",
+  "today": "2026-11-01",
   "available": true,
   "sources": {
     "days": 21,
@@ -14,7 +14,7 @@
     }
   },
   "readiness": {
-    "date": "2026-10-31",
+    "date": "2026-11-01",
     "score": 76,
     "band": "Primed",
     "advice": "A good day to push: a hard session or a long run will land well.",
@@ -68,8 +68,15 @@
     ],
     "summary": "Yesterday 30 min of exercise",
     "locked": true,
-    "locked_at": "2026-10-31T12:00"
+    "locked_at": "2026-11-01T12:00"
   },
+  "readiness_recent": [
+    {
+      "date": "2026-11-01",
+      "score": 76,
+      "band": "Primed"
+    }
+  ],
   "strain": {
     "today": 11.3,
     "target": [
@@ -80,16 +87,12 @@
     "workouts": [
       {
         "name": "Outdoor Run",
-        "start": "2026-10-31 06:40:00 +1100",
+        "start": "2026-11-01 06:40:00 +1100",
         "minutes": 32.0,
         "strain": 11.3
       }
     ],
     "week": [
-      {
-        "date": "2026-10-25",
-        "strain": 0.0
-      },
       {
         "date": "2026-10-26",
         "strain": 0.0
@@ -112,6 +115,10 @@
       },
       {
         "date": "2026-10-31",
+        "strain": 0.0
+      },
+      {
+        "date": "2026-11-01",
         "strain": 11.3
       }
     ],
@@ -126,11 +133,11 @@
     "bedtime_spread_min": null,
     "short_nights": 0,
     "best": {
-      "date": "2026-10-25",
+      "date": "2026-10-26",
       "hours": 7.2
     },
     "worst": {
-      "date": "2026-10-25",
+      "date": "2026-10-26",
       "hours": 7.2
     },
     "factors": [
@@ -148,7 +155,7 @@
     },
     "workouts": null,
     "problems": [
-      "No workouts have arrived: add a second automation for Workouts (Previous 7 Days, hourly), or running km and strain won't count."
+      "No workouts have arrived: add a second automation for Workouts (Date Range Default, hourly), or running km and strain won't count."
     ]
   },
   "energy": {
@@ -197,32 +204,21 @@
   "sleep": {
     "need": 7.2,
     "last_night": {
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "hours": 7.2,
       "deep": 1.2,
       "rem": 1.6,
       "core": null,
       "awake": null,
       "in_bed": null,
-      "start": "2026-10-30 22:45:00 +1100",
-      "end": "2026-10-31 06:30:00 +1100"
+      "start": "2026-10-31 22:45:00 +1100",
+      "end": "2026-11-01 06:30:00 +1100"
     },
     "score": 99,
     "debt_7d": 0.0,
     "bedtime_spread_min": null,
     "average_7d": 7.2,
     "nights": [
-      {
-        "date": "2026-10-18",
-        "hours": 7.2,
-        "deep": 1.2,
-        "rem": 1.6,
-        "core": null,
-        "awake": null,
-        "in_bed": null,
-        "start": null,
-        "end": null
-      },
       {
         "date": "2026-10-19",
         "hours": 7.2,
@@ -363,8 +359,19 @@
         "core": null,
         "awake": null,
         "in_bed": null,
-        "start": "2026-10-30 22:45:00 +1100",
-        "end": "2026-10-31 06:30:00 +1100"
+        "start": null,
+        "end": null
+      },
+      {
+        "date": "2026-11-01",
+        "hours": 7.2,
+        "deep": 1.2,
+        "rem": 1.6,
+        "core": null,
+        "awake": null,
+        "in_bed": null,
+        "start": "2026-10-31 22:45:00 +1100",
+        "end": "2026-11-01 06:30:00 +1100"
       }
     ]
   },
@@ -380,10 +387,6 @@
       "zone": "building"
     },
     "exercise_series": [
-      {
-        "date": "2026-10-04",
-        "value": null
-      },
       {
         "date": "2026-10-05",
         "value": null
@@ -410,7 +413,7 @@
       },
       {
         "date": "2026-10-11",
-        "value": 30.0
+        "value": null
       },
       {
         "date": "2026-10-12",
@@ -491,13 +494,13 @@
       {
         "date": "2026-10-31",
         "value": 30.0
+      },
+      {
+        "date": "2026-11-01",
+        "value": 30.0
       }
     ],
     "steps_series": [
-      {
-        "date": "2026-10-18",
-        "value": 9000.0
-      },
       {
         "date": "2026-10-19",
         "value": 9000.0
@@ -549,13 +552,17 @@
       {
         "date": "2026-10-31",
         "value": 9000.0
+      },
+      {
+        "date": "2026-11-01",
+        "value": 9000.0
       }
     ],
     "workouts": [
       {
-        "date": "2026-10-31",
+        "date": "2026-11-01",
         "name": "Outdoor Run",
-        "start": "2026-10-31 06:40:00 +1100",
+        "start": "2026-11-01 06:40:00 +1100",
         "minutes": 32.0,
         "km": 6.1,
         "kcal": 410.0,
@@ -571,15 +578,11 @@
       "label": "HRV",
       "unit": "ms",
       "value": 58.0,
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "baseline": 59.0,
       "spread": 0.8,
       "state": "normal",
       "series": [
-        {
-          "date": "2026-10-02",
-          "value": null
-        },
         {
           "date": "2026-10-03",
           "value": null
@@ -614,86 +617,90 @@
         },
         {
           "date": "2026-10-11",
-          "value": 60.0
+          "value": null
         },
         {
           "date": "2026-10-12",
-          "value": 59.0
+          "value": 60.0
         },
         {
           "date": "2026-10-13",
-          "value": 58.0
+          "value": 59.0
         },
         {
           "date": "2026-10-14",
-          "value": 60.0
+          "value": 58.0
         },
         {
           "date": "2026-10-15",
-          "value": 59.0
+          "value": 60.0
         },
         {
           "date": "2026-10-16",
-          "value": 58.0
+          "value": 59.0
         },
         {
           "date": "2026-10-17",
-          "value": 60.0
+          "value": 58.0
         },
         {
           "date": "2026-10-18",
-          "value": 59.0
+          "value": 60.0
         },
         {
           "date": "2026-10-19",
-          "value": 58.0
+          "value": 59.0
         },
         {
           "date": "2026-10-20",
-          "value": 60.0
+          "value": 58.0
         },
         {
           "date": "2026-10-21",
-          "value": 59.0
+          "value": 60.0
         },
         {
           "date": "2026-10-22",
-          "value": 58.0
+          "value": 59.0
         },
         {
           "date": "2026-10-23",
-          "value": 60.0
+          "value": 58.0
         },
         {
           "date": "2026-10-24",
-          "value": 59.0
+          "value": 60.0
         },
         {
           "date": "2026-10-25",
-          "value": 58.0
+          "value": 59.0
         },
         {
           "date": "2026-10-26",
-          "value": 60.0
-        },
-        {
-          "date": "2026-10-27",
-          "value": 59.0
-        },
-        {
-          "date": "2026-10-28",
           "value": 58.0
         },
         {
-          "date": "2026-10-29",
+          "date": "2026-10-27",
           "value": 60.0
         },
         {
-          "date": "2026-10-30",
+          "date": "2026-10-28",
           "value": 59.0
         },
         {
+          "date": "2026-10-29",
+          "value": 58.0
+        },
+        {
+          "date": "2026-10-30",
+          "value": 60.0
+        },
+        {
           "date": "2026-10-31",
+          "value": 59.0
+        },
+        {
+          "date": "2026-11-01",
           "value": 58.0
         }
       ]
@@ -703,15 +710,11 @@
       "label": "Resting heart rate",
       "unit": "bpm",
       "value": 54.0,
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "baseline": 54.0,
       "spread": 0.0,
       "state": "normal",
       "series": [
-        {
-          "date": "2026-10-02",
-          "value": null
-        },
         {
           "date": "2026-10-03",
           "value": null
@@ -746,7 +749,7 @@
         },
         {
           "date": "2026-10-11",
-          "value": 54.0
+          "value": null
         },
         {
           "date": "2026-10-12",
@@ -826,6 +829,10 @@
         },
         {
           "date": "2026-10-31",
+          "value": 54.0
+        },
+        {
+          "date": "2026-11-01",
           "value": 54.0
         }
       ]
@@ -835,15 +842,11 @@
       "label": "Respiratory rate",
       "unit": "/min",
       "value": 14.0,
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "baseline": 14.0,
       "spread": 0.0,
       "state": "normal",
       "series": [
-        {
-          "date": "2026-10-02",
-          "value": null
-        },
         {
           "date": "2026-10-03",
           "value": null
@@ -878,7 +881,7 @@
         },
         {
           "date": "2026-10-11",
-          "value": 14.0
+          "value": null
         },
         {
           "date": "2026-10-12",
@@ -958,6 +961,10 @@
         },
         {
           "date": "2026-10-31",
+          "value": 14.0
+        },
+        {
+          "date": "2026-11-01",
           "value": 14.0
         }
       ]
@@ -967,15 +974,11 @@
       "label": "Blood oxygen",
       "unit": "%",
       "value": 97.0,
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "baseline": 97.0,
       "spread": 0.0,
       "state": "normal",
       "series": [
-        {
-          "date": "2026-10-02",
-          "value": null
-        },
         {
           "date": "2026-10-03",
           "value": null
@@ -1010,7 +1013,7 @@
         },
         {
           "date": "2026-10-11",
-          "value": 97.0
+          "value": null
         },
         {
           "date": "2026-10-12",
@@ -1090,6 +1093,10 @@
         },
         {
           "date": "2026-10-31",
+          "value": 97.0
+        },
+        {
+          "date": "2026-11-01",
           "value": 97.0
         }
       ]
@@ -1099,15 +1106,11 @@
       "label": "Wrist temperature",
       "unit": "\u00b0C",
       "value": 0.1,
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "baseline": 0.1,
       "spread": 0.0,
       "state": "normal",
       "series": [
-        {
-          "date": "2026-10-02",
-          "value": null
-        },
         {
           "date": "2026-10-03",
           "value": null
@@ -1142,7 +1145,7 @@
         },
         {
           "date": "2026-10-11",
-          "value": 0.1
+          "value": null
         },
         {
           "date": "2026-10-12",
@@ -1222,6 +1225,10 @@
         },
         {
           "date": "2026-10-31",
+          "value": 0.1
+        },
+        {
+          "date": "2026-11-01",
           "value": 0.1
         }
       ]
@@ -1231,15 +1238,11 @@
       "label": "Weight",
       "unit": "kg",
       "value": 80.0,
-      "date": "2026-10-31",
+      "date": "2026-11-01",
       "baseline": 79.5,
       "spread": 0.3,
       "state": "normal",
       "series": [
-        {
-          "date": "2026-10-02",
-          "value": null
-        },
         {
           "date": "2026-10-03",
           "value": null
@@ -1274,86 +1277,90 @@
         },
         {
           "date": "2026-10-11",
-          "value": 79.0
+          "value": null
         },
         {
           "date": "2026-10-12",
-          "value": 79.05
+          "value": 79.0
         },
         {
           "date": "2026-10-13",
-          "value": 79.1
+          "value": 79.05
         },
         {
           "date": "2026-10-14",
-          "value": 79.15
+          "value": 79.1
         },
         {
           "date": "2026-10-15",
-          "value": 79.2
+          "value": 79.15
         },
         {
           "date": "2026-10-16",
-          "value": 79.25
+          "value": 79.2
         },
         {
           "date": "2026-10-17",
-          "value": 79.3
+          "value": 79.25
         },
         {
           "date": "2026-10-18",
-          "value": 79.35
+          "value": 79.3
         },
         {
           "date": "2026-10-19",
-          "value": 79.4
+          "value": 79.35
         },
         {
           "date": "2026-10-20",
-          "value": 79.45
+          "value": 79.4
         },
         {
           "date": "2026-10-21",
-          "value": 79.5
+          "value": 79.45
         },
         {
           "date": "2026-10-22",
-          "value": 79.55
+          "value": 79.5
         },
         {
           "date": "2026-10-23",
-          "value": 79.6
+          "value": 79.55
         },
         {
           "date": "2026-10-24",
-          "value": 79.65
+          "value": 79.6
         },
         {
           "date": "2026-10-25",
-          "value": 79.7
+          "value": 79.65
         },
         {
           "date": "2026-10-26",
-          "value": 79.75
+          "value": 79.7
         },
         {
           "date": "2026-10-27",
-          "value": 79.8
+          "value": 79.75
         },
         {
           "date": "2026-10-28",
-          "value": 79.85
+          "value": 79.8
         },
         {
           "date": "2026-10-29",
-          "value": 79.9
+          "value": 79.85
         },
         {
           "date": "2026-10-30",
-          "value": 79.95
+          "value": 79.9
         },
         {
           "date": "2026-10-31",
+          "value": 79.95
+        },
+        {
+          "date": "2026-11-01",
           "value": 80.0
         }
       ]
@@ -1361,112 +1368,112 @@
   ],
   "weight": {
     "latest": 80.0,
-    "latest_date": "2026-10-31",
+    "latest_date": "2026-11-01",
     "trend": 79.6,
     "per_week": 0.21,
     "series": [
       {
-        "date": "2026-10-11",
+        "date": "2026-10-12",
         "weight": 79.0,
         "trend": 79.0
       },
       {
-        "date": "2026-10-12",
+        "date": "2026-10-13",
         "weight": 79.05,
         "trend": 79.0
       },
       {
-        "date": "2026-10-13",
+        "date": "2026-10-14",
         "weight": 79.1,
         "trend": 79.01
       },
       {
-        "date": "2026-10-14",
+        "date": "2026-10-15",
         "weight": 79.15,
         "trend": 79.03
       },
       {
-        "date": "2026-10-15",
+        "date": "2026-10-16",
         "weight": 79.2,
         "trend": 79.05
       },
       {
-        "date": "2026-10-16",
+        "date": "2026-10-17",
         "weight": 79.25,
         "trend": 79.07
       },
       {
-        "date": "2026-10-17",
+        "date": "2026-10-18",
         "weight": 79.3,
         "trend": 79.09
       },
       {
-        "date": "2026-10-18",
+        "date": "2026-10-19",
         "weight": 79.35,
         "trend": 79.12
       },
       {
-        "date": "2026-10-19",
+        "date": "2026-10-20",
         "weight": 79.4,
         "trend": 79.14
       },
       {
-        "date": "2026-10-20",
+        "date": "2026-10-21",
         "weight": 79.45,
         "trend": 79.17
       },
       {
-        "date": "2026-10-21",
+        "date": "2026-10-22",
         "weight": 79.5,
         "trend": 79.21
       },
       {
-        "date": "2026-10-22",
+        "date": "2026-10-23",
         "weight": 79.55,
         "trend": 79.24
       },
       {
-        "date": "2026-10-23",
+        "date": "2026-10-24",
         "weight": 79.6,
         "trend": 79.28
       },
       {
-        "date": "2026-10-24",
+        "date": "2026-10-25",
         "weight": 79.65,
         "trend": 79.31
       },
       {
-        "date": "2026-10-25",
+        "date": "2026-10-26",
         "weight": 79.7,
         "trend": 79.35
       },
       {
-        "date": "2026-10-26",
+        "date": "2026-10-27",
         "weight": 79.75,
         "trend": 79.39
       },
       {
-        "date": "2026-10-27",
+        "date": "2026-10-28",
         "weight": 79.8,
         "trend": 79.43
       },
       {
-        "date": "2026-10-28",
+        "date": "2026-10-29",
         "weight": 79.85,
         "trend": 79.48
       },
       {
-        "date": "2026-10-29",
+        "date": "2026-10-30",
         "weight": 79.9,
         "trend": 79.52
       },
       {
-        "date": "2026-10-30",
+        "date": "2026-10-31",
         "weight": 79.95,
         "trend": 79.56
       },
       {
-        "date": "2026-10-31",
+        "date": "2026-11-01",
         "weight": 80.0,
         "trend": 79.6
       }
@@ -1543,10 +1550,10 @@
     "notes": [
       {
         "id": 1,
-        "day": "2026-10-31",
+        "day": "2026-11-01",
         "kind": "supplement",
         "text": "Vitamin D",
-        "at": "2026-10-31T11:47:08.196839"
+        "at": "2026-11-01T03:21:02.683512"
       }
     ]
   },
@@ -1560,12 +1567,12 @@
     }
   ],
   "bedtime": {
-    "bedtime": "16:18",
-    "bedtime_at": "2026-10-13T16:18:00+00:00",
-    "wake": "23:45",
+    "bedtime": "12:03",
+    "bedtime_at": "2026-11-02T12:03:00+00:00",
+    "wake": "19:30",
     "sleep_target_h": 7.2,
     "debt_7d": 0.0,
-    "because": "Stormwater webinar (IPWEA) at 01:00",
-    "text": "Bed by 16:18 for 7.2 h before Stormwater webinar (IPWEA) at 01:00 (23:45)."
+    "because": "your usual wake-up",
+    "text": "Bed by 12:03 for 7.2 h before your usual wake-up (19:30)."
   }
 }
