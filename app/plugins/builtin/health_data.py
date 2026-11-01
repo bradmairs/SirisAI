@@ -145,7 +145,7 @@ def log_meal(siris: "SirisAI", description: str, kcal: float, protein_g: float |
             totals[metric] = current + float(add)
     if totals:
         siris.health.record(totals, day, source="manual")
-    note = siris.health.add_note("meal", f"{description.strip()[:200]} (about {kcal:.0f} kcal" + (f", {protein_g:.0f} g protein)" if protein_g else ")"), day)
+    note = siris.health.add_note("meal", f"{description.strip()[:200]} (about {kcal * 4.184:,.0f} kJ" + (f", {protein_g:.0f} g protein)" if protein_g else ")"), day)
     return {"logged": "meal", "estimate": True, "kcal": kcal, "protein_g": protein_g, "today_kcal_estimate": totals.get("meal_kcal_estimate"), "note": note}
 
 

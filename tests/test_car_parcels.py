@@ -42,6 +42,15 @@ def test_car_status_and_briefing_warning(client: TestClient) -> None:
     assert departure["car"] == "The Polestar is at 24% and not plugged in"
 
 
+def test_car_range_in_miles_is_shown_in_km(client: TestClient) -> None:
+    """SI only (4.05)."""
+    ha = FakeHA()
+    siris = _car_siris(ha)
+    ha.states["sensor.ev_range"] = {"state": "60", "attributes": {"unit_of_measurement": "mi"}}
+    status = siris.run_tool("car_status", {})
+    assert status["range"] == 96.6 and status["range_unit"] == "km" and "97 km range" in status["summary"]
+
+
 def test_car_precondition_calls_the_climate_entity(client: TestClient) -> None:
     ha = FakeHA()
     siris = _car_siris(ha)

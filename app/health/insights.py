@@ -334,14 +334,15 @@ def _wind_down(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], 
 # -- goals ---------------------------------------------------------------------------------
 
 GOAL_METRICS = {"running_km": "km run", "walk_run_km": "km walked or run", "exercise_minutes": "minutes of exercise",
-                "steps": "steps", "active_energy_kcal": "active kcal", "mindful_minutes": "mindful minutes"}
+                "steps": "steps", "active_energy_kcal": "kJ of active energy", "mindful_minutes": "mindful minutes"}
 
 
 def set_goal(siris: "SirisAI", metric: str, target: float, start: str, end: str, title: str | None = None) -> dict[str, Any]:
     if metric not in GOAL_METRICS:
         raise ValueError(f"A goal can track one of: {', '.join(GOAL_METRICS)}")
     date.fromisoformat(start), date.fromisoformat(end)
-    title = title or f"{target:,.0f} {GOAL_METRICS[metric]} by {end}"
+    shown = target * 4.184 if metric == "active_energy_kcal" else target  # kept in kcal, shown in kJ (SI)
+    title = title or f"{shown:,.0f} {GOAL_METRICS[metric]} by {end}"
     goal = siris.goals.create_goal(title, [f"Tracked from health data ({metric}), {start} to {end}"])
     goals = dict(siris.state.get(GOALS_KEY) or {})
     goals[str(goal["id"])] = {"metric": metric, "target": target, "start": start, "end": end, "title": title}

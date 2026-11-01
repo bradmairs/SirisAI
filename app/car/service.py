@@ -50,6 +50,9 @@ def status(client: "HomeAssistantClient", settings: "Settings") -> dict[str, Any
             except ValueError:
                 out[key] = None
             if key == "range" and unit:
+                if str(unit).lower() in ("mi", "miles", "mile") and out[key] is not None:
+                    out[key] = round(out[key] * 1.609344, 1)  # SI: km (4.05)
+                    unit = "km"
                 out["range_unit"] = unit
         elif key in ("charging", "plugged_in"):
             out[key] = raw.lower() in _TRUTHY
