@@ -8,6 +8,11 @@ heart rate (or its energy when there's none). For the day, the workouts plus
 the other hours' average heart rate (Health Auto Export by hour), at a
 quarter weight, since daily life is spread over the hour.
 
+**SirisGYM** (4.06): SirisOS sends each day's gym sessions (source
+`sirisgym`). One that overlaps a workout from the Watch is left out, since
+the Watch's heart rate says it better; one without counts its minutes at a
+resistance-training weight (1.5).
+
 Max heart rate is SIRISAI_HEALTH_MAX_HR, else the highest a workout has
 reached in six months, else 190. **Target** from this morning's readiness:
 Primed 14-18, Steady 10-14, Recover 4-9.
@@ -39,13 +44,32 @@ def to_strain(load: float) -> float:
     return round(21 * (1 - math.exp(-max(load, 0.0) / SCALE)), 1)
 
 
+GYM_WEIGHT = 1.5
+
+
 def workout_load(w: dict[str, Any], max_hr: float) -> float:
     minutes = float(w.get("minutes") or 0)
     if w.get("avg_hr"):
         return minutes * zone_weight(float(w["avg_hr"]), max_hr)
     if w.get("kcal"):
         return float(w["kcal"]) / 4  # about zone 2-3 for a typical session
+    if w.get("source") == "sirisgym":
+        return minutes * GYM_WEIGHT
     return minutes * 2
+
+
+def without_doubles(workouts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A SirisGYM session that overlaps another source's workout (the Watch) is left out."""
+    others = [(t, t + timedelta(minutes=float(w.get("minutes") or 30))) for w in workouts
+              if w.get("source") != "sirisgym" and (t := auto_export.when(w.get("start")))]
+    out = []
+    for w in workouts:
+        if w.get("source") == "sirisgym" and (t := auto_export.when(w.get("start"))):
+            end = t + timedelta(minutes=float(w.get("minutes") or 30))
+            if any(a < end and t < b for a, b in others):
+                continue
+        out.append(w)
+    return out
 
 
 def max_hr(siris: "SirisAI", workouts: list[dict[str, Any]]) -> float:
@@ -75,7 +99,7 @@ def build(siris: "SirisAI", readiness: dict[str, Any] | None, on: date) -> dict[
     today_each: list[dict[str, Any]] = []
     for i in range(6, -1, -1):
         d = (on - timedelta(days=i)).isoformat()
-        ws = [w for w in history if w["date"] == d]
+        ws = without_doubles([w for w in history if w["date"] == d])
         value, each = day_strain(ws, battery.intraday(siris, d), hr_max)
         week.append({"date": d, "strain": value})
         if i == 0:

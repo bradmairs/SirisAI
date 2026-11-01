@@ -6511,6 +6511,8 @@ provider for the same capability actually exists to design against.
 
 162. **Done** -- SI units everywhere (4.05): active energy in spoken and chat health summaries, goal titles and meal notes is given in kJ (stored in kcal as Apple Health sends it; `service.kj`), and a car range reported in miles is converted to km. Verified with tests for the kJ wording and the miles-to-km range.
 
+163. **Done** -- SirisGYM in strain and readiness history (4.06): SirisOS 6.8 sends each day's gym sessions (source `sirisgym`, SirisAI's own shape). Strain counts one at a resistance-training weight (1.5 per minute) unless it overlaps a workout from another source (the Watch), which says it better (`strain.without_doubles`). The health overview adds `readiness_recent`, the last five mornings' kept readiness, which SirisGYM uses to suggest a deload. Verified with tests for the overlap, the load and the shape SirisOS sends.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar
