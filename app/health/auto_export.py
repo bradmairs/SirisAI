@@ -185,6 +185,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
     hourly: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     # 4.17: every summed metric hour by hour, so a sync split into several requests adds up instead of replacing the day.
     sums: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+    hr_samples: list[list[Any]] = []
     for m in data.get("metrics") or []:
         if not isinstance(m, dict):
             continue
@@ -201,7 +202,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
                 continue  # read whole nights above (nights())
             elif name == "heart_rate":
                 for field, metric in (("Avg", "heart_rate_avg"), ("Min", "heart_rate_min"), ("Max", "heart_rate_max")):
-                    v = _num(r.get(field))
+                    v = _num(r.get(field) if r.get(field) is not None else r.get("qty"))  # qty: each reading, not aggregated
                     if v is not None:
                         readings[(day, metric)].append(v)
             else:
@@ -215,8 +216,10 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
             if name in METRICS and METRICS[name][1] == "sum" and (v := _num(r.get("qty"))) is not None:
                 metric = METRICS[name][0]
                 sums[day][metric][f"{t.hour:02d}"] += convert(metric, units, v)
+            if name == "heart_rate" and (pt := _points([r])):
+                hr_samples.append(pt[0])  # 4.39: each reading, for lining sets up with heart rate
             if name in INTRADAY:
-                v = _num(r.get("Avg") if name == "heart_rate" else r.get("qty"))
+                v = _num(r.get("Avg") if name == "heart_rate" and r.get("Avg") is not None else r.get("qty"))
                 if v is not None:
                     v = convert("active_energy_kcal", units, v) if name == "active_energy" else v
                     hourly[day][f"{t.hour:02d}"][INTRADAY[name]].append(v)
@@ -249,7 +252,8 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
     intraday = {day: {hour: {k: round(sum(v) if k in ("kcal", "steps", "mindful") else mean(v), 1) for k, v in vals.items()}
                       for hour, vals in hours.items()} for day, hours in hourly.items()}
     return {"metrics": dict(metrics), "sleep": sleep_times, "workouts": dict(workouts), "ignored": sorted(ignored), "intraday": intraday,
-            "hour_sums": {d: {m: dict(h) for m, h in ms.items()} for d, ms in sums.items()}, "workout_series": series, "meta": describe(data)}
+            "hour_sums": {d: {m: dict(h) for m, h in ms.items()} for d, ms in sums.items()}, "workout_series": series, "hr_samples": hr_samples,
+            "meta": describe(data)}
 
 
 def _points(items: Any) -> list[list[Any]]:

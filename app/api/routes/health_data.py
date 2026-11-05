@@ -72,6 +72,7 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
         from app.health import gym_effort
 
         gym_effort.keep_series(siris, parsed.get("workout_series") or [])
+        gym_effort.keep_samples(siris, parsed.get("hr_samples") or [])
         battery.keep_intraday(siris, parsed.get("intraday") or {})
         meta = parsed.get("meta")
         overview.note_import(siris, source, result, meta)

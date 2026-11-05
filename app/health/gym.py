@@ -52,7 +52,8 @@ def text(s: dict[str, Any], exercise: str | None = None) -> str:
     parts = [f"{s.get('total_sessions', 0)} workouts logged, {s.get('streak_weeks', 0)} weeks in a row."]
     week = s.get("week") or {}
     if week:
-        parts.append(f"This week: {week.get('sessions', 0)} workouts, {round(week.get('volume') or 0):,} kg lifted.")
+        cardio = f", {week['cardio_min']} min of cardio" + (f" ({week['cardio_km']:g} km)" if week.get("cardio_km") else "") if week.get("cardio_min") else ""
+        parts.append(f"This week: {week.get('sessions', 0)} workouts, {round(week.get('volume') or 0):,} kg lifted{cardio}.")
     under = [m["muscle"] for m in s.get("muscles") or [] if m.get("status") == "under"]
     over = [m["muscle"] for m in s.get("muscles") or [] if m.get("status") == "over"]
     if under:
@@ -63,6 +64,11 @@ def text(s: dict[str, Any], exercise: str | None = None) -> str:
         parts.append(f"In a deload week until {d.get('until')}.")
     elif d.get("suggest"):
         parts.append("A deload week is suggested: " + "; ".join(d.get("why") or []) + ".")
+    if niggles := s.get("niggles"):
+        parts.append("Sore: " + "; ".join(f"{n['area']} since {n['since']}" + (f" ({n['note']})" if n.get("note") else "") for n in niggles)
+                     + ". SirisGym swaps out exercises that load it until it's marked healed.")
+    if same := s.get("same_weight"):
+        parts.append("Heart rate at the same weight: " + " ".join(same[:3]))
     if s.get("records_30d"):
         parts.append("Records this month: " + "; ".join(s["records_30d"][-4:]) + ".")
     if n := s.get("next"):
