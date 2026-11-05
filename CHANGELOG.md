@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.18 — 2026-11-05
+
+- SirisGYM is now SirisGym; gym_progress says when today's a rest day and when the next workout is
+
 ## 4.17 — 2026-11-01
 
 - Health data you can trust: split syncs add up, faster stalled/today-missing alerts, per-source inspector, dry runs, why readiness was low, a monthly report

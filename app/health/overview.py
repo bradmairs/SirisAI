@@ -182,7 +182,7 @@ def check_stale(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]
     SIRISAI_HEALTH_STALE_HOURS (6 since 4.17; it was 36). Health Auto Export
     fails quietly (iOS stops background refresh, the phone stays locked, a key
     changes); this says so, and goes to the phone as a push through SirisOS's
-    inbox. 4.17: it goes by Health Auto Export's own last import (SirisGYM and
+    inbox. 4.17: it goes by Health Auto Export's own last import (SirisGym and
     Shortcuts don't count), only between 10am and 10pm (a phone asleep
     overnight is normal), and it also says when exports keep arriving without
     today in them (a Date Range that stops at yesterday). Each closes itself

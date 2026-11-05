@@ -93,7 +93,7 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
 
 @router.post("/gym")
 async def post_gym(request: Request, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
-    """SirisGYM's training summary from SirisOS (4.16), for the gym_progress tool."""
+    """SirisGym's training summary from SirisOS (4.16), for the gym_progress tool."""
     from app.health import gym
 
     try:
@@ -101,7 +101,7 @@ async def post_gym(request: Request, siris: SirisAI = Depends(get_siris)) -> dic
     except ValueError:
         raise HTTPException(status_code=422, detail="Send JSON.") from None
     if not isinstance(body, dict) or len(str(body)) > 200_000:
-        raise HTTPException(status_code=422, detail="Send SirisGYM's summary as a JSON object (under 200 KB).")
+        raise HTTPException(status_code=422, detail="Send SirisGym's summary as a JSON object (under 200 KB).")
     gym.keep(siris, body)
     return {"kept": True, "lifts": len(body.get("lifts") or {})}
 

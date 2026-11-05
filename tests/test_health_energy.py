@@ -222,7 +222,7 @@ def test_the_setup_check_says_which_setting_to_change(client: TestClient, monkey
 
 def test_a_sirisgym_session_counts_in_strain_unless_the_watch_has_it() -> None:
     """4.06: SirisOS sends the day's gym sessions; one the Watch also recorded isn't counted twice."""
-    gym = {"source": "sirisgym", "name": "SirisGYM: Push", "start": "2026-11-02 18:00:00 +1100", "minutes": 60}
+    gym = {"source": "sirisgym", "name": "SirisGym: Push", "start": "2026-11-02 18:00:00 +1100", "minutes": 60}
     watch = {"source": "health_auto_export", "name": "Traditional Strength Training", "start": "2026-11-02 18:04:00 +1100", "minutes": 58, "avg_hr": 120}
     assert strain.without_doubles([gym, watch]) == [watch]
     assert strain.without_doubles([gym]) == [gym] and strain.workout_load(gym, 190) == 90
@@ -244,6 +244,9 @@ def test_gym_progress_answers_from_sirisgyms_summary(client: TestClient) -> None
     whole = siris.run_tool("gym_progress", {})["text"]
     assert "120 workouts logged, 6 weeks in a row." in whole and "Under 10-20 sets this week: back." in whole
     assert "Next: Push, pull, legs, Push: Bench Press 3×5-8 at 102.5 kg." in whole
+    summary["next"].update(rest_day=True, on="Thursday")  # 4.18: days on set weekdays
+    client.post("/siris/health/gym", json=summary, headers=H)
+    assert "Today's a rest day. Next on Thursday: Push, pull, legs, Push" in siris.run_tool("gym_progress", {})["text"]
     from app.cortex.orchestrator import PRIVATE_TOOLS
     from app.plugins.selector import ToolSelector
     assert "gym_progress" in PRIVATE_TOOLS
