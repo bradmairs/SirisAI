@@ -121,6 +121,14 @@ async def post_gym_session(request: Request, siris: SirisAI = Depends(get_siris)
     return {"kept": True}
 
 
+@router.get("/gym/coach")
+def get_gym_coach(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """This week's coaching (4.29): training, sleep, recovery and protein, into at most two changes."""
+    from app.health import gym_coach
+
+    return gym_coach.weekly(siris)
+
+
 @router.get("/gym/session/{session_id}/analysis")
 def get_gym_analysis(session_id: str, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     from app.health import gym_effort

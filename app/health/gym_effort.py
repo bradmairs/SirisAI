@@ -113,7 +113,7 @@ def link(siris: "SirisAI", session: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
-    from app.health import strain
+    from app.health import gym_coach, strain
 
     session = (siris.state.get(_key("gym_sessions")) or {}).get(session_id)
     if not session:
@@ -204,7 +204,7 @@ def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
             "peak_hr": round(max(p[2] for p in in_session)) if in_session else None, "kj": round(kcal * 4.184) if kcal else None,
             "zones_min": [round(z, 1) for z in zones], "work_avg_hr": round(mean(work)) if work else None,
             "exercises": ex_out, "sets": sets_out, "timeline": [[p[0].isoformat(), p[1], p[2]] for p in in_session],
-            "text": " ".join(parts)}
+            "text": " ".join(parts), "advice": gym_coach.session_advice(sets_out, ex_out)}
 
 
 def latest_text(siris: "SirisAI") -> str | None:

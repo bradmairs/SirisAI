@@ -180,6 +180,13 @@ def mind_map(siris: SirisAI = Depends(get_siris)) -> str:
     return _brain(siris).render_map()
 
 
+@router.get("/inbox/count")
+def inbox_count(siris: SirisAI = Depends(get_siris)) -> dict:
+    """How many notes and memories wait in the inbox: a light check for a badge, without the insights."""
+    found = _brain(siris).inbox()
+    return {"count": len(found.get("notes") or []) + len(found.get("memory") or [])}
+
+
 @router.get("/today")
 def learned_today(siris: SirisAI = Depends(get_siris)) -> dict:
     date = clock.now_local(siris.settings.timezone).date().isoformat()
