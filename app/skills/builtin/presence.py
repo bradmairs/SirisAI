@@ -19,6 +19,7 @@ The very first check ever run has nothing to compare against, so it just
 establishes a baseline rather than guessing a transition happened.
 """
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from app.skills.base import Skill
@@ -28,6 +29,39 @@ if TYPE_CHECKING:
 
 _PRESENCE_ENTITY_NAME = "presence"
 _PRESENCE_EVENT_DESCRIPTION = "presence_changed"
+_DEVICES_KEY = "presence:devices"
+_SEEN_KEY = "presence:seen"
+# 4.4: Dom's iPhone counts as home too, so the away protocol is only offered when both phones have left.
+DEFAULT_ADDED = ["Dom's iPhone"]
+
+
+def norm(name: Any) -> str:
+    """A device name as UniFi might spell it either way: "Dom's iPhone", "Doms-iPhone" and "doms iphone" are one."""
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower().replace("’", "'"))
+
+
+def added(siris: "SirisAI") -> list[str]:
+    """Phones added from SirisOS (4.4), on top of SIRISAI_PRESENCE_DEVICE_NAMES."""
+    kept = siris.state.get(_DEVICES_KEY)
+    return list(DEFAULT_ADDED) if kept is None else [str(n) for n in kept]
+
+
+def set_added(siris: "SirisAI", names: list[str]) -> list[str]:
+    clean = list(dict.fromkeys(n.strip()[:60] for n in names if n and n.strip()))[:12]
+    siris.state.set(_DEVICES_KEY, clean)
+    return clean
+
+
+def counted(siris: "SirisAI") -> list[dict[str, Any]]:
+    """Every phone that counts as someone home, where it comes from, and whether it was home at the last check."""
+    seen = siris.state.get(_SEEN_KEY) or {}
+    out, have = [], set()
+    for name, source in [*((n, "settings") for n in siris.settings.presence_device_name_list()), *((n, "added") for n in added(siris))]:
+        if norm(name) in have or not norm(name):
+            continue
+        have.add(norm(name))
+        out.append({"name": name, "source": source, "home": seen.get(norm(name))})
+    return out
 
 
 class PresenceSkill(Skill):
@@ -41,8 +75,12 @@ class PresenceSkill(Skill):
 
     def run(self, siris: "SirisAI", **kwargs: Any) -> Any:
         clients = siris.run_tool("unifi_list_clients", {})
-        known_names = set(siris.settings.presence_device_name_list())
-        currently_home = any(c["name"] in known_names for c in clients if c.get("name"))
+        known = {norm(d["name"]) for d in counted(siris)}
+        here = {norm(c.get(k)) for c in clients for k in ("name", "hostname") if c.get(k)}
+        seen = {k: k in here for k in known}
+        siris.state.set(_SEEN_KEY, seen)
+        # Home while any counted phone is connected: away only once every one of them (Brad's and Dom's) has gone.
+        currently_home = any(seen.values())
 
         result: dict[str, Any] = {"currently_home": currently_home, "changed": False, "scene_activated": None}
 

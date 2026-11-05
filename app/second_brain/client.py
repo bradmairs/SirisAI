@@ -276,6 +276,13 @@ class SecondBrainClient:
         return self._write(["unlink", "--output", "json", "--", a, b],
                            message=lambda r: f"siris: unlinked {r.get('a', a)} and {r.get('b', b)}")
 
+    def edit_note(self, title: str, body: str, expect: str | None = None) -> dict:
+        """Brad's own edit from SirisOS (engine 1.98): the note's text becomes `body`, its
+        frontmatter kept. `expect` is the version he opened (from get_note); an edit made
+        from an older copy raises SecondBrainError instead of overwriting newer text."""
+        args = ["edit", "--output", "json", "--body", "-", *(["--expect", expect] if expect else []), "--", title]
+        return self._write(args, stdin=body, message=lambda r: f"siris: Brad edited {r.get('title', title)}")
+
     def delete_note(self, title: str, permanent: bool = False) -> dict:
         """Delete a note Brad asked to delete. It moves to the vault's .deleted/
         folder (out of search, links and the map) and links to it in other notes

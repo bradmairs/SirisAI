@@ -308,3 +308,14 @@ def test_chat_can_delete_memory_via_delete_memory_tool(client: TestClient) -> No
 
     list_response = client.get("/siris/memory", params={"query": content})
     assert not any(e["id"] == created["id"] for e in list_response.json())
+
+
+def test_a_memory_can_be_corrected(client: TestClient) -> None:
+    """4.4: Brad edits a memory's words from SirisOS; it keeps its id and date."""
+    marker = uuid.uuid4().hex
+    created = client.post("/siris/memory", json={"content": f"Dom's birthday is 3 March {marker}"}).json()
+    r = client.put(f"/siris/memory/{created['id']}", json={"content": f"Dom's birthday is 4 March {marker}"})
+    assert r.status_code == 200 and r.json()["id"] == created["id"] and r.json()["created_at"] == created["created_at"]
+    assert r.json()["content"] == f"Dom's birthday is 4 March {marker}"
+    assert client.put(f"/siris/memory/{created['id']}", json={"content": "  "}).status_code == 422
+    assert client.put("/siris/memory/999999999", json={"content": "x"}).status_code == 404

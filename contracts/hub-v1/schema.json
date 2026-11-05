@@ -69,6 +69,9 @@
     "presence": {
       "$ref": "#/$defs/Presence"
     },
+    "presence_phones_request": {
+      "$ref": "#/$defs/PresenceDevices"
+    },
     "reminders": {
       "$ref": "#/$defs/ReminderList"
     },
@@ -2603,12 +2606,76 @@
           "default": null,
           "description": "When that state began (an arrival or a departure); null until there's been a change since tracking started.",
           "title": "Since"
+        },
+        "phones": {
+          "description": "The phones that count as someone home (4.4): home only while any is connected, away once all have gone.",
+          "items": {
+            "$ref": "#/$defs/PresencePhone"
+          },
+          "title": "Phones",
+          "type": "array"
         }
       },
       "required": [
         "home"
       ],
       "title": "Presence",
+      "type": "object"
+    },
+    "PresenceDevices": {
+      "additionalProperties": false,
+      "properties": {
+        "added": {
+          "description": "The phones added from SirisOS, on top of SIRISAI_PRESENCE_DEVICE_NAMES.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Added",
+          "type": "array"
+        }
+      },
+      "required": [
+        "added"
+      ],
+      "title": "PresenceDevices",
+      "type": "object"
+    },
+    "PresencePhone": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The UniFi client name (matched ignoring case, spaces and punctuation).",
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "description": "settings: SIRISAI_PRESENCE_DEVICE_NAMES; added: from SirisOS.",
+          "enum": [
+            "settings",
+            "added"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "home": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Connected at the last check; null before one.",
+          "title": "Home"
+        }
+      },
+      "required": [
+        "name",
+        "source"
+      ],
+      "title": "PresencePhone",
       "type": "object"
     },
     "ProtocolCatalogue": {

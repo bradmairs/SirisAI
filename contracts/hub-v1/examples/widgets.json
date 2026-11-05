@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-09T07:41:23.437372+00:00",
+  "generated_at": "2026-11-05T20:14:40.446077+00:00",
   "guest_mode": false,
   "hidden": [],
   "car": {
@@ -31,7 +31,7 @@
     "reasons": [],
     "solar_watts": null,
     "price": null,
-    "next_cheap_window": "2026-10-10T00:00:00+00:00",
+    "next_cheap_window": "2026-11-06T00:00:00+00:00",
     "waiting_jobs": 0
   },
   "protocols": [
@@ -57,6 +57,14 @@
       ]
     },
     {
+      "name": "wind_down",
+      "description": "Bedtime's coming: lights down to a third, a reminder to put the phone away.",
+      "builtin": true,
+      "steps": [
+        "Dim the lights that are on"
+      ]
+    },
+    {
       "name": "guest",
       "description": "Visitors over: guest mode on for 24 hours (no personal info volunteered), guest Wi-Fi on.",
       "builtin": true,
@@ -79,8 +87,8 @@
     "summary": "In the last 24 hours I took 1 action on my own.",
     "items": [
       {
-        "time": "2026-10-09T07:41:23.412639+00:00",
-        "local_time": "07:41",
+        "time": "2026-11-05T20:14:40.424330+00:00",
+        "local_time": "20:14",
         "what": "Restarted plex",
         "why": "self-healing: watched container 'plex' is down",
         "tool": "docker_restart_container",

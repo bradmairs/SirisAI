@@ -33,7 +33,7 @@ FAKE_ENGINE = textwrap.dedent(
     import json, pathlib, sys
     root = pathlib.Path(__file__).resolve().parent.parent
     args = sys.argv[1:]
-    stdin = sys.stdin.read() if "--json" in args else ""
+    stdin = sys.stdin.read() if "--json" in args or args[:1] == ["edit"] else ""
     with open(root / "calls.jsonl", "a") as f:
         f.write(json.dumps({"args": args, "stdin": stdin}) + "\\n")
     store = root / "notes.json"
@@ -137,6 +137,15 @@ FAKE_ENGINE = textwrap.dedent(
         if a is None or b is None:
             sys.exit("No note called " + repr(args[-2] if a is None else args[-1]))
         print(json.dumps({"action": "merged", "from": a, "into": b} if cmd == "merge" else {"action": "distinct", "a": a, "b": b}))
+        sys.exit(0)
+    if cmd == "edit":
+        t = find(args[args.index("--") + 1])
+        if t is None or ("--expect" in args and args[args.index("--expect") + 1] != "v1"):
+            print("No note called that." if t is None else t + " changed since you opened it.", file=sys.stderr)
+            sys.exit(1)
+        notes[t] = stdin
+        store.write_text(json.dumps(notes))
+        print(json.dumps({"action": "edited", "title": t, "path": f"Notes/{t}.md", "links_added": [], "version": "v2"}))
         sys.exit(0)
     if cmd == "add-line":
         note, heading, line = args[args.index("--") + 1:]
@@ -880,3 +889,17 @@ def test_add_line(tmp_path: Path) -> None:
     vault = _vault(tmp_path / "vault", {"CPEng Chartership": "# CPEng"})
     assert SecondBrainClient(str(vault)).add_line("CPEng Chartership", "## Evidence from your notes", "- [[X]]: 14")["action"] == "added"
     assert _calls(vault)[-1]["args"] == ["add-line", "--output", "json", "--", "CPEng Chartership", "## Evidence from your notes", "- [[X]]: 14"]
+
+
+
+def test_edit_route_replaces_a_notes_text_through_the_engine(brain_api) -> None:
+    """4.4: Brad edits a note from SirisOS; an edit made from an older copy is refused."""
+    client, vault = brain_api
+    client.post("/siris/brain/capture", json={"title": "Gym Plan", "text": "Three days"})
+    r = client.post("/siris/brain/edit", json={"title": "gym plan", "body": "Four days a week.", "version": "v1"})
+    assert r.status_code == 200 and r.json()["action"] == "edited" and r.json()["version"] == "v2"
+    call = _calls(vault)[-1]
+    assert call["args"] == ["edit", "--output", "json", "--body", "-", "--expect", "v1", "--", "gym plan"] and call["stdin"] == "Four days a week."
+    assert client.get("/siris/brain/note", params={"title": "Gym Plan"}).json()["body"] == "Four days a week."
+    stale = client.post("/siris/brain/edit", json={"title": "Gym Plan", "body": "Mine", "version": "old"})
+    assert stale.status_code == 422 and "changed since you opened it" in stale.json()["detail"]

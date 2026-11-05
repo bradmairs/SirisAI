@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.49 — 2026-11-05
+
+- Edit Siris notes and memories from SirisOS, and the phones that count as home (Dom's iPhone added)
+
 ## 4.39 — 2026-11-05
 
 - Set-by-set heart rate from each Watch reading, the settle time that teaches SirisGym's rest timer, and cardio, niggles and same-weight fitness in training answers

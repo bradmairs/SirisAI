@@ -44,6 +44,11 @@ class _FakeSettings:
         return self._device_names
 
 
+class _FakeState(dict):
+    def set(self, key: str, value: Any) -> None:
+        self[key] = value
+
+
 class _FakeSirisForPresence:
     def __init__(
         self,
@@ -55,6 +60,7 @@ class _FakeSirisForPresence:
     ) -> None:
         self.tools = _FakeTools(has_call_service)
         self.events = _FakeEvents()
+        self.state = _FakeState()
         self.settings = _FakeSettings(device_names, home_scene, away_scene)
         self._clients = clients
         self.run_tool_calls: list[tuple[str, dict[str, Any]]] = []
@@ -195,3 +201,24 @@ def test_presence_endpoint_runs_the_check(client: TestClient) -> None:
         assert response.json()["result"]["currently_home"] is True
     finally:
         app.dependency_overrides.pop(get_siris, None)
+
+
+
+def test_away_only_once_every_counted_phone_has_gone_and_names_match_loosely() -> None:
+    """4.4: Dom's iPhone counts as home too (whichever way UniFi spells it), so leaving needs both phones gone."""
+    clients = [{"name": "brads-iphone"}, {"name": None, "hostname": "Doms-iPhone"}]
+    siris = _FakeSirisForPresence(clients=clients, device_names=["brads-iphone"])
+    skill = PresenceSkill()
+    skill.run(siris)  # baseline: home
+    clients.pop(0)  # Brad leaves; Dom's still home
+    result = skill.run(siris)
+    assert result["currently_home"] is True and result["changed"] is False
+    from app.skills.builtin.presence import counted, set_added
+
+    assert {d["name"]: d["home"] for d in counted(siris)} == {"brads-iphone": False, "Dom's iPhone": True}
+    clients.clear()  # Dom leaves too
+    result = skill.run(siris)
+    assert result["currently_home"] is False and result["changed"] is True
+
+    set_added(siris, ["Dom's iPhone", "Guest iPad", "dom's iphone"])
+    assert [d["name"] for d in counted(siris)] == ["brads-iphone", "Dom's iPhone", "Guest iPad"]
