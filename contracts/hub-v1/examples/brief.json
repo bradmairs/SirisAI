@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-22T20:15:19.682435+00:00",
+  "generated_at": "2026-11-05T20:14:40.844224+00:00",
   "guest_mode": false,
   "hidden": [],
   "weather": {
@@ -99,7 +99,7 @@
     "reasons": [],
     "solar_watts": null,
     "price": null,
-    "next_cheap_window": "2026-10-23T00:00:00+00:00",
+    "next_cheap_window": "2026-11-06T00:00:00+00:00",
     "waiting_jobs": 0
   },
   "brain": {

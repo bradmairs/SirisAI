@@ -305,6 +305,17 @@ def _note_write(action, *args):
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
+class EditRequest(NoteRequest):
+    body: str = Field(min_length=1, max_length=200_000)
+    version: str | None = Field(default=None, max_length=40, description="The version the edit was made from (GET /note); refused if the note changed since.")
+
+
+@router.post("/edit")
+def edit_note(request: EditRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Brad's own edit of a note (4.4, engine 1.98): its text is replaced, frontmatter kept, new mentions linked."""
+    return _note_write(_brain(siris).edit_note, request.title, request.body, request.version)
+
+
 @router.post("/delete")
 def delete_note(request: DeleteRequest, siris: SirisAI = Depends(get_siris)) -> dict:
     """Delete a note (restorable from /deleted unless `permanent`). Links to it are removed."""

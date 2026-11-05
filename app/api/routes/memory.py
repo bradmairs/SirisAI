@@ -43,6 +43,18 @@ def list_memory(
     return [MemoryEntryResponse(**entry) for entry in siris.memory.recall(query=query, limit=limit)]
 
 
+@router.put("/{memory_id}", response_model=MemoryEntryResponse)
+def update_memory(memory_id: int, request: MemoryCreateRequest, siris: SirisAI = Depends(get_siris)) -> MemoryEntryResponse:
+    """Correct a memory's words (4.4), from SirisOS's Manage page. Keeps its id, date and recall count."""
+    try:
+        updated = siris.memory.update(memory_id, request.content)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Memory not found.")
+    return MemoryEntryResponse(**updated)
+
+
 @router.delete("/{memory_id}", status_code=204)
 def delete_memory(memory_id: int, siris: SirisAI = Depends(get_siris)) -> None:
     """Direct REST delete, for the Memory tab's own delete button and

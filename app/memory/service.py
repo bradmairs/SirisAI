@@ -381,6 +381,24 @@ class MemoryStore:
                 if len(group_ids) > 1
             ]
 
+    def update(self, memory_id: int, content: str, *, user_id: str | None = None) -> dict[str, Any] | None:
+        """Brad's own correction of a memory (4.4): new words, a new embedding, the same id,
+        date and recall count. Scoped to `user_id` like delete(). None if there's no such memory."""
+        user_id = user_id or get_current_user_id()
+        content = content.strip()
+        if not content:
+            raise ValueError("A memory can't be empty: delete it instead.")
+        embedding = self._try_embed(content)
+        with self._session_factory() as session:
+            entry = session.get(MemoryEntry, memory_id)
+            if entry is None or entry.user_id != user_id:
+                return None
+            entry.content = content
+            entry.embedding = _encode(embedding)
+            session.commit()
+            session.refresh(entry)
+            return self._serialize(entry, self._position_map(session, user_id)[entry.id])
+
     def delete(self, memory_id: int, *, user_id: str | None = None) -> bool:
         """Remove one memory (scoped to `user_id`, so one user can't delete
         another's by guessing an id). Returns whether a row was actually

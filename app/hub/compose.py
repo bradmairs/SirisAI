@@ -443,8 +443,10 @@ def presence(siris: "SirisAI") -> c.Presence:
     # Events are logged on a change, so the last one is when this state began; the very first
     # check is only a baseline (no one arrived or left then).
     changed = bool(last) and not (last[0].get("data") or {}).get("baseline")
+    from app.skills.builtin.presence import counted
+
     return c.Presence(home=anyone_home(siris), checked_at=str(checked) if checked else None,
-                      since=str(checked) if changed and checked else None)
+                      since=str(checked) if changed and checked else None, phones=[c.PresencePhone(**d) for d in counted(siris)])
 
 
 def reminders(siris: "SirisAI") -> c.ReminderList:

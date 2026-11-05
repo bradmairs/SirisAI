@@ -288,6 +288,18 @@ class Presence(_Model):
     checked_at: str | None = None
     since: str | None = Field(default=None, description="When that state began (an arrival or a departure); null until "
                               "there's been a change since tracking started.")
+    phones: list["PresencePhone"] = Field(default_factory=list, description="The phones that count as someone home (4.4): "
+                                          "home only while any is connected, away once all have gone.")
+
+
+class PresencePhone(_Model):
+    name: str = Field(description="The UniFi client name (matched ignoring case, spaces and punctuation).")
+    source: Literal["settings", "added"] = Field(description="settings: SIRISAI_PRESENCE_DEVICE_NAMES; added: from SirisOS.")
+    home: bool | None = Field(default=None, description="Connected at the last check; null before one.")
+
+
+class PresenceDevices(_Model):
+    added: list[str] = Field(description="The phones added from SirisOS, on top of SIRISAI_PRESENCE_DEVICE_NAMES.")
 
 
 class Reminder(_Model):
@@ -647,6 +659,7 @@ ENDPOINTS: dict[str, type[BaseModel]] = {
     "llm_complete_request": LLMCompleteRequest,
     "llm_complete": LLMCompleteResult,
     "presence": Presence,
+    "presence_phones_request": PresenceDevices,
     "reminders": ReminderList,
     "reminder_done": ReminderDone,
     "email_with": EmailWith,

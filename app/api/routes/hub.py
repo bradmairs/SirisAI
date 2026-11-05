@@ -19,7 +19,8 @@ screen, daily brief, search, inbox and controls on.
     POST /siris/hub/v1/protocols/undo           {"confirmed": true}
     POST /siris/hub/v1/cameras/{camera}/look    {"question": "..."}
     POST /siris/hub/v1/llm/complete             a plain completion through the model router
-    GET  /siris/hub/v1/presence                 home or away, from the last presence check
+    GET  /siris/hub/v1/presence                 home or away, from the last presence check, and the phones that count
+    PUT  /siris/hub/v1/presence/phones          the phones added from SirisOS that count as home (4.4)
     GET  /siris/hub/v1/reminders                pending reminders ("remind me at 7")
     POST /siris/hub/v1/reminders/{id}/done      cancel one that's no longer needed
     GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
@@ -412,6 +413,15 @@ async def llm_complete(body: c.LLMCompleteRequest, siris: SirisAI = Depends(get_
 
 @router.get("/presence", response_model=c.Presence)
 async def hub_presence(siris: SirisAI = Depends(get_siris)) -> c.Presence:
+    return await asyncio.to_thread(compose.presence, siris)
+
+
+@router.put("/presence/phones", response_model=c.Presence)
+async def hub_presence_phones(body: c.PresenceDevices, siris: SirisAI = Depends(get_siris)) -> c.Presence:
+    """The phones added from SirisOS (4.4) that count as someone home, as a whole list."""
+    from app.skills.builtin.presence import set_added
+
+    set_added(siris, body.added)
     return await asyncio.to_thread(compose.presence, siris)
 
 
