@@ -69,6 +69,9 @@ async def post_metrics(request: Request, siris: SirisAI = Depends(get_siris)) ->
 
         parsed = merge_hour_sums(siris.state, parsed, get_current_user_id())
         result = siris.health.store_parsed(parsed, source)
+        from app.health import gym_effort
+
+        gym_effort.keep_series(siris, parsed.get("workout_series") or [])
         battery.keep_intraday(siris, parsed.get("intraday") or {})
         meta = parsed.get("meta")
         overview.note_import(siris, source, result, meta)
@@ -104,6 +107,25 @@ async def post_gym(request: Request, siris: SirisAI = Depends(get_siris)) -> dic
         raise HTTPException(status_code=422, detail="Send SirisGym's summary as a JSON object (under 200 KB).")
     gym.keep(siris, body)
     return {"kept": True, "lifts": len(body.get("lifts") or {})}
+
+
+@router.post("/gym/session")
+async def post_gym_session(request: Request, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """A SirisGym session with each set's time (4.28), for linking to the Watch workout and the effort analysis."""
+    from app.health import gym_effort
+
+    body = await request.json()
+    if not isinstance(body, dict) or not body.get("id") or len(str(body)) > 300_000:
+        raise HTTPException(status_code=422, detail="Send the session as a JSON object with an id.")
+    gym_effort.keep_session(siris, body)
+    return {"kept": True}
+
+
+@router.get("/gym/session/{session_id}/analysis")
+def get_gym_analysis(session_id: str, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.health import gym_effort
+
+    return gym_effort.analyse(siris, session_id)
 
 
 @router.get("/sources")

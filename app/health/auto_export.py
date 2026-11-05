@@ -224,6 +224,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
                 if (night := night_of(t, windows)):
                     readings[(night, "hrv_overnight")].append(v)
     workouts: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    series: list[dict[str, Any]] = []
     for w in data.get("workouts") or []:
         if not isinstance(w, dict) or not (day := _day(w.get("start"))):
             continue
@@ -238,6 +239,8 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
         entry = workout_entry(w.get("name"), w.get("start"), _num(w.get("duration")), km, kcal,
                               _num(w.get("avgHeartRate") or w.get("heartRateAvg")), _num(w.get("maxHeartRate")))
         workouts[day].append(entry)
+        if (s := workout_series(w)) is not None:
+            series.append(s)
         if "run" in entry["name"].lower() and km:
             readings[(day, "running_km")].append(km)
     metrics: dict[str, dict[str, float]] = defaultdict(dict)
@@ -246,7 +249,41 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
     intraday = {day: {hour: {k: round(sum(v) if k in ("kcal", "steps", "mindful") else mean(v), 1) for k, v in vals.items()}
                       for hour, vals in hours.items()} for day, hours in hourly.items()}
     return {"metrics": dict(metrics), "sleep": sleep_times, "workouts": dict(workouts), "ignored": sorted(ignored), "intraday": intraday,
-            "hour_sums": {d: {m: dict(h) for m, h in ms.items()} for d, ms in sums.items()}, "meta": describe(data)}
+            "hour_sums": {d: {m: dict(h) for m, h in ms.items()} for d, ms in sums.items()}, "workout_series": series, "meta": describe(data)}
+
+
+def _points(items: Any) -> list[list[Any]]:
+    out = []
+    for p in items if isinstance(items, list) else []:
+        if not isinstance(p, dict):
+            continue
+        t = str(p.get("date") or p.get("start") or "")[:25]
+        avg = _num(p.get("Avg") if p.get("Avg") is not None else p.get("avg") if p.get("avg") is not None else p.get("qty"))
+        top = _num(p.get("Max") if p.get("Max") is not None else p.get("max"))
+        if t and avg is not None:
+            out.append([t, round(avg, 1), round(top if top is not None else avg, 1)])
+    return out
+
+
+def workout_series(w: dict[str, Any]) -> dict[str, Any] | None:
+    """A workout's heart rate over time (4.28), from Health Auto Export's
+    workout heart-rate data (one point a minute, or each sample, with Avg/Max
+    or qty), and its active energy over time when sent. None when the export
+    has neither (the Workouts automation needs heart-rate data turned on)."""
+    hr: list[list[Any]] = []
+    for key in ("heartRateData", "heartRate", "heart_rate", "heartRateSamples"):
+        if isinstance(w.get(key), list):
+            hr = _points(w[key])
+            if hr:
+                break
+    kcal = []
+    energy = w.get("activeEnergy")
+    if isinstance(energy, list):
+        kcal = [[p[0], p[1]] for p in _points(energy)]
+    if not hr:
+        return None
+    return {"name": str(w.get("name") or "Workout")[:60], "start": str(w.get("start") or "")[:25], "end": str(w.get("end") or "")[:25],
+            "hr": sorted(hr), "kcal": sorted(kcal)}
 
 
 SEGMENT_STAGES = {"core": "core", "deep": "deep", "rem": "rem", "awake": "awake", "inbed": "inBed", "asleep": "asleep", "unspecified": "asleep",
