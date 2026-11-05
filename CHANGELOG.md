@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.39 — 2026-11-05
+
+- Set-by-set heart rate from each Watch reading, the settle time that teaches SirisGym's rest timer, and cardio, niggles and same-weight fitness in training answers
+
 ## 4.29 — 2026-11-05
 
 - SirisGym's coach: plain advice after a workout from the set-by-set analysis (rest longer, reps falling away, room to add weight), and GET /siris/health/gym/coach, at most two changes for the week from training, sleep, recovery and protein. GET /siris/brain/inbox/count for a light badge.

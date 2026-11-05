@@ -337,3 +337,40 @@ def test_a_sirisgym_session_links_to_the_watch_and_each_set_gets_its_heart_rate(
     nolink = client.post("/siris/health/gym/session", json={"id": "s2", "title": "Pull", "started_at": utc("23:00:00"), "sets": []}, headers=H)
     assert nolink.status_code == 200 and not client.get("/siris/health/gym/session/s2/analysis", headers=H).json()["linked"]
     assert gym_effort._e1rm(100, 5) == 116.7
+
+
+def test_each_heart_rate_reading_lines_sets_up_finely_and_finds_the_settle_time(client: TestClient) -> None:
+    """4.39: Health Metrics heart rate sent reading by reading is used instead of the workout's minute-by-minute heart rate."""
+    from datetime import datetime, timedelta
+
+    z = " +1100"
+    start = datetime(2026, 11, 3, 18, 0, 0)
+    tick = datetime(2026, 11, 3, 18, 4, 40)
+
+    def bpm(t: datetime) -> float:
+        if datetime(2026, 11, 3, 18, 4, 8) <= t <= tick + timedelta(seconds=20):
+            return 160.0
+        if tick + timedelta(seconds=20) < t <= tick + timedelta(seconds=80):
+            return 160.0 - (t - tick - timedelta(seconds=20)).total_seconds()
+        return 100.0
+    pts = [{"date": (start + timedelta(seconds=5 * i)).strftime("%Y-%m-%d %H:%M:%S") + z, "qty": bpm(start + timedelta(seconds=5 * i))} for i in range(360)]
+    body = {"data": {"metrics": [{"name": "heart_rate", "units": "count/min", "data": pts}]}}
+    assert client.post("/siris/health/metrics", json=body, headers=H).status_code == 200
+    sets = [{"exercise": "bench-press", "name": "Bench Press", "set": 1, "weight": 80, "reps": 8, "at": "2026-11-03T07:04:40+00:00"},
+            {"exercise": "bench-press", "name": "Bench Press", "set": 2, "weight": 80, "reps": 8, "at": "2026-11-03T07:09:40+00:00"}]
+    client.post("/siris/health/gym/session", json={"id": "fine1", "title": "Push", "started_at": "2026-11-03T07:00:00+00:00",
+                                                    "ended_at": "2026-11-03T07:20:00+00:00", "sets": sets}, headers=H)
+    a = client.get("/siris/health/gym/session/fine1/analysis", headers=H).json()
+    assert a["linked"] and a["watch"]["source"] == "readings" and a["resolution_s"] == 5
+    assert a["sets"][0]["peak_hr"] == 160 and a["sets"][0]["settle_s"] == 50 and a["sets"][0]["id"] == "bench-press"
+    assert a["exercises"][0]["id"] == "bench-press" and a["exercises"][0]["settle_s"] is not None
+    assert "a minute at a time" not in a["text"]
+
+
+def test_the_training_summary_mentions_cardio_niggles_and_heart_rate_at_the_same_weight() -> None:
+    from app.health import gym
+
+    t = gym.text({"total_sessions": 3, "streak_weeks": 1, "week": {"sessions": 2, "volume": 5000, "cardio_min": 30, "cardio_km": 4.8},
+                  "niggles": [{"area": "knee", "since": "2026-11-01", "note": "after running"}],
+                  "same_weight": ["Bench Press: At 80 kg your heart rate peaks 11 bpm lower than on 2026-10-01 (150 → 139 bpm): fitter at the same weight."]})
+    assert "30 min of cardio (4.8 km)" in t and "Sore: knee since 2026-11-01 (after running)" in t and "11 bpm lower" in t

@@ -72,6 +72,50 @@ def keep_series(siris: "SirisAI", series: list[dict[str, Any]]) -> int:
     return len(series)
 
 
+KEEP_SAMPLE_DAYS = 10
+MAX_SAMPLES_A_DAY = 20_000
+
+
+def keep_samples(siris: "SirisAI", samples: list[list[Any]]) -> int:
+    """Each heart-rate reading from the Health Metrics automation (4.39), when it's
+    sent without aggregating: the Watch reads every few seconds during a workout,
+    far finer than the workout's minute-by-minute heart rate. The last ten days."""
+    if not samples:
+        return 0
+    kept = dict(siris.state.get(_key("hr_samples")) or {})
+    for p in samples:
+        t = _aware(p[0])
+        if t is None:
+            continue
+        day = t.astimezone(UTC).date().isoformat()
+        kept.setdefault(day, {})[t.astimezone(UTC).isoformat()] = [p[1], p[2]]
+    for day in sorted(kept)[:-KEEP_SAMPLE_DAYS]:
+        kept.pop(day)
+    for day, pts in kept.items():
+        if len(pts) > MAX_SAMPLES_A_DAY:
+            kept[day] = dict(sorted(pts.items())[-MAX_SAMPLES_A_DAY:])
+    siris.state.set(_key("hr_samples"), kept)
+    return len(samples)
+
+
+def samples_between(siris: "SirisAI", a: datetime, b: datetime) -> list[list[Any]]:
+    kept = siris.state.get(_key("hr_samples")) or {}
+    out = []
+    d = a.astimezone(UTC).date()
+    while d <= b.astimezone(UTC).date():
+        for t, (avg, top) in (kept.get(d.isoformat()) or {}).items():
+            if (when := _aware(t)) is not None and a <= when <= b:
+                out.append([t, avg, top])
+        d += timedelta(days=1)
+    return sorted(out, key=lambda p: str(_aware(p[0])))
+
+
+def _step(points: list[Any]) -> float:
+    ts = [t for p in points if (t := _aware(p[0])) is not None]
+    gaps = sorted((ts[i + 1] - ts[i]).total_seconds() for i in range(len(ts) - 1))
+    return gaps[len(gaps) // 2] if gaps else 60.0
+
+
 def keep_session(siris: "SirisAI", session: dict[str, Any]) -> None:
     kept = dict(siris.state.get(_key("gym_sessions")) or {})
     kept[str(session["id"])] = session
@@ -119,6 +163,13 @@ def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
     if not session:
         return {"linked": False, "why": "SirisAI hasn't had this workout from SirisGym yet (it's sent when the workout is saved)."}
     watch = link(siris, session)
+    a = _aware(session.get("started_at"))
+    b = _aware(session.get("ended_at")) or (a + timedelta(minutes=90) if a else None)
+    fine = samples_between(siris, a - timedelta(minutes=5), b + timedelta(minutes=5)) if a and b else []
+    # 4.39: each reading from the Health Metrics automation, when it's finer than the workout's minute-by-minute heart rate.
+    if len(fine) >= 10 and (not watch or _step(fine) < 0.8 * _step(watch.get("hr") or [])):
+        watch = {**(watch or {"name": "Heart rate", "start": session.get("started_at"), "end": session.get("ended_at"), "kcal": []}),
+                 "hr": fine, "readings": True}
     if not watch:
         return {"linked": False, "why": "No Apple Watch workout overlaps it yet. Start one with the workout (a Shortcut can do it), and make sure Health "
                                         "Auto Export's Workouts automation sends heart-rate data; it links when that arrives."}
@@ -145,18 +196,37 @@ def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
         nxt = done[i + 1][1] - timedelta(seconds=max(20.0, 4.0 * float(done[i + 1][0].get("reps") or 0))) if i + 1 < len(done) else None
         rest = window(s_end, nxt) if nxt and nxt > s_end else []
         peak = max((p[2] for p in w), default=None)
-        entry = {"exercise": s.get("name") or s.get("exercise"), "set": s.get("set"), "type": s.get("type", "normal"), "weight": s.get("weight"),
+        # Settled: heart rate halfway back from the set's peak to where it was as the set began (7.1 in SirisOS learns the rest from it).
+        before = [p for p in hr if s_start - timedelta(seconds=max(90.0, step)) <= p[0] <= s_start]
+        base = min((p[1] for p in before), default=None) if before else (w[0][1] if w else None)
+        settle = None
+        unsettled = False
+        if peak and base is not None and peak > base:
+            target = base + (peak - base) / 2
+            after = [p for p in hr if p[0] >= t and (nxt is None or p[0] <= nxt)]
+            hit = next((p for p in after if p[1] <= target), None)
+            if hit:
+                settle = max(0, round((hit[0] - t).total_seconds()))
+            elif nxt is not None:
+                unsettled = True
+        entry = {"id": s.get("exercise"), "exercise": s.get("name") or s.get("exercise"), "set": s.get("set"), "type": s.get("type", "normal"), "weight": s.get("weight"),
                  "reps": s.get("reps"), "rpe": s.get("rpe"), "at": t.isoformat(), "avg_hr": round(mean(p[1] for p in w)) if w else None,
                  "peak_hr": round(peak) if peak else None, "peak_share": round(peak / hr_max, 2) if peak else None,
                  "recovery_bpm": round(peak - min(p[1] for p in rest)) if peak and rest else None,
-                 "rest_s": round((nxt - s_end).total_seconds()) if nxt and nxt > s_end else None}
+                 "rest_s": round((nxt - s_end).total_seconds()) if nxt and nxt > s_end else None,
+                 "settle_s": settle, "unsettled": unsettled}
         sets_out.append(entry)
         prev_end = t
     exercises: dict[str, dict[str, Any]] = {}
     for x in sets_out:
         if x["type"] == "warmup":
             continue
-        e = exercises.setdefault(x["exercise"], {"exercise": x["exercise"], "sets": 0, "peaks": [], "avgs": [], "rpes": [], "rec": [], "e1rm": None})
+        e = exercises.setdefault(x["exercise"], {"id": x["id"], "exercise": x["exercise"], "sets": 0, "peaks": [], "avgs": [], "rpes": [], "rec": [],
+                                                 "settle": [], "e1rm": None})
+        if x["settle_s"] is not None:
+            e["settle"].append(x["settle_s"])
+        elif x["unsettled"] and x["rest_s"]:
+            e["settle"].append(x["rest_s"] + 30)  # still up when the next set began: needed longer than it got
         e["sets"] += 1
         if x["peak_hr"]:
             e["peaks"].append(x["peak_hr"])
@@ -174,7 +244,8 @@ def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
         hr_effort = min(10.0, max(0.0, (peak / hr_max - 0.45) / 0.5 * 10)) if peak else None
         rpe = mean(e["rpes"]) if e["rpes"] else None
         effort = round(mean([v for v in (hr_effort, rpe) if v is not None]), 1) if (hr_effort is not None or rpe is not None) else None
-        ex_out.append({"exercise": e["exercise"], "sets": e["sets"], "avg_hr": round(mean(e["avgs"])) if e["avgs"] else None,
+        ex_out.append({"id": e["id"], "exercise": e["exercise"], "sets": e["sets"],
+                       "settle_s": round(sorted(e["settle"])[len(e["settle"]) // 2]) if e["settle"] else None, "avg_hr": round(mean(e["avgs"])) if e["avgs"] else None,
                        "peak_hr": round(max(e["peaks"])) if e["peaks"] else None, "peak_share": round(peak / hr_max, 2) if peak else None,
                        "effort": effort, "rpe": round(rpe, 1) if rpe else None, "recovery_bpm": round(mean(e["rec"])) if e["rec"] else None,
                        "e1rm": e["e1rm"]})
@@ -198,8 +269,10 @@ def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
     if slowest and len(ex_out) > 1:
         parts.append(f"Slowest to recover: {slowest['exercise']} (heart rate dropped {slowest['recovery_bpm']} bpm by the next set).")
     if step >= 50:
-        parts.append("The Watch sent heart rate a minute at a time, so each set's figures cover the minutes around it.")
-    return {"linked": True, "watch": {"name": watch.get("name"), "start": watch.get("start"), "end": watch.get("end")},
+        parts.append("The Watch sent heart rate a minute at a time, so each set's figures cover the minutes around it. "
+                     "For set-by-set figures, send each heart-rate reading from Health Auto Export's Health Metrics automation.")
+    return {"linked": True, "watch": {"name": watch.get("name"), "start": watch.get("start"), "end": watch.get("end"),
+                                      "source": "readings" if watch.get("readings") else "workout"},
             "max_hr": hr_max, "resolution_s": round(step), "avg_hr": round(mean(p[1] for p in in_session)) if in_session else None,
             "peak_hr": round(max(p[2] for p in in_session)) if in_session else None, "kj": round(kcal * 4.184) if kcal else None,
             "zones_min": [round(z, 1) for z in zones], "work_avg_hr": round(mean(work)) if work else None,
