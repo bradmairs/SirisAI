@@ -95,7 +95,8 @@ def _calls(stage) -> str:
 
 def test_nothing_to_do_without_a_request(stage) -> None:
     assert stage() is None
-    assert not (stage.state / "calls").exists()
+    calls = (stage.state / "calls").read_text().splitlines() if (stage.state / "calls").exists() else []
+    assert all("ls-remote --tags" in c for c in calls)  # only the hourly look at the newest release tag (4.5), read-only
     # Every run leaves a heartbeat (4.03), so SirisAI can tell the updater is installed.
     assert (stage.update_dir / "heartbeat").read_text().strip().endswith("Z")
 

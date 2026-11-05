@@ -55,6 +55,8 @@ update:
 	git -C .. pull --ff-only
 	git -C $(or $(SIRISOS_SRC),../../SirisOS) pull --ff-only
 	$(COMPOSE) build && $(COMPOSE) up -d
+	@# 4.5: the updater (every minute, by cron) is installed on every update, so it's never missing.
+	@./updater.sh install >/dev/null && echo "Updater installed (runs every minute)."
 
 auto-update:
 	./updater.sh install

@@ -359,3 +359,22 @@ def test_upkeep_routes(client: TestClient, tmp_path: Path) -> None:
         assert siris.run_tool("upkeep_status", {})["newest_backups"]
     finally:
         app.dependency_overrides.pop(get_siris, None)
+
+
+def test_a_private_repo_is_checked_through_the_updaters_git_tag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """4.5: GitHub's API answers 404 for a private repo without a token; the tag the updater read with git is used instead,
+    and without one the error says what to do."""
+    from app.upkeep import updates
+
+    real = httpx.Client
+    monkeypatch.setattr(updates.httpx, "Client", lambda *a, **k: real(*a, **{**k, "transport": httpx.MockTransport(lambda r: httpx.Response(404))}))
+    siris = _siris(tmp_path)
+    with pytest.raises(RuntimeError, match="private.*make update"):
+        updates.latest_release(siris)
+    (tmp_path / "update").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "update" / "latest.json").write_text(json.dumps({"version": "9.9", "checked_at": datetime.now(UTC).isoformat(), "via": "git"}))
+    got = updates.latest_release(siris)
+    assert got["version"] == "9.9" and got["via"] == "git" and got["url"].endswith("/releases/tag/v9.9")
+    stale = datetime.now(UTC) - timedelta(days=3)
+    (tmp_path / "update" / "latest.json").write_text(json.dumps({"version": "9.9", "checked_at": stale.isoformat()}))
+    assert updates.from_updater(siris) is None
