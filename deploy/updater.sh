@@ -114,9 +114,25 @@ once() {
   finish
 }
 
+# The newest release tag, through git on the server (4.5): it already has access to the repo, so SirisAI can see a
+# new release of a private repo without a GitHub token. At most once an hour.
+latest_tag() {
+  local out="$UPDATE_DIR/latest.json" tag
+  [ -f "$out" ] && [ -z "$(find "$out" -mmin +55 2>/dev/null)" ] && return 0
+  tag=$(git -C "$AI_SRC" ls-remote --tags --refs origin 'v*' 2>/dev/null | awk -F/ '{print $3}' | sed 's/^v//' \
+        | python3 -c 'import sys; from decimal import Decimal as D
+vs = [v.strip() for v in sys.stdin if v.strip()]
+ok = []
+for v in vs:
+    try: ok.append((D(v), v))
+    except Exception: pass
+print(max(ok)[1] if ok else "")' 2>/dev/null)
+  [ -n "$tag" ] && printf '{"version": "%s", "checked_at": "%s", "via": "git"}\n' "$tag" "$(date -u +%FT%TZ)" >"$out"
+}
+
 case "${1:-once}" in
   # The heartbeat tells SirisAI (and SirisOS's Update button) the updater is installed and running.
-  once) mkdir -p "$UPDATE_DIR"; date -u +%FT%TZ >"$UPDATE_DIR/heartbeat"; once ;;
+  once) mkdir -p "$UPDATE_DIR"; date -u +%FT%TZ >"$UPDATE_DIR/heartbeat"; latest_tag; once ;;
   install)
     mkdir -p "$UPDATE_DIR"
     ( crontab -l 2>/dev/null | grep -v '# siris-updater'; echo "* * * * * $DEPLOY/updater.sh once >/dev/null 2>&1 # siris-updater" ) | crontab -

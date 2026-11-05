@@ -62,14 +62,41 @@ def is_newer(candidate: str, current: str = __version__) -> bool:
     return a is not None and b is not None and a > b
 
 
+def from_updater(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | None:
+    """The newest release tag the updater read with git on the server (4.5), if it's from the last two days."""
+    path = update_dir(siris) / "latest.json"
+    try:
+        body = json.loads(path.read_text())
+        at = datetime.fromisoformat(str(body.get("checked_at")).replace("Z", "+00:00"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if (now or datetime.now(UTC)) - at > timedelta(days=2) or not body.get("version"):
+        return None
+    repo = siris.settings.update_repo
+    return {"version": str(body["version"]).lstrip("v"), "notes": "", "url": f"https://github.com/{repo}/releases/tag/v{body['version']}", "via": "git"}
+
+
 def latest_release(siris: "SirisAI") -> dict[str, Any]:
+    """The newest release: from GitHub's API, or (4.5) from the tag the updater read with git, which needs no token.
+    SirisAI's repo is private, so without SIRISAI_GITHUB_TOKEN the API answers 404."""
     headers = {"Accept": "application/vnd.github+json"}
     if siris.settings.github_token:
         headers["Authorization"] = f"Bearer {siris.settings.github_token}"
-    with httpx.Client(base_url=siris.settings.github_api_url.rstrip("/"), headers=headers, timeout=20) as http:
-        response = http.get(f"/repos/{siris.settings.update_repo}/releases/latest")
-        response.raise_for_status()
-        body = response.json()
+    try:
+        with httpx.Client(base_url=siris.settings.github_api_url.rstrip("/"), headers=headers, timeout=20) as http:
+            response = http.get(f"/repos/{siris.settings.update_repo}/releases/latest")
+            response.raise_for_status()
+            body = response.json()
+    except httpx.HTTPError as exc:
+        local = from_updater(siris)
+        if local:
+            return local
+        code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        if code in (401, 403, 404):
+            raise RuntimeError(f"GitHub answered {code} for {siris.settings.update_repo}: it's private, so either set SIRISAI_GITHUB_TOKEN "
+                               "(read access to its contents), or let the updater check with git: run `make update` in SirisAI/deploy "
+                               "once, which installs it.") from exc
+        raise
     return {"version": str(body.get("tag_name", "")).lstrip("v"), "notes": body.get("body") or "", "url": body.get("html_url")}
 
 
@@ -159,7 +186,7 @@ def report(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | No
             siris,
             "upkeep:updater-missing",
             "The updater isn't running",
-            f"SirisAI asked for {current['pending'].get('version')} but nothing has picked it up. On the server, run `make auto-update` in SirisAI/deploy once to install the updater.",
+            f"SirisAI asked for {current['pending'].get('version')} but nothing has picked it up. On the server, run `make update` (or `make auto-update`) in SirisAI/deploy once to install the updater.",
         )
     last = current.get("last")
     if not last or not last.get("finished_at") or last.get("state") == "running":
