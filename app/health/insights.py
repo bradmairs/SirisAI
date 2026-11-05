@@ -485,7 +485,7 @@ def explain(siris: "SirisAI", on: date | None = None, days: int = 7) -> dict[str
 def monthly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     """The month's training and health (4.17), written to the second brain's
     Health note on the 1st: readiness, sleep, workouts, the weight trend, and
-    SirisGYM's lifts and measurements. Kept on this server, like the weekly one."""
+    SirisGym's lifts and measurements. Kept on this server, like the weekly one."""
     from app.health import gym
 
     today = overview.today(siris) if now is None else now.astimezone(_zone(siris)).date()

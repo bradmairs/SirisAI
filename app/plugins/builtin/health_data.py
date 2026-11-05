@@ -257,7 +257,7 @@ class HealthExplainTool(_HealthTool):
 class GymProgressTool(_HealthTool):
     name = "gym_progress"
     description = (
-        "The user's strength training in SirisGYM (SirisOS): each main lift's estimated one-rep max over recent sessions, "
+        "The user's strength training in SirisGym (SirisOS): each main lift's estimated one-rep max over recent sessions, "
         "this week's sets by muscle against a target, records, whether a deload week is due, and the next routine day "
         "with the weights to lift. For 'how's my bench trending', 'what should I do in the gym today', 'am I training legs "
         "enough', 'did I set any PRs'. Pass exercise for one lift."
@@ -270,7 +270,7 @@ class GymProgressTool(_HealthTool):
 
         s = gym.latest(self._siris)
         if not s:
-            return {"text": "Nothing from SirisGYM yet: it sends a summary after each workout (SirisOS 6.9 or later)."}
+            return {"text": "Nothing from SirisGym yet: it sends a summary after each workout (SirisOS 6.9 or later)."}
         return {"text": gym.text(s, exercise), "as_of": s.get("received_at"), "lifts": s.get("lifts"), "next": s.get("next"),
                 "week": s.get("week"), "deload": s.get("deload")}
 

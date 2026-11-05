@@ -6517,6 +6517,8 @@ provider for the same capability actually exists to design against.
 
 165. **Done** -- Health data you can trust (4.17). Split syncs: summed metrics are kept hour by hour (`service.merge_hour_sums`), so Health Auto Export's Batch Requests add up and re-sends replace their hour. Alerts: `check_stale` goes by Health Auto Export's own last import, defaults to 6 hours (was 36), speaks only 10am-10pm, and adds "Today's health data isn't arriving" when exports stop at yesterday. `POST /siris/health/metrics?dry_run=1` parses without keeping (SirisOS's Test the sync). `GET /siris/health/sources?day=` shows each source's value per metric and which counts. New private tool `health_explain` (why readiness was low: the weakest contributors and the evening before). A monthly training and health report goes to the Health note on the 1st (`insights.monthly`). Verified with tests for each.
 
+166. **Done** -- SirisGym (4.18): the name everywhere is now SirisGym (it was SirisGYM). SirisOS 6.94 puts routine days on set weekdays; its summary says when today's a rest day and which weekday the next workout is on, and gym_progress says so ("Today's a rest day. Next on Thursday: …"). Verified with a test for the rest-day answer.
+
 ## Connecting your calendars (Gmail and iCloud)
 
 SirisAI merges every calendar you connect into one. That one calendar

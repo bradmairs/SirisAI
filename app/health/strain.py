@@ -8,7 +8,7 @@ heart rate (or its energy when there's none). For the day, the workouts plus
 the other hours' average heart rate (Health Auto Export by hour), at a
 quarter weight, since daily life is spread over the hour.
 
-**SirisGYM** (4.06): SirisOS sends each day's gym sessions (source
+**SirisGym** (4.06): SirisOS sends each day's gym sessions (source
 `sirisgym`). One that overlaps a workout from the Watch is left out, since
 the Watch's heart rate says it better; one without counts its minutes at a
 resistance-training weight (1.5).
@@ -59,7 +59,7 @@ def workout_load(w: dict[str, Any], max_hr: float) -> float:
 
 
 def without_doubles(workouts: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """A SirisGYM session that overlaps another source's workout (the Watch) is left out."""
+    """A SirisGym session that overlaps another source's workout (the Watch) is left out."""
     others = [(t, t + timedelta(minutes=float(w.get("minutes") or 30))) for w in workouts
               if w.get("source") != "sirisgym" and (t := auto_export.when(w.get("start")))]
     out = []

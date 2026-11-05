@@ -1,4 +1,4 @@
-"""SirisGYM's training, as SirisOS sends it (4.16): after every workout
+"""SirisGym's training, as SirisOS sends it (4.16): after every workout
 SirisOS posts a summary (POST /siris/health/gym): recent workouts, each main
 lift's estimated 1RM over its last sessions, this week by muscle, records in
 the last 30 days, the deload state, and the next routine day with what to
@@ -48,7 +48,7 @@ def text(s: dict[str, Any], exercise: str | None = None) -> str:
     if exercise:
         want = exercise.lower()
         hit = next((n for n in lifts if want in n.lower() or n.lower().split()[0] in want), None)
-        return trend(hit, lifts[hit]) if hit else f"No {exercise} in SirisGYM's main lifts yet (it tracks {', '.join(lifts) or 'none so far'})."
+        return trend(hit, lifts[hit]) if hit else f"No {exercise} in SirisGym's main lifts yet (it tracks {', '.join(lifts) or 'none so far'})."
     parts = [f"{s.get('total_sessions', 0)} workouts logged, {s.get('streak_weeks', 0)} weeks in a row."]
     week = s.get("week") or {}
     if week:
@@ -67,7 +67,9 @@ def text(s: dict[str, Any], exercise: str | None = None) -> str:
         parts.append("Records this month: " + "; ".join(s["records_30d"][-4:]) + ".")
     if n := s.get("next"):
         lifts_next = ", ".join(f"{e['name']} {e['sets']}×{e['reps']}" + (f" at {e['weight']:g} kg" if e.get("weight") else "") for e in n.get("exercises") or [])
-        parts.append(f"Next: {n['routine']}, {n['day']}: {lifts_next}.")
+        when = f" on {n['on']}" if n.get("rest_day") and n.get("on") else ""
+        lead = "Today's a rest day. " if n.get("rest_day") else ""
+        parts.append(f"{lead}Next{when}: {n['routine']}, {n['day']}: {lifts_next}.")
     parts += [trend(n, lift) for n, lift in list(lifts.items())[:3]]
     return " ".join(parts)
 
