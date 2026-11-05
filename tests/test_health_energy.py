@@ -303,3 +303,37 @@ def test_why_readiness_was_low_and_the_monthly_report(client: TestClient) -> Non
     siris.second_brain = SimpleNamespace(learn=lambda items: learned.extend(items))  # type: ignore[assignment]
     r = insights.monthly(siris, datetime(2026, 11, 1, 19, tzinfo=timezone.utc))
     assert r["month"] == "2026-10" and "Health and training, October 2026" in learned[0]["content"] and "Slept" in learned[0]["content"]
+
+
+def test_a_sirisgym_session_links_to_the_watch_and_each_set_gets_its_heart_rate(client: TestClient) -> None:
+    """4.28: the Watch workout's heart rate (Health Auto Export) is aligned with each set SirisGym timed."""
+    from app.health import gym_effort
+
+    z = " +1100"
+    # 18:00-18:30 local; bench sets at 18:04 and 18:08 hit 150; squats at 18:15 and 18:19 hit 172; rests drop to ~110.
+    def bpm(minute: int) -> tuple[float, float]:
+        if minute in (4, 8):
+            return 140, 150
+        if minute in (15, 19):
+            return 165, 172
+        return 110, 115
+    hr = [{"date": f"2026-11-02 18:{m:02d}:00{z}", "Avg": bpm(m)[0], "Max": bpm(m)[1], "Min": 100, "units": "count/min"} for m in range(0, 31)]
+    watch = {"data": {"workouts": [{"name": "Traditional Strength Training", "start": f"2026-11-02 18:00:30{z}", "end": f"2026-11-02 18:30:00{z}",
+                                    "duration": 1770, "heartRateData": hr, "activeEnergy": [{"date": f"2026-11-02 18:{m:02d}:00{z}", "qty": 6, "units": "kcal"} for m in range(30)]}]}}
+    assert client.post("/siris/health/metrics", json=watch, headers=H).status_code == 200
+    utc = lambda hhmmss: f"2026-11-02T{hhmmss}+00:00"  # noqa: E731 - 18:xx in Melbourne is 07:xx UTC
+    sets = [{"exercise": "bench-press", "name": "Bench Press", "set": 1, "weight": 80, "reps": 8, "rpe": 7, "at": utc("07:04:40")},
+            {"exercise": "bench-press", "name": "Bench Press", "set": 2, "weight": 80, "reps": 8, "at": utc("07:08:40")},
+            {"exercise": "back-squat", "name": "Back Squat", "set": 1, "weight": 120, "reps": 5, "rpe": 9, "at": utc("07:15:40")},
+            {"exercise": "back-squat", "name": "Back Squat", "set": 2, "weight": 120, "reps": 5, "at": utc("07:19:40")}]
+    client.post("/siris/health/gym/session", json={"id": "s1", "title": "Push", "started_at": utc("07:00:00"), "ended_at": utc("07:30:00"), "sets": sets}, headers=H)
+    a = client.get("/siris/health/gym/session/s1/analysis", headers=H).json()
+    assert a["linked"] and a["watch"]["name"] == "Traditional Strength Training" and a["resolution_s"] == 60
+    by = {e["exercise"]: e for e in a["exercises"]}
+    assert by["Bench Press"]["peak_hr"] == 150 and by["Back Squat"]["peak_hr"] == 172
+    assert by["Back Squat"]["effort"] > by["Bench Press"]["effort"] and by["Back Squat"]["e1rm"] == 140.0
+    assert a["sets"][0]["recovery_bpm"] == 40 and a["kj"] == round(180 * 4.184)
+    assert "Hardest: Back Squat" in a["text"] and "a minute at a time" in a["text"]
+    nolink = client.post("/siris/health/gym/session", json={"id": "s2", "title": "Pull", "started_at": utc("23:00:00"), "sets": []}, headers=H)
+    assert nolink.status_code == 200 and not client.get("/siris/health/gym/session/s2/analysis", headers=H).json()["linked"]
+    assert gym_effort._e1rm(100, 5) == 116.7

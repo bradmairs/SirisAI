@@ -271,7 +271,10 @@ class GymProgressTool(_HealthTool):
         s = gym.latest(self._siris)
         if not s:
             return {"text": "Nothing from SirisGym yet: it sends a summary after each workout (SirisOS 6.9 or later)."}
-        return {"text": gym.text(s, exercise), "as_of": s.get("received_at"), "lifts": s.get("lifts"), "next": s.get("next"),
+        from app.health import gym_effort
+
+        extra = gym_effort.latest_text(self._siris) if not exercise else None
+        return {"text": gym.text(s, exercise) + (f" {extra}" if extra else ""), "as_of": s.get("received_at"), "lifts": s.get("lifts"), "next": s.get("next"),
                 "week": s.get("week"), "deload": s.get("deload")}
 
 
