@@ -193,6 +193,12 @@ def learned_today(siris: SirisAI = Depends(get_siris)) -> dict:
     return {"date": date, "items": _brain(siris).learned_today(date)}
 
 
+@router.get("/recent")
+def recent(folder: str = Query("", max_length=80), limit: int = Query(8, ge=1, le=30), siris: SirisAI = Depends(get_siris)) -> list[dict]:
+    """The most recently updated notes (4.8, engine 2.18), e.g. folder=Work for SirisOS's Work page."""
+    return _note_write(_brain(siris).recent, folder, limit)
+
+
 @router.get("/search")
 def search(q: str, limit: int = 8, siris: SirisAI = Depends(get_siris)) -> list[dict]:
     return _brain(siris).search(q, limit=limit)

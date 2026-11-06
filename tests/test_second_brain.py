@@ -138,6 +138,11 @@ FAKE_ENGINE = textwrap.dedent(
             sys.exit("No note called " + repr(args[-2] if a is None else args[-1]))
         print(json.dumps({"action": "merged", "from": a, "into": b} if cmd == "merge" else {"action": "distinct", "a": a, "b": b}))
         sys.exit(0)
+    if cmd == "recent":
+        folder = args[args.index("--folder") + 1]
+        print(json.dumps([{"title": t, "path": f"Work/{t}.md", "type": "note", "as_of": "2026-11-06", "tags": [], "excerpt": b[:50]}
+                          for t, b in notes.items() if folder == "Work"]))
+        sys.exit(0)
     if cmd == "edit":
         t = find(args[args.index("--") + 1])
         if t is None or ("--expect" in args and args[args.index("--expect") + 1] != "v1"):
@@ -928,3 +933,13 @@ def test_set_block_and_past_projects(tmp_path: Path) -> None:
     out = BrainPastProjectsTool(FakeSearch()).run(query="culvert outlet")
     assert [p["title"] for p in out["pages"]] == ["Dellows Underslip", "Culverts"]
     assert [n["title"] for n in out["notes"]] == ["Dellows Underslip – Outlet Options"]   # never personal notes
+
+
+
+def test_recent_notes_route(brain_api) -> None:
+    """4.8: the most recently updated notes under a folder, for SirisOS's Work page."""
+    client, vault = brain_api
+    client.post("/siris/brain/capture", json={"title": "Pump Stations", "text": "Wet wells"})
+    got = client.get("/siris/brain/recent", params={"folder": "Work", "limit": 5}).json()
+    assert got and all(n["as_of"] == "2026-11-06" and n["path"].startswith("Work/") for n in got)
+    assert _calls(vault)[-1]["args"] == ["recent", "--folder", "Work", "--limit", "5"]

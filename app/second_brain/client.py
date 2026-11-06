@@ -109,6 +109,12 @@ class SecondBrainClient:
         # Options before "--" so a query starting with "-" is never read as a flag.
         return self._engine_call(["search", "--limit", str(limit), "--output", "json", "--", query])
 
+    def recent(self, folder: str = "", limit: int = 8) -> list[dict]:
+        """The most recently updated notes, newest first, optionally under one folder (engine 2.18):
+        title, path, as_of, tags and their first lines."""
+        self._maybe_pull()
+        return self._engine_call(["recent", "--folder", folder, "--limit", str(limit)])
+
     def get_note(self, title: str) -> dict | None:
         """One note -- body, frontmatter, aliases, tags, links out and
         backlinks -- by title, alias, or a close title match. None if
