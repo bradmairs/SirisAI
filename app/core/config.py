@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     llm_provider: str = "none"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3"
+    # How long Ollama keeps a model loaded after a call (4.6): Ollama's own
+    # default is 5m, after which the next question waits while the model
+    # loads again. "-1" keeps it loaded for good; "" leaves Ollama's default.
+    ollama_keep_alive: str = "30m"
+    # Local hours (start-end, 24h) when SirisAI keeps the chat model warm
+    # with a preload every few minutes, so the first question of the
+    # morning doesn't wait for a load. "" = never preload.
+    ollama_warm_hours: str = "6-23"
 
     # Semantic memory recall (app/llm/embeddings.py, app/memory/service.py).
     # "none" (default) keeps MemoryStore.recall() on its original plain
@@ -220,6 +228,7 @@ class Settings(BaseSettings):
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
         "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "onenote_hour_local", "gmail_hour_local",
+        "bills_hour_local", "travel_hour_local",
         mode="before",
     )
     @classmethod
@@ -356,6 +365,10 @@ class Settings(BaseSettings):
     # sirisos_service_key must match SIRISOS_SERVICE_KEY on the SirisOS side.
     # Empty URL = the sirisos_* tools aren't registered.
     sirisos_url: str = ""
+    # SirisOS's address as your phone reaches it (4.6), e.g.
+    # https://os.example.net. A push for an approval that needs the PIN gets
+    # an "Approve in SirisOS" button opening straight to it. Blank: no button.
+    sirisos_public_url: str = ""
     sirisos_service_key: str = ""
 
     # Energy-aware scheduling (app/energy/service.py): power counts as cheap
@@ -420,6 +433,21 @@ class Settings(BaseSettings):
     # The weekly audit digest (app/audit/digest.py), Sundays at this hour (blank = off).
     audit_digest_hour_local: int | None = 18
 
+    # Life admin (4.6). The document inbox (app/documents) reminds this many
+    # days before anything a letter says is due, and on the day.
+    document_remind_days: int = 3
+    # Bills and subscriptions found in email (app/bills): checked daily at
+    # this hour (blank = off), raised this many days before they're due.
+    bills_hour_local: int | None = 8
+    bills_warn_days: int = 4
+    # Travel mode (app/travel): trips in the calendar this far ahead, the
+    # checklist this many days before, checked at this hour (blank = off).
+    # A long event at a place containing travel_home_city isn't a trip.
+    travel_lookahead_days: int = 21
+    travel_notice_days: int = 3
+    travel_hour_local: int | None = 18
+    travel_home_city: str = ""
+
     # Hermes Agent (app/hermes/, app/plugins/builtin/hermes.py) -- a
     # separate homelab agent running on the same host, with its own
     # memories, skills, and terminal access, used to delegate Docker/
@@ -470,6 +498,11 @@ class Settings(BaseSettings):
     # of them (see app/plugins/selector.py). 110 tools cost ~14,200 prompt
     # tokens per turn versus ~1,050 with none. 0 = always offer everything.
     tool_selection_max: int = 32
+    # Answer plain home commands ("turn off the kitchen lights", "dim the
+    # lounge to 30%") without the model when there's exactly one match and
+    # no confirmation is needed (app/cortex/quick.py). Anything else, or
+    # anything unclear, goes to the model as before.
+    quick_commands: bool = True
     # Also match tools by meaning when an embedding model is configured
     # (SIRISAI_EMBEDDING_PROVIDER=ollama) -- see app/plugins/selector.py.
     tool_selection_semantic: bool = True

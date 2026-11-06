@@ -36,6 +36,18 @@ class DailyJob:
     monthday: int | None = None  # e.g. 1 = the first of the month
 
 
+def _bills(siris: "SirisAI", now: datetime) -> Any:
+    from app.bills import service
+
+    return service.scan(siris, now=now)
+
+
+def _travel(siris: "SirisAI", now: datetime) -> Any:
+    from app.travel import service
+
+    return [t["title"] for t in service.check(siris, now)]
+
+
 def _reflect(siris: "SirisAI", now: datetime) -> Any:
     from app.learning.reflection import reflect
 
@@ -179,6 +191,8 @@ JOBS: list[DailyJob] = [
     DailyJob("internet_weekly", lambda s: s.settings.internet_report_hour_local if s.settings.internet_probe_seconds > 0 else None, _internet_weekly, weekday=lambda s: 0),
     DailyJob("energy_weekly", lambda s: s.settings.energy_report_hour_local if getattr(s, "_home_assistant_client", None) is not None else None, _energy_weekly, weekday=lambda s: 0),
     DailyJob("audit_weekly", lambda s: s.settings.audit_digest_hour_local, _audit_weekly, weekday=lambda s: 6),
+    DailyJob("bills", lambda s: s.settings.bills_hour_local if getattr(s, "email_client", None) is not None else None, _bills),
+    DailyJob("travel", lambda s: s.settings.travel_hour_local if getattr(s, "calendar", None) is not None else None, _travel),
     DailyJob("health_check", lambda s: s.settings.health_check_hour_local, _health_check),
     DailyJob("health_weekly", lambda s: 19, _health_weekly, weekday=lambda s: 6),
     DailyJob("health_monthly", lambda s: 19, _health_monthly, monthday=1),

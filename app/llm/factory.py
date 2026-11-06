@@ -14,7 +14,7 @@ from app.llm.base import LLMClient, NullLLMClient
 from app.llm.ollama import OllamaClient
 
 
-def build_llm_client(provider: str, ollama_base_url: str, ollama_model: str) -> LLMClient:
+def build_llm_client(provider: str, ollama_base_url: str, ollama_model: str, keep_alive: str | None = None) -> LLMClient:
     if provider == "ollama":
-        return OllamaClient(base_url=ollama_base_url, model=ollama_model)
+        return OllamaClient(base_url=ollama_base_url, model=ollama_model, keep_alive=keep_alive)
     return NullLLMClient()

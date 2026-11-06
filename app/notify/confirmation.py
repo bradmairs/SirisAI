@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_DESCRIBED = {"ssh_power", "home_assistant_call_service", "home_assistant_create_automation", "run_protocol"}
+
 
 def _headers(siris: "SirisAI") -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
@@ -53,7 +55,18 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
     # A button can't carry the approval PIN: big actions get Decline only and
     # are approved in the app.
     actions = [a for a in item["actions"] if not approvals.action_needs_pin(siris, item, a["id"], payload)]
-    return [
+    buttons: list[dict[str, Any]] = []
+    held = len(actions) < len(item["actions"])
+    if held and siris.settings.sirisos_public_url:
+        # The ones that need the PIN open straight to the approval in
+        # SirisOS (4.6), which asks for it there.
+        buttons.append({
+            "action": "view",
+            "label": "Approve in SirisOS",
+            "url": f"{siris.settings.sirisos_public_url.rstrip('/')}/?attention={item['id']}",
+            "clear": True,
+        })
+    return buttons + [
         {
             "action": "http",
             "label": a["label"],
@@ -63,7 +76,7 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
             "body": json.dumps({"action": a["id"]}),
             "clear": True,
         }
-        for a in actions[:3]
+        for a in actions[: 3 - len(buttons)]
     ]
 
 
@@ -100,7 +113,14 @@ def notify_confirmation_needed(siris: "SirisAI", context: str, tool_name: str, a
     else:
         actions = None
 
-    message = f"{context} wants to run '{tool_name}' ({arguments}) -- needs your confirmation."
+    # In words for the calls that have a plain description (4.6); the rest
+    # show the call itself, which says more than the tool's name alone.
+    if tool_name in _DESCRIBED:
+        from app.voice.confirmations import describe_call
+
+        message = f"{context} wants to {describe_call(tool_name, arguments)}. It needs your OK."
+    else:
+        message = f"{context} wants to run '{tool_name}' ({arguments}) -- needs your confirmation."
     siris.run_tool(
         "notify",
         {"title": "SirisAI: confirmation needed", "message": message, "actions": actions},

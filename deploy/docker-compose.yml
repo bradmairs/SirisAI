@@ -32,6 +32,8 @@ services:
       SIRISAI_DATABASE_URL: sqlite:///./data/sirisai.db
       SIRISAI_API_KEY: ${SIRISAI_API_KEY:?run ./setup.sh first}
       SIRISAI_SIRISOS_URL: http://sirisos:6464
+      # Where a phone opens SirisOS (Caddy below), for "Approve in SirisOS" on pushes.
+      SIRISAI_SIRISOS_PUBLIC_URL: ${SIRISOS_PUBLIC_URL:-https://${SIRIS_HOST:-localhost}:8444}
       SIRISAI_SIRISOS_SERVICE_KEY: ${SIRIS_SERVICE_KEY:?run ./setup.sh first}
       SIRISAI_TIMEZONE: ${TZ:-Australia/Melbourne}
     # Lets SirisAI reach services running on the host itself (Ollama, usually)

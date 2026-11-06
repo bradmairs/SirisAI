@@ -236,6 +236,7 @@ from app.plugins.builtin.servers import (
     SshWakeTool,
 )
 from app.plugins.builtin.household import AuditDigestTool, CameraSummaryTool, EnergyReportTool
+from app.plugins.builtin.life import BillsUpcomingTool, DocumentsSearchTool, TravelUpcomingTool
 from app.plugins.builtin.homelab import (
     DockerCheckUpdatesTool,
     DockerUpdateContainersTool,
@@ -338,6 +339,9 @@ from app.weather.client import WeatherClient
 _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("home_assistant_", "home_assistant"),
     ("health_", "health"),
+    ("documents_", "documents"),
+    ("bills_", "bills"),
+    ("travel_", "travel"),
     ("docker_", "docker"),
     ("plex_", "plex"),
     ("unifi_", "unifi"),
@@ -534,6 +538,7 @@ class SirisAI:
                     self.settings.llm_provider,
                     self.settings.ollama_base_url,
                     self.settings.ollama_model,
+                    self.settings.ollama_keep_alive,
                 ),
                 self.metrics,
             )
@@ -545,6 +550,7 @@ class SirisAI:
                         self.settings.fast_llm_provider,
                         self.settings.fast_llm_ollama_base_url,
                         self.settings.fast_llm_ollama_model,
+                        self.settings.ollama_keep_alive,
                     ),
                     self.metrics,
                 )
@@ -658,7 +664,7 @@ class SirisAI:
         self.tools.register(ListRemindersTool(self.reminders, self.settings.timezone))
         self.tools.register(CancelReminderTool(self.reminders))
         self.tools.register(IntegrationHealthTool(self))
-        self.tools.register(SearchConversationsTool(self.conversation, self.settings.timezone))
+        self.tools.register(SearchConversationsTool(self.conversation, self.settings.timezone, self))
         self.tools.register(RecentConversationsTool(self.conversation, self.settings.timezone))
         if self.settings.web_tools_enabled:
             web_client = WebSearchClient(searx_url=self.settings.web_search_url)
@@ -849,8 +855,9 @@ class SirisAI:
             self.tools.register(CalendarCheckConflictsTool(calendar_client))
             self.tools.register(CalendarCreateEventTool(calendar_client))
 
+        self.email_client: EmailClient | None = None
         if self.settings.email_imap_host and self.settings.email_username and self.settings.email_password:
-            email_client = EmailClient(
+            email_client = self.email_client = EmailClient(
                 imap_host=self.settings.email_imap_host,
                 imap_port=self.settings.email_imap_port,
                 username=self.settings.email_username,
@@ -1056,6 +1063,11 @@ class SirisAI:
         self.tools.register(InternetOutagesTool(self))
         self.tools.register(ExpiryCheckTool(self))
         self.tools.register(AuditDigestTool(self))
+        self.tools.register(DocumentsSearchTool(self))
+        if self.email_client is not None:
+            self.tools.register(BillsUpcomingTool(self))
+        if self.calendar is not None:
+            self.tools.register(TravelUpcomingTool(self))
         if self._home_assistant_client is not None:
             self.tools.register(EnergyReportTool(self))
         if self._frigate_client is not None:

@@ -21,6 +21,7 @@ from app.api.routes import (
     health,
     integrations,
     learning,
+    life,
     upkeep,
     memory,
     proactive,
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(cron.router)
     app.include_router(cameras.router)
     app.include_router(health_data.router)
+    app.include_router(life.router)
     app.include_router(hud.router)
     app.include_router(hub.router)
     app.include_router(evals.router)

@@ -47,6 +47,26 @@ class ToolInfo(BaseModel):
     permission: str
 
 
+@router.get("/timings")
+def turn_timings(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """How long chat turns take, per stage: typical (p50) and slow (p95)
+    milliseconds over the last 200 turns, and the last 20 turns in full
+    (app/cortex/timings.py)."""
+    from app.cortex import timings
+
+    return timings.summary(siris)
+
+
+@router.get("/scheduler/jobs")
+def scheduler_jobs() -> list[dict[str, Any]]:
+    """Each background job: when it last started, how long it took, its
+    last error, and whether it's running now or running slow
+    (app/core/scheduler.py)."""
+    from app.core import scheduler
+
+    return scheduler.job_status()
+
+
 @router.get("/tools", response_model=list[ToolInfo])
 def list_tools(siris: SirisAI = Depends(get_siris)) -> list[ToolInfo]:
     """Every registered tool, including skills -- full detail (description,
@@ -672,6 +692,22 @@ class MessageResponse(BaseModel):
 def list_conversations(limit: int = 20, siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
     """Recent conversations, newest first, for the web UI's history list."""
     return siris.conversation.recent_conversations(limit=max(1, min(limit, 50)))
+
+
+@router.get("/conversations/search")
+def search_conversations(
+    q: str = "", since: str | None = None, until: str | None = None, limit: int = 20, siris: SirisAI = Depends(get_siris)
+) -> list[dict[str, Any]]:
+    """Conversations by words (title, summary or messages) and dates
+    (YYYY-MM-DD or ISO times; `until` includes that whole day), newest
+    first, each with its title, summary and matching lines
+    (app/conversation/summaries.py)."""
+    from app.conversation import summaries
+
+    try:
+        return summaries.search(siris, q, since, until, limit=max(1, min(limit, 50)))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Dates are YYYY-MM-DD: {exc}") from exc
 
 
 @router.get("/conversations/{conversation_id}", response_model=list[MessageResponse])

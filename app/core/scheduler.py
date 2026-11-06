@@ -8,6 +8,9 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -390,124 +393,153 @@ async def _run_brain_jobs(siris: "SirisAI") -> None:
         logger.exception("Second brain jobs failed")
 
 
-async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
-    last_health = 0.0
-    last_proactive = 0.0
-    last_presence = 0.0
-    last_intruder = 0.0
-    last_healing = 0.0
-    last_security = time.monotonic()  # first check one interval after startup, not at boot
-    last_scan = time.monotonic()
-    last_habits = time.monotonic()
-    last_parcels = 0.0
-    last_eval = time.monotonic()
-    last_attention = time.monotonic()  # the feed syncs itself when asked; no need to at boot
-    last_servers = 0.0
-    last_devices = 0.0
-    last_health_checks = 0.0
-    last_speed = time.monotonic()  # the first speed test one interval after startup
-    brain_task: asyncio.Task | None = None
-    internet_task = asyncio.create_task(_internet_loop(siris))
+def should_warm(siris: "SirisAI", now: datetime | None = None) -> bool:
+    """Whether to keep the chat model loaded now: inside
+    SIRISAI_OLLAMA_WARM_HOURS (4.6), so the first question of the morning
+    doesn't wait for Ollama to load it."""
+    hours = (siris.settings.ollama_warm_hours or "").strip()
+    if not hours or siris.llm is None or getattr(siris.llm, "warm", None) is None:
+        return False
+    try:
+        start, end = (int(h) for h in hours.split("-", 1))
+    except ValueError:
+        return False
+    hour = (now or datetime.now(UTC)).astimezone(clock.get_zone(siris.settings.timezone)).hour
+    return start <= hour < end if start <= end else (hour >= start or hour < end)
+
+
+# Each job runs on its own loop (4.6): before, ~20 jobs ran one after another
+# in one loop, so a server check stuck on an SSH timeout held up reminders,
+# the morning brief and everything else behind it. Now a slow job only delays
+# itself. JOB_STATUS says when each last ran, how long it took, and whether
+# it's still going (GET /siris/scheduler/jobs).
+JOB_STATUS: dict[str, dict[str, object]] = {}
+_EXECUTOR = ThreadPoolExecutor(max_workers=24, thread_name_prefix="siris-job")
+# A job still going after this long is flagged "slow" in JOB_STATUS. It
+# isn't stopped (a thread can't be), and it won't be started again until
+# it finishes, so a hung check never piles up copies of itself.
+SLOW_AFTER_SECONDS = 600
+
+
+@dataclass
+class Job:
+    name: str
+    call: Callable[["SirisAI"], object]
+    every: Callable[["SirisAI"], float]  # seconds; 0 or less = off
+    at_boot: bool = True  # False: first run one interval after startup
+    is_async: bool = False
+
+
+def _settings_every(attr: str, unit: float) -> Callable[["SirisAI"], float]:
+    return lambda siris: float(getattr(siris.settings, attr)) * unit
+
+
+def _jobs(interval_seconds: float) -> list[Job]:
+    # Lambdas look the functions up by name when they run, so tests can
+    # replace any of them on this module.
+    every_tick = lambda _siris: interval_seconds  # noqa: E731
+    return [
+        Job("reminders", lambda s: tick(s, datetime.now(UTC)), every_tick),
+        Job("tool_alerts", lambda s: alert_on_broken_tools(s, datetime.now(UTC)), lambda _s: _HEALTH_EVERY_SECONDS),
+        Job("spoken_brief", _spoken_brief, every_tick),
+        Job("proactive", lambda s: run_proactive_check(s, datetime.now(UTC)), _settings_every("proactive_check_interval_minutes", 60)),
+        Job("presence", lambda s: run_presence_and_geofence_checks(s), _settings_every("presence_check_interval_minutes", 60)),
+        Job("intruder", lambda s: run_intruder_check(s), _settings_every("intruder_check_interval_minutes", 60)),
+        Job("self_healing", lambda s: run_self_healing(s), _settings_every("remediation_check_interval_minutes", 60)),
+        Job("security", lambda s: run_security_watch(s), _settings_every("security_check_interval_hours", 3600), at_boot=False),
+        Job("image_scan", lambda s: run_image_scan(s), _settings_every("security_scan_interval_days", 86400), at_boot=False),
+        Job("habits", lambda s: run_habit_check(s), _settings_every("habit_check_interval_days", 86400), at_boot=False),
+        Job("parcels", lambda s: run_parcel_refresh(s), _settings_every("parcel_refresh_minutes", 60)),
+        Job("tool_choice_eval", lambda s: run_tool_choice_eval(s), _settings_every("eval_interval_days", 86400), at_boot=False),
+        Job("attention", lambda s: (run_attention_sync(s), report_update(s)), _settings_every("attention_sync_minutes", 60), at_boot=False),
+        Job("servers", lambda s: run_server_watch(s), _settings_every("server_watch_minutes", 60)),
+        Job("devices", lambda s: run_device_watch(s), _settings_every("network_device_watch_minutes", 60)),
+        Job("camera_digest", lambda s: run_camera_digest(s), every_tick),
+        Job("health_checks", lambda s: run_health_checks(s), lambda _s: 300),
+        Job("speed_test", lambda s: run_speed_test(s), _settings_every("internet_speedtest_hours", 3600), at_boot=False),
+        Job("daily_jobs", lambda s: run_daily_jobs(s), every_tick),
+        Job("warm_model", _warm, lambda _s: 240, is_async=True),
+        Job("conversation_summaries", _summaries, lambda _s: 600, at_boot=False, is_async=True),
+    ]
+
+
+def _spoken_brief(siris: "SirisAI") -> None:
+    from app.voice import morning
+
+    if morning.configured(siris):
+        morning.check(siris)
+
+
+async def _warm(siris: "SirisAI") -> None:
+    if should_warm(siris):
+        assert siris.llm is not None
+        await siris.llm.warm()  # type: ignore[attr-defined]
+
+
+async def _summaries(siris: "SirisAI") -> None:
+    from app.conversation import summaries
+
+    await summaries.run(siris)
+
+
+async def _job_loop(siris: "SirisAI", job: Job, tick_seconds: float) -> None:
+    loop = asyncio.get_running_loop()
+    last = 0.0 if job.at_boot else time.monotonic()
+    running: asyncio.Future | None = None
+    status = JOB_STATUS.setdefault(job.name, {"runs": 0})
     while True:
         try:
-            due_health = time.monotonic() - last_health >= _HEALTH_EVERY_SECONDS
-            await asyncio.to_thread(tick, siris, datetime.now(UTC), due_health)
-            if due_health:
-                last_health = time.monotonic()
+            every = job.every(siris)
+        except Exception:  # noqa: BLE001 - a bad setting turns the job off, not the loop
+            every = 0
+        if running is not None and not running.done():
+            started = status.get("started_monotonic") or time.monotonic()
+            status["slow"] = time.monotonic() - float(started) > SLOW_AFTER_SECONDS  # type: ignore[arg-type]
+        elif every > 0 and time.monotonic() - last >= every:
+            last = time.monotonic()
+            began = time.monotonic()
+            status.update(started_monotonic=began, last_start=datetime.now(UTC).isoformat(), running=True, slow=False)
+            running = asyncio.ensure_future(job.call(siris)) if job.is_async else loop.run_in_executor(_EXECUTOR, job.call, siris)
             try:
-                from app.voice import morning
+                # Wait a short while so quick jobs finish inside this pass;
+                # anything longer carries on while the loop keeps ticking.
+                await asyncio.wait({running}, timeout=max(tick_seconds, 1.0))
+            except asyncio.CancelledError:
+                running.cancel()
+                raise
+        if running is not None and running.done() and status.get("running"):
+            status["running"] = False
+            status["runs"] = int(status.get("runs") or 0) + 1  # type: ignore[call-overload]
+            status["last_seconds"] = round(time.monotonic() - float(status["started_monotonic"]), 2)  # type: ignore[arg-type]
+            error = running.exception() if not running.cancelled() else None
+            status["last_error"] = repr(error) if error else None
+            if error is not None:
+                logger.error("Scheduled job %s failed", job.name, exc_info=error)
+        await asyncio.sleep(tick_seconds)
 
-                if morning.configured(siris):
-                    await asyncio.to_thread(morning.check, siris)
-            except Exception:  # noqa: BLE001 - never stop the loop for it
-                logger.exception("Spoken brief failed")
 
-            proactive_interval = siris.settings.proactive_check_interval_minutes * 60
-            if proactive_interval > 0 and time.monotonic() - last_proactive >= proactive_interval:
-                await asyncio.to_thread(run_proactive_check, siris, datetime.now(UTC))
-                last_proactive = time.monotonic()
+def job_status() -> list[dict[str, object]]:
+    return [
+        {"name": name, **{k: v for k, v in status.items() if k != "started_monotonic"}}
+        for name, status in sorted(JOB_STATUS.items())
+    ]
 
-            presence_interval = siris.settings.presence_check_interval_minutes * 60
-            if presence_interval > 0 and time.monotonic() - last_presence >= presence_interval:
-                await asyncio.to_thread(run_presence_and_geofence_checks, siris)
-                last_presence = time.monotonic()
 
-            intruder_interval = siris.settings.intruder_check_interval_minutes * 60
-            if intruder_interval > 0 and time.monotonic() - last_intruder >= intruder_interval:
-                await asyncio.to_thread(run_intruder_check, siris)
-                last_intruder = time.monotonic()
-
-            healing_interval = siris.settings.remediation_check_interval_minutes * 60
-            if healing_interval > 0 and time.monotonic() - last_healing >= healing_interval:
-                await asyncio.to_thread(run_self_healing, siris)
-                last_healing = time.monotonic()
-
-            security_interval = siris.settings.security_check_interval_hours * 3600
-            if security_interval > 0 and time.monotonic() - last_security >= security_interval:
-                await asyncio.to_thread(run_security_watch, siris)
-                last_security = time.monotonic()
-
-            scan_interval = siris.settings.security_scan_interval_days * 86400
-            if scan_interval > 0 and time.monotonic() - last_scan >= scan_interval:
-                await asyncio.to_thread(run_image_scan, siris)
-                last_scan = time.monotonic()
-
-            habit_interval = siris.settings.habit_check_interval_days * 86400
-            if habit_interval > 0 and time.monotonic() - last_habits >= habit_interval:
-                await asyncio.to_thread(run_habit_check, siris)
-                last_habits = time.monotonic()
-
-            parcel_interval = siris.settings.parcel_refresh_minutes * 60
-            if parcel_interval > 0 and time.monotonic() - last_parcels >= parcel_interval:
-                await asyncio.to_thread(run_parcel_refresh, siris)
-                last_parcels = time.monotonic()
-
-            eval_interval = siris.settings.eval_interval_days * 86400
-            if eval_interval > 0 and time.monotonic() - last_eval >= eval_interval:
-                await asyncio.to_thread(run_tool_choice_eval, siris)
-                last_eval = time.monotonic()
-
-            attention_interval = siris.settings.attention_sync_minutes * 60
-            if attention_interval > 0 and time.monotonic() - last_attention >= attention_interval:
-                await asyncio.to_thread(run_attention_sync, siris)
-                await asyncio.to_thread(report_update, siris)
-                last_attention = time.monotonic()
-
-            servers_interval = siris.settings.server_watch_minutes * 60
-            if servers_interval > 0 and time.monotonic() - last_servers >= servers_interval:
-                await asyncio.to_thread(run_server_watch, siris)
-                last_servers = time.monotonic()
-
-            devices_interval = siris.settings.network_device_watch_minutes * 60
-            if devices_interval > 0 and time.monotonic() - last_devices >= devices_interval:
-                await asyncio.to_thread(run_device_watch, siris)
-                last_devices = time.monotonic()
-
-            await asyncio.to_thread(run_camera_digest, siris)
-
-            if time.monotonic() - last_health_checks >= 300:
-                await asyncio.to_thread(run_health_checks, siris)
-                last_health_checks = time.monotonic()
-
-            speed_interval = siris.settings.internet_speedtest_hours * 3600
-            if speed_interval > 0 and time.monotonic() - last_speed >= speed_interval:
-                await asyncio.to_thread(run_speed_test, siris)
-                last_speed = time.monotonic()
-
-            # Nightly reflection, weekly goal review and the other once-a-day jobs.
-            await asyncio.to_thread(run_daily_jobs, siris)
-
+async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
+    tasks = [asyncio.create_task(_job_loop(siris, job, interval_seconds)) for job in _jobs(interval_seconds)]
+    tasks.append(asyncio.create_task(_internet_loop(siris)))
+    brain_task: asyncio.Task | None = None
+    try:
+        while True:
             # Second brain growth jobs: each decides for itself whether it's due today.
-            # They run beside this loop rather than inside it -- the OneNote import alone
-            # can take the better part of an hour, and reminders and health checks
-            # shouldn't wait. Never two at once, so their order (import before upkeep) holds.
+            # They run beside the other jobs -- the OneNote import alone can take the
+            # better part of an hour. Never two at once, so their order (import before
+            # upkeep) holds.
             if siris.second_brain is not None and (brain_task is None or brain_task.done()):
                 brain_task = asyncio.create_task(_run_brain_jobs(siris))
-        except asyncio.CancelledError:
-            if brain_task is not None:
-                brain_task.cancel()
-            internet_task.cancel()
-            raise
-        except Exception:
-            logger.exception("Scheduler tick failed")
-        await asyncio.sleep(interval_seconds)
+            await asyncio.sleep(interval_seconds)
+    finally:
+        for task in tasks:
+            task.cancel()
+        if brain_task is not None:
+            brain_task.cancel()

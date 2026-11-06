@@ -55,7 +55,7 @@ from_example() {  # <example> <output> <managed keys regex> <header>
 }
 
 from_example ../.env.example sirisai.env \
-  'SIRISAI_(DATABASE_URL|API_KEY|SIRISOS_URL|SIRISOS_SERVICE_KEY|HOST|PORT|TIMEZONE)' \
+  'SIRISAI_(DATABASE_URL|API_KEY|SIRISOS_URL|SIRISOS_PUBLIC_URL|SIRISOS_SERVICE_KEY|HOST|PORT|TIMEZONE)' \
 "# SirisAI's settings, for this stack (generated from SirisAI's .env.example).
 # Start with: SIRISAI_LLM_PROVIDER=ollama and SIRISAI_OLLAMA_BASE_URL -- not
 # localhost (that's this container): http://host.docker.internal:11434 when

@@ -7,7 +7,8 @@ Once a day (SIRISAI_HOUSEKEEPING_HOUR_LOCAL, 5am) it:
   SIRISAI_METRICS_KEEP_DAYS (90), closed attention items after 60 days,
   delivered or cancelled reminders after 90, and learning outcomes after a
   year. Conversations and memories are never pruned. After a big prune it
-  compacts the database (VACUUM);
+  compacts the database (VACUUM), and every day it refreshes SQLite's query
+  statistics and folds the write-ahead log back in;
 - **measures** the database size, free disk space where the data lives, and
   LLM tokens used in the last day, keeping 60 days of history
   (`GET /siris/upkeep`);
@@ -61,13 +62,20 @@ def prune(siris: "SirisAI", now: datetime | None = None) -> dict[str, int]:
         session.commit()
     pruned["outcomes"] = siris.outcomes.prune(365, now)
     path = backups.db_path(s)
-    if sum(pruned.values()) >= VACUUM_AFTER_ROWS and path is not None:
+    if path is not None and path.exists():
         conn = sqlite3.connect(path, isolation_level=None)  # VACUUM can't run inside a transaction
         try:
-            conn.execute("VACUUM")
+            if sum(pruned.values()) >= VACUUM_AFTER_ROWS:
+                conn.execute("VACUUM")
+                pruned["vacuumed"] = 1
+            # Daily upkeep (4.6): refresh SQLite's statistics so it keeps
+            # picking the right indexes as tables grow, and fold the
+            # write-ahead log back into the database so it doesn't grow
+            # without bound between restarts.
+            conn.execute("PRAGMA optimize")
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
             conn.close()
-        pruned["vacuumed"] = 1
     return pruned
 
 

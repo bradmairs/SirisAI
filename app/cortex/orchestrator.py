@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.core import taint
+from app.cortex import quick, timings
 from app.notify.confirmation import notify_confirmation_needed
 from app.llm.streaming import EventCallback, generate_with_events
 from app.planning.planner import Planner
@@ -204,6 +205,8 @@ class CortexResult:
     # Whether this turn ran through the planner (multi-step). The web UI
     # needs it to send `use_planner` back on /chat/confirm.
     used_planner: bool = False
+    # Milliseconds per stage of this turn (app/cortex/timings.py).
+    timings: dict[str, float] = field(default_factory=dict)
 
 
 # Phrases that claim a state change happened. Used by
@@ -232,7 +235,16 @@ class Cortex:
         # "tool_start" | "tool_end" | "final", ...}) as the turn progresses.
         # None (default) = silent, and every code path below behaves exactly
         # as it did before this existed.
-        self.on_event = on_event
+        self._listener = on_event
+        self.on_event: EventCallback | None = self._relay if on_event is not None else None
+        # How long each part of the current turn took (app/cortex/timings.py).
+        self.timer = timings.TurnTimer()
+
+    async def _relay(self, event: dict[str, Any]) -> None:
+        if event.get("type") == "content" and event.get("delta"):
+            self.timer.mark("first_word")
+        assert self._listener is not None
+        await self._listener(event)
 
     async def _emit(self, event: dict[str, Any]) -> None:
         if self.on_event is not None:
@@ -255,6 +267,7 @@ class Cortex:
         tool/assistant messages the rest of the pipeline produces. Once a
         real answer comes back, runs automatic memory extraction (see
         module docstring) as a side effect before returning it."""
+        self.timer = timings.TurnTimer()
         result = await self._process_inner(
             siris,
             conversation_id,
@@ -269,8 +282,30 @@ class Cortex:
         # doesn't sit waiting on memory extraction (a whole extra LLM pass)
         # to see it.
         self._finalize(siris, result)
+        result.timings = timings.record(siris, self.timer)
         await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, prompt, result)
+        return result
+
+    async def _quick(self, siris: "SirisAI", conversation_id: str, prompt: str) -> CortexResult | None:
+        """A plain home command answered without the model (app/cortex/quick.py)."""
+        try:
+            planned = await asyncio.to_thread(quick.plan, siris, prompt)
+        except Exception:  # noqa: BLE001 - fall back to the model
+            logger.exception("Quick command check failed")
+            return None
+        if planned is None:
+            return None
+        arguments, reply = planned
+        self.timer.path = "quick"
+        result = await self._run_single_tool(
+            siris, conversation_id, "home_assistant_call_service", arguments,
+            confirmed=False, trigger="chat: quick home command (no model needed)",
+        )
+        if result.tool_call is not None and not result.error:
+            result.response = reply
+            siris.conversation.add_message(conversation_id, role="assistant", content=reply)
+            await self._emit({"type": "content", "delta": reply})
         return result
 
     async def _process_inner(
@@ -294,47 +329,71 @@ class Cortex:
             image_note = await self._describe_images(siris, prompt, images)
         stored_prompt = prompt if image_note is None else f"{prompt}\n\n[[image: {image_note}]]"
         siris.conversation.add_message(conversation_id, role="user", content=stored_prompt)
+        if use_tools and not images:
+            quick_result = await self._quick(siris, conversation_id, prompt)
+            if quick_result is not None:
+                return quick_result
         messages = self._load_messages(siris, conversation_id)
 
-        # Persona (a hardening pass, milestone 45) comes before context --
-        # "who you are" ahead of "here's what's currently relevant" -- and
-        # applies regardless of use_context, a separate concern (tone, not
-        # situational data).
-        system_messages: list[dict[str, Any]] = []
-        context_text: str | None = None
-        if siris.settings.persona:
-            system_messages.append({"role": "system", "content": siris.settings.persona})
-        if use_context:
-            await self._emit({"type": "status", "message": "Gathering context"})
-            context_text = await asyncio.to_thread(siris.context.build, siris, prompt)
-            if context_text:
-                system_messages.append({"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"})
-        user_text = "\n".join(_IMAGE_NOTE_RE.sub("", m["content"] or "") for m in messages if m.get("role") == "user")
-        taint.begin_turn(context_text if use_context else "", f"{user_text}\n{prompt}")
-        # What an image says is the image's words, not the user's: text read
-        # off a photo (a sign, a screen) mustn't count as something they said.
-        for note in _IMAGE_NOTE_RE.findall("\n".join(m["content"] or "" for m in messages if m.get("role") == "user")):
-            taint.add_untrusted(note)
-        messages = [*system_messages, *messages]
-
-        tools = None
+        # Choosing tools doesn't depend on the context, so it runs alongside
+        # gathering it (4.6) instead of after.
+        tools_task: asyncio.Task | None = None
         if use_tools:
             recent_tools = [
                 call["function"]["name"]
                 for m in messages[-10:]
                 for call in (m.get("tool_calls") or [])
             ]
-            tools = await asyncio.to_thread(siris.available_tool_specs, prompt, recent_tools)
+
+            async def choose_tools() -> list[dict[str, Any]]:
+                with self.timer.stage("tools"):
+                    return await asyncio.to_thread(siris.available_tool_specs, prompt, recent_tools)
+
+            tools_task = asyncio.create_task(choose_tools())
+
+        # Persona (a hardening pass, milestone 45) comes before context --
+        # "who you are" ahead of "here's what's currently relevant" -- and
+        # applies regardless of use_context, a separate concern (tone, not
+        # situational data).
+        #
+        # The context block (the time, live system load, memories matched to
+        # this message) changes every turn, so it goes just before the newest
+        # message rather than at the top (4.6): Ollama reuses its cached work
+        # for the longest unchanged start of the prompt, and with the context
+        # first that was only ever the persona.
+        system_messages: list[dict[str, Any]] = []
+        context_messages: list[dict[str, Any]] = []
+        context_text: str | None = None
+        if siris.settings.persona:
+            system_messages.append({"role": "system", "content": siris.settings.persona})
+        if use_context:
+            await self._emit({"type": "status", "message": "Gathering context"})
+            with self.timer.stage("context"):
+                context_text = await asyncio.to_thread(siris.context.build, siris, prompt)
+            if context_text:
+                context_messages.append({"role": "system", "content": f"Context (may or may not be relevant):\n{context_text}"})
+        user_text = "\n".join(_IMAGE_NOTE_RE.sub("", m["content"] or "") for m in messages if m.get("role") == "user")
+        taint.begin_turn(context_text if use_context else "", f"{user_text}\n{prompt}")
+        # What an image says is the image's words, not the user's: text read
+        # off a photo (a sign, a screen) mustn't count as something they said.
+        for note in _IMAGE_NOTE_RE.findall("\n".join(m["content"] or "" for m in messages if m.get("role") == "user")):
+            taint.add_untrusted(note)
+        messages = [*system_messages, *messages[:-1], *context_messages, *messages[-1:]]
+
+        tools = await tools_task if tools_task is not None else None
         resolved_role, llm_client = siris.model_router.pick(siris.llm, prompt, role=model_role)
 
         if use_planner:
-            planned = await self._run_planned(siris, conversation_id, messages, tools, llm_client, resolved_role)
+            self.timer.path = "planner"
+            with self.timer.stage("model"):
+                planned = await self._run_planned(siris, conversation_id, messages, tools, llm_client, resolved_role)
             planned.used_planner = True
             return planned
 
         await self._emit({"type": "status", "message": "Thinking"})
         try:
-            result = await generate_with_events(llm_client, messages, self.on_event, tools=tools)
+            with self.timer.stage("model"):
+                result = await generate_with_events(llm_client, messages, self.on_event, tools=tools)
         except Exception:
             logger.exception("LLM generate() failed")
             return CortexResult(conversation_id=conversation_id, model_role=resolved_role, error="LLM backend call failed.")
@@ -501,9 +560,10 @@ class Cortex:
         answer, the follow-up is a best-effort upgrade."""
         await self._emit({"type": "tool_start", "name": name, "arguments": arguments})
         try:
-            output = await asyncio.to_thread(
-                siris.run_tool, name, arguments, conversation_id=conversation_id, confirmed=confirmed, trigger=trigger
-            )
+            with self.timer.stage("tool"):
+                output = await asyncio.to_thread(
+                    siris.run_tool, name, arguments, conversation_id=conversation_id, confirmed=confirmed, trigger=trigger
+                )
         except ConfirmationRequired:
             await self._emit({"type": "tool_end", "name": name, "status": "needs_confirmation"})
             return CortexResult(conversation_id=conversation_id, pending_confirmation=(name, arguments), model_role=model_role)
@@ -571,7 +631,8 @@ class Cortex:
             try:
                 # No `tools` offered here on purpose -- this call is meant
                 # to produce a final text answer, not choose another tool.
-                follow_up = await generate_with_events(llm_client, follow_up_messages, self.on_event)
+                with self.timer.stage("answer"):
+                    follow_up = await generate_with_events(llm_client, follow_up_messages, self.on_event)
             except Exception:
                 logger.exception("Follow-up LLM call after tool '%s' failed", name)
             else:
