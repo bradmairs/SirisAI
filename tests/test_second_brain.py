@@ -33,7 +33,7 @@ FAKE_ENGINE = textwrap.dedent(
     import json, pathlib, sys
     root = pathlib.Path(__file__).resolve().parent.parent
     args = sys.argv[1:]
-    stdin = sys.stdin.read() if "--json" in args or args[:1] == ["edit"] else ""
+    stdin = sys.stdin.read() if "--json" in args or args[:1] == ["edit"] or args[-1:] == ["-"] else ""
     with open(root / "calls.jsonl", "a") as f:
         f.write(json.dumps({"args": args, "stdin": stdin}) + "\\n")
     store = root / "notes.json"
@@ -146,6 +146,10 @@ FAKE_ENGINE = textwrap.dedent(
         notes[t] = stdin
         store.write_text(json.dumps(notes))
         print(json.dumps({"action": "edited", "title": t, "path": f"Notes/{t}.md", "links_added": [], "version": "v2"}))
+        sys.exit(0)
+    if cmd == "set-block":
+        note, name, _ = args[args.index("--") + 1:]
+        print(json.dumps({"action": "set", "title": note, "text": stdin}))
         sys.exit(0)
     if cmd == "add-line":
         note, heading, line = args[args.index("--") + 1:]
@@ -903,3 +907,24 @@ def test_edit_route_replaces_a_notes_text_through_the_engine(brain_api) -> None:
     assert client.get("/siris/brain/note", params={"title": "Gym Plan"}).json()["body"] == "Four days a week."
     stale = client.post("/siris/brain/edit", json={"title": "Gym Plan", "body": "Mine", "version": "old"})
     assert stale.status_code == 422 and "changed since you opened it" in stale.json()["detail"]
+
+
+def test_set_block_and_past_projects(tmp_path: Path) -> None:
+    from app.plugins.builtin.second_brain import BrainPastProjectsTool
+
+    vault = _vault(tmp_path / "vault", {"Culverts": "# Culverts"})
+    client = SecondBrainClient(str(vault))
+    assert client.set_block("Culverts", "topic-summary", "- Scour at outlets")["action"] == "set"
+    assert _calls(vault)[-1]["args"] == ["set-block", "--output", "json", "--", "Culverts", "topic-summary", "-"]
+    assert _calls(vault)[-1]["stdin"] == "- Scour at outlets"
+
+    class FakeSearch:
+        def search(self, query: str, limit: int = 10) -> list[dict]:
+            return [{"title": "Dellows Underslip", "path": "Work/WSP/Projects/Dellows Underslip.md"},
+                    {"title": "Home Server", "path": "Notes/Home Server.md"},
+                    {"title": "Culverts", "path": "Work/Topics/Culverts.md"},
+                    {"title": "Dellows Underslip – Outlet Options", "path": "Work/WSP/Dellows Underslip – Outlet Options.md"}]
+
+    out = BrainPastProjectsTool(FakeSearch()).run(query="culvert outlet")
+    assert [p["title"] for p in out["pages"]] == ["Dellows Underslip", "Culverts"]
+    assert [n["title"] for n in out["notes"]] == ["Dellows Underslip – Outlet Options"]   # never personal notes

@@ -859,3 +859,54 @@ def test_the_weekly_check_points_at_handwriting() -> None:
     siris._notify_client = FakeNotify()
     jobs.ask_to_review_notes(siris)
     assert "Site Notes (as of 2026-10-20) [handwriting: compare the transcription with the page's images]" in siris._notify_client.sent[0][1]
+
+
+# ---------- topic summaries, CPEng drafts ----------
+
+
+class PagesBrain(FakeBrain):
+    def __init__(self) -> None:
+        super().__init__(notes={
+            "Culverts": "**[[Buller SIP – Culvert Recommendations]]** (WSP, 2023-02-16)\n- Culvert 77: insufficient depth.",
+            "Drinking Water": "Nothing in your work notes mentions it yet.",
+            "CPEng Chartership": "## Evidence from your notes\n"
+                                 "- [[Dellows Outlet]]: 4 Develop safe and sustainable solutions, 14 Problem analysis. Picked riprap.\n"
+                                 "- [[Buller Culverts]]: 14 Problem analysis. Assessed culvert depth.\n"
+                                 "- [[Site Visit]]: 4 Develop safe and sustainable solutions. One-off.\n",
+            "Dellows Outlet": "Chose riprap over a drop structure.", "Buller Culverts": "Culvert 77 too shallow.", "Site Visit": "x",
+        })
+        self.blocks: list[tuple[str, str, str]] = []
+
+    def list_notes(self) -> list[dict]:
+        return [{"title": "Culverts", "type": "resource", "path": "Work/Topics/Culverts.md"},
+                {"title": "Drinking Water", "type": "resource", "path": "Work/Topics/Drinking Water.md"},
+                {"title": "Dellows Outlet", "type": "note", "path": "Work/WSP/Dellows Outlet.md"}]
+
+    def set_block(self, note: str, name: str, text: str) -> dict:
+        self.blocks.append((note, name, text))
+        return {"action": "set", "title": note}
+
+
+def test_topic_pages_get_a_weekly_summary() -> None:
+    siris = _siris()
+    brain = siris.second_brain = PagesBrain()
+    siris.llm = FakeLLM("Here you go:\n- Shallow culverts kept needing replacement ([[Buller SIP – Culvert Recommendations]]).")
+    out = asyncio.run(jobs.topic_summaries(siris))
+    assert out == {"summarised": ["Culverts"]}   # an empty topic is left alone
+    note, name, text = brain.blocks[0]
+    assert (note, name) == ("Culverts", "topic-summary")
+    assert text.startswith("## Summary\n*Written by Siris") and "- Shallow culverts" in text and "Here you go" not in text
+
+
+def test_cpeng_elements_with_two_pieces_of_evidence_get_a_draft_once() -> None:
+    siris = _siris()
+    siris.state.set(jobs.CPENG_DRAFTS_KEY, {})
+    brain = siris.second_brain = PagesBrain()
+    siris.llm = FakeLLM("On Dellows Underslip I compared outlet options and chose riprap [check: date].")
+    out = asyncio.run(jobs.cpeng_drafts(siris))
+    assert out == {"drafted": ["4. Develop safe and sustainable solutions", "14. Problem analysis"]}
+    assert brain.learned[0]["title"] == jobs.CPENG_DRAFTS_NOTE   # the drafts note is made once it's needed
+    note, name, text = brain.blocks[0]
+    assert (note, name) == (jobs.CPENG_DRAFTS_NOTE, "cpeng-04")
+    assert "*Draft from [[Dellows Outlet]], [[Site Visit]]: check every fact.*" in text
+    assert asyncio.run(jobs.cpeng_drafts(siris)) == {"drafted": []}   # nothing new: not redrafted

@@ -486,6 +486,7 @@ def test_small_images_and_non_images_are_kept_exactly() -> None:
     ("Site Visit", "Assignment 1 – Site Visit"),   # too generic on its own: its section goes first
     ("Culvert Sizing for 0.5 m Freeboard", "Culvert Sizing for 0.5 m Freeboard"),
     ("Weekly Meeting - 24/02/23", "Assignment 1 – Weekly Meeting - 2023-02-24"),
+    ("19/07/23", "Assignment 1 – 2023-07-19"),   # a page titled only with its date
     ("Assignment 1 marking", "Assignment 1 marking"),   # already says where it's from
     ("ENCN253 17S2 HW2", "ENCN253 17S2 HW2"),
 ])
