@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.8 — 2026-11-06
+
+- Recently updated notes by folder (GET /siris/brain/recent), for SirisOS's Work page
+
 ## 4.7 — 2026-11-06
 
 - Topic summaries, CPEng competency drafts, a past-projects search in chat, and date-only OneNote titles named after their series
