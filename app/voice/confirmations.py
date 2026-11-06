@@ -62,6 +62,10 @@ def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:
         target = arguments.get("entity_id") or arguments.get("domain") or ""
         target = str(target).split(".", 1)[-1].replace("_", " ")
         return f"{service} {target}".strip()
+    if tool_name == "home_assistant_create_automation":
+        from app.automations import guard
+
+        return f"add the automation \"{arguments.get('alias') or 'new automation'}\": {guard.summarize(arguments)}"
     words = tool_name.replace("_", " ")
     if tool_name == "run_protocol" and arguments.get("name"):
         return f"run the {str(arguments['name']).replace('_', ' ')} protocol"

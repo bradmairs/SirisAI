@@ -21,8 +21,13 @@ class OllamaClient(LLMClient):
         model: str,
         timeout: float = 60.0,
         transport: httpx.BaseTransport | None = None,
+        keep_alive: str | None = None,
     ) -> None:
         self.model = model
+        # How long Ollama keeps the model in memory after a call (4.6).
+        # Ollama's own default is 5 minutes, after which the next question
+        # waits seconds while the model loads again.
+        self.keep_alive = keep_alive or None
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
 
     async def generate(
@@ -36,6 +41,7 @@ class OllamaClient(LLMClient):
             "model": self.model,
             "messages": messages,
             "stream": False,
+            **self._keep(),
             **kwargs,
         }
         if tools:
@@ -77,6 +83,7 @@ class OllamaClient(LLMClient):
             "model": self.model,
             "messages": messages,
             "stream": True,
+            **self._keep(),
             **kwargs,
         }
         if tools:
@@ -116,6 +123,15 @@ class OllamaClient(LLMClient):
                 completion_tokens=completion_tokens,
             )
         )
+
+    def _keep(self) -> dict[str, Any]:
+        return {"keep_alive": self.keep_alive} if self.keep_alive else {}
+
+    async def warm(self) -> None:
+        """Load the model (or keep it loaded) without generating anything:
+        Ollama treats a /api/generate with no prompt as a preload."""
+        response = await self._client.post("/api/generate", json={"model": self.model, **self._keep()})
+        response.raise_for_status()
 
     async def aclose(self) -> None:
         await self._client.aclose()

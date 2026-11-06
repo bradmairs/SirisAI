@@ -5,6 +5,18 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.6 — 2026-11-06
+
+- Faster replies (model kept warm, cache-friendly prompts, instant home commands, per-turn timings), a scheduler where one stuck job can't hold up the rest, and life admin: safe automations from speech, a document inbox, bills from email, travel mode, and conversation summaries
+- Speed: SIRISAI_OLLAMA_KEEP_ALIVE (30m) and SIRISAI_OLLAMA_WARM_HOURS (6-23); the context block moved next to the newest message so Ollama can reuse its cache; tools chosen while context is gathered; one embedding per message; quick home commands (SIRISAI_QUICK_COMMANDS); GET /siris/timings
+- Steadier: every background job on its own loop, never overlapping itself; GET /siris/scheduler/jobs; pooled TTS connection; daily PRAGMA optimize and WAL checkpoint
+- Automations: plain-English draft in the approval; never unlock, open or disarm by themselves
+- Pushes describe the request in words; "Approve in SirisOS" for PIN approvals (SIRISAI_SIRISOS_PUBLIC_URL)
+- Conversations: titles and summaries by the local model; GET /siris/conversations/search with dates
+- Document inbox: POST /siris/documents, filed in Siris, reminders before due dates; documents_search
+- Bills from email: GET /siris/bills, raised SIRISAI_BILLS_WARN_DAYS ahead; bills_upcoming
+- Travel mode: GET /siris/travel, weather, packing and house lists, "Away while I'm gone"; travel_upcoming
+
 ## 4.5 — 2026-11-05
 
 - Updates check through git when the repo is private, and make update installs the updater

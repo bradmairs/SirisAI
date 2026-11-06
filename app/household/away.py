@@ -39,6 +39,13 @@ def on_change(siris: "SirisAI", home: bool, now: datetime | None = None) -> dict
     if mode == "off":
         return None
     try:
+        from app.travel import service as travel
+
+        if mode == "ask" and travel.away_active(siris, now):
+            mode = "auto"  # "Away while I'm gone" on a trip (app/travel/service.py)
+    except Exception:  # noqa: BLE001
+        logger.debug("Checking for a trip failed", exc_info=True)
+    try:
         return arrived(siris, now) if home else left(siris, mode, now)
     except Exception:  # noqa: BLE001 - presence itself must carry on
         logger.exception("Away mode failed")

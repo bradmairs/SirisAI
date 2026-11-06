@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 
 # name -> (group, label, help, needs a restart)
 EDITABLE: dict[str, tuple[str, str, str, bool]] = {
+    "bills_hour_local": ("Life admin", "Check email for bills (hour)", "Blank: off", False),
+    "bills_warn_days": ("Life admin", "Warn about bills (days ahead)", "", False),
+    "document_remind_days": ("Life admin", "Remind before a letter's due date (days)", "0: only on the day", False),
+    "travel_hour_local": ("Life admin", "Trip checklist (hour)", "Blank: off", False),
+    "travel_notice_days": ("Life admin", "Trip checklist (days before)", "", False),
+    "travel_home_city": ("Life admin", "Home city", "Long events here aren't trips", False),
+    "quick_commands": ("Speed", "Instant home commands", "Plain light/switch/fan commands without the model", False),
+    "ollama_keep_alive": ("Speed", "Keep the model loaded for", "e.g. 30m; -1 always; blank: Ollama's 5 minutes", True),
+    "ollama_warm_hours": ("Speed", "Keep the model warm (hours)", "start-end, local, e.g. 6-23; blank: never", False),
     "ssh_hosts": ("Servers", "Servers", "name=user@host, comma-separated (blank: from ~/.ssh/config)", True),
     "ssh_allow_changes": ("Servers", "Allow changes over SSH", "Commands that change things, always asking first", False),
     "ssh_allow_power": ("Servers", "Allow reboot and shutdown", "Always asking first", True),

@@ -11,6 +11,9 @@ audit log (GET /siris/activity) as if it had. It's also best-effort --
 nothing here should ever be the reason a chat call fails.
 """
 
+import contextvars
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 from app.core.clock import describe_now, to_local
@@ -24,9 +27,14 @@ _MAX_EVENTS = 3
 _MAX_MEMORIES = 3
 # Below this, a second-brain search hit is one weak word in a long question.
 _MIN_BRAIN_SCORE = 3
+STATUS_SECONDS = 30
+_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="siris-context")
 
 
 class ContextEngine:
+    def __init__(self) -> None:
+        self._status_cache: tuple[float, str | None] = (-STATUS_SECONDS, None)
+
     def build(self, siris: "SirisAI", prompt: str) -> str | None:
         """Return a compact text block to prepend as a system message, or
         None if there's nothing worth including."""
@@ -36,17 +44,9 @@ class ContextEngine:
         if user_id != DEFAULT_USER_ID:
             lines.append(f"You are talking with: {user_id}")
 
-        system_tool = siris.tools.get("system_info")
-        if system_tool is not None:
-            try:
-                system = system_tool.run()
-                disk_bits = ", ".join(f"{path} {usage['percent_used']}%" for path, usage in system["disk"].items())
-                status = f"Current system status: CPU {system['cpu_percent']}%, memory {system['memory']['percent_used']}%"
-                if disk_bits:
-                    status += f", disk {disk_bits}"
-                lines.append(status)
-            except Exception:
-                pass
+        status = self._system_status(siris)
+        if status:
+            lines.append(status)
 
         from app.core import guest
 
@@ -70,11 +70,18 @@ class ContextEngine:
             )
             data_lines.append(f"Recent events: {event_bits}")
 
+        # The second brain search runs its engine as a separate process, and
+        # matching memories asks the embedding model: neither waits for the
+        # other (4.6).
+        brain_future = _POOL.submit(contextvars.copy_context().run, self._brain_notes, siris, prompt)
         memories = siris.memory.recall(query=prompt, limit=_MAX_MEMORIES)
         if memories:
             data_lines.append("Relevant memories: " + "; ".join(sanitize_untrusted(m["content"], 300) for m in memories))
 
-        brain_notes = self._brain_notes(siris, prompt)
+        try:
+            brain_notes = brain_future.result()
+        except Exception:  # noqa: BLE001 - best-effort, like the rest of context
+            brain_notes = []
         if brain_notes:
             data_lines.append(
                 "Relevant notes from Siris, the user's knowledge base (cite them by title; brain_get_note reads one in full; "
@@ -90,6 +97,26 @@ class ContextEngine:
             lines.extend(data_lines)
 
         return "\n".join(lines)
+
+    def _system_status(self, siris: "SirisAI") -> str | None:
+        """CPU, memory and disk, read at most every STATUS_SECONDS: it barely
+        moves between messages and reading every disk adds up (4.6)."""
+        stamp, cached = self._status_cache
+        if time.monotonic() - stamp < STATUS_SECONDS:
+            return cached
+        status = None
+        system_tool = siris.tools.get("system_info")
+        if system_tool is not None:
+            try:
+                system = system_tool.run()
+                disk_bits = ", ".join(f"{path} {usage['percent_used']}%" for path, usage in system["disk"].items())
+                status = f"Current system status: CPU {system['cpu_percent']}%, memory {system['memory']['percent_used']}%"
+                if disk_bits:
+                    status += f", disk {disk_bits}"
+            except Exception:
+                pass
+        self._status_cache = (time.monotonic(), status)
+        return status
 
     @staticmethod
     def _brain_notes(siris: "SirisAI", prompt: str) -> list[str]:

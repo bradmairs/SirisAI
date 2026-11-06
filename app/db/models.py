@@ -744,3 +744,55 @@ class Outcome(Base):
     ref: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
     user_id: Mapped[str] = mapped_column(Text, default="default")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
+
+
+class ConversationSummary(Base):
+    """A title and a line or two about a finished conversation, for "what did
+    we talk about" (app/conversation/summaries.py, 4.6)."""
+
+    __tablename__ = "conversation_summaries"
+
+    conversation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    title: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    started_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    last_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Document(Base):
+    """A letter, bill or form added to the document inbox (app/documents, 4.6)."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, default="default", index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    filename: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(Text, default="letter")
+    sender: Mapped[str] = mapped_column(Text, default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    text: Mapped[str] = mapped_column(Text, default="")
+    due: Mapped[str] = mapped_column(Text, default="[]")  # JSON: [{date, what, amount}]
+    note_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Bill(Base):
+    """A renewal, trial ending, price rise or bill found in email
+    (app/bills/service.py, 4.6). One row per email."""
+
+    __tablename__ = "bills"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[str] = mapped_column(Text, unique=True)
+    found_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    kind: Mapped[str] = mapped_column(Text)  # renewal, trial_ending, price_rise, bill_due
+    service: Mapped[str] = mapped_column(Text, default="")
+    subject: Mapped[str] = mapped_column(Text, default="")
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    old_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency: Mapped[str] = mapped_column(Text, default="")
+    due_date: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    status: Mapped[str] = mapped_column(Text, default="open")  # open, done, ignored

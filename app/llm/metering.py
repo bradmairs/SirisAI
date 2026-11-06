@@ -77,5 +77,10 @@ class MeteredLLMClient(LLMClient):
         if samples:
             await asyncio.to_thread(self._metrics.record_samples, samples)
 
+    async def warm(self) -> None:
+        warm = getattr(self._inner, "warm", None)
+        if warm is not None:
+            await warm()
+
     async def aclose(self) -> None:
         await self._inner.aclose()

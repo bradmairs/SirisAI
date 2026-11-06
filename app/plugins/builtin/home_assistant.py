@@ -483,6 +483,10 @@ class HomeAssistantCreateAutomationTool(Tool):
         description: str | None = None,
         **kwargs: Any,
     ) -> Any:
+        # Never an automation that unlocks, opens or disarms by itself (4.6).
+        from app.automations import guard
+
+        guard.check(action or [])
         return self._client.create_automation(
             alias,
             trigger or [],
@@ -491,6 +495,13 @@ class HomeAssistantCreateAutomationTool(Tool):
             mode=mode,
             description=description,
         )
+
+    def dry_run(self, **kwargs: Any) -> Any:
+        """The draft in plain English, and whether the safety floor would
+        refuse it (app/automations/guard.py)."""
+        from app.automations import guard
+
+        return {"would_create": kwargs.get("alias"), "summary": guard.summarize(kwargs), "refused": guard.problems(kwargs.get("action") or [])}
 
     def verify(self, arguments: dict[str, Any], result: Any) -> ToolVerification:
         """Same gap as HomeAssistantCallServiceTool.verify() (milestone
