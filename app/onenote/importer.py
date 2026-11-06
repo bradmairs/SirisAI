@@ -155,11 +155,13 @@ def _page_title(title: str, notebook: str, section: str) -> str:
     """A note name that makes sense out of its notebook. OneNote titles like "1a", "J" or "-" get
     the notebook and section in front; generic ones ("Session 1", "Initial Notes", "Speaker 2:
     Tina Porou") get their section (or the notebook, for "New Section 1"); dates become YYYY-MM-DD."""
+    title = _iso_dates(title)
+    context = notebook if _GENERIC_SECTION.match(section) else section
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", title.strip()):   # a page titled only "19/07/23": the meeting series it's in
+        return f"{context} – {title.strip()}"
     if sum(c.isalpha() for c in title) < 3:
         rest = f" - {title}" if any(c.isalnum() for c in title) else ""
         return f"{notebook} - {section}{rest}".strip(" -")
-    title = _iso_dates(title)
-    context = notebook if _GENERIC_SECTION.match(section) else section
     speaker = re.match(r"(?i)speaker \d+\s*:\s*", title)
     if speaker:
         title = title[speaker.end():]

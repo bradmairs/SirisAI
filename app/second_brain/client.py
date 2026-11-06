@@ -224,6 +224,12 @@ class SecondBrainClient:
         return self._write(["unrelate", "--output", "json", "--", a, b],
                            message=lambda r: f"siris: {r.get('a', a)} and {r.get('b', b)} aren't related")
 
+    def set_block(self, note: str, name: str, text: str) -> dict:
+        """Write Siris' own block in a note, between its `<!-- siris:NAME -->` markers (made under
+        the title if missing), replacing what was there. `action` is set or unchanged."""
+        return self._write(["set-block", "--output", "json", "--", note, name, "-"], stdin=text,
+                           message=lambda r: f"siris: updated {r.get('title', note)}")
+
     def add_line(self, note: str, heading: str, line: str) -> dict:
         """Add one line under a heading of a note, once (`action` added or already-there)."""
         return self._write(["add-line", "--output", "json", "--", note, heading, line],

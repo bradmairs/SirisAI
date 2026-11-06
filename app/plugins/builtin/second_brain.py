@@ -88,6 +88,35 @@ class BrainSearchTool(Tool):
         return self._client.search(query, limit=limit)
 
 
+class BrainPastProjectsTool(Tool):
+    name = "brain_past_projects"
+    description = (
+        "Search Brad's past and current engineering work in Siris: project pages (GVW projects, and past WSP "
+        "and Downer jobs from OneNote) and topic pages (Culverts, Stormwater and Hydrology, Contract "
+        "Variations…), then the work notes behind them. Use it for questions like \"have I dealt with a "
+        "culvert like this before?\", \"what did we do on Dellows Underslip?\" or \"what have I learned "
+        "about variations?\". Answer with the projects and dates, citing the note titles."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {"query": {"type": "string", "description": "What to look for, e.g. 'culvert outlet scour'."}},
+        "required": ["query"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, query: str = "", **kwargs: Any) -> Any:
+        try:
+            found = self._client.search(query, limit=30)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+        is_page = lambda h: "/Projects/" in h.get("path", "") or h.get("path", "").startswith("Work/Topics/")  # noqa: E731
+        work = [h for h in found if h.get("path", "").startswith("Work/")]
+        return {"pages": [h for h in work if is_page(h)][:5], "notes": [h for h in work if not is_page(h)][:6]}
+
+
 class BrainGetNoteTool(Tool):
     name = "brain_get_note"
     description = (

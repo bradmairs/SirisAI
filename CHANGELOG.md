@@ -5,6 +5,12 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.7 — 2026-11-06
+
+- Topic summaries, CPEng competency drafts, a past-projects search in chat, and date-only OneNote titles named after their series
+- Weekly: a "what you've learned" summary on each topic page in Siris (Culverts, Stormwater and Hydrology…), and a first draft of each CPEng competency element with enough evidence, on *CPEng Competency Drafts*.
+- Chat: `brain_past_projects` answers "have I dealt with this before?" from project and topic pages. Needs the vault engine 2.08.
+
 ## 4.6 — 2026-11-06
 
 - Faster replies (model kept warm, cache-friendly prompts, instant home commands, per-turn timings), a scheduler where one stuck job can't hold up the rest, and life admin: safe automations from speech, a document inbox, bills from email, travel mode, and conversation summaries
