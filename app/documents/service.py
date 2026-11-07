@@ -23,14 +23,16 @@ import io
 import json
 import logging
 import re
+import shutil
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import or_, select
 
 from app.core import clock
 from app.core.user_context import get_current_user_id
-from app.db.models import Document
+from app.db.models import Document, Thing
 from app.llm import local
 from app.things import service as things
 
@@ -240,6 +242,60 @@ async def ingest(siris: "SirisAI", filename: str, content_type: str, data: bytes
     return {**get(siris, doc_id), "reminders": len(reminders), "things": doc.get("things", [])}
 
 
+# An email's HTML kept as it came, but shown with nothing able to run or load: no scripts, no tracking pixels.
+_LOCKED_DOWN = "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\">"
+
+
+def files_dir(siris: "SirisAI", doc_id: int | None = None) -> Path:
+    """The originals of kept receipts, beside the database (./data/receipts)."""
+    url = siris.settings.database_url
+    base = Path(url.split("///", 1)[1]).parent if url.startswith("sqlite") and "///" in url else Path("data")
+    return base / "receipts" / str(doc_id) if doc_id is not None else base / "receipts"
+
+
+def file_names(siris: "SirisAI", doc_id: int) -> list[str]:
+    folder = files_dir(siris, doc_id)
+    return sorted(p.name for p in folder.iterdir() if p.is_file()) if folder.is_dir() else []
+
+
+def file_path(siris: "SirisAI", doc_id: int, name: str) -> Path:
+    """One of a document's own files, by a name it listed: nothing else can be asked for."""
+    get(siris, doc_id)
+    if name not in file_names(siris, doc_id):
+        raise KeyError(name)
+    return files_dir(siris, doc_id) / name
+
+
+def _safe_name(name: str, taken: set[str]) -> str:
+    clean = re.sub(r"[^\w. -]", "_", name).strip(". ")[:80] or "attachment"
+    stem, dot, suffix = clean.rpartition(".")
+    out, n = clean, 1
+    while out in taken:
+        n += 1
+        out = f"{stem}-{n}.{suffix}" if dot else f"{clean}-{n}"
+    taken.add(out)
+    return out
+
+
+def keep_receipt(siris: "SirisAI", title: str, sender: str, summary: str, text: str, when: datetime, html: str = "", files: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """A receipt kept with its originals: no note in Siris and no reminders, since it's a record of something already paid."""
+    with siris.conversation._session_factory() as session:
+        row = Document(user_id=get_current_user_id(), added_at=when, filename=title[:200], title=title[:200], kind="receipt", sender=sender, summary=summary, text=text[:100000])
+        session.add(row)
+        session.commit()
+        doc_id = row.id
+    folder = files_dir(siris, doc_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    if html:
+        (folder / "email.html").write_text(_LOCKED_DOWN + html, encoding="utf-8")
+    else:
+        (folder / "email.txt").write_text(text, encoding="utf-8")
+    taken = {"email.html", "email.txt"}
+    for file in files or []:
+        (folder / _safe_name(file["filename"], taken)).write_bytes(file["data"])
+    return get(siris, doc_id)
+
+
 def _serialize(row: Document, full: bool = False) -> dict[str, Any]:
     out = {
         "id": row.id, "added_at": row.added_at.isoformat(), "filename": row.filename, "title": row.title, "kind": row.kind,
@@ -255,12 +311,18 @@ def get(siris: "SirisAI", doc_id: int) -> dict[str, Any]:
         row = session.get(Document, doc_id)
         if row is None or row.user_id != get_current_user_id():
             raise KeyError(doc_id)
-        return _serialize(row, full=True)
+        out = _serialize(row, full=True)
+    out["files"] = file_names(siris, doc_id)
+    return out
 
 
-def list_documents(siris: "SirisAI", query: str = "", limit: int = 30) -> list[dict[str, Any]]:
+def list_documents(siris: "SirisAI", query: str = "", limit: int = 30, kind: str = "", not_kind: str = "") -> list[dict[str, Any]]:
     with siris.conversation._session_factory() as session:
         stmt = select(Document).where(Document.user_id == get_current_user_id())
+        if kind:
+            stmt = stmt.where(Document.kind == kind)
+        if not_kind:
+            stmt = stmt.where(Document.kind != not_kind)
         for word in [w for w in query.lower().split() if len(w) > 1][:5]:
             like = f"%{word}%"
             stmt = stmt.where(or_(Document.title.ilike(like), Document.sender.ilike(like), Document.summary.ilike(like), Document.text.ilike(like)))
@@ -273,5 +335,8 @@ def delete(siris: "SirisAI", doc_id: int) -> None:
         if row is None or row.user_id != get_current_user_id():
             raise KeyError(doc_id)
         session.delete(row)
+        for thing in session.scalars(select(Thing).where(Thing.document_id == doc_id)):
+            thing.document_id = None  # the thing stays; only its receipt went
         session.commit()
+    shutil.rmtree(files_dir(siris, doc_id), ignore_errors=True)
     siris.attention.resolve_key(f"document:{doc_id}", "Document removed")

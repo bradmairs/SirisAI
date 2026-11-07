@@ -473,6 +473,8 @@ class Settings(BaseSettings):
     bills_warn_days: int = 4
     # Receipts in email become Things (app/things/from_email.py): checked daily at this hour; blank: off.
     things_email_hour_local: int | None = 8
+    # Everything with this Gmail label is read as a receipt, whatever its subject or date.
+    receipts_label: str = "Receipts"
     # Travel mode (app/travel): trips in the calendar this far ahead, the
     # checklist this many days before, checked at this hour (blank = off).
     # A long event at a place containing travel_home_city isn't a trip.

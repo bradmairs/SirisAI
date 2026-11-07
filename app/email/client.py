@@ -93,6 +93,34 @@ def classify(message: Message, my_address: str) -> tuple[bool, list[str]]:
     return True, ["sent to you directly"] if my_address and my_address.lower() in to else ["from a person"]
 
 
+def html_body(message: Message) -> str:
+    for part in message.walk() if message.is_multipart() else [message]:
+        if part.get_content_type() == "text/html" and not part.get("Content-Disposition", "").startswith("attachment"):
+            payload = part.get_payload(decode=True)
+            if payload:
+                return payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+    return ""
+
+
+KEPT_TYPES = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}
+
+
+def attachments(message: Message) -> list[dict[str, Any]]:
+    """PDFs and photos sent as attachments (not a logo inside the email), up to 10 MB each."""
+    out = []
+    for part in message.walk():
+        name = part.get_filename() or ""
+        kind = part.get_content_type()
+        if name.lower().endswith(".pdf") and kind not in KEPT_TYPES:
+            kind = "application/pdf"
+        if kind not in KEPT_TYPES or (kind != "application/pdf" and not part.get("Content-Disposition", "").startswith("attachment")):
+            continue
+        data = part.get_payload(decode=True)
+        if data and len(data) < 10_000_000:
+            out.append({"filename": name or f"attachment{KEPT_TYPES[kind]}", "data": data})
+    return out[:8]
+
+
 class EmailClient:
     def __init__(
         self,
@@ -209,8 +237,9 @@ class EmailClient:
                     return
         conn.select("INBOX", readonly=True)
 
-    def find_everywhere(self, phrases: list[str], limit: int = 300, since_days: int = 30) -> list[dict[str, Any]]:
-        """Messages with any of `phrases` in the subject, newest first. Headers only, so a long look back stays quick."""
+    def find_everywhere(self, phrases: list[str], limit: int = 300, since_days: int = 30, label: str = "") -> list[dict[str, Any]]:
+        """Messages with any of `phrases` in the subject, newest first, and on Gmail everything with `label` whatever
+        its subject or date (each marked "filed"). Headers only, so a long look back stays quick."""
         conn = self._imap()
         try:
             self._select_everything(conn)
@@ -221,33 +250,32 @@ class EmailClient:
                 status, data = conn.uid("search", None, "SUBJECT", f'"{clean}"', "SINCE", since)
                 if status == "OK" and data and data[0]:
                     uids.update(int(u) for u in data[0].split())
+            filed: set[int] = set()
+            if label and ("gmail" in self._imap_host or "googlemail" in self._imap_host):
+                clean = re.sub(r'["\\\r\n]', " ", label).strip().replace(" ", "-")
+                status, data = conn.uid("search", None, "X-GM-RAW", f'"label:{clean}"')
+                if status == "OK" and data and data[0]:
+                    filed = {int(u) for u in data[0].split()}
             out = []
-            for uid in sorted(uids, reverse=True)[:limit]:
+            for uid in sorted(filed, reverse=True)[:limit] + sorted(uids - filed, reverse=True)[:limit]:
                 status, data = conn.uid("fetch", str(uid), "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
                 if status != "OK" or not data or not isinstance(data[0], tuple):
                     continue
                 message = email.message_from_bytes(data[0][1])
-                out.append({"uid": str(uid), "from": _header(message, "From"), "subject": _header(message, "Subject"), "date": _header(message, "Date")})
+                out.append({"uid": str(uid), "from": _header(message, "From"), "subject": _header(message, "Subject"), "date": _header(message, "Date"), "filed": uid in filed})
             return out
         finally:
             conn.logout()
 
     def read_everywhere(self, uid: str) -> dict[str, Any]:
-        """A message found by find_everywhere: its text and any PDFs attached (an invoice is often one)."""
+        """A message found by find_everywhere: its text, its HTML and its attachments (an invoice is often a PDF)."""
         conn = self._imap()
         try:
             self._select_everything(conn)
             message = self._fetch(conn, uid)
         finally:
             conn.logout()
-        pdfs = []
-        for part in message.walk():
-            name = part.get_filename() or ""
-            if part.get_content_type() == "application/pdf" or name.lower().endswith(".pdf"):
-                data = part.get_payload(decode=True)
-                if data and len(data) < 10_000_000:
-                    pdfs.append({"filename": name or "attachment.pdf", "data": data})
-        return {"uid": uid, "body": body_text(message)[:8000], "pdfs": pdfs[:3]}
+        return {"uid": uid, "body": body_text(message), "html": html_body(message)[:3_000_000], "files": attachments(message)}
 
     def read(self, uid: str) -> dict[str, Any]:
         conn = self._imap()
