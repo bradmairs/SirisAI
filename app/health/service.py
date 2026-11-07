@@ -125,7 +125,14 @@ def merge_hour_sums(state: Any, parsed: dict[str, Any], user_id: str, keep_days:
     for day, by_metric in sums.items():
         known = dict(kept.get(day) or {})
         for metric, hours in by_metric.items():
-            merged = {**(known.get(metric) or {}), **{h: round(v, 3) for h, v in hours.items()}}
+            merged = dict(known.get(metric) or {})
+            # 5.01: a key is an hour ("10") or a minute ("10:05"). Whichever grouping arrives for an hour replaces the
+            # other one's figures for it, so switching between hours and minutes never counts an hour twice.
+            for hour in {h[:2] for h in hours}:
+                minutes = any(":" in h for h in hours if h[:2] == hour)
+                for old in [k for k in merged if k[:2] == hour and (":" in k) != minutes]:
+                    merged.pop(old)
+            merged.update({h: round(v, 3) for h, v in hours.items()})
             known[metric] = merged
             metrics.setdefault(day, {})[metric] = round(sum(merged.values()), 2)
         kept[day] = known

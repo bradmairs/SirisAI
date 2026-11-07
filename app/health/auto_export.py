@@ -186,6 +186,9 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
     # 4.17: every summed metric hour by hour, so a sync split into several requests adds up instead of replacing the day.
     sums: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
     hr_samples: list[list[Any]] = []
+    # 5.01: grouped by minute (or not at all), each minute is kept on its own ("HH:MM"), so a sync split mid-hour adds up
+    # instead of the second part replacing the first. Grouped by hour, it's the hour ("HH"), as before.
+    by_hour = describe(data).get("aggregation") == "hour"
     for m in data.get("metrics") or []:
         if not isinstance(m, dict):
             continue
@@ -215,7 +218,7 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
                 continue  # aggregated by day: no time of day to go on
             if name in METRICS and METRICS[name][1] == "sum" and (v := _num(r.get("qty"))) is not None:
                 metric = METRICS[name][0]
-                sums[day][metric][f"{t.hour:02d}"] += convert(metric, units, v)
+                sums[day][metric][f"{t.hour:02d}" if by_hour else f"{t.hour:02d}:{t.minute:02d}"] += convert(metric, units, v)
             if name == "heart_rate" and (pt := _points([r])):
                 hr_samples.append(pt[0])  # 4.39: each reading, for lining sets up with heart rate
             if name in INTRADAY:
@@ -287,7 +290,32 @@ def workout_series(w: dict[str, Any]) -> dict[str, Any] | None:
     if not hr:
         return None
     return {"name": str(w.get("name") or "Workout")[:60], "start": str(w.get("start") or "")[:25], "end": str(w.get("end") or "")[:25],
-            "hr": sorted(hr), "kcal": sorted(kcal)}
+            "hr": thin(sorted(hr)), "kcal": sorted(kcal)}
+
+
+THIN_S = 5
+
+
+def thin(points: list[list[Any]], every_s: int = THIN_S) -> list[list[Any]]:
+    """Heart rate grouped by second (5.01) is a point a second: a 150-workout history of those is tens of MB, rewritten
+    on every sync. Keep one point per `every_s` seconds, with the window's average and its peak, which is still far
+    finer than lining sets up with heart rate needs. Sparser series (a point a minute) pass through as they are."""
+    out: list[list[Any]] = []
+    window: list[list[Any]] = []
+    start: datetime | None = None
+    for p in points:
+        t = when(p[0])
+        if t is None:
+            continue
+        if start is not None and (t - start).total_seconds() < every_s:
+            window.append(p)
+            continue
+        if window:
+            out.append([window[0][0], round(mean(x[1] for x in window), 1), max(x[2] for x in window)])
+        window, start = [p], t
+    if window:
+        out.append([window[0][0], round(mean(x[1] for x in window), 1), max(x[2] for x in window)])
+    return out
 
 
 SEGMENT_STAGES = {"core": "core", "deep": "deep", "rem": "rem", "awake": "awake", "inbed": "inBed", "asleep": "asleep", "unspecified": "asleep",
@@ -383,6 +411,8 @@ def describe(data: dict[str, Any]) -> dict[str, Any]:
         aggregation = "day"
     elif all((t.minute, t.second) == (0, 0) for t in times):
         aggregation = "hour"
+    elif all(t.second == 0 for t in times):
+        aggregation = "minute"
     else:
         aggregation = "none"
     last = max(t.date() for t in times)
