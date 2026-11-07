@@ -5,7 +5,7 @@ app/travel."""
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app.core.auth import require_api_key
@@ -135,6 +135,21 @@ def list_things(q: str = "", siris: SirisAI = Depends(get_siris)) -> list[dict[s
     from app.things import service
 
     return service.find(siris, q, limit=200)
+
+
+@router.get("/email/status")
+def email_status(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.things import from_email
+
+    return from_email.status(siris)
+
+
+@router.post("/things/from-email")
+async def things_from_email(days: int = Query(30, ge=1, le=1825), siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Look through email for receipts and add what was bought to Things."""
+    from app.things import from_email
+
+    return await from_email.scan(siris, days=days)
 
 
 @router.post("/things")

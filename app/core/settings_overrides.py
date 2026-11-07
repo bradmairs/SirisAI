@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # name -> (group, label, help, needs a restart)
 EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "bills_hour_local": ("Life admin", "Check email for bills (hour)", "Blank: off", False),
+    "things_email_hour_local": ("Life admin", "Check email for receipts (hour)", "Blank: off", False),
     "bills_warn_days": ("Life admin", "Warn about bills (days ahead)", "", False),
     "document_remind_days": ("Life admin", "Remind before a letter's due date (days)", "0: only on the day", False),
     "travel_hour_local": ("Life admin", "Trip checklist (hour)", "Blank: off", False),

@@ -4,6 +4,7 @@
   /siris/documents) has its items read by the local model: name, brand,
   model, price and warranty. Each becomes a Thing, linked to the receipt.
   You can also add them by hand (POST /siris/things) or from SirisOS.
+- **From email** (5.21, app/things/from_email.py): receipts found in your email, the same way.
 - **Warranties**: SIRISAI_WARRANTY_WARN_DAYS (30) before one runs out, the
   attention feed says so ("The dishwasher's warranty ends 12 Dec: anything
   to claim for?"). Checked daily.
@@ -113,7 +114,7 @@ def find(siris: "SirisAI", query: str = "", limit: int = 50) -> list[dict[str, A
         return [_serialize(r, today) for r in session.scalars(stmt.order_by(Thing.name).limit(limit))]
 
 
-def from_receipt(siris: "SirisAI", items: list[dict[str, Any]], bought: str | None, shop: str, document_id: int) -> list[dict[str, Any]]:
+def from_receipt(siris: "SirisAI", items: list[dict[str, Any]], bought: str | None, shop: str, document_id: int | None, notes: str = "") -> list[dict[str, Any]]:
     added = []
     for item in items[:20]:
         if not isinstance(item, dict) or not str(item.get("name") or "").strip():
@@ -122,7 +123,7 @@ def from_receipt(siris: "SirisAI", items: list[dict[str, Any]], bought: str | No
             added.append(add(siris, {
                 "name": str(item["name"])[:120], "brand": str(item.get("brand") or "")[:80], "model": str(item.get("model") or "")[:80],
                 "price": float(item["price"]) if item.get("price") not in (None, "") else None, "bought": bought, "shop": shop[:120],
-                "warranty_months": int(item["warranty_months"]) if item.get("warranty_months") else None, "document_id": document_id,
+                "warranty_months": int(item["warranty_months"]) if item.get("warranty_months") else None, "document_id": document_id, "notes": notes,
             }))
         except (TypeError, ValueError):
             continue

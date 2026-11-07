@@ -350,3 +350,114 @@ def test_a_trip_makes_away_mode_run_by_itself(monkeypatch: pytest.MonkeyPatch) -
     away.on_change(siris, home=False, now=now)
     siris.state.set(travel.AWAY_KEY, {})
     assert seen == ["ask", "auto"]
+
+
+# -- things from receipts in email ---------------------------------------------
+
+
+class ReceiptMail:
+    def __init__(self, messages: list[dict[str, Any]]) -> None:
+        self.messages = messages
+        self.reads: list[str] = []
+
+    def find_everywhere(self, phrases: list[str], limit: int = 300, since_days: int = 30) -> list[dict]:
+        return [{k: m[k] for k in ("uid", "from", "subject", "date")} for m in self.messages]
+
+    def read_everywhere(self, uid: str) -> dict:
+        self.reads.append(uid)
+        return {"uid": uid, "body": next(m["body"] for m in self.messages if m["uid"] == uid), "pdfs": []}
+
+
+class ReceiptLLM(LLMClient):
+    def __init__(self, answers: dict[str, dict[str, Any]]) -> None:
+        self.answers = answers
+
+    async def generate(self, messages, *, tools=None, **kwargs) -> LLMResponse:  # type: ignore[no-untyped-def]
+        text = messages[-1]["content"]
+        return LLMResponse(text=json.dumps(next((a for k, a in self.answers.items() if k in text), {"items": []})))
+
+
+def _receipt_setup(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict[str, Any]]) -> SirisAI:
+    from app.llm import local
+
+    monkeypatch.setattr(local, "client", lambda siris: ReceiptLLM(answers))
+    return SirisAI(settings=Settings(timezone="UTC"))
+
+
+def test_a_receipt_in_email_becomes_a_thing_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.things import from_email, service as things
+
+    tag = uuid.uuid4().hex[:6]
+    siris = _receipt_setup(monkeypatch, {f"Order {tag}": {"shop": "JB Hi-Fi", "date": "2026-10-20", "items": [{"name": f"Soundbar {tag}", "brand": "Sonos", "price": 899, "warranty_months": 24}]}})
+    mail = ReceiptMail([{"uid": "1", "from": "JB Hi-Fi <orders@jbhifi.com.au>", "subject": f"Order {tag} receipt", "date": "Wed, 21 Oct 2026 10:00:00 +0000", "body": "Thanks for your order"}])
+    now = datetime(2026, 11, 6, 9, tzinfo=UTC)
+
+    result = asyncio.run(from_email.scan(siris, client=mail, now=now))
+    assert result["added"] == 1 and result["more"] == 0
+    thing = things.find(siris, f"Soundbar {tag}")[0]
+    assert thing["shop"] == "JB Hi-Fi" and thing["bought"] == "2026-10-20" and thing["price"] == 899
+    assert thing["warranty_until"] == "2028-10-20" and tag in thing["notes"]
+
+    assert asyncio.run(from_email.scan(siris, client=mail, now=now))["added"] == 0
+    assert mail.reads == ["1"], "each email is read once"
+    things.delete(siris, thing["id"])
+    assert asyncio.run(from_email.scan(siris, client=mail, now=now))["added"] == 0, "one you deleted doesn't come back"
+
+
+def test_parcels_refunds_and_food_arent_read() -> None:
+    from app.things import from_email
+
+    assert not from_email.candidate({"from": "shop@x.com", "subject": "Your order has shipped"})
+    assert not from_email.candidate({"from": "shop@x.com", "subject": "Refund for your purchase"})
+    assert not from_email.candidate({"from": "Uber Receipts <noreply@uber.com>", "subject": "Your receipt"})
+    assert from_email.candidate({"from": "Bunnings <orders@bunnings.com.au>", "subject": "Your tax invoice"})
+
+
+def test_an_order_and_its_invoice_add_it_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.things import from_email, service as things
+
+    tag = uuid.uuid4().hex[:6]
+    answer = {"shop": "Bunnings", "date": "2026-10-20", "items": [{"name": f"Drill {tag}"}]}
+    siris = _receipt_setup(monkeypatch, {tag: answer})
+    mail = ReceiptMail([
+        {"uid": "1", "from": "orders@bunnings.com.au", "subject": f"Your order {tag}", "date": "Tue, 20 Oct 2026 10:00:00 +0000", "body": "x"},
+        {"uid": "2", "from": "orders@bunnings.com.au", "subject": f"Tax invoice {tag}", "date": "Wed, 21 Oct 2026 10:00:00 +0000", "body": "x"},
+    ])
+    assert asyncio.run(from_email.scan(siris, client=mail))["added"] == 1
+    found = things.find(siris, f"Drill {tag}")
+    assert len(found) == 1
+    things.delete(siris, found[0]["id"])  # the database is shared with other tests
+
+
+def test_when_the_model_is_down_the_email_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.llm import local
+    from app.things import from_email
+
+    siris = SirisAI(settings=Settings(timezone="UTC"))
+    tag = uuid.uuid4().hex[:6]
+    mail = ReceiptMail([{"uid": "1", "from": "a@b.com", "subject": f"Receipt {tag}", "date": "Tue, 20 Oct 2026 10:00:00 +0000", "body": "x"}])
+    monkeypatch.setattr(local, "client", lambda s: object())
+
+    async def nothing(*a: Any, **k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(local, "ask_json", nothing)
+    result = asyncio.run(from_email.scan(siris, client=mail))
+    assert result["problem"] and result["more"] == 1
+    assert from_email._key(mail.messages[0]) not in (siris.state.get(from_email.SEEN_KEY) or [])
+
+
+def test_a_refused_login_is_said_plainly_and_status_hides_the_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    import imaplib
+
+    from app.things import from_email
+
+    siris = _receipt_setup(monkeypatch, {})
+
+    class Refused(ReceiptMail):
+        def find_everywhere(self, *a: Any, **k: Any) -> list[dict]:
+            raise imaplib.IMAP4.error("AUTHENTICATIONFAILED")
+
+    assert "app password" in asyncio.run(from_email.scan(siris, client=Refused([])))["skipped"]
+    assert from_email.status(siris)["connected"] is False
+    assert asyncio.run(from_email.scan(siris))["skipped"] == "email isn't set up"
