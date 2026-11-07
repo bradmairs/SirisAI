@@ -3,9 +3,11 @@ email, and trips in the calendar. See app/documents, app/bills and
 app/travel."""
 
 import asyncio
+import mimetypes
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.core.auth import require_api_key
@@ -29,10 +31,23 @@ async def add_document(file: UploadFile = File(...), siris: SirisAI = Depends(ge
 
 
 @router.get("/documents")
-def list_documents(q: str = "", limit: int = 30, siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
+def list_documents(q: str = "", limit: int = 30, kind: str = "", not_kind: str = "", siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
     from app.documents import service
 
-    return service.list_documents(siris, q, limit=max(1, min(limit, 100)))
+    return service.list_documents(siris, q, limit=max(1, min(limit, 300)), kind=kind, not_kind=not_kind)
+
+
+@router.get("/documents/{doc_id}/files/{name}")
+def document_file(doc_id: int, name: str, siris: SirisAI = Depends(get_siris)) -> FileResponse:
+    """A kept receipt's original. It came from an email, so nothing in it may run."""
+    from app.documents import service
+
+    try:
+        path = service.file_path(siris, doc_id, name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="No such file") from exc
+    return FileResponse(path, media_type=mimetypes.guess_type(name)[0] or "application/octet-stream", headers={
+        "Content-Disposition": "inline", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"})
 
 
 @router.get("/documents/{doc_id}")
@@ -145,11 +160,11 @@ def email_status(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
 
 
 @router.post("/things/from-email")
-async def things_from_email(days: int = Query(30, ge=1, le=1825), siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
-    """Look through email for receipts and add what was bought to Things."""
+async def things_from_email(days: int = Query(30, ge=1, le=1825), max_read: int = Query(25, ge=1, le=500), siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Look through email for receipts: keep them, and add what was bought to Things."""
     from app.things import from_email
 
-    return await from_email.scan(siris, days=days)
+    return await from_email.scan(siris, days=days, max_read=max_read)
 
 
 @router.post("/things")

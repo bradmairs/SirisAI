@@ -360,12 +360,13 @@ class ReceiptMail:
         self.messages = messages
         self.reads: list[str] = []
 
-    def find_everywhere(self, phrases: list[str], limit: int = 300, since_days: int = 30) -> list[dict]:
-        return [{k: m[k] for k in ("uid", "from", "subject", "date")} for m in self.messages]
+    def find_everywhere(self, phrases: list[str], limit: int = 300, since_days: int = 30, label: str = "") -> list[dict]:
+        return [{"filed": m.get("filed", False), **{k: m[k] for k in ("uid", "from", "subject", "date")}} for m in self.messages]
 
     def read_everywhere(self, uid: str) -> dict:
         self.reads.append(uid)
-        return {"uid": uid, "body": next(m["body"] for m in self.messages if m["uid"] == uid), "pdfs": []}
+        m = next(m for m in self.messages if m["uid"] == uid)
+        return {"uid": uid, "body": m["body"], "html": m.get("html", ""), "files": m.get("files", [])}
 
 
 class ReceiptLLM(LLMClient):
@@ -382,6 +383,65 @@ def _receipt_setup(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict[str,
 
     monkeypatch.setattr(local, "client", lambda siris: ReceiptLLM(answers))
     return SirisAI(settings=Settings(timezone="UTC"))
+
+
+@pytest.fixture(autouse=True)
+def _receipts_in_a_temp_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    monkeypatch.setattr(documents, "files_dir", lambda siris, doc_id=None: tmp_path / "receipts" / str(doc_id) if doc_id is not None else tmp_path / "receipts")
+
+
+def test_a_receipt_in_email_is_kept_with_its_originals_and_linked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.things import from_email, service as things
+
+    tag = uuid.uuid4().hex[:6]
+    siris = _receipt_setup(monkeypatch, {f"Order {tag}": {"is_receipt": True, "title": f"JB {tag}", "shop": "JB Hi-Fi", "date": "2026-10-20", "total": 899, "items": [{"name": f"Speaker {tag}", "price": 899}]}})
+    mail = ReceiptMail([{"uid": "1", "from": "orders@jbhifi.com.au", "subject": f"Order {tag} receipt", "date": "Wed, 21 Oct 2026 10:00:00 +0000", "body": "Thanks",
+                         "html": "<b>Thanks</b><script>steal()</script>", "files": [{"filename": "../in voice.pdf", "data": b"not really a pdf"}]}])
+    result = asyncio.run(from_email.scan(siris, client=mail))
+    assert result["kept"] == 1 and result["added"] == 1
+    doc = documents.get(siris, result["receipts"][0]["id"])
+    assert doc["kind"] == "receipt" and doc["summary"] == "JB Hi-Fi, 20 Oct 2026, $899.00" and doc["note_title"] is None
+    assert doc["files"] == ["_in voice.pdf", "email.html"]
+    html = documents.file_path(siris, doc["id"], "email.html").read_text()
+    assert "default-src 'none'" in html.split("<b>")[0]
+    with pytest.raises(KeyError):
+        documents.file_path(siris, doc["id"], "../../sirisai.db")
+    thing = things.find(siris, f"Speaker {tag}")[0]
+    assert thing["document_id"] == doc["id"]
+    assert doc["id"] in [d["id"] for d in documents.list_documents(siris, kind="receipt", limit=300)]
+    assert doc["id"] not in [d["id"] for d in documents.list_documents(siris, not_kind="receipt", limit=300)]
+
+    documents.delete(siris, doc["id"])
+    assert things.find(siris, f"Speaker {tag}")[0]["document_id"] is None, "the thing stays"
+    assert asyncio.run(from_email.scan(siris, client=mail))["kept"] == 0, "a receipt you removed doesn't come back"
+    things.delete(siris, thing["id"])
+
+
+def test_things_added_earlier_get_their_receipt_and_arent_added_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.things import from_email, service as things
+
+    tag = uuid.uuid4().hex[:6]
+    siris = _receipt_setup(monkeypatch, {f"Order {tag}": {"is_receipt": True, "date": "2026-10-20", "items": [{"name": f"Router {tag}"}]}})
+    message = {"uid": "1", "from": "shop@x.com", "subject": f"Order {tag} receipt", "date": "Wed, 21 Oct 2026 10:00:00 +0000", "body": "x"}
+    old = things.add(siris, {"name": f"Router {tag}", "bought": "2026-10-20", "notes": from_email._note(message["subject"])})
+    siris.state.set(from_email.SEEN_KEY, [*(siris.state.get(from_email.SEEN_KEY) or []), from_email._key(message)])
+    result = asyncio.run(from_email.scan(siris, client=ReceiptMail([message])))
+    assert result["kept"] == 1 and result["linked"] == 1 and result["added"] == 0
+    assert things.find(siris, f"Router {tag}")[0]["document_id"] == result["receipts"][0]["id"]
+    things.delete(siris, old["id"])
+
+
+def test_anything_in_the_receipts_label_is_kept_whatever_it_says(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.things import from_email
+
+    tag = uuid.uuid4().hex[:6]
+    siris = _receipt_setup(monkeypatch, {tag: {"is_receipt": False, "items": []}, "advert": {"is_receipt": False, "items": []}})
+    mail = ReceiptMail([
+        {"uid": "1", "from": "Uber <noreply@uber.com>", "subject": f"Trip {tag} shipped", "date": "Wed, 21 Oct 2026 10:00:00 +0000", "body": "x", "filed": True},
+        {"uid": "2", "from": "shop@x.com", "subject": f"Purchase advert {tag}", "date": "Wed, 21 Oct 2026 10:00:00 +0000", "body": "x"},
+    ])
+    result = asyncio.run(from_email.scan(siris, client=mail))
+    assert result["kept"] == 1 and result["read"] == 2 and mail.reads[0] == "1"
 
 
 def test_a_receipt_in_email_becomes_a_thing_once(monkeypatch: pytest.MonkeyPatch) -> None:
