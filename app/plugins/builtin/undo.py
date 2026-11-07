@@ -1,4 +1,4 @@
-"""Undo by saying so (app/core/undo.py, 4.9)."""
+"""Undo by saying so (app/core/undo.py, 5.0)."""
 
 from typing import TYPE_CHECKING, Any
 

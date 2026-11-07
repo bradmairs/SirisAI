@@ -1,4 +1,4 @@
-"""The speed trial (SirisAI 4.9): did 4.6's speed changes actually help on
+"""The speed trial (SirisAI 5.0): did 4.6's speed changes actually help on
 this server?
 
 Started from SirisOS (System status → SirisAI speed) or POST

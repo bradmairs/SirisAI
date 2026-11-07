@@ -156,6 +156,7 @@ from app.plugins.builtin.second_brain import (
     BrainRestoreNoteTool,
     BrainSearchTool,
     BrainPastProjectsTool,
+    BrainNotCPEngEvidenceTool,
     BrainUnlinkNotesTool,
     BrainDoneTool,
 )
@@ -994,6 +995,7 @@ class SirisAI:
         if self.second_brain is not None:
             self.tools.register(BrainSearchTool(self.second_brain))
             self.tools.register(BrainPastProjectsTool(self.second_brain))
+            self.tools.register(BrainNotCPEngEvidenceTool(self.second_brain, self.state))
             self.tools.register(BrainGetNoteTool(self.second_brain))
             self.tools.register(BrainInsightsTool(self.second_brain))
             self.tools.register(BrainLinkNotesTool(self.second_brain))
@@ -1257,7 +1259,7 @@ class SirisAI:
 
     def _guest_hidden_tools(self) -> set[str]:
         """Personal-data tools, while guest mode is on (app/core/guest.py), or
-        while a child or guest is the one speaking (4.9), who also don't get
+        while a child or guest is the one speaking (5.0), who also don't get
         anything that needs confirming."""
         role = get_turn_role()
         if role in ("child", "guest"):
@@ -1411,7 +1413,7 @@ class SirisAI:
         if role in ("child", "guest") and (
             call_needs_confirmation or guest.is_personal_tool(name, _categorize_tool(tool))
         ):
-            # Who's speaking (4.9): a child or an unrecognised voice can't
+            # Who's speaking (5.0): a child or an unrecognised voice can't
             # reach personal information or anything that needs an OK.
             self.audit.record(name, arguments, error=f"Not for a {role}", duration_ms=(time.monotonic() - start) * 1000,
                               conversation_id=conversation_id, trigger=trigger, evidence=evidence)
@@ -1477,7 +1479,7 @@ class SirisAI:
                 self.audit.record(name, arguments, error=str(exc), duration_ms=(time.monotonic() - start) * 1000, conversation_id=conversation_id, trigger=trigger, evidence=evidence, policy=policy)
                 raise
 
-        prior = undo.capture(self, name, arguments)  # what "undo that" would put back (4.9)
+        prior = undo.capture(self, name, arguments)  # what "undo that" would put back (5.0)
         try:
             result = tool.run(**arguments)
         except Exception as exc:

@@ -33,7 +33,7 @@ FAKE_ENGINE = textwrap.dedent(
     import json, pathlib, sys
     root = pathlib.Path(__file__).resolve().parent.parent
     args = sys.argv[1:]
-    stdin = sys.stdin.read() if "--json" in args or args[:1] == ["edit"] or args[-1:] == ["-"] else ""
+    stdin = sys.stdin.read() if "--json" in args or args[:1] == ["edit"] or "-" in args else ""
     with open(root / "calls.jsonl", "a") as f:
         f.write(json.dumps({"args": args, "stdin": stdin}) + "\\n")
     store = root / "notes.json"
@@ -151,6 +151,14 @@ FAKE_ENGINE = textwrap.dedent(
         notes[t] = stdin
         store.write_text(json.dumps(notes))
         print(json.dumps({"action": "edited", "title": t, "path": f"Notes/{t}.md", "links_added": [], "version": "v2"}))
+        sys.exit(0)
+    if cmd == "handwriting":
+        print(json.dumps([{"title": "Site Visit", "path": "Work/WSP/Site Visit.md", "source": "OneNote: WSP › Site › Site Visit",
+                           "score": 6.5, "illegible": 1, "odd_words": ["meroh"], "text": "Dellers underslip rear Meroh"}]))
+        sys.exit(0)
+    if cmd == "handwriting-check":
+        title = args[args.index("--") + 1]
+        print(json.dumps({"action": "corrected" if "--text" in args else "checked", "title": title, "text": stdin}))
         sys.exit(0)
     if cmd == "set-block":
         note, name, _ = args[args.index("--") + 1:]
@@ -943,3 +951,41 @@ def test_recent_notes_route(brain_api) -> None:
     got = client.get("/siris/brain/recent", params={"folder": "Work", "limit": 5}).json()
     assert got and all(n["as_of"] == "2026-11-06" and n["path"].startswith("Work/") for n in got)
     assert _calls(vault)[-1]["args"] == ["recent", "--folder", "Work", "--limit", "5"]
+
+
+def test_handwriting_review_routes(brain_api, tmp_path: Path) -> None:
+    from app.onenote import importer, pages
+    from app.onenote.convert import render_strokes
+
+    client, vault = brain_api
+    r = client.get("/siris/brain/handwriting")
+    assert r.status_code == 200 and r.json()[0]["odd_words"] == ["meroh"]
+    r = client.post("/siris/brain/handwriting/check", json={"title": "Site Visit", "text": "Dellows underslip near Moutere"})
+    assert r.json()["action"] == "corrected"
+    assert _calls(vault)[-1]["args"] == ["handwriting-check", "--output", "json", "--text", "-", "--", "Site Visit"]
+    assert _calls(vault)[-1]["stdin"] == "Dellows underslip near Moutere"
+    assert client.post("/siris/brain/handwriting/check", json={"title": "Site Visit"}).json()["action"] == "checked"
+
+    siris = get_siris()
+    siris.settings.onenote_token_path = str(tmp_path / "onenote" / "token.json")
+    siris.state.set(importer.STATE_KEY, {"page-1": {"title": "Site Visit", "modified": "2026-10-01"}})
+    ink = '<inkml:ink xmlns:inkml="http://www.w3.org/2003/InkML"><inkml:trace>0 0, 400 0, 400 300</inkml:trace></inkml:ink>'
+
+    class FakeOneNote:
+        calls = 0
+
+        def page_content(self, pid: str):
+            FakeOneNote.calls += 1
+            assert pid == "page-1"
+            return "<p></p>", ink
+
+        def close(self) -> None:
+            pass
+
+    images = pages.page_images(siris, ["Site Visit"], client_factory=FakeOneNote)
+    assert images == render_strokes([[(0, 0), (400, 0), (400, 300)]]) and images[0].startswith(b"\x89PNG")
+    assert pages.page_images(siris, ["Old Title", "site visit"], client_factory=FakeOneNote) == images
+    assert FakeOneNote.calls == 1   # drawn once, then kept
+    r = client.get("/siris/brain/handwriting/image", params={"title": "Site Visit", "n": 1})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.headers["x-page-parts"] == "1"
+    assert client.get("/siris/brain/handwriting/image", params={"title": "Unknown page"}).status_code == 404

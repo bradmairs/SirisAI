@@ -5,7 +5,7 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
-## 4.9 — 2026-11-07
+## 5.0 — 2026-11-07
 
 - A speed trial that proves (or disproves) the speed work, quick commands for scenes, media and the thermostat that also learn, undo by voice, a weekly reliability report, things and warranties, people and birthdays, a house watch for leaks and doors, news in the morning brief, and roles for who's speaking
 - Speed trial: POST/GET/DELETE /siris/timings/trial; verdict and fitted SIRISAI_OLLAMA_WARM_HOURS in the feed when it ends
@@ -18,6 +18,13 @@ numbered milestones hold the detailed history.
 - News: SIRISAI_NEWS_FEEDS, SIRISAI_NEWS_TOPICS, SIRISAI_PODCAST_FEEDS; GET /siris/news; in the spoken brief
 - Who's speaking: SIRISAI_VOICE_ROLES, SIRISAI_VOICE_UNKNOWN_AS_GUEST
 - Fixed: 4.6's document and speed-trial attention items used a kind the hub contract doesn't allow
+
+## 4.9 — 2026-11-07
+
+- Stricter CPEng evidence (re-checked, Brad can reject a note), a coverage table, and handwriting review routes for SirisOS
+- The nightly CPEng step only counts notes showing Brad's own engineering on a real job, re-reads the existing list and removes lines that no longer count; `brain_not_cpeng_evidence` rejects one for good.
+- *CPEng Chartership* gets a coverage table: notes per element, and the elements with none yet.
+- `/siris/brain/handwriting` (queue), `/handwriting/image` (the page drawn from OneNote) and `/handwriting/check`, for SirisOS 7.6's handwriting review. Needs the vault engine 2.28.
 
 ## 4.8 — 2026-11-06
 

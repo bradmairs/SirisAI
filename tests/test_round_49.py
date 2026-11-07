@@ -1,4 +1,4 @@
-"""SirisAI 4.9: the speed trial, more quick commands and learned ones, undo
+"""SirisAI 5.0: the speed trial, more quick commands and learned ones, undo
 by voice, the weekly reliability report, things and warranties, people,
 the house watch, news in the brief, and who's speaking."""
 

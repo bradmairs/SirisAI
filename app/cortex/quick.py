@@ -1,5 +1,5 @@
 """Plain home commands without the model (SirisAI 4.6; scenes, media,
-the thermostat, "undo that" and learned phrases in 4.9).
+the thermostat, "undo that" and learned phrases in 5.0).
 
 "Turn off the kitchen lights", "switch the fan on", "dim the lounge to 30%"
 are the commonest things said to SirisAI and the slowest to answer: one or
@@ -18,7 +18,7 @@ as before:
 - the call needs no confirmation (SIRISAI_HOME_ASSISTANT_NO_CONFIRM_DOMAINS).
   Locks, covers and alarms are never in the quick list at all.
 
-Since 4.9 it also knows scenes ("movie time", "run the dinner scene"), media
+Since 5.0 it also knows scenes ("movie time", "run the dinner scene"), media
 ("pause the lounge TV", "next song", "set the kitchen speaker volume to
 30"), the thermostat ("set the heating to 21") and "undo that". And it
 learns: a short request the model answered with the same single home action

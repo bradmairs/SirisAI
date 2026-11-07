@@ -1,4 +1,4 @@
-"""The weekly reliability report (SirisAI 4.9).
+"""The weekly reliability report (SirisAI 5.0).
 
 Sundays at SIRISAI_RELIABILITY_HOUR_LOCAL (20; blank = off), one item in
 the attention feed (and a push when something's wrong) saying how SirisAI

@@ -1,4 +1,4 @@
-"""People (SirisAI 4.9): birthdays, anniversaries and keeping in touch.
+"""People (SirisAI 5.0): birthdays, anniversaries and keeping in touch.
 
 - **Who**: added by hand (POST /siris/people, SirisOS, or "remember Dom's
   birthday is 14 March"), and found in the calendar: a yearly event called

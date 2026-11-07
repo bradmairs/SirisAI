@@ -1,4 +1,4 @@
-"""The things you own (SirisAI 4.9): warranties and manuals.
+"""The things you own (SirisAI 5.0): warranties and manuals.
 
 - **From receipts**: a receipt or invoice added to the document inbox (POST
   /siris/documents) has its items read by the local model: name, brand,

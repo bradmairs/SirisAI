@@ -1,4 +1,4 @@
-"""Undo by saying so (SirisAI 4.9): "undo that", "take that back".
+"""Undo by saying so (SirisAI 5.0): "undo that", "take that back".
 
 Every action that can be put back is written to a short journal as it
 runs, with the calls that would reverse it:

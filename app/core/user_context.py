@@ -53,7 +53,7 @@ async def resolve_user_id(x_siris_user: str | None = Header(default=None)) -> st
     return user_id
 
 
-# What the person speaking may do this turn (4.9): "adult" (everything, the
+# What the person speaking may do this turn (5.0): "adult" (everything, the
 # default), "child" or "guest" (no personal information and nothing that
 # needs confirming). Set by a voice turn from who it recognised.
 _turn_role: ContextVar[str] = ContextVar("siris_turn_role", default="adult")

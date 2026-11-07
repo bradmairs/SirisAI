@@ -1,5 +1,5 @@
 """Tools for the things you own (app/things), people (app/people) and the
-news (app/news), 4.9."""
+news (app/news), 5.0."""
 
 from typing import TYPE_CHECKING, Any
 

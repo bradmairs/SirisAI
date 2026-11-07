@@ -1,4 +1,4 @@
-"""News and podcasts for the morning brief (SirisAI 4.9).
+"""News and podcasts for the morning brief (SirisAI 5.0).
 
 - **News**: the RSS or Atom feeds in SIRISAI_NEWS_FEEDS, from the last day.
   With SIRISAI_NEWS_TOPICS set ("AI, Melbourne, Formula 1"), only stories

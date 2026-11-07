@@ -121,7 +121,7 @@ async def converse(
                 set_turn_role(role)
                 yield {"type": "speaker", "user_id": match["user_id"], "score": match["score"], "role": role}
             elif match is not None and siris.settings.voice_unknown_as_guest and siris.voiceprints.list_voiceprints():
-                # A voice nobody enrolled (4.9): a guest for this turn.
+                # A voice nobody enrolled (5.0): a guest for this turn.
                 set_turn_role("guest")
                 yield {"type": "speaker", "user_id": None, "score": match["score"], "role": "guest"}
         if audio is not None:

@@ -453,7 +453,7 @@ class Settings(BaseSettings):
     podcast_feeds: str = ""
     news_items: int = 5
     news_cache_minutes: float = 30
-    # Who's speaking (4.9): what each recognised voice may do, as
+    # Who's speaking (5.0): what each recognised voice may do, as
     # user=role pairs (adult, child or guest; anyone unlisted is an adult),
     # and whether a voice SirisAI doesn't recognise is treated as a guest
     # (no personal information, nothing that needs confirming).

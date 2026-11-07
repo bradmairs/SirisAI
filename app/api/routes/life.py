@@ -113,7 +113,7 @@ def travel_away(on: bool = True, siris: SirisAI = Depends(get_siris)) -> dict[st
     return service.set_away(siris, trips[0])
 
 
-# -- things you own (app/things, 4.9) -----------------------------------------
+# -- things you own (app/things, 5.0) -----------------------------------------
 
 
 class ThingIn(BaseModel):
@@ -170,7 +170,7 @@ def delete_thing(thing_id: int, siris: SirisAI = Depends(get_siris)) -> dict[str
     return {"deleted": thing_id}
 
 
-# -- people (app/people, 4.9) -------------------------------------------------
+# -- people (app/people, 5.0) -------------------------------------------------
 
 
 class PersonIn(BaseModel):
@@ -234,7 +234,7 @@ def person_gifts(person_id: int, siris: SirisAI = Depends(get_siris)) -> dict[st
     return {"ideas": service.gift_ideas(siris, person["name"]), "last_seen": service.last_seen(siris, person["name"])}
 
 
-# -- news (app/news, 4.9) -----------------------------------------------------
+# -- news (app/news, 5.0) -----------------------------------------------------
 
 
 @router.get("/news")

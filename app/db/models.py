@@ -799,7 +799,7 @@ class Bill(Base):
 
 
 class Thing(Base):
-    """Something you own, with its warranty and manual (app/things, 4.9)."""
+    """Something you own, with its warranty and manual (app/things, 5.0)."""
 
     __tablename__ = "things"
 
@@ -820,7 +820,7 @@ class Thing(Base):
 
 
 class Person(Base):
-    """Someone you keep up with: birthdays, anniversaries, catch-ups (app/people, 4.9)."""
+    """Someone you keep up with: birthdays, anniversaries, catch-ups (app/people, 5.0)."""
 
     __tablename__ = "people"
 

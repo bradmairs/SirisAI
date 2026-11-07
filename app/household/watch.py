@@ -1,4 +1,4 @@
-"""House problems caught early (SirisAI 4.9), from Home Assistant's
+"""House problems caught early (SirisAI 5.0), from Home Assistant's
 sensors, checked every two minutes:
 
 - **Water**: any moisture sensor (device_class moisture, or "leak"/"water"
