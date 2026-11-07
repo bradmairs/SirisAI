@@ -5,6 +5,13 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.9 — 2026-11-07
+
+- Stricter CPEng evidence (re-checked, Brad can reject a note), a coverage table, and handwriting review routes for SirisOS
+- The nightly CPEng step only counts notes showing Brad's own engineering on a real job, re-reads the existing list and removes lines that no longer count; `brain_not_cpeng_evidence` rejects one for good.
+- *CPEng Chartership* gets a coverage table: notes per element, and the elements with none yet.
+- `/siris/brain/handwriting` (queue), `/handwriting/image` (the page drawn from OneNote) and `/handwriting/check`, for SirisOS 7.6's handwriting review. Needs the vault engine 2.28.
+
 ## 4.8 — 2026-11-06
 
 - Recently updated notes by folder (GET /siris/brain/recent), for SirisOS's Work page

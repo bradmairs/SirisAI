@@ -117,6 +117,38 @@ class BrainPastProjectsTool(Tool):
         return {"pages": [h for h in work if is_page(h)][:5], "notes": [h for h in work if not is_page(h)][:6]}
 
 
+class BrainNotCPEngEvidenceTool(Tool):
+    name = "brain_not_cpeng_evidence"
+    description = (
+        "Take a note off the CPEng evidence list on 'CPEng Chartership' when Brad says it isn't evidence "
+        "(\"the Civil 3D Surfaces note isn't CPEng evidence\", \"drop X from my chartership evidence\"). "
+        "It's never added again; the note itself doesn't change."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {"title": {"type": "string", "description": "The note's title, as listed under Evidence from your notes."}},
+        "required": ["title"],
+    }
+
+    def __init__(self, client: SecondBrainClient, state: Any) -> None:
+        self._client, self._state = client, state
+
+    def run(self, title: str = "", **kwargs: Any) -> Any:
+        from app.second_brain.jobs import CPENG_HEADING, CPENG_NOTE, CPENG_REJECTED_KEY
+
+        note = self._client.get_note(title) or {}
+        real = note.get("title") or title
+        try:
+            result = self._client.remove_line(CPENG_NOTE, CPENG_HEADING, f"- [[{real}]]")
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+        rejected = set(self._state.get(CPENG_REJECTED_KEY) or [])
+        rejected.add(real)
+        self._state.set(CPENG_REJECTED_KEY, sorted(rejected))
+        return {"action": "not-evidence", "title": real, "removed": result.get("removed", 0)}
+
+
 class BrainGetNoteTool(Tool):
     name = "brain_get_note"
     description = (

@@ -817,19 +817,39 @@ def test_recent_imports_get_their_action_items_and_old_ones_dont() -> None:
 
 class CPEngBrain(FakeBrain):
     def __init__(self) -> None:
-        super().__init__(notes={"CPEng Chartership": "# CPEng", "Dellows Underslip – Outlet Options": "Chose riprap over a drop structure.",
-                                "Water Asset Forum – Tina Porou": "Talk notes."})
+        super().__init__(notes={"CPEng Chartership": "# CPEng\n## Evidence from your notes\n"
+                                                     "- [[Civil 3D Surfaces]]: 12 Advanced engineering knowledge. Software steps.\n",
+                                "Dellows Underslip – Outlet Options": "Chose riprap over a drop structure.",
+                                "Water Asset Forum – Tina Porou": "Talk notes.", "Civil 3D Surfaces": "How to build a surface.",
+                                "Box Culverts": "riprap guidance from a supplier"})
         self.lines: list[tuple[str, str, str]] = []
+        self.removed: list[str] = []
+        self.blocks: dict[str, str] = {}
 
     def list_notes(self) -> list[dict]:
         return [{"title": "CPEng Chartership", "type": "project", "path": "01-Projects/CPEng Chartership.md"},
                 {"title": "Dellows Underslip – Outlet Options", "type": "note", "path": "Work/WSP/Dellows Underslip – Outlet Options.md"},
                 {"title": "Dellows Underslip", "type": "project", "path": "Work/WSP/Projects/Dellows Underslip.md"},
-                {"title": "Water Asset Forum – Tina Porou", "type": "note", "path": "Work/Professional Development/x.md"}]
+                {"title": "Water Asset Forum – Tina Porou", "type": "note", "path": "Work/Professional Development/x.md"},
+                {"title": "Civil 3D Surfaces", "type": "note", "path": "Work/Civil 3D/Civil 3D Surfaces.md"},
+                {"title": "Box Culverts", "type": "note", "path": "Work/Box Culverts.md"}]
+
+    def _cpeng(self) -> str:
+        return self.notes["CPEng Chartership"]
 
     def add_line(self, note: str, heading: str, line: str) -> dict:
         self.lines.append((note, heading, line))
+        self.notes[note] += line + "\n"
         return {"action": "added", "title": note}
+
+    def remove_line(self, note: str, heading: str, starts: str) -> dict:
+        self.removed.append(starts)
+        self.notes[note] = "\n".join(l for l in self.notes[note].split("\n") if not l.startswith(starts))
+        return {"action": "removed", "title": note, "removed": 1}
+
+    def set_block(self, note: str, name: str, text: str) -> dict:
+        self.blocks[name] = text
+        return {"action": "set", "title": note}
 
 
 class SwitchLLM:
@@ -842,14 +862,32 @@ class SwitchLLM:
 def test_work_notes_that_show_competencies_are_listed_on_the_cpeng_note() -> None:
     siris = _siris()
     siris.state.set(jobs.CPENG_KEY, [])
+    siris.state.set(jobs.CPENG_REJECTED_KEY, ["Box Culverts"])
     brain = siris.second_brain = CPEngBrain()
     siris.llm = SwitchLLM()
     out = asyncio.run(jobs.cpeng_evidence(siris))
-    assert out == {"added": ["Dellows Underslip – Outlet Options"], "read": 2}   # project pages aren't read
+    # the line already listed is re-checked first and comes off; project pages and rejected notes aren't read
+    assert out == {"added": ["Dellows Underslip – Outlet Options"], "removed": ["Civil 3D Surfaces"], "read": 3}
     assert brain.lines == [("CPEng Chartership", "## Evidence from your notes",
                             "- [[Dellows Underslip – Outlet Options]]: 4 Develop safe and sustainable solutions, "
                             "14 Problem analysis. He compared outlet options and picked riprap.")]
-    assert asyncio.run(jobs.cpeng_evidence(siris)) == {"added": [], "read": 0}
+    assert "Civil 3D" not in brain.notes["CPEng Chartership"]
+    coverage = brain.blocks["cpeng-coverage"]
+    assert "| 4. Develop safe and sustainable solutions | 1 |" in coverage
+    assert "| 8. Communication | none yet |" in coverage and "**No evidence yet:**" in coverage
+    assert asyncio.run(jobs.cpeng_evidence(siris)) == {"added": [], "removed": [], "read": 0}
+
+
+def test_brad_can_say_a_note_is_not_evidence() -> None:
+    from app.plugins.builtin.second_brain import BrainNotCPEngEvidenceTool
+
+    siris = _siris()
+    siris.state.set(jobs.CPENG_REJECTED_KEY, [])
+    brain = CPEngBrain()
+    out = BrainNotCPEngEvidenceTool(brain, siris.state).run(title="Civil 3D Surfaces")
+    assert out == {"action": "not-evidence", "title": "Civil 3D Surfaces", "removed": 1}
+    assert brain.removed == ["- [[Civil 3D Surfaces]]"]
+    assert siris.state.get(jobs.CPENG_REJECTED_KEY) == ["Civil 3D Surfaces"]
 
 
 def test_the_weekly_check_points_at_handwriting() -> None:
