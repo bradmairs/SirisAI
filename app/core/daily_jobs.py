@@ -76,6 +76,12 @@ def _bills(siris: "SirisAI", now: datetime) -> Any:
     return service.scan(siris, now=now)
 
 
+def _things_email(siris: "SirisAI", now: datetime) -> Any:
+    from app.things import from_email
+
+    return from_email.daily(siris, now)
+
+
 def _travel(siris: "SirisAI", now: datetime) -> Any:
     from app.travel import service
 
@@ -231,6 +237,7 @@ JOBS: list[DailyJob] = [
     DailyJob("house_batteries", lambda s: 10 if getattr(s, "_home_assistant_client", None) is not None else None, _house_batteries, weekday=lambda s: 5),
     DailyJob("reliability_weekly", lambda s: s.settings.reliability_hour_local, _reliability, weekday=lambda s: 6),
     DailyJob("bills", lambda s: s.settings.bills_hour_local if getattr(s, "email_client", None) is not None else None, _bills),
+    DailyJob("things_from_email", lambda s: s.settings.things_email_hour_local if getattr(s, "email_client", None) is not None else None, _things_email),
     DailyJob("travel", lambda s: s.settings.travel_hour_local if getattr(s, "calendar", None) is not None else None, _travel),
     DailyJob("health_check", lambda s: s.settings.health_check_hour_local, _health_check),
     DailyJob("health_weekly", lambda s: 19, _health_weekly, weekday=lambda s: 6),

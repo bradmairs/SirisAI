@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.21 — 2026-11-07
+
+- Receipts in email become Things: read-only, once a day and on request, with scripts/setup_gmail.sh to connect Gmail
+
 ## 5.11 — 2026-11-07
 
 - Protocols can be turned off, and their notifications too

@@ -228,7 +228,7 @@ class Settings(BaseSettings):
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
         "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "onenote_hour_local", "gmail_hour_local",
-        "bills_hour_local", "travel_hour_local", "reliability_hour_local",
+        "bills_hour_local", "things_email_hour_local", "travel_hour_local", "reliability_hour_local",
         mode="before",
     )
     @classmethod
@@ -471,6 +471,8 @@ class Settings(BaseSettings):
     # this hour (blank = off), raised this many days before they're due.
     bills_hour_local: int | None = 8
     bills_warn_days: int = 4
+    # Receipts in email become Things (app/things/from_email.py): checked daily at this hour; blank: off.
+    things_email_hour_local: int | None = 8
     # Travel mode (app/travel): trips in the calendar this far ahead, the
     # checklist this many days before, checked at this hour (blank = off).
     # A long event at a place containing travel_home_city isn't a trip.
