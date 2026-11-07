@@ -57,6 +57,9 @@ def left(siris: "SirisAI", mode: str, now: datetime | None = None) -> dict[str, 
     preview = protocols.preview(siris, name)
     if not preview["found"]:
         return {"skipped": f"there's no protocol called '{name}'"}
+    if not preview.get("active", True):
+        return {"skipped": f"'{name}' is turned off"}  # 5.11: not run, not offered
+    loud = preview.get("notify", True)  # 5.11: notifications off: it stays in the feed, nothing goes to the phone
     steps = [s["step"] for s in preview["steps"] if s["will_run"]]
     if mode == "auto":
         result = run(siris, "presence: everyone left (away mode is automatic)", now)
@@ -64,18 +67,20 @@ def left(siris: "SirisAI", mode: str, now: datetime | None = None) -> dict[str, 
             "away:ran", "alert", f"Everyone's out, so I ran {name}", source="away", severity="info",
             body="Done: " + ", ".join(steps) + ". It's undone when someone's back (doors stay locked).",
         )
-        _push(siris, f"Everyone's out, so I ran {name}: " + ", ".join(steps) + ".")
+        if loud:
+            _push(siris, f"Everyone's out, so I ran {name}: " + ", ".join(steps) + ".")
         return result
     siris.attention.raise_item(
         OFFER_KEY,
         "suggestion",
         f"Everyone's out. Run {name}?",
         source="away",
-        severity="attention",
+        severity="attention" if loud else "info",
         body="It would: " + ", ".join(steps) + ". When someone's back it's undone, except that doors stay locked and the garage stays shut.",
         actions=[action("run", "Run it", "primary"), action("dismiss", "Not now")],
     )
-    _push(siris, f"Everyone's out. Run {name}? It would: " + ", ".join(steps) + ". Open SirisAI to run it.")
+    if loud:
+        _push(siris, f"Everyone's out. Run {name}? It would: " + ", ".join(steps) + ". Open SirisAI to run it.")
     return {"offered": name, "steps": steps}
 
 

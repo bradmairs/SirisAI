@@ -129,7 +129,10 @@ class DepartureCheckSkill(Skill):
 
         if notify and siris.tools.get("notify") is not None:
             actions = None
-            away = siris.tools.get("run_protocol") is not None and left_open and siris.settings.public_base_url
+            from app.protocols import service as protocol_service
+
+            away = (siris.tools.get("run_protocol") is not None and left_open and siris.settings.public_base_url
+                    and protocol_service.get_protocol(siris, "away") is not None and protocol_service.is_active(siris, "away"))  # 5.1
             if away:
                 headers = {"Content-Type": "application/json"}
                 if siris.settings.api_key:

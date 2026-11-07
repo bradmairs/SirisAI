@@ -213,6 +213,8 @@ class ProtocolInfo(_Model):
     description: str = ""
     builtin: bool = False
     steps: list[str] = []
+    active: bool = Field(True, description="5.11: off, it doesn't run (by hand or by itself) and isn't offered.")
+    notify: bool = Field(True, description="5.11: off, nothing about it goes to the phone, and its notify steps are skipped.")
 
 
 class LastProtocolRun(_Model):
@@ -488,6 +490,20 @@ class ProtocolDef(_Model):
     builtin: bool = Field(False, description="A built-in as it comes; false once it's yours (made here or in chat).")
     customised: bool = Field(False, description="Your version of a built-in: deleting it brings the original back.")
     steps: list[ProtocolStepDef]
+    active: bool = Field(True, description="5.11: off, it doesn't run (by hand or by itself) and isn't offered.")
+    notify: bool = Field(True, description="5.11: off, nothing about it goes to the phone, and its notify steps are skipped.")
+
+
+class ProtocolSwitches(_Model):
+    """5.11: turn a protocol on or off, and its notifications. Either may be left out."""
+    active: bool | None = None
+    notify: bool | None = None
+
+
+class ProtocolSwitched(_Model):
+    name: str
+    active: bool
+    notify: bool
 
 
 class ProtocolEntity(_Model):

@@ -58,7 +58,9 @@
           "when": null,
           "undo": null
         }
-      ]
+      ],
+      "active": true,
+      "notify": true
     },
     {
       "name": "guest",
@@ -76,7 +78,9 @@
           "when": null,
           "undo": null
         }
-      ]
+      ],
+      "active": true,
+      "notify": true
     },
     {
       "name": "guest_off",
@@ -93,7 +97,9 @@
           "when": null,
           "undo": null
         }
-      ]
+      ],
+      "active": true,
+      "notify": true
     },
     {
       "name": "lockdown",
@@ -142,7 +148,9 @@
           "when": "night",
           "undo": null
         }
-      ]
+      ],
+      "active": true,
+      "notify": true
     },
     {
       "name": "wind_down",
@@ -167,7 +175,9 @@
           "when": null,
           "undo": null
         }
-      ]
+      ],
+      "active": true,
+      "notify": true
     }
   ],
   "actions": {

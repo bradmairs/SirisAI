@@ -276,7 +276,7 @@ def protocols(siris: "SirisAI") -> list[c.ProtocolInfo]:
         raise _Missing("protocols")
     return [
         c.ProtocolInfo(name=p["name"], description=p.get("description") or "", builtin=bool(p.get("builtin")),
-                       steps=[s.get("label") or s["tool"] for s in p["steps"]])
+                       steps=[s.get("label") or s["tool"] for s in p["steps"]], active=p.get("active", True), notify=p.get("notify", True))
         for p in service.all_protocols(siris).values()
     ]
 

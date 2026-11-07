@@ -25,7 +25,7 @@ def _clean(client: TestClient):
         session.query(AttentionItem).delete()
         session.commit()
     s = SirisAI(settings=Settings())
-    for key in (away.STATE_KEY, protocols.LAST_RUN_KEY, cameras.STATE_KEY):
+    for key in (away.STATE_KEY, protocols.LAST_RUN_KEY, cameras.STATE_KEY, protocols.SWITCHES_KEY):
         s.state.delete(key)
     for proto in s.protocols.list():
         s.protocols.delete(proto["name"])
@@ -195,6 +195,27 @@ def test_coming_home_leaves_other_protocols_and_offers_alone() -> None:
     assert ha.calls == []
     off = SirisAI(settings=Settings(away_mode="off"))
     assert away.on_change(off, home=False) is None
+
+
+def test_a_protocol_turned_off_is_never_run_or_offered_and_one_with_notifications_off_stays_quiet() -> None:
+    """5.11: per protocol, active (off: it never runs, by hand or by itself) and notify (off: nothing to the phone)."""
+    siris, _, notify = _away_siris()
+    protocols.set_switches(siris, "leaving", notify=False)
+    result = away.on_change(siris, home=False)
+    assert result["offered"] == "leaving" and notify.calls == []  # offered in the feed, not pushed
+    assert _items(siris, "away")["Everyone's out. Run leaving?"]["severity"] == "info"
+    run = protocols.run(siris, "leaving", "test")
+    assert run["steps"][0]["status"] == "skipped" and "notifications are off" in run["steps"][0]["reason"] and notify.calls == []
+    assert protocols.get_protocol(siris, "leaving")["notify"] is False
+
+    away.on_change(siris, home=True)
+    protocols.set_switches(siris, "leaving", active=False, notify=True)
+    assert away.on_change(siris, home=False) == {"skipped": "'leaving' is turned off"} and not _items(siris, "away")
+    with pytest.raises(protocols.Inactive):
+        protocols.run(siris, "leaving", "test")
+    assert protocols.switches(siris) == {"leaving": {"active": False, "notify": True}}
+    protocols.set_switches(siris, "leaving", active=True)
+    assert protocols.switches(siris) == {}  # back to the defaults: nothing kept
 
 
 # -- camera digest ------------------------------------------------------------------------

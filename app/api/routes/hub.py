@@ -249,6 +249,18 @@ def protocol_save(name: str, body: c.ProtocolSave, siris: SirisAI = Depends(get_
     return c.ProtocolDef.model_validate(saved)
 
 
+@router.put("/protocols/{name}/switches", response_model=c.ProtocolSwitched)
+def protocol_switches(name: str, body: c.ProtocolSwitches, siris: SirisAI = Depends(get_siris)) -> c.ProtocolSwitched:
+    """5.11: turn a protocol on or off, and its notifications on or off."""
+    from app.protocols import service
+
+    _need_protocols(siris)
+    try:
+        return c.ProtocolSwitched.model_validate(service.set_switches(siris, name, body.active, body.notify))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+
+
 @router.delete("/protocols/{name}", response_model=c.ProtocolDeleted)
 def protocol_delete(name: str, siris: SirisAI = Depends(get_siris)) -> c.ProtocolDeleted:
     from app.protocols import editor
@@ -286,6 +298,10 @@ async def protocol_undo(body: c.ProtocolRunRequest, request: Request, siris: Sir
 async def protocol_run(name: str, body: c.ProtocolRunRequest, request: Request, siris: SirisAI = Depends(get_siris)) -> c.ProtocolRunResult:
     _need_protocols(siris)
     preview = _preview(siris, name)
+    from app.protocols import service as protocol_service
+
+    if not protocol_service.is_active(siris, preview.name):
+        raise HTTPException(status_code=409, detail=f"{preview.name.replace('_', ' ').capitalize()} is turned off: turn it on first.")
     if not body.confirmed:
         raise HTTPException(status_code=409, detail={"message": "Protocols change locks, covers and modes: confirm first.", "preview": preview.model_dump()})
     result = await asyncio.to_thread(
