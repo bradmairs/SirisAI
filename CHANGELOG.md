@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.01 — 2026-11-07
+
+- Health Auto Export grouped by minute: syncs split mid-hour add up, switching from hours never doubles, per-second workout heart rate thinned to 5 s
+
 ## 5.0 — 2026-11-07
 
 - A speed trial that proves (or disproves) the speed work, quick commands for scenes, media and the thermostat that also learn, undo by voice, a weekly reliability report, things and warranties, people and birthdays, a house watch for leaks and doors, news in the morning brief, and roles for who's speaking

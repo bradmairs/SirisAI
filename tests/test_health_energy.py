@@ -206,7 +206,7 @@ def test_the_setup_check_says_which_setting_to_change(client: TestClient, monkey
     assert client.post("/siris/health/metrics", json=by_day, headers=H).status_code == 200
     siris = _siris()
     check = overview.setup_check(siris)
-    assert any("Aggregate" in p and "Hours" in p for p in check["problems"])
+    assert any("Time Grouping" in p and "Minutes" in p for p in check["problems"])
     assert any("Workouts" in p for p in check["problems"])
     partial = {"data": {"metrics": [{"name": "step_count", "units": "count", "data": [{"date": "2026-10-31 14:00:00 +1100", "qty": 300}]}],
                         "workouts": [{"name": "Outdoor Run", "start": "2026-10-31 07:00:00 +1100", "duration": 1800}]}}
@@ -267,6 +267,33 @@ def test_a_split_sync_adds_up_and_a_resend_never_doubles(client: TestClient) -> 
     assert siris.health.days("2026-10-20")["2026-10-20"]["steps"] == 2400
     client.post("/siris/health/metrics", json=part(range(5, 6), 900), headers=H)  # an hour corrected
     assert siris.health.days("2026-10-20")["2026-10-20"]["steps"] == 3200
+
+
+def test_minute_grouped_syncs_split_mid_hour_add_up_and_switching_from_hours_never_doubles(client: TestClient) -> None:
+    """5.01: grouped by minute, a sync split part-way through an hour adds up (it used to replace the hour), and a day
+    that switched from hours to minutes counts each hour once."""
+    def minutes(day: str, start: int, end: int, qty: float = 10) -> dict:
+        return {"data": {"metrics": [{"name": "step_count", "units": "count",
+                                      "data": [{"date": f"{day} {m // 60:02d}:{m % 60:02d}:00 +1100", "qty": qty} for m in range(start, end)]}]}}
+    day = "2026-11-02"
+    for body in (minutes(day, 600, 637), minutes(day, 637, 660), minutes(day, 637, 660)):  # 10:00-10:36, then 10:37-10:59 twice
+        assert client.post("/siris/health/metrics", json=body, headers=H).status_code == 200
+    siris = _siris()
+    assert siris.health.days(day)[day]["steps"] == 600  # 60 minutes of 10, not 230
+    switch = "2026-11-03"
+    hourly = {"data": {"metrics": [{"name": "step_count", "units": "count", "data": [
+        {"date": f"{switch} {h:02d}:00:00 +1100", "qty": 500} for h in (9, 10)]}]}}
+    client.post("/siris/health/metrics", json=hourly, headers=H)  # hours, earlier in the day
+    client.post("/siris/health/metrics", json=minutes(switch, 600, 660, 20), headers=H)  # then minutes for 10:00-10:59
+    assert siris.health.days(switch)[switch]["steps"] == 500 + 1200  # 9am's hour kept, 10am's replaced by its minutes
+    from app.health import auto_export
+    assert auto_export.describe(minutes(day, 600, 602)["data"])["aggregation"] == "minute"
+    # Workouts grouped by second: thinned to one point per 5 s, with each window's peak kept.
+    per_second = [{"date": f"2026-11-02 18:{s // 60:02d}:{s % 60:02d} +1100", "Avg": 100 + (s % 5), "Max": 100 + (s % 5)} for s in range(600)]
+    series = auto_export.workout_series({"name": "Traditional Strength Training", "start": "2026-11-02 18:00:00 +1100", "heartRateData": per_second})
+    assert len(series["hr"]) == 120 and series["hr"][0] == ["2026-11-02 18:00:00 +1100", 102.0, 104.0]
+    per_minute = per_second[::60]
+    assert len(auto_export.workout_series({"start": "x", "heartRateData": per_minute})["hr"]) == 10
 
 
 def test_a_dry_run_keeps_nothing_and_the_inspector_shows_each_source(client: TestClient) -> None:

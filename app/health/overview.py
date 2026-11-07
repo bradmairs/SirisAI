@@ -98,7 +98,7 @@ def setup_check(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]
     if not hae:
         return {"connected": False, "problems": ["Nothing from Health Auto Export yet: set up the automation (SirisOS → Training → Apple Health)."]}
     if metrics and metrics.get("aggregation") == "day":
-        problems.append("Health metrics arrive grouped by day: set Aggregate (time grouping) to Hours, so readiness can use your overnight HRV and energy can follow the day.")
+        problems.append("Health metrics arrive grouped by day: set Time Grouping to Minutes (or Hours), so readiness can use your overnight HRV and energy can follow the day.")
     if metrics and metrics.get("last_day") and metrics.get("sent_on") and metrics["last_day"] < metrics["sent_on"]:
         problems.append("The last health export stopped at yesterday, so today's sleep, steps, strain and energy are missing: "
                         "set Date Range to Default (all of yesterday plus today so far). \"Previous 7 Days\" leaves today out.")
