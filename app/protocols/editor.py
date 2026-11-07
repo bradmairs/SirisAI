@@ -183,7 +183,9 @@ def save(siris: "SirisAI", name: str, description: str, steps: list[Any]) -> dic
     kept = list(current["steps"]) if current else []
     clean = [_step(siris, s, kept) for s in steps]
     saved = siris.protocols.save(name, str(description or "").strip()[:300], clean)
-    return {**saved, "builtin": False, "customised": name in builtin_protocols(siris)}
+    from app.protocols.service import is_active, notifies
+
+    return {**saved, "builtin": False, "customised": name in builtin_protocols(siris), "active": is_active(siris, name), "notify": notifies(siris, name)}
 
 
 def delete(siris: "SirisAI", name: str) -> dict[str, Any]:

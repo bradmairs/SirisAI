@@ -2750,6 +2750,18 @@
           },
           "title": "Steps",
           "type": "array"
+        },
+        "active": {
+          "default": true,
+          "description": "5.11: off, it doesn't run (by hand or by itself) and isn't offered.",
+          "title": "Active",
+          "type": "boolean"
+        },
+        "notify": {
+          "default": true,
+          "description": "5.11: off, nothing about it goes to the phone, and its notify steps are skipped.",
+          "title": "Notify",
+          "type": "boolean"
         }
       },
       "required": [
@@ -2843,6 +2855,18 @@
           },
           "title": "Steps",
           "type": "array"
+        },
+        "active": {
+          "default": true,
+          "description": "5.11: off, it doesn't run (by hand or by itself) and isn't offered.",
+          "title": "Active",
+          "type": "boolean"
+        },
+        "notify": {
+          "default": true,
+          "description": "5.11: off, nothing about it goes to the phone, and its notify steps are skipped.",
+          "title": "Notify",
+          "type": "boolean"
         }
       },
       "required": [

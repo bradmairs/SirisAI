@@ -101,7 +101,7 @@ class IntruderCheckSkill(Skill):
         if night and home and siris.tools.get("speak_in_current_room") is not None:
             siris.run_tool("speak_in_current_room", {"message": f"Heads up: someone is outside, on the {camera_name} camera."}, trigger=trigger, evidence=event)
             actions.append("spoke")
-        if away and siris.settings.intruder_auto_lockdown and service.get_protocol(siris, "lockdown") is not None:
+        if away and siris.settings.intruder_auto_lockdown and service.get_protocol(siris, "lockdown") is not None and service.is_active(siris, "lockdown"):
             service.run(siris, "lockdown", trigger + " (SIRISAI_INTRUDER_AUTO_LOCKDOWN)")
             actions.append("lockdown")
         siris.events.log_event("intruder_alert", entity_name=camera, data={"event_id": event.get("id"), "message": message, "actions": actions})

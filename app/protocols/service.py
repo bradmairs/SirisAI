@@ -161,10 +161,54 @@ def builtin_protocols(siris: "SirisAI") -> dict[str, dict[str, Any]]:
     return result
 
 
+SWITCHES_KEY = "protocol_switches"
+
+
+class Inactive(ValueError):
+    """A protocol turned off (5.11): it doesn't run, by hand or by itself, until it's turned back on."""
+
+
+def switches(siris: "SirisAI") -> dict[str, dict[str, bool]]:
+    """Per protocol (5.11): `active` (off: it never runs or gets offered) and `notify` (off: no phone notifications
+    about it, and its own notify steps are skipped). Both on unless switched off. Kept apart from the steps, so a
+    built-in can be switched without making your own copy of it."""
+    return dict(siris.state.get(SWITCHES_KEY) or {})
+
+
+def is_active(siris: "SirisAI", name: str) -> bool:
+    return bool((switches(siris).get(name) or {}).get("active", True))
+
+
+def notifies(siris: "SirisAI", name: str) -> bool:
+    return bool((switches(siris).get(name) or {}).get("notify", True))
+
+
+def set_switches(siris: "SirisAI", name: str, active: bool | None = None, notify: bool | None = None) -> dict[str, Any]:
+    proto = get_protocol(siris, name)
+    if proto is None:
+        raise ValueError(f"Unknown protocol: {name}")
+    kept = switches(siris)
+    mine = {"active": True, "notify": True, **(kept.get(proto["name"]) or {})}
+    if active is not None:
+        mine["active"] = bool(active)
+    if notify is not None:
+        mine["notify"] = bool(notify)
+    if mine == {"active": True, "notify": True}:
+        kept.pop(proto["name"], None)
+    else:
+        kept[proto["name"]] = mine
+    siris.state.set(SWITCHES_KEY, kept)
+    return {"name": proto["name"], **mine}
+
+
 def all_protocols(siris: "SirisAI") -> dict[str, dict[str, Any]]:
     protocols = builtin_protocols(siris)
     for proto in siris.protocols.list():
         protocols[proto["name"]] = proto
+    on = switches(siris)
+    for name, proto in protocols.items():
+        proto["active"] = bool((on.get(name) or {}).get("active", True))
+        proto["notify"] = bool((on.get(name) or {}).get("notify", True))
     return protocols
 
 
@@ -259,6 +303,8 @@ def run(siris: "SirisAI", name: str, trigger: str) -> dict[str, Any]:
     proto = get_protocol(siris, name)
     if proto is None:
         raise ValueError(f"Unknown protocol: {name}")
+    if not proto.get("active", True):
+        raise Inactive(f"{proto['name'].replace('_', ' ').capitalize()} is turned off. Turn it on in SirisOS (Smart home, Protocols) to run it.")
     results: list[dict[str, Any]] = []
     undo: list[dict[str, Any]] = []
     for index, step in enumerate(proto["steps"], start=1):
@@ -269,6 +315,9 @@ def run(siris: "SirisAI", name: str, trigger: str) -> dict[str, Any]:
             continue
         if siris.tools.get(step["tool"]) is None:
             results.append({"step": label, "status": "skipped", "reason": f"{step['tool']} isn't available"})
+            continue
+        if step["tool"] == "notify" and not proto.get("notify", True):
+            results.append({"step": label, "status": "skipped", "reason": "notifications are off for this protocol"})
             continue
         arguments = dict(step.get("arguments") or {})
         prior: dict[str, Any] = {}
@@ -313,7 +362,8 @@ def preview(siris: "SirisAI", name: str) -> dict[str, Any]:
         if step["tool"] == HA:
             arguments["entity_id"] = _expand_entities(siris, arguments.get("entity_id"))
         steps.append({"step": step.get("label") or step["tool"], "tool": step["tool"], "arguments": arguments, "will_run": met, "because": why})
-    return {"protocol": proto["name"], "found": True, "description": proto["description"], "steps": steps}
+    return {"protocol": proto["name"], "found": True, "description": proto["description"], "steps": steps,
+            "active": proto.get("active", True), "notify": proto.get("notify", True)}
 
 
 def undo_last(siris: "SirisAI", trigger: str) -> dict[str, Any]:

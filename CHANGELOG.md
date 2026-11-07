@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.11 — 2026-11-07
+
+- Protocols can be turned off, and their notifications too
+
 ## 5.01 — 2026-11-07
 
 - Health Auto Export grouped by minute: syncs split mid-hour add up, switching from hours never doubles, per-second workout heart rate thinned to 5 s

@@ -276,6 +276,30 @@ def test_protocols_can_be_made_changed_and_deleted_from_sirisos(use) -> None:
     assert client.delete("/siris/hub/v1/protocols/movie_night").json()["restored_builtin"] is False
 
 
+def test_protocols_turn_on_and_off_and_their_notifications_too(use) -> None:
+    """5.11: SirisOS switches a protocol off (it won't run) and its notifications off."""
+    ha = FakeHA()
+    siris = SirisAI(settings=Settings(home_assistant_base_url="http://ha", home_assistant_token="t", timezone="UTC"))
+    _wire_ha(siris, ha)
+    siris.state.delete(protocols.SWITCHES_KEY)
+    try:
+        _switches(use(siris), ha)
+    finally:
+        siris.state.delete(protocols.SWITCHES_KEY)
+
+
+def _switches(client, ha) -> None:
+    r = client.put("/siris/hub/v1/protocols/lockdown/switches", json={"active": False})
+    assert r.status_code == 200 and r.json() == {"name": "lockdown", "active": False, "notify": True}
+    lockdown = next(p for p in client.get("/siris/hub/v1/protocols").json()["protocols"] if p["name"] == "lockdown")
+    assert lockdown["active"] is False and lockdown["notify"] is True and lockdown["builtin"] is True  # switching isn't customising
+    assert next(p for p in client.get("/siris/hub/v1/widgets").json()["protocols"] if p["name"] == "lockdown")["active"] is False
+    ran = client.post("/siris/hub/v1/protocols/lockdown/run", json={"confirmed": True})
+    assert ran.status_code == 409 and "turned off" in ran.text and ha.states["lock.front_door"]["state"] == "unlocked"
+    assert client.put("/siris/hub/v1/protocols/lockdown/switches", json={"active": True, "notify": False}).json()["notify"] is False
+    assert client.put("/siris/hub/v1/protocols/nope/switches", json={"active": True}).status_code == 404
+
+
 def test_a_step_made_in_chat_is_kept_when_the_rest_is_edited(use) -> None:
     ha = FakeHA()
     siris = SirisAI(settings=Settings(home_assistant_base_url="http://ha", home_assistant_token="t", timezone="UTC"))
