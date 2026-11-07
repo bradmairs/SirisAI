@@ -69,7 +69,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.core import taint
-from app.cortex import quick, timings
+from app.cortex import quick, timings, trial
 from app.notify.confirmation import notify_confirmation_needed
 from app.llm.streaming import EventCallback, generate_with_events
 from app.planning.planner import Planner
@@ -282,6 +282,7 @@ class Cortex:
         # doesn't sit waiting on memory extraction (a whole extra LLM pass)
         # to see it.
         self._finalize(siris, result)
+        self._learn_quick(siris, prompt, result)
         result.timings = timings.record(siris, self.timer)
         await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, prompt, result)
@@ -296,17 +297,34 @@ class Cortex:
             return None
         if planned is None:
             return None
-        arguments, reply = planned
         self.timer.path = "quick"
         result = await self._run_single_tool(
-            siris, conversation_id, "home_assistant_call_service", arguments,
+            siris, conversation_id, planned.tool, planned.arguments,
             confirmed=False, trigger="chat: quick home command (no model needed)",
         )
         if result.tool_call is not None and not result.error:
+            reply = planned.reply
+            if reply is None:
+                output = result.tool_call.result
+                reply = (output or {}).get("message") if isinstance(output, dict) else None
+                reply = reply or "Done."
             result.response = reply
             siris.conversation.add_message(conversation_id, role="assistant", content=reply)
             await self._emit({"type": "content", "delta": reply})
         return result
+
+    def _learn_quick(self, siris: "SirisAI", prompt: str, result: CortexResult) -> None:
+        """A short request the model answered with one home action: count it
+        towards a learned quick command (app/cortex/quick.py)."""
+        if self.timer.path == "quick" or result.error or result.pending_confirmation:
+            return
+        outcomes = [o for o in [*result.plan, *( [result.tool_call] if result.tool_call else [])] if o.name in quick.LEARNABLE]
+        if len(outcomes) != 1:
+            return
+        try:
+            quick.learn(siris, prompt, outcomes[0].name, outcomes[0].arguments)
+        except Exception:  # noqa: BLE001
+            logger.debug("Learning a quick command failed", exc_info=True)
 
     async def _process_inner(
         self,
@@ -378,7 +396,10 @@ class Cortex:
         # off a photo (a sign, a screen) mustn't count as something they said.
         for note in _IMAGE_NOTE_RE.findall("\n".join(m["content"] or "" for m in messages if m.get("role") == "user")):
             taint.add_untrusted(note)
-        messages = [*system_messages, *messages[:-1], *context_messages, *messages[-1:]]
+        if trial.arm(siris) == "old":  # an "old" day of the speed trial (app/cortex/trial.py)
+            messages = [*system_messages, *context_messages, *messages]
+        else:
+            messages = [*system_messages, *messages[:-1], *context_messages, *messages[-1:]]
 
         tools = await tools_task if tools_task is not None else None
         resolved_role, llm_client = siris.model_router.pick(siris.llm, prompt, role=model_role)

@@ -111,3 +111,137 @@ def travel_away(on: bool = True, siris: SirisAI = Depends(get_siris)) -> dict[st
     if not trips:
         raise HTTPException(status_code=404, detail="No trip coming up in the calendar")
     return service.set_away(siris, trips[0])
+
+
+# -- things you own (app/things, 5.0) -----------------------------------------
+
+
+class ThingIn(BaseModel):
+    name: str | None = None
+    brand: str | None = None
+    model: str | None = None
+    room: str | None = None
+    bought: str | None = None
+    price: float | None = None
+    shop: str | None = None
+    warranty_months: int | None = None
+    warranty_until: str | None = None
+    manual: str | None = None
+    notes: str | None = None
+
+
+@router.get("/things")
+def list_things(q: str = "", siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
+    from app.things import service
+
+    return service.find(siris, q, limit=200)
+
+
+@router.post("/things")
+def add_thing(request: ThingIn, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.things import service
+
+    try:
+        return service.add(siris, request.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/things/{thing_id}")
+def update_thing(thing_id: int, request: ThingIn, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.things import service
+
+    try:
+        return service.update(siris, thing_id, request.model_dump(exclude_unset=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="No such thing") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/things/{thing_id}")
+def delete_thing(thing_id: int, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.things import service
+
+    try:
+        service.delete(siris, thing_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="No such thing") from exc
+    return {"deleted": thing_id}
+
+
+# -- people (app/people, 5.0) -------------------------------------------------
+
+
+class PersonIn(BaseModel):
+    name: str | None = None
+    relation: str | None = None
+    birthday: str | None = None
+    anniversary: str | None = None
+    notes: str | None = None
+    last_contact: str | None = None
+    keep_in_touch_days: int | None = None
+
+
+@router.get("/people")
+def list_people(siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
+    """Everyone, soonest birthday or anniversary first."""
+    from app.people import service
+
+    return service.everyone(siris)
+
+
+@router.post("/people")
+def add_person(request: PersonIn, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.people import service
+
+    try:
+        return service.add(siris, request.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/people/{person_id}")
+def update_person(person_id: int, request: PersonIn, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.people import service
+
+    try:
+        return service.update(siris, person_id, request.model_dump(exclude_unset=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="No such person") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/people/{person_id}")
+def delete_person(person_id: int, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.people import service
+
+    try:
+        service.delete(siris, person_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="No such person") from exc
+    return {"deleted": person_id}
+
+
+@router.get("/people/{person_id}/gifts")
+def person_gifts(person_id: int, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.people import service
+
+    person = next((p for p in service.everyone(siris) if p["id"] == person_id), None)
+    if person is None:
+        raise HTTPException(status_code=404, detail="No such person")
+    return {"ideas": service.gift_ideas(siris, person["name"]), "last_seen": service.last_seen(siris, person["name"])}
+
+
+# -- news (app/news, 5.0) -----------------------------------------------------
+
+
+@router.get("/news")
+async def news(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Today's stories on your topics, new podcast episodes, and what came in overnight."""
+    from app.news import service
+
+    stories = await asyncio.to_thread(service.stories, siris)
+    episodes = await asyncio.to_thread(service.episodes, siris)
+    return {"stories": stories, "episodes": episodes, "overnight": service.overnight(siris)}

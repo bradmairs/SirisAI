@@ -36,6 +36,40 @@ class DailyJob:
     monthday: int | None = None  # e.g. 1 = the first of the month
 
 
+def _things(siris: "SirisAI", now: datetime) -> Any:
+    from app.things import service
+
+    return service.check(siris, now)
+
+
+def _people(siris: "SirisAI", now: datetime) -> Any:
+    from app.people import service
+
+    try:
+        service.import_calendar(siris, now)
+    except Exception:  # noqa: BLE001 - reminders still go out for the people known
+        logger.exception("Importing birthdays from the calendar failed")
+    return len(service.check(siris, now))
+
+
+def _house_health(siris: "SirisAI", now: datetime) -> Any:
+    from app.household import watch
+
+    return watch.monthly(siris, now)
+
+
+def _house_batteries(siris: "SirisAI", now: datetime) -> Any:
+    from app.household import watch
+
+    return watch.weekly_batteries(siris, now)
+
+
+def _reliability(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import reliability
+
+    return reliability.weekly(siris, now)["ok"]
+
+
 def _bills(siris: "SirisAI", now: datetime) -> Any:
     from app.bills import service
 
@@ -191,6 +225,11 @@ JOBS: list[DailyJob] = [
     DailyJob("internet_weekly", lambda s: s.settings.internet_report_hour_local if s.settings.internet_probe_seconds > 0 else None, _internet_weekly, weekday=lambda s: 0),
     DailyJob("energy_weekly", lambda s: s.settings.energy_report_hour_local if getattr(s, "_home_assistant_client", None) is not None else None, _energy_weekly, weekday=lambda s: 0),
     DailyJob("audit_weekly", lambda s: s.settings.audit_digest_hour_local, _audit_weekly, weekday=lambda s: 6),
+    DailyJob("things_warranties", lambda s: 9, _things),
+    DailyJob("people", lambda s: 8, _people),
+    DailyJob("house_health", lambda s: 9 if getattr(s, "_home_assistant_client", None) is not None else None, _house_health, monthday=1),
+    DailyJob("house_batteries", lambda s: 10 if getattr(s, "_home_assistant_client", None) is not None else None, _house_batteries, weekday=lambda s: 5),
+    DailyJob("reliability_weekly", lambda s: s.settings.reliability_hour_local, _reliability, weekday=lambda s: 6),
     DailyJob("bills", lambda s: s.settings.bills_hour_local if getattr(s, "email_client", None) is not None else None, _bills),
     DailyJob("travel", lambda s: s.settings.travel_hour_local if getattr(s, "calendar", None) is not None else None, _travel),
     DailyJob("health_check", lambda s: s.settings.health_check_hour_local, _health_check),

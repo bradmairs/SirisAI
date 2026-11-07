@@ -32,6 +32,7 @@ from app.core import clock
 from app.core.user_context import get_current_user_id
 from app.db.models import Document
 from app.llm import local
+from app.things import service as things
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -49,7 +50,9 @@ _UNDERSTAND = (
     '{"title": "<short title, e.g. \'Council rates notice Q2\'>", "sender": "<who sent it>", '
     f'"kind": "<one of {", ".join(KINDS)}>", "summary": "<one or two plain sentences: what it is and what to do>", '
     '"due": [{"date": "YYYY-MM-DD", "what": "<what is due>", "amount": <number or null>}]}. '
-    "Only list dates that something is due by (a payment, a reply, an appointment). Don't invent anything."
+    "Only list dates that something is due by (a payment, a reply, an appointment). Don't invent anything. "
+    'Add "date": "<the document\'s own date, YYYY-MM-DD, or null>".'
+    + things.RECEIPT_ITEMS
 )
 _MONTHS = {m: i for i, m in enumerate(
     ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"], 1
@@ -149,6 +152,8 @@ async def understand(siris: "SirisAI", text: str, filename: str) -> dict[str, An
         "kind": kind if kind in KINDS else "other",
         "summary": str(answer.get("summary") or base["summary"])[:600],
         "due": due or base["due"],
+        "date": str(answer.get("date") or "")[:10] or None,
+        "items": [i for i in answer.get("items") or [] if isinstance(i, dict)] if kind in ("receipt", "bill", "statement") else [],
     }
 
 
@@ -215,14 +220,24 @@ async def ingest(siris: "SirisAI", filename: str, content_type: str, data: bytes
         session.add(row)
         session.commit()
         doc_id = row.id
+    if doc.get("items"):
+        try:
+            bought = date.fromisoformat(doc["date"]).isoformat() if doc.get("date") else today.isoformat()
+        except ValueError:
+            bought = today.isoformat()
+        doc["things"] = things.from_receipt(siris, doc["items"], bought, doc["sender"], doc_id)
+    from app.core import undo
+
+    undo.add(siris, f"filed \"{doc['title']}\"", [{"document_id": doc_id}]
+             + [{"tool": "cancel_reminder", "arguments": {"reminder_id": r["id"]}} for r in reminders])
     if doc["due"]:
         first = doc["due"][0]
         siris.attention.raise_item(
-            f"document:{doc_id}", "info", f"Filed: {doc['title']}", source="documents", severity="info",
+            f"document:{doc_id}", "notice", f"Filed: {doc['title']}", source="documents", severity="info",
             body=f"{doc['summary']} Due {first['date']}" + (f" (${first['amount']:,.2f})" if first.get("amount") else "")
             + f". {len(reminders)} reminder{'s' if len(reminders) != 1 else ''} set.",
         )
-    return {**get(siris, doc_id), "reminders": len(reminders)}
+    return {**get(siris, doc_id), "reminders": len(reminders), "things": doc.get("things", [])}
 
 
 def _serialize(row: Document, full: bool = False) -> dict[str, Any]:

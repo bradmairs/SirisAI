@@ -29,7 +29,7 @@ from app.calendar.client import CalendarClient, CalendarSet
 from app.calendar.ics import parse_feeds
 from app.context.engine import ContextEngine
 from app.conversation.service import ConversationStore
-from app.core import approvals, taint
+from app.core import approvals, taint, undo
 from app.core.health import broken_tools
 from app.core.config import Settings, get_settings
 from app.db.session import SessionLocal
@@ -239,6 +239,15 @@ from app.plugins.builtin.servers import (
 )
 from app.plugins.builtin.household import AuditDigestTool, CameraSummaryTool, EnergyReportTool
 from app.plugins.builtin.life import BillsUpcomingTool, DocumentsSearchTool, TravelUpcomingTool
+from app.plugins.builtin.undo import UndoLastTool
+from app.plugins.builtin.household_more import (
+    NewsBriefTool,
+    PeopleLastSeenTool,
+    PeopleRememberTool,
+    PeopleUpcomingTool,
+    ThingsAddTool,
+    ThingsFindTool,
+)
 from app.plugins.builtin.homelab import (
     DockerCheckUpdatesTool,
     DockerUpdateContainersTool,
@@ -282,6 +291,7 @@ from app.voice.base import SpeechToTextClient, TextToSpeechClient
 from app.voice.factory import build_stt_client, build_tts_client
 from app.voice.speaker import SpeakerEncoder
 from app.core import guest
+from app.core.user_context import get_turn_role
 from app.core.state import StateStore
 from app.protocols.service import ProtocolStore
 from app.plugins.builtin.protocols import (
@@ -344,6 +354,8 @@ _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("documents_", "documents"),
     ("bills_", "bills"),
     ("travel_", "travel"),
+    ("things_", "things"),
+    ("people_", "people"),
     ("docker_", "docker"),
     ("plex_", "plex"),
     ("unifi_", "unifi"),
@@ -1068,6 +1080,11 @@ class SirisAI:
         self.tools.register(ExpiryCheckTool(self))
         self.tools.register(AuditDigestTool(self))
         self.tools.register(DocumentsSearchTool(self))
+        self.tools.register(UndoLastTool(self))
+        for extra in (ThingsFindTool, ThingsAddTool, PeopleUpcomingTool, PeopleRememberTool, PeopleLastSeenTool):
+            self.tools.register(extra(self))
+        if self.settings.news_feeds or self.settings.podcast_feeds:
+            self.tools.register(NewsBriefTool(self))
         if self.email_client is not None:
             self.tools.register(BillsUpcomingTool(self))
         if self.calendar is not None:
@@ -1241,7 +1258,15 @@ class SirisAI:
         return self.tool_selector.select(prompt, specs, recent_tool_names)
 
     def _guest_hidden_tools(self) -> set[str]:
-        """Personal-data tools, while guest mode is on (app/core/guest.py)."""
+        """Personal-data tools, while guest mode is on (app/core/guest.py), or
+        while a child or guest is the one speaking (5.0), who also don't get
+        anything that needs confirming."""
+        role = get_turn_role()
+        if role in ("child", "guest"):
+            return {
+                tool.name for tool in self.tools.list()
+                if guest.is_personal_tool(tool.name, _categorize_tool(tool)) or tool.permission is ToolPermission.CONFIRM_REQUIRED
+            }
         if not guest.is_on(self):
             return set()
         return {tool.name for tool in self.tools.list() if guest.is_personal_tool(tool.name, _categorize_tool(tool))}
@@ -1384,6 +1409,15 @@ class SirisAI:
             tool.permission is ToolPermission.CONFIRM_REQUIRED
             and tool.needs_confirmation(arguments)
         )
+        role = get_turn_role()
+        if role in ("child", "guest") and (
+            call_needs_confirmation or guest.is_personal_tool(name, _categorize_tool(tool))
+        ):
+            # Who's speaking (5.0): a child or an unrecognised voice can't
+            # reach personal information or anything that needs an OK.
+            self.audit.record(name, arguments, error=f"Not for a {role}", duration_ms=(time.monotonic() - start) * 1000,
+                              conversation_id=conversation_id, trigger=trigger, evidence=evidence)
+            raise PermissionError(f"That needs an adult's voice: SirisAI didn't recognise you as one ({role}).")
         policy = _describe_policy(tool, confirmed, call_needs_confirmation)
         if not confirmed and not call_needs_confirmation and tool.permission is ToolPermission.SAFE_ACTION:
             copied = taint.copied_from_context(name, arguments)
@@ -1445,6 +1479,7 @@ class SirisAI:
                 self.audit.record(name, arguments, error=str(exc), duration_ms=(time.monotonic() - start) * 1000, conversation_id=conversation_id, trigger=trigger, evidence=evidence, policy=policy)
                 raise
 
+        prior = undo.capture(self, name, arguments)  # what "undo that" would put back (5.0)
         try:
             result = tool.run(**arguments)
         except Exception as exc:
@@ -1491,6 +1526,7 @@ class SirisAI:
             if verification is not None
             else None,
         )
+        undo.record(self, name, arguments, result, prior, trigger)
         if name == "notify":
             # Every push also lands in the attention feed (app/hub/attention.py).
             try:

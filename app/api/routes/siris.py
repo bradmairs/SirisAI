@@ -57,6 +57,41 @@ def turn_timings(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     return timings.summary(siris)
 
 
+@router.get("/reliability")
+def reliability_report(days: int = 7, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """How SirisAI held up: failed or slow jobs, failing tools, tool-choice
+    accuracy and reply speed, with what to do (app/upkeep/reliability.py)."""
+    from app.upkeep import reliability
+
+    return reliability.build(siris, max(1, min(days, 60)))
+
+
+@router.get("/timings/trial")
+def speed_trial(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """The speed trial: today's arm, typical and slow times with and
+    without 4.6's speed changes, the verdict, and suggested warm hours
+    (app/cortex/trial.py)."""
+    from app.cortex import trial
+
+    return trial.report(siris)
+
+
+@router.post("/timings/trial")
+def start_speed_trial(days: int = 14, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.cortex import trial
+
+    trial.start(siris, days)
+    return trial.report(siris)
+
+
+@router.delete("/timings/trial")
+def stop_speed_trial(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.cortex import trial
+
+    trial.stop(siris)
+    return trial.report(siris)
+
+
 @router.get("/scheduler/jobs")
 def scheduler_jobs() -> list[dict[str, Any]]:
     """Each background job: when it last started, how long it took, its

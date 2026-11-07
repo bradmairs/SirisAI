@@ -398,6 +398,10 @@ def should_warm(siris: "SirisAI", now: datetime | None = None) -> bool:
     SIRISAI_OLLAMA_WARM_HOURS (4.6), so the first question of the morning
     doesn't wait for Ollama to load it."""
     hours = (siris.settings.ollama_warm_hours or "").strip()
+    from app.cortex import trial
+
+    if trial.arm(siris, now) == "old":  # a speed trial day without the changes
+        return False
     if not hours or siris.llm is None or getattr(siris.llm, "warm", None) is None:
         return False
     try:
@@ -459,6 +463,8 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("speed_test", lambda s: run_speed_test(s), _settings_every("internet_speedtest_hours", 3600), at_boot=False),
         Job("daily_jobs", lambda s: run_daily_jobs(s), every_tick),
         Job("warm_model", _warm, lambda _s: 240, is_async=True),
+        Job("speed_trial", lambda s: _finish_trial(s), lambda _s: 3600),
+        Job("house_watch", lambda s: _house_watch(s), lambda s: s.settings.house_watch_seconds),
         Job("conversation_summaries", _summaries, lambda _s: 600, at_boot=False, is_async=True),
     ]
 
@@ -474,6 +480,20 @@ async def _warm(siris: "SirisAI") -> None:
     if should_warm(siris):
         assert siris.llm is not None
         await siris.llm.warm()  # type: ignore[attr-defined]
+
+
+def _house_watch(siris: "SirisAI") -> None:
+    if getattr(siris, "_home_assistant_client", None) is None:
+        return
+    from app.household import watch
+
+    watch.check(siris)
+
+
+def _finish_trial(siris: "SirisAI") -> None:
+    from app.cortex import trial
+
+    trial.finish_if_due(siris)
 
 
 async def _summaries(siris: "SirisAI") -> None:
@@ -515,7 +535,20 @@ async def _job_loop(siris: "SirisAI", job: Job, tick_seconds: float) -> None:
             status["last_error"] = repr(error) if error else None
             if error is not None:
                 logger.error("Scheduled job %s failed", job.name, exc_info=error)
+                _note_failure(siris, job.name, repr(error))
+            elif float(status["last_seconds"]) > SLOW_AFTER_SECONDS:  # type: ignore[arg-type]
+                _note_failure(siris, job.name, f"took {status['last_seconds']} s", slow=True)
         await asyncio.sleep(tick_seconds)
+
+
+def _note_failure(siris: "SirisAI", name: str, error: str, slow: bool = False) -> None:
+    """For the weekly reliability report (app/upkeep/reliability.py)."""
+    try:
+        from app.upkeep import reliability
+
+        reliability.note_job_failure(siris, name, error, slow)
+    except Exception:  # noqa: BLE001
+        logger.debug("Noting a job failure failed", exc_info=True)
 
 
 def job_status() -> list[dict[str, object]]:

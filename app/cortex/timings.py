@@ -51,7 +51,13 @@ class TurnTimer:
 def record(siris: "SirisAI", timer: TurnTimer) -> dict[str, float]:
     stages = timer.finish()
     try:
-        siris.metrics.record_samples({f"turn_{k}_ms": v for k, v in stages.items()})
+        samples = {f"turn_{k}_ms": v for k, v in stages.items()}
+        from app.cortex import trial
+
+        arm = trial.arm(siris)
+        if arm and timer.path != "quick":  # a speed trial day (app/cortex/trial.py); quick commands skip the model
+            samples.update({f"turn_{k}_ms@{arm}": v for k, v in stages.items()})
+        siris.metrics.record_samples(samples)
     except Exception:  # noqa: BLE001 - timings must never break a turn
         pass
     _RECENT.appendleft({"at": datetime.now(UTC).isoformat(), "path": timer.path, "stages": stages})

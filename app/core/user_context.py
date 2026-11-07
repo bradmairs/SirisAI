@@ -51,3 +51,27 @@ async def resolve_user_id(x_siris_user: str | None = Header(default=None)) -> st
     user_id = x_siris_user.strip() if x_siris_user and x_siris_user.strip() else DEFAULT_USER_ID
     _current_user_id.set(user_id)
     return user_id
+
+
+# What the person speaking may do this turn (5.0): "adult" (everything, the
+# default), "child" or "guest" (no personal information and nothing that
+# needs confirming). Set by a voice turn from who it recognised.
+_turn_role: ContextVar[str] = ContextVar("siris_turn_role", default="adult")
+
+
+def get_turn_role() -> str:
+    return _turn_role.get()
+
+
+def set_turn_role(role: str) -> None:
+    _turn_role.set(role if role in ("adult", "child", "guest") else "adult")
+
+
+def role_for(user_id: str | None, roles: str) -> str:
+    """The role SIRISAI_VOICE_ROLES gives `user_id` ("dom=adult,sam=child")."""
+    for pair in (roles or "").split(","):
+        name, _, role = pair.partition("=")
+        if user_id and name.strip().lower() == user_id.lower() and role.strip() in ("adult", "child", "guest"):
+            return role.strip()
+    return "adult"
+
