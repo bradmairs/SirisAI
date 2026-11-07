@@ -228,7 +228,7 @@ class Settings(BaseSettings):
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
         "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "onenote_hour_local", "gmail_hour_local",
-        "bills_hour_local", "travel_hour_local",
+        "bills_hour_local", "travel_hour_local", "reliability_hour_local",
         mode="before",
     )
     @classmethod
@@ -432,6 +432,37 @@ class Settings(BaseSettings):
     health_wind_down_minutes: float = 45.0
     # The weekly audit digest (app/audit/digest.py), Sundays at this hour (blank = off).
     audit_digest_hour_local: int | None = 18
+
+    # Things you own (app/things): warn this many days before a warranty ends.
+    warranty_warn_days: int = 30
+    # People (app/people): remind this many days before a birthday or anniversary.
+    people_remind_days: int = 7
+    # House watch (app/household/watch.py), checked every house_watch_seconds
+    # (0 = off): fridge/freezer limits (°C) and how long before it counts,
+    # and how long a door, garage or gate can stay open.
+    house_watch_seconds: float = 120
+    fridge_max_c: float = 6.0
+    freezer_max_c: float = -12.0
+    appliance_warm_minutes: float = 20
+    door_open_minutes: float = 15
+    # News and podcasts in the morning brief (app/news): RSS/Atom feed URLs
+    # (comma-separated), topics to keep (blank: the top of each feed), how
+    # many stories, and how long feeds are cached.
+    news_feeds: str = ""
+    news_topics: str = ""
+    podcast_feeds: str = ""
+    news_items: int = 5
+    news_cache_minutes: float = 30
+    # Who's speaking (4.9): what each recognised voice may do, as
+    # user=role pairs (adult, child or guest; anyone unlisted is an adult),
+    # and whether a voice SirisAI doesn't recognise is treated as a guest
+    # (no personal information, nothing that needs confirming).
+    voice_roles: str = ""
+    voice_unknown_as_guest: bool = True
+
+    # The weekly reliability report (app/upkeep/reliability.py), Sundays at
+    # this hour (blank = off).
+    reliability_hour_local: int | None = 20
 
     # Life admin (4.6). The document inbox (app/documents) reminds this many
     # days before anything a letter says is due, and on the day.

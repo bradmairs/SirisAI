@@ -84,6 +84,14 @@ def text(siris: "SirisAI") -> str:
             parts.append(f"Energy is at {e['now']}.")
     except Exception:  # noqa: BLE001 - the brief speaks without health
         logger.info("Spoken brief: health unavailable", exc_info=True)
+    try:
+        from app.news import service as news
+
+        extra = news.spoken(siris)
+        if extra:
+            parts.append(extra)
+    except Exception:  # noqa: BLE001 - the brief speaks without the news
+        logger.info("Spoken brief: news unavailable", exc_info=True)
     a = b.attention
     if a.urgent:
         parts.append(f"{a.urgent} urgent thing{'s' if a.urgent != 1 else ''} in your inbox.")

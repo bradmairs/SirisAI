@@ -23,7 +23,7 @@ from app.core.siris import SirisAI, get_siris
 from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient
 from app.voice.pronunciation import for_speech
 from app.voice.turn import VoiceTurn
-from app.core.user_context import get_current_user_id, resolve_user_id, set_current_user_id
+from app.core.user_context import get_current_user_id, resolve_user_id, role_for, set_current_user_id, set_turn_role
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,13 @@ async def converse(
             match = await asyncio.to_thread(siris.identify_speaker, audio)
             if match is not None and match["user_id"]:
                 set_current_user_id(match["user_id"])
-                yield {"type": "speaker", "user_id": match["user_id"], "score": match["score"]}
+                role = role_for(match["user_id"], siris.settings.voice_roles)
+                set_turn_role(role)
+                yield {"type": "speaker", "user_id": match["user_id"], "score": match["score"], "role": role}
+            elif match is not None and siris.settings.voice_unknown_as_guest and siris.voiceprints.list_voiceprints():
+                # A voice nobody enrolled (4.9): a guest for this turn.
+                set_turn_role("guest")
+                yield {"type": "speaker", "user_id": None, "score": match["score"], "role": "guest"}
         if audio is not None:
             try:
                 transcript = (await siris.stt.transcribe(audio, filename=filename, content_type=content_type)).strip()

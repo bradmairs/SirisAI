@@ -32,6 +32,19 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "travel_hour_local": ("Life admin", "Trip checklist (hour)", "Blank: off", False),
     "travel_notice_days": ("Life admin", "Trip checklist (days before)", "", False),
     "travel_home_city": ("Life admin", "Home city", "Long events here aren't trips", False),
+    "reliability_hour_local": ("Speed", "Weekly reliability report (hour, Sundays)", "Blank: off", False),
+    "warranty_warn_days": ("Life admin", "Warn before a warranty ends (days)", "", False),
+    "people_remind_days": ("Life admin", "Birthday reminders (days ahead)", "", False),
+    "house_watch_seconds": ("Home", "Check for leaks and open doors every (seconds)", "0: off", False),
+    "fridge_max_c": ("Home", "Fridge too warm above (°C)", "", False),
+    "freezer_max_c": ("Home", "Freezer too warm above (°C)", "", False),
+    "appliance_warm_minutes": ("Home", "Warm for this long before warning (minutes)", "", False),
+    "door_open_minutes": ("Home", "Door or garage left open after (minutes)", "", False),
+    "news_feeds": ("Morning brief", "News feeds", "RSS or Atom URLs, comma-separated", False),
+    "news_topics": ("Morning brief", "News topics", "Comma-separated; blank: the top stories", False),
+    "podcast_feeds": ("Morning brief", "Podcast feeds", "RSS URLs, comma-separated", False),
+    "voice_roles": ("Voice", "Voice roles", "user=adult|child|guest, comma-separated", False),
+    "voice_unknown_as_guest": ("Voice", "Treat unrecognised voices as guests", "No personal info, no approvals", False),
     "quick_commands": ("Speed", "Instant home commands", "Plain light/switch/fan commands without the model", False),
     "ollama_keep_alive": ("Speed", "Keep the model loaded for", "e.g. 30m; -1 always; blank: Ollama's 5 minutes", True),
     "ollama_warm_hours": ("Speed", "Keep the model warm (hours)", "start-end, local, e.g. 6-23; blank: never", False),
@@ -206,4 +219,8 @@ def update(siris: "SirisAI", changes: dict[str, Any], undo_of: int | None = None
         "undo_of": undo_of,
     }
     siris.state.set(HISTORY_KEY, json.loads(json.dumps([entry, *past][:HISTORY_KEEP], default=str)))
+    if undo_of is None:
+        from app.core import undo
+
+        undo.add(siris, "changed " + ", ".join(sorted(changes)).replace("_", " "), [{"setting_change": entry["id"]}])
     return {"applied": applied, "needs_restart": restart, "change": entry}

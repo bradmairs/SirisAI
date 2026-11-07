@@ -309,7 +309,7 @@ def test_converse_runs_the_turn_as_the_recognised_speaker(client: TestClient) ->
     siris.identify_speaker = lambda audio: {"user_id": "carol", "score": 0.93, "scores": {"carol": 0.93}}  # type: ignore[method-assign]
 
     events = _converse(client, siris)
-    assert events[0] == {"type": "speaker", "user_id": "carol", "score": 0.93}
+    assert events[0] == {"type": "speaker", "user_id": "carol", "score": 0.93, "role": "adult"}
     assert events[-1]["response"] == "You are carol."
 
 

@@ -43,6 +43,15 @@ class ContextEngine:
         user_id = get_current_user_id()
         if user_id != DEFAULT_USER_ID:
             lines.append(f"You are talking with: {user_id}")
+        from app.core.user_context import get_turn_role
+
+        role = get_turn_role()
+        if role in ("child", "guest"):
+            lines.append(
+                "You are talking with a child: keep it simple and friendly." if role == "child"
+                else "You are talking with someone whose voice you don't recognise: treat them as a guest."
+            )
+            lines.append("Don't share anything personal about the household; for anything that changes things, say an adult needs to ask.")
 
         status = self._system_status(siris)
         if status:

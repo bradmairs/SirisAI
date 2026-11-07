@@ -5,6 +5,20 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.9 — 2026-11-07
+
+- A speed trial that proves (or disproves) the speed work, quick commands for scenes, media and the thermostat that also learn, undo by voice, a weekly reliability report, things and warranties, people and birthdays, a house watch for leaks and doors, news in the morning brief, and roles for who's speaking
+- Speed trial: POST/GET/DELETE /siris/timings/trial; verdict and fitted SIRISAI_OLLAMA_WARM_HOURS in the feed when it ends
+- Quick commands: scenes, media, volume, thermostat, "undo that", and phrases learned after three identical model answers
+- Undo: undo_last and "undo that" for home actions, reminders, automations, scenes, documents and settings; never unlocks or disarms
+- GET /siris/reliability and a Sunday report (SIRISAI_RELIABILITY_HOUR_LOCAL)
+- Things: /siris/things, from receipts too; warranty warnings (SIRISAI_WARRANTY_WARN_DAYS)
+- People: /siris/people, birthdays from the calendar, gift ideas, last seen, keep in touch (SIRISAI_PEOPLE_REMIND_DAYS)
+- House watch: leaks, warm fridge/freezer, doors left open, low batteries, monthly house health (SIRISAI_HOUSE_WATCH_SECONDS and limits)
+- News: SIRISAI_NEWS_FEEDS, SIRISAI_NEWS_TOPICS, SIRISAI_PODCAST_FEEDS; GET /siris/news; in the spoken brief
+- Who's speaking: SIRISAI_VOICE_ROLES, SIRISAI_VOICE_UNKNOWN_AS_GUEST
+- Fixed: 4.6's document and speed-trial attention items used a kind the hub contract doesn't allow
+
 ## 4.8 — 2026-11-06
 
 - Recently updated notes by folder (GET /siris/brain/recent), for SirisOS's Work page

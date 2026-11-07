@@ -23,7 +23,7 @@ GUEST_NOTE = (
     "and general questions are fine."
 )
 
-_PERSONAL_CATEGORIES = {"memory", "calendar", "reminders", "goals", "email", "health", "voice", "parcels", "car", "documents", "bills", "travel"}
+_PERSONAL_CATEGORIES = {"memory", "calendar", "reminders", "goals", "email", "health", "voice", "parcels", "car", "documents", "bills", "travel", "things", "people"}
 _PERSONAL_TOOLS = {
     "home_assistant_get_calendar_events",
     "home_assistant_get_todo_items",

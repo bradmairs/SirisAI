@@ -226,7 +226,7 @@ def test_the_local_model_reads_the_letter() -> None:
                          "due": [{"date": "2026-12-01", "what": "Pay registration", "amount": 880}]})
     result = asyncio.run(documents.understand(siris, "VicRoads registration renewal ...", "scan.txt"))
     assert result == {"title": "Car rego renewal", "sender": "VicRoads", "kind": "bill", "summary": "Rego is due.",
-                      "due": [{"date": "2026-12-01", "what": "Pay registration", "amount": 880.0}]}
+                      "due": [{"date": "2026-12-01", "what": "Pay registration", "amount": 880.0}], "date": None, "items": []}
 
 
 def test_unreadable_documents_say_why(client) -> None:  # type: ignore[no-untyped-def]
