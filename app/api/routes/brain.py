@@ -301,6 +301,31 @@ class DoneRequest(BaseModel):
     task: str | None = Field(default=None, max_length=500)
 
 
+class NewProject(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    about: str = Field(default="", max_length=4000)
+    due: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+@router.post("/projects")
+def new_project(request: NewProject, siris: SirisAI = Depends(get_siris)) -> dict:
+    """A new project note (5.4, from SirisOS's Projects screen). A note with that name already is 409, never overwritten."""
+    brain = _brain(siris)
+    title = " ".join(request.title.split())
+    found = brain.get_note(title)
+    if found and str(found.get("title", "")).casefold() == title.casefold():
+        raise HTTPException(status_code=409, detail=f"Siris already has a note called {title!r}.")
+    item = {"title": title, "content": request.about.strip() or f"A project, started {clock.now_local(siris.settings.timezone):%-d %B %Y}.",
+            "type": "project", "status": "active", "tags": ["project"], "source": "SirisOS Projects"}
+    if request.due:
+        item["due"] = request.due
+    try:
+        result = brain.learn([item])
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return {"title": (result[0] or {}).get("title", title) if result else title, "action": (result[0] or {}).get("action") if result else None}
+
+
 @router.post("/done")
 def done(request: DoneRequest, siris: SirisAI = Depends(get_siris)) -> dict:
     """Tick a task insights listed as overdue, or (no task) mark a project done."""
