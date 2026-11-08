@@ -724,3 +724,34 @@ if __name__ == "__main__":
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(schema_text())
     print(f"wrote {path}")
+
+
+# -- tracking (5.51) ---------------------------------------------------------------
+
+
+class TrackedContainer(_Model):
+    name: str
+    state: str = ""
+    status: str = ""
+    tracked: bool = True
+
+
+class UntrackedThing(_Model):
+    kind: str
+    name: str
+    since: str = ""
+    why: str = ""
+
+
+class Tracking(_Model):
+    """What SirisAI watches (Docker's containers, tracked or not; null when Docker isn't set up) and what you've
+    asked it to stop tracking: nothing about those is checked, restarted, offered for update or pushed."""
+    containers: list[TrackedContainer] | None = None
+    untracked: list[UntrackedThing] = []
+
+
+class TrackingChange(_Model):
+    kind: Literal["container"] = "container"
+    name: str = Field(min_length=1, max_length=120)
+    tracked: bool
+    why: str = Field("", max_length=200)

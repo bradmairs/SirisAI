@@ -32,6 +32,8 @@ screen, daily brief, search, inbox and controls on.
     POST /siris/hub/v1/scenes/{id}/run          a Siris or Home Assistant scene
     GET  /siris/hub/v1/email/about?q=           latest emails with these words in the subject (project pages)
     GET  /siris/hub/v1/upkeep                   backups and whether an update is waiting
+    GET  /siris/hub/v1/tracking                 what SirisAI watches, and what you've stopped it tracking (5.51)
+    PUT  /siris/hub/v1/tracking                 {kind, name, tracked, why?}
     GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first (up to 400 days)
 
 Every response is validated against its contract model before it leaves.
@@ -206,6 +208,31 @@ async def attention_act(item_id: int, body: c.AttentionActRequest, request: Requ
 @router.post("/attention/{item_id}/dismiss", response_model=c.AttentionActResult)
 async def attention_dismiss(item_id: int, request: Request, siris: SirisAI = Depends(get_siris)) -> c.AttentionActResult:
     return await attention_act(item_id, c.AttentionActRequest(action="dismiss"), request, siris)
+
+
+# -- tracking (5.51) ------------------------------------------------------------------
+
+
+@router.get("/tracking", response_model=c.Tracking)
+def tracking_list(siris: SirisAI = Depends(get_siris)) -> c.Tracking:
+    from app.homelab import tracking
+
+    return c.Tracking.model_validate(tracking.overview(siris))
+
+
+@router.put("/tracking", response_model=c.Tracking)
+def tracking_change(body: c.TrackingChange, siris: SirisAI = Depends(get_siris)) -> c.Tracking:
+    """Stop (tracked: false) or start tracking something again."""
+    from app.homelab import tracking
+
+    try:
+        if body.tracked:
+            tracking.resume(siris, body.kind, body.name)
+        else:
+            tracking.stop(siris, body.kind, body.name, body.why)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return c.Tracking.model_validate(tracking.overview(siris))
 
 
 # -- protocols ------------------------------------------------------------------
