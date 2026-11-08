@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.52 — 2026-11-08
+
+- Web search is offered on every turn, so questions about anything after 2023 get looked up
+
 ## 5.51 — 2026-11-08
 
 - Stop tracking things you removed on purpose

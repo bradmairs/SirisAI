@@ -42,8 +42,11 @@ _STOPWORDS = frozenset(
     "give make set run list check".split()
 )
 
+# 5.42: web search and fetch are always offered (when they're turned on). Only questions that said "search" or
+# "latest" got them before, so "who won the grand final?" was answered from the model's 2023 training instead.
 CORE_TOOLS = frozenset(
-    {"remember", "recall", "delete_memory", "recall_entity_facts", "remember_entity_fact", "get_current_time", "report_capability_gap"}
+    {"remember", "recall", "delete_memory", "recall_entity_facts", "remember_entity_fact", "get_current_time", "report_capability_gap",
+     "web_search", "web_fetch"}
 )
 
 # words in the user's message -> tool-name prefixes / exact names to favour
