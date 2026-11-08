@@ -94,7 +94,7 @@ def test_available_tool_specs_uses_the_selector_only_when_given_a_prompt() -> No
 
 
 def test_web_search_is_always_offered_for_current_questions() -> None:
-    # 5.42: "who won the grand final" shares no word with the web tools, but needs them.
+    # 5.52: "who won the grand final" shares no word with the web tools, but needs them.
     names = ["web_search", "web_fetch", "home_assistant_turn_on", "calendar_list_events", "weather_forecast"]
     specs = [_spec(n, f"{n.replace('_', ' ')} tool") for n in names]
     picked = {s["function"]["name"] for s in ToolSelector(max_tools=4).select("who won the 2026 AFL grand final?", specs)}
