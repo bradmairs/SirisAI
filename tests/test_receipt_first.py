@@ -1,4 +1,4 @@
-"""5.4: the receipt itself, not the email saying it's attached."""
+"""5.41: the receipt itself, not the email saying it's attached."""
 
 import asyncio
 import uuid

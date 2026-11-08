@@ -309,7 +309,7 @@ class NewProject(BaseModel):
 
 @router.post("/projects")
 def new_project(request: NewProject, siris: SirisAI = Depends(get_siris)) -> dict:
-    """A new project note (5.4, from SirisOS's Projects screen). A note with that name already is 409, never overwritten."""
+    """A new project note (5.41, from SirisOS's Projects screen). A note with that name already is 409, never overwritten."""
     brain = _brain(siris)
     title = " ".join(request.title.split())
     found = brain.get_note(title)

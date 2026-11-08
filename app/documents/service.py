@@ -253,7 +253,7 @@ def files_dir(siris: "SirisAI", doc_id: int | None = None) -> Path:
     return base / "receipts" / str(doc_id) if doc_id is not None else base / "receipts"
 
 
-RECEIPT_MARK = ".receipt"  # holds the name of the file that is the receipt itself (5.4)
+RECEIPT_MARK = ".receipt"  # holds the name of the file that is the receipt itself (5.41)
 
 
 def file_names(siris: "SirisAI", doc_id: int) -> list[str]:
@@ -305,7 +305,7 @@ def keep_receipt(siris: "SirisAI", title: str, sender: str, summary: str, text: 
 
 
 def write_receipt_files(siris: "SirisAI", doc_id: int, text: str, html: str, files: list[dict[str, Any]], receipt: str | None) -> None:
-    """The email and its files, replacing what was there (a receipt kept before 5.4 is redone this way)."""
+    """The email and its files, replacing what was there (a receipt kept before 5.41 is redone this way)."""
     folder = files_dir(siris, doc_id)
     if folder.is_dir():
         shutil.rmtree(folder)

@@ -107,7 +107,7 @@ _BY_SUFFIX = {suffix: kind for kind, suffix in KEPT_TYPES.items()} | {".jpeg": "
 
 
 def filename(part: Message) -> str:
-    """An attachment's name as you'd read it: "=?utf-8?b?...?=" names decoded (5.4)."""
+    """An attachment's name as you'd read it: "=?utf-8?b?...?=" names decoded (5.41)."""
     name = part.get_filename() or ""
     if "=?" in name:
         try:

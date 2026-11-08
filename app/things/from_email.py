@@ -7,7 +7,7 @@ with the local model, and:
 
 - **keeps the receipt**: a document of kind "receipt" with the email and its
   attachments as they came (app/documents), not filed as a note in Siris. Since
-  5.4 it marks which file is the receipt itself (`choose`): the invoice PDF when
+  5.41 it marks which file is the receipt itself (`choose`): the invoice PDF when
   the email only says "invoice attached", a picture when the shop sends the
   receipt as one, or the email when the receipt is written in it. Pictures in the
   email are put back into it, so it reads as it did in Gmail;
@@ -153,7 +153,7 @@ def embed_inline(html: str, inline: list[dict[str, Any]]) -> str:
 
 
 async def choose(siris: "SirisAI", mail: dict[str, Any]) -> str | None:
-    """Which file is the receipt itself, by name, or None when it's the email (5.4).
+    """Which file is the receipt itself, by name, or None when it's the email (5.41).
 
     1. A PDF that reads like an invoice or receipt, and isn't terms or a brochure. With more than one, the
        local model picks; without a model, the one with the most invoice words.
@@ -301,7 +301,7 @@ async def _scan(siris: "SirisAI", client: Any, days: int, now: datetime, max_rea
 
 
 async def refresh(siris: "SirisAI", client: Any = None, days: int = 1825) -> dict[str, Any]:
-    """Receipts kept before 5.4, redone: each one's email is fetched again (read-only) and matched to its receipt by
+    """Receipts kept before 5.41, redone: each one's email is fetched again (read-only) and matched to its receipt by
     its text, then its files are written again with the receipt itself marked. Receipts you removed have no match,
     so they stay removed; nothing is added."""
     client = client or getattr(siris, "email_client", None)
