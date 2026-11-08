@@ -99,3 +99,23 @@ def test_web_search_is_always_offered_for_current_questions() -> None:
     specs = [_spec(n, f"{n.replace('_', ' ')} tool") for n in names]
     picked = {s["function"]["name"] for s in ToolSelector(max_tools=4).select("who won the 2026 AFL grand final?", specs)}
     assert {"web_search", "web_fetch"} <= picked
+
+
+
+def test_web_search_returns_at_least_five_results_whatever_the_model_asks() -> None:
+    from app.plugins.builtin.web import WebSearchTool
+
+    class Client:
+        def __init__(self) -> None:
+            self.asked: list[int] = []
+
+        def search(self, query: str, limit: int = 5) -> list[dict]:
+            self.asked.append(limit)
+            return [{"title": f"r{i}", "url": "", "snippet": ""} for i in range(limit)]
+
+    client = Client()
+    tool = WebSearchTool(client)  # type: ignore[arg-type]
+    assert "limit" not in tool.parameters["properties"]
+    assert len(tool.run(query="x", limit="1")["results"]) == 5
+    assert len(tool.run(query="x", limit=8)["results"]) == 8
+    assert len(tool.run(query="x", limit="lots")["results"]) == 5
