@@ -21,7 +21,6 @@ class WebSearchTool(Tool):
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "What to search for."},
-            "limit": {"type": "integer", "description": "How many results, 1-10. Defaults to 5."},
         },
         "required": ["query"],
     }
@@ -29,8 +28,16 @@ class WebSearchTool(Tool):
     def __init__(self, client: WebSearchClient) -> None:
         self._client = client
 
-    def run(self, query: str = "", limit: int = 5, **kwargs: Any) -> Any:
-        return {"query": query, "results": self._client.search(query, limit=limit), "note": UNTRUSTED_NOTE}
+    # : always at least five results. The model used to ask for one, and the top hit is often a page's footnotes
+    # rather than the answer ("who won the 2025 grand final?" got "the Lethal Lions" from a Wikipedia citation).
+    MIN_RESULTS = 5
+
+    def run(self, query: str = "", limit: Any = 5, **kwargs: Any) -> Any:
+        try:
+            wanted = int(limit)
+        except (TypeError, ValueError):
+            wanted = self.MIN_RESULTS
+        return {"query": query, "results": self._client.search(query, limit=max(self.MIN_RESULTS, wanted)), "note": UNTRUSTED_NOTE}
 
 
 class WebFetchTool(Tool):
