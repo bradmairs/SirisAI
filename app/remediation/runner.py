@@ -61,8 +61,10 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     if client is None or not watched:
         return {"watched": watched, "handled": []}
 
+    from app.homelab import tracking
+
     ledger = _ledger(siris, now)
-    containers = client.list_containers(all_containers=True)
+    containers = tracking.tracked_containers(siris, client.list_containers(all_containers=True))  # 5.2
     handled = []
     for container in containers:
         name = next((n for n in container["names"] if n in watched or "*" in watched), None)
@@ -116,7 +118,8 @@ def _heal(siris: "SirisAI", name: str, reason: str, ledger: dict[str, Any], now:
         logs = "(couldn't read its logs)"
     lines = logs.get("lines", []) if isinstance(logs, dict) else str(logs).splitlines()
     tail = "\n".join(lines[-_LOG_LINES:])
-    message = f"{name} is down ({reason}) and I couldn't fix it: {blocked}.\nLast log lines:\n{tail}"
+    message = (f"{name} is down ({reason}) and I couldn't fix it: {blocked}.\nLast log lines:\n{tail}\n\n"
+               f"Removed it on purpose? Say \"stop tracking {name}\", or turn it off in SirisOS (System status, What SirisAI watches).")
     if siris.tools.get("notify") is not None:
         siris.run_tool("notify", {"title": f"SirisAI: {name} needs you", "message": message[:3500], "priority": "urgent"}, trigger=trigger)
     else:

@@ -336,6 +336,7 @@ from app.triage import morning as _triage  # noqa: F401 - registers its attentio
 from app.plugins.builtin.email import EmailDraftReplyTool, EmailListUnreadTool, EmailReadTool, EmailSendReplyTool
 from app.plugins.builtin.energy import CancelDeferredJobTool, EnergyStatusTool, ListDeferredJobsTool, ScheduleForCheapEnergyTool
 from app.plugins.builtin.remediation import RemediationStatusTool
+from app.plugins.builtin.tracking import ListUntrackedTool, ResumeTrackingTool, StopTrackingTool
 from app.plugins.builtin.habits import AcceptHabitSuggestionSkill, DismissHabitSuggestionTool, HabitSuggestionsSkill
 from app.skills.builtin.security import BackupCheckSkill, SecurityBriefingSkill, SecurityScanImagesSkill
 from app.voice.voiceprints import VoiceprintStore
@@ -807,6 +808,9 @@ class SirisAI:
             self.tools.register(DockerResolveContainerTool(self._docker_client))
             self.tools.register(DockerGetContainerLogsTool(self._docker_client))
             self.tools.register(RemediationStatusTool(self))
+            self.tools.register(StopTrackingTool(self))
+            self.tools.register(ResumeTrackingTool(self))
+            self.tools.register(ListUntrackedTool(self))
             self.tools.register(
                 DockerRestartContainerTool(
                     self._docker_client, self.entities, self._plex_client

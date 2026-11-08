@@ -63,7 +63,10 @@ def _client(siris: "SirisAI") -> DockerClient:
 
 
 def _excluded(siris: "SirisAI") -> set[str]:
-    return {n.strip() for n in siris.settings.container_update_exclude.split(",") if n.strip()}
+    from app.homelab import tracking
+
+    untracked = {e["name"] for e in tracking.untracked(siris).values() if e.get("kind") == "container"}  # 5.2
+    return {n.strip() for n in siris.settings.container_update_exclude.split(",") if n.strip()} | untracked
 
 
 def _is_self(container_id: str) -> bool:
@@ -115,8 +118,12 @@ def check(siris: "SirisAI", now: datetime | None = None, raise_feed: bool = True
 
 def _skip_reason(info: dict[str, Any], name: str, excluded: set[str]) -> str | None:
     labels = info.get("Config", {}).get("Labels") or {}
+    from app.homelab import tracking
+
     if name in excluded:
         return "excluded (SIRISAI_CONTAINER_UPDATE_EXCLUDE)"
+    if tracking.norm(name) in {tracking.norm(x) for x in excluded}:
+        return "not tracked (you asked SirisAI to stop tracking it)"
     if any(str(labels.get(k, "")).lower() == v for k, v in OPT_OUT_LABELS.items()):
         return "opted out by label"
     if _is_self(info.get("Id", "")):

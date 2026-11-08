@@ -65,10 +65,12 @@ class ServerHealthSkill(Skill):
             except Exception as exc:
                 docker_note = f"Docker status unavailable: {exc}"
             else:
-                for container in containers:
+                from app.homelab import tracking
+
+                for container in tracking.tracked_containers(siris, containers):  # 5.51: not the ones you've stopped tracking
                     if container["state"] != "running":
                         label = container["names"][0] if container["names"] else container["id"]
-                        warnings.append(f"Container '{label}' is {container['state']}")
+                        warnings.append(f"Container '{label}' is {container['state']} (removed on purpose? say \"stop tracking {label}\")")
 
         # Homelab power draw (milestone 47's cost/resource dashboard) --
         # this codebase has no power sensor of its own, so it reuses the
