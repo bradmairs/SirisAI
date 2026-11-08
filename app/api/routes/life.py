@@ -167,6 +167,14 @@ async def things_from_email(days: int = Query(30, ge=1, le=1825), max_read: int 
     return await from_email.scan(siris, days=days, max_read=max_read)
 
 
+@router.post("/things/receipts/refresh")
+async def refresh_receipts(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Redo receipts kept before 5.41, marking which file is the receipt itself. Read-only on the mailbox."""
+    from app.things import from_email
+
+    return await from_email.refresh(siris)
+
+
 @router.post("/things")
 def add_thing(request: ThingIn, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     from app.things import service

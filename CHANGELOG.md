@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.41 — 2026-11-08
+
+- Receipts show the receipt itself (the invoice PDF, a photo, or the email), pictures put back in the email, and new projects from SirisOS
+
 ## 5.31 — 2026-11-07
 
 - Receipts found in email are kept, with the email and attachments, and linked from Things; everything in the Gmail Receipts label is read

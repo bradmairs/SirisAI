@@ -253,9 +253,23 @@ def files_dir(siris: "SirisAI", doc_id: int | None = None) -> Path:
     return base / "receipts" / str(doc_id) if doc_id is not None else base / "receipts"
 
 
+RECEIPT_MARK = ".receipt"  # holds the name of the file that is the receipt itself (5.41)
+
+
 def file_names(siris: "SirisAI", doc_id: int) -> list[str]:
     folder = files_dir(siris, doc_id)
-    return sorted(p.name for p in folder.iterdir() if p.is_file()) if folder.is_dir() else []
+    names = sorted(p.name for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")) if folder.is_dir() else []
+    first = receipt_file(siris, doc_id)
+    return ([first] if first in names else []) + [n for n in names if n != first]
+
+
+def receipt_file(siris: "SirisAI", doc_id: int) -> str | None:
+    """Which of a kept receipt's files is the receipt: the invoice PDF, a photo of it, or the email itself."""
+    mark = files_dir(siris, doc_id) / RECEIPT_MARK
+    try:
+        return mark.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
 
 
 def file_path(siris: "SirisAI", doc_id: int, name: str) -> Path:
@@ -277,23 +291,38 @@ def _safe_name(name: str, taken: set[str]) -> str:
     return out
 
 
-def keep_receipt(siris: "SirisAI", title: str, sender: str, summary: str, text: str, when: datetime, html: str = "", files: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """A receipt kept with its originals: no note in Siris and no reminders, since it's a record of something already paid."""
+def keep_receipt(siris: "SirisAI", title: str, sender: str, summary: str, text: str, when: datetime, html: str = "", files: list[dict[str, Any]] | None = None,
+                 receipt: str | None = None) -> dict[str, Any]:
+    """A receipt kept with its originals: no note in Siris and no reminders, since it's a record of something already paid.
+    `receipt`: which of `files` is the receipt itself (its original name), or None for the email."""
     with siris.conversation._session_factory() as session:
         row = Document(user_id=get_current_user_id(), added_at=when, filename=title[:200], title=title[:200], kind="receipt", sender=sender, summary=summary, text=text[:100000])
         session.add(row)
         session.commit()
         doc_id = row.id
-    folder = files_dir(siris, doc_id)
-    folder.mkdir(parents=True, exist_ok=True)
-    if html:
-        (folder / "email.html").write_text(_LOCKED_DOWN + html, encoding="utf-8")
-    else:
-        (folder / "email.txt").write_text(text, encoding="utf-8")
-    taken = {"email.html", "email.txt"}
-    for file in files or []:
-        (folder / _safe_name(file["filename"], taken)).write_bytes(file["data"])
+    write_receipt_files(siris, doc_id, text, html, files or [], receipt)
     return get(siris, doc_id)
+
+
+def write_receipt_files(siris: "SirisAI", doc_id: int, text: str, html: str, files: list[dict[str, Any]], receipt: str | None) -> None:
+    """The email and its files, replacing what was there (a receipt kept before 5.41 is redone this way)."""
+    folder = files_dir(siris, doc_id)
+    if folder.is_dir():
+        shutil.rmtree(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    email_name = "email.html" if html else "email.txt"
+    if html:
+        (folder / email_name).write_text(_LOCKED_DOWN + html, encoding="utf-8")
+    else:
+        (folder / email_name).write_text(text, encoding="utf-8")
+    taken = {"email.html", "email.txt"}
+    mark = email_name
+    for file in files:
+        name = _safe_name(file["filename"], taken)
+        (folder / name).write_bytes(file["data"])
+        if receipt is not None and file["filename"] == receipt and mark == email_name:
+            mark = name
+    (folder / RECEIPT_MARK).write_text(mark, encoding="utf-8")
 
 
 def _serialize(row: Document, full: bool = False) -> dict[str, Any]:
@@ -313,6 +342,7 @@ def get(siris: "SirisAI", doc_id: int) -> dict[str, Any]:
             raise KeyError(doc_id)
         out = _serialize(row, full=True)
     out["files"] = file_names(siris, doc_id)
+    out["receipt_file"] = receipt_file(siris, doc_id)
     return out
 
 

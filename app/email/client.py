@@ -102,23 +102,62 @@ def html_body(message: Message) -> str:
     return ""
 
 
-KEPT_TYPES = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic"}
+KEPT_TYPES = {"application/pdf": ".pdf", "image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic", "image/gif": ".gif", "image/webp": ".webp"}
+_BY_SUFFIX = {suffix: kind for kind, suffix in KEPT_TYPES.items()} | {".jpeg": "image/jpeg"}
+
+
+def filename(part: Message) -> str:
+    """An attachment's name as you'd read it: "=?utf-8?b?...?=" names decoded (5.41)."""
+    name = part.get_filename() or ""
+    if "=?" in name:
+        try:
+            name = str(make_header(decode_header(name)))
+        except (UnicodeDecodeError, LookupError, ValueError):
+            pass
+    return name.strip()
+
+
+def _kind(part: Message, name: str) -> str | None:
+    """PDF or picture, whatever the sender labelled it: an invoice often comes as application/octet-stream."""
+    kind = part.get_content_type()
+    if kind in KEPT_TYPES:
+        return kind
+    suffix = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+    return _BY_SUFFIX.get(suffix)
 
 
 def attachments(message: Message) -> list[dict[str, Any]]:
-    """PDFs and photos sent as attachments (not a logo inside the email), up to 10 MB each."""
+    """PDFs and pictures sent as attachments, up to 10 MB each. A picture shown inside the email (with a Content-ID)
+    is left to inline_images, since most of those are logos."""
     out = []
     for part in message.walk():
-        name = part.get_filename() or ""
-        kind = part.get_content_type()
-        if name.lower().endswith(".pdf") and kind not in KEPT_TYPES:
-            kind = "application/pdf"
-        if kind not in KEPT_TYPES or (kind != "application/pdf" and not part.get("Content-Disposition", "").startswith("attachment")):
+        if part.get_content_maintype() == "multipart":
+            continue
+        name = filename(part)
+        kind = _kind(part, name)
+        if kind is None or (kind != "application/pdf" and part.get("Content-ID") and not part.get("Content-Disposition", "").startswith("attachment")):
+            continue
+        if kind != "application/pdf" and not (part.get("Content-Disposition") or name):
             continue
         data = part.get_payload(decode=True)
         if data and len(data) < 10_000_000:
-            out.append({"filename": name or f"attachment{KEPT_TYPES[kind]}", "data": data})
+            out.append({"filename": name or f"attachment{KEPT_TYPES[kind]}", "data": data, "type": kind})
     return out[:8]
+
+
+def inline_images(message: Message) -> list[dict[str, Any]]:
+    """Pictures inside the email, by Content-ID: logos mostly, but some shops send the whole receipt as one."""
+    out = []
+    for part in message.walk():
+        cid = (part.get("Content-ID") or "").strip().strip("<>")
+        name = filename(part)
+        kind = _kind(part, name)
+        if not cid or kind is None or kind == "application/pdf":
+            continue
+        data = part.get_payload(decode=True)
+        if data and len(data) < 5_000_000:
+            out.append({"cid": cid, "filename": name or f"{cid.split('@')[0]}{KEPT_TYPES[kind]}", "data": data, "type": kind})
+    return out[:30]
 
 
 class EmailClient:
@@ -275,7 +314,7 @@ class EmailClient:
             message = self._fetch(conn, uid)
         finally:
             conn.logout()
-        return {"uid": uid, "body": body_text(message), "html": html_body(message)[:3_000_000], "files": attachments(message)}
+        return {"uid": uid, "body": body_text(message), "html": html_body(message)[:3_000_000], "files": attachments(message), "inline": inline_images(message)}
 
     def read(self, uid: str) -> dict[str, Any]:
         conn = self._imap()

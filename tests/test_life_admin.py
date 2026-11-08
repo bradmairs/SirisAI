@@ -366,7 +366,7 @@ class ReceiptMail:
     def read_everywhere(self, uid: str) -> dict:
         self.reads.append(uid)
         m = next(m for m in self.messages if m["uid"] == uid)
-        return {"uid": uid, "body": m["body"], "html": m.get("html", ""), "files": m.get("files", [])}
+        return {"uid": uid, "body": m["body"], "html": m.get("html", ""), "files": [dict(f) for f in m.get("files", [])], "inline": m.get("inline", [])}
 
 
 class ReceiptLLM(LLMClient):
@@ -401,7 +401,7 @@ def test_a_receipt_in_email_is_kept_with_its_originals_and_linked(monkeypatch: p
     assert result["kept"] == 1 and result["added"] == 1
     doc = documents.get(siris, result["receipts"][0]["id"])
     assert doc["kind"] == "receipt" and doc["summary"] == "JB Hi-Fi, 20 Oct 2026, $899.00" and doc["note_title"] is None
-    assert doc["files"] == ["_in voice.pdf", "email.html"]
+    assert doc["files"] == ["_in voice.pdf", "email.html"] and doc["receipt_file"] == "_in voice.pdf"
     html = documents.file_path(siris, doc["id"], "email.html").read_text()
     assert "default-src 'none'" in html.split("<b>")[0]
     with pytest.raises(KeyError):
@@ -502,6 +502,8 @@ def test_when_the_model_is_down_the_email_waits(monkeypatch: pytest.MonkeyPatch)
         return None
 
     monkeypatch.setattr(local, "ask_json", nothing)
+    result = asyncio.run(from_email.scan(siris, client=mail))
+    monkeypatch.setattr(from_email, "MODEL_RETRY_S", 0)
     result = asyncio.run(from_email.scan(siris, client=mail))
     assert result["problem"] and result["more"] == 1
     assert from_email._key(mail.messages[0]) not in (siris.state.get(from_email.SEEN_KEY) or [])
