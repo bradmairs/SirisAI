@@ -609,6 +609,10 @@ class Settings(BaseSettings):
     # 0 disables a given check; each is independent.
     proactive_check_interval_minutes: float = 30.0
     presence_check_interval_minutes: float = 3.0
+    # 5.63: "everyone's out" only once every counted phone has been gone this long, without a break. iPhones
+    # drop off Wi-Fi when they sleep, so one missed check used to set off the away protocol. Coming home is
+    # still immediate. 0 = the old behaviour (the first check with no phone).
+    presence_away_after_minutes: float = 10.0
     # Local hour (0-23, in SIRISAI_TIMEZONE) the daily briefing goes out.
     # None disables it.
     briefing_hour_local: int | None = 7
@@ -769,6 +773,9 @@ class Settings(BaseSettings):
     # onenote_notebooks: comma-separated notebook names; empty = all of them.
     # onenote_max_pages: pages a night, so a first import spreads over nights.
     onenote_client_id: str = ""
+    # 5.63: the nightly import is off unless this is on. Brad removed OneNote from Siris (7 Nov), but with the
+    # client id still set it kept importing every night.
+    onenote_import: bool = False
     onenote_token_path: str = "data/onenote/token.json"
     onenote_notebooks: str = ""
     # Notebooks never imported, comma-separated, case-insensitive, `*` wildcards

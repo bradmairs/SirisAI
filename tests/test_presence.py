@@ -87,6 +87,26 @@ _AWAY_CLIENTS = [{"name": "some-guest-device", "ip_address": "192.168.1.99", "co
 # -- PresenceSkill
 
 
+def test_away_only_after_the_phones_have_been_gone_a_while() -> None:
+    """5.63: a phone asleep off the Wi-Fi for a check or two isn't anyone leaving."""
+    from datetime import UTC, datetime, timedelta
+
+    siris = _FakeSirisForPresence(_AWAY_CLIENTS, ["brads-iphone"], away_scene="scene.away")
+    siris.settings.presence_away_after_minutes = 10
+    siris.events.log_event("presence_changed", entity_name="presence", data={"home": True})
+    t0 = datetime(2026, 11, 11, 8, 0, tzinfo=UTC)
+    first = PresenceSkill().run(siris, now=t0)
+    assert first["currently_home"] is True and first["away_in_minutes"] == 10 and first["changed"] is False
+    assert PresenceSkill().run(siris, now=t0 + timedelta(minutes=6))["currently_home"] is True
+    # Back on the Wi-Fi: the clock starts again.
+    siris._clients = _HOME_CLIENTS
+    PresenceSkill().run(siris, now=t0 + timedelta(minutes=7))
+    siris._clients = _AWAY_CLIENTS
+    assert PresenceSkill().run(siris, now=t0 + timedelta(minutes=12))["currently_home"] is True
+    gone = PresenceSkill().run(siris, now=t0 + timedelta(minutes=22))
+    assert gone["currently_home"] is False and gone["changed"] is True and gone["scene_activated"] == "scene.away"
+
+
 def test_first_check_establishes_baseline_without_activating_a_scene() -> None:
     siris = _FakeSirisForPresence(_HOME_CLIENTS, ["brads-iphone"], home_scene="scene.welcome_home")
 
@@ -222,3 +242,19 @@ def test_away_only_once_every_counted_phone_has_gone_and_names_match_loosely() -
 
     set_added(siris, ["Dom's iPhone", "Guest iPad", "dom's iphone"])
     assert [d["name"] for d in counted(siris)] == ["brads-iphone", "Dom's iPhone", "Guest iPad"]
+
+
+def test_away_mode_over_the_hub(client: TestClient) -> None:
+    """5.63: SirisOS sets what happens when everyone's out (Apple Home may already do it)."""
+    from app.core import settings_overrides
+
+    siris = SirisAI(settings=Settings(away_mode="auto"))
+    app.dependency_overrides[get_siris] = lambda: siris
+    try:
+        assert client.get("/siris/hub/v1/away").json() == {"mode": "auto", "protocol": "away", "away_after_minutes": 10.0}
+        assert client.put("/siris/hub/v1/away", json={"mode": "off"}).json()["mode"] == "off"
+        assert siris.settings.away_mode == "off" and settings_overrides.load().get("away_mode") == "off"
+        assert client.put("/siris/hub/v1/away", json={"mode": "sometimes"}).status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_siris, None)
+        settings_overrides.update(siris, {"away_mode": "ask"})

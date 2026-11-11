@@ -205,7 +205,7 @@ def _page(pid: str, title: str, modified: str = "2026-10-01T00:00:00Z", **extra:
 
 
 def _siris(tmp_path: Path, **settings: Any) -> SirisAI:
-    siris = SirisAI(settings=Settings(timezone="Australia/Melbourne", onenote_client_id="cid",
+    siris = SirisAI(settings=Settings(timezone="Australia/Melbourne", onenote_import=True, onenote_client_id="cid",
                                       onenote_token_path=str(tmp_path / "token.json"), **settings))
     siris.state.set(importer.STATE_KEY, {})
     siris.state.set(importer.SECTIONS_KEY, {})
@@ -633,3 +633,11 @@ def test_a_page_deleted_in_siris_stays_deleted(tmp_path: Path) -> None:
     onenote.content["p1"] = ("<p>Line one</p><p>Line two</p>", "")
     brain.learn = lambda items: [{"action": "skipped", "title": i["title"]} for i in items]   # since deleted too
     assert importer.run_import(siris, NOW, onenote)["updated"] == []
+
+
+def test_the_nightly_import_is_off_unless_asked_for() -> None:
+    """5.63: Brad removed OneNote from Siris, but with the client id still set it imported every night."""
+    from app.onenote.importer import run_import
+
+    siris = SirisAI(settings=Settings(onenote_client_id="cid"))
+    assert run_import(siris, datetime(2026, 11, 11, 14, 0, tzinfo=UTC))["skipped"].startswith("OneNote import is off")

@@ -108,7 +108,7 @@ async def run_due(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
     jobs: list[tuple[str, Any]] = []
     if due("dream", s.brain_dream_hour_local):
         jobs.append(("dream", lambda: dream(siris, today)))
-    if s.onenote_client_id and due("onenote", s.onenote_hour_local):
+    if s.onenote_import and s.onenote_client_id and due("onenote", s.onenote_hour_local):  # 5.63: off unless asked for
         from app.onenote.importer import run_import
         jobs.append(("onenote", lambda: asyncio.to_thread(run_import, siris, now or datetime.now(UTC))))
     if s.gmail_address and s.gmail_app_password and due("gmail", s.gmail_hour_local):
