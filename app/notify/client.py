@@ -42,11 +42,32 @@ def _ntfy_priority(priority: str | int | None) -> int | None:
     return _NTFY_PRIORITIES.get(text)
 
 
+# ntfy turns a message over 4,096 bytes into an attachment, which ntfy.sh refuses
+# for JSON publishes (413, sometimes 500): every daily briefing in early
+# November 2026 was 5,600-16,000 characters and never arrived. Keep well under.
+MAX_MESSAGE_BYTES = 3800
+_MORE = " … (more in SirisOS)"
+
+
+def fit_message(message: str, limit: int = MAX_MESSAGE_BYTES) -> str:
+    """The message, cut at a word boundary to fit ntfy's limit in UTF-8 bytes."""
+    if len(message.encode("utf-8")) <= limit:
+        return message
+    room = limit - len(_MORE.encode("utf-8"))
+    cut = message.encode("utf-8")[:room].decode("utf-8", errors="ignore")
+    space = cut.rfind(" ")
+    if space > room * 0.8:
+        cut = cut[:space]
+    return cut.rstrip(" ,;:") + _MORE
+
+
 class NotifyClient:
     def __init__(
-        self, base_url: str, topic: str, timeout: float = 10.0, transport: httpx.BaseTransport | None = None
+        self, base_url: str, topic: str, timeout: float = 10.0, transport: httpx.BaseTransport | None = None,
+        click_url: str = "",
     ) -> None:
         self._topic = topic
+        self._click_url = click_url
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
 
     def send(
@@ -56,7 +77,9 @@ class NotifyClient:
         actions: list[dict[str, Any]] | None = None,
         priority: str | None = None,
     ) -> None:
-        payload: dict[str, Any] = {"topic": self._topic, "message": message}
+        payload: dict[str, Any] = {"topic": self._topic, "message": fit_message(message)}
+        if self._click_url and payload["message"] != message:
+            payload["click"] = self._click_url   # tapping a shortened push opens SirisOS
         if title:
             payload["title"] = title
         if actions:

@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     # with a preload every few minutes, so the first question of the
     # morning doesn't wait for a load. "" = never preload.
     ollama_warm_hours: str = "6-23"
+    # Other Ollama machines (comma-separated URLs) tried in order when the one
+    # above is unreachable or broken (5xx), e.g. a second AI box both ways
+    # round. Used by the general and fast models alike. "" = none.
+    ollama_fallback_base_urls: str = ""
+    # Whether a reasoning model thinks before answering: "on", "off", or ""
+    # for the model's default (gemma4 thinks unless told not to).
+    ollama_think: str = ""
+
+    def ollama_fallback_url_list(self) -> list[str]:
+        return [u.strip() for u in self.ollama_fallback_base_urls.split(",") if u.strip()]
 
     # Semantic memory recall (app/llm/embeddings.py, app/memory/service.py).
     # "none" (default) keeps MemoryStore.recall() on its original plain
@@ -286,6 +296,9 @@ class Settings(BaseSettings):
     fast_llm_provider: str = "none"
     fast_llm_ollama_base_url: str = "http://localhost:11434"
     fast_llm_ollama_model: str = "llama3.2:1b"
+    # The fast role can be the same model with thinking off (5.8): short
+    # requests answer in a fraction of the time, long ones still think.
+    fast_llm_think: str = "off"
 
     # Proactive notifications (app/notify/client.py,
     # app/plugins/builtin/notify.py, POST /siris/proactive/check) via

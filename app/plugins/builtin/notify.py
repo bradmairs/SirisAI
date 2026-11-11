@@ -44,8 +44,9 @@ class NotifyTool(Tool):
         "required": ["message"],
     }
 
-    def __init__(self, client: NotifyClient) -> None:
+    def __init__(self, client: NotifyClient, siris: Any = None) -> None:
         self._client = client
+        self._siris = siris
 
     def run(
         self,
@@ -55,7 +56,26 @@ class NotifyTool(Tool):
         actions: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> Any:
-        self._client.send(message, title=title, actions=actions, priority=priority)
+        try:
+            self._client.send(message, title=title, actions=actions, priority=priority)
+        except Exception as exc:
+            # A push that didn't arrive mustn't vanish: put it in the attention feed instead.
+            if self._siris is not None:
+                try:
+                    self._siris.attention.raise_item(
+                        "notify:failed", "alert", "A push notification didn't arrive",
+                        source="notify", severity="attention",
+                        body=f"{title or 'Notification'}: {message[:600]}\n\nntfy said: {str(exc)[:200]}",
+                    )
+                except Exception:  # noqa: BLE001 - the feed failing too shouldn't hide the original error
+                    pass
+            raise
+        else:
+            if self._siris is not None:
+                try:
+                    self._siris.attention.resolve_key("notify:failed", "Pushes are arriving again")
+                except Exception:  # noqa: BLE001
+                    pass
         return {"sent": True}
 
 

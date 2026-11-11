@@ -13,6 +13,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
+
 from app.home_assistant.client import HomeAssistantClient
 from app.memory.events import EventMemoryStore
 from app.plugins.base import Tool, ToolPermission, ToolVerification
@@ -752,10 +754,16 @@ class HomeAssistantGetTodoItemsTool(Tool):
         else:
             entity_ids = [s["entity_id"] for s in self._client.list_states(domain="todo")]
         status = None if include_completed else "needs_action"
-        return [
-            {"list": eid, "items": self._client.get_todo_items(eid, status=status)}
-            for eid in entity_ids
-        ]
+        out = []
+        for eid in entity_ids:
+            try:
+                out.append({"list": eid, "items": self._client.get_todo_items(eid, status=status)})
+            except httpx.HTTPStatusError as exc:
+                if list_name:
+                    raise
+                # One list Home Assistant can't read (a 500 from one integration) shouldn't hide the others.
+                out.append({"list": eid, "items": [], "error": f"Home Assistant couldn't read it ({exc.response.status_code})"})
+        return out
 
 
 class HomeAssistantAddTodoItemTool(Tool):
