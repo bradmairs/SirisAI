@@ -185,7 +185,7 @@ def _parse_crontab(host_label: str, content: str) -> list[dict[str, Any]]:
     return jobs
 
 
-# -- the overview (5.6): every job with when it runs, what runs it and when it last ran --
+# -- the overview (5.73): every job with when it runs, what runs it and when it last ran --
 
 OVERVIEW_COMMAND = (
     "echo '##info'; hostname 2>/dev/null; date +%z; uptime -p 2>/dev/null; "

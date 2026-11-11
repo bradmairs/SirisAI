@@ -248,7 +248,7 @@ def test_missing_ssh_binary_is_reported_per_host_not_raised() -> None:
     assert all("isn't installed" in j["error"] for j in jobs)
 
 
-# -- the overview, schedules in words, adding servers (5.6) -------------------------------
+# -- the overview, schedules in words, adding servers (5.73) -------------------------------
 
 
 def test_schedules_in_words_and_their_next_run() -> None:

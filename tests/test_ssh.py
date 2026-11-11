@@ -215,7 +215,7 @@ def test_server_health_over_one_or_all(client: TestClient, tmp_path: Path) -> No
 def test_power_commands_use_sudo_only_for_non_root_and_note_the_boot_id() -> None:
     brad, root = SshHost("nas", "brad", "10.0.0.2"), SshHost("pi", "root", "10.0.0.3")
     boot = "cat /proc/sys/kernel/random/boot_id 2>/dev/null; "
-    # 5.6: systemctl in the foreground (it only queues the reboot), not a
+    # 5.73: systemctl in the foreground (it only queues the reboot), not a
     # background job that logind can kill with the SSH session.
     assert power_command(root, "reboot") == boot + "systemctl reboot </dev/null && echo started"
     assert power_command(brad, "shutdown") == (

@@ -1,4 +1,4 @@
-"""Following up a reboot or shutdown (5.6).
+"""Following up a reboot or shutdown (5.73).
 
 ssh_power used to stop at "Rebooting the NAS", even when the reboot never
 happened. Now each one it starts is kept here with the server's boot id

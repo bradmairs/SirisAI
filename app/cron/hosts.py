@@ -1,4 +1,4 @@
-"""Adding and removing cron servers from the web UI (5.6).
+"""Adding and removing cron servers from the web UI (5.73).
 
 `add(siris, "brad@192.168.0.127")` checks the address, tries to reach it
 over SSH (the same ambient identity everything else uses; no key setting),

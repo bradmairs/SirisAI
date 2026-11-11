@@ -1,4 +1,4 @@
-"""Cron schedules in words, and when they next run (5.6).
+"""Cron schedules in words, and when they next run (5.73).
 
 `describe("30 2 * * 1")` is "Every Monday at 02:30"; `next_run` finds the
 next minute a schedule fires, in the server's own time (cron runs in the

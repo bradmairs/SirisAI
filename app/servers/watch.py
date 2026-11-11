@@ -282,7 +282,7 @@ def _install(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], tr
 def _reboot(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:
     result = siris.run_tool("ssh_power", {"action": "reboot", "servers": payload["server"]}, confirmed=True, trigger=trigger)
     if not any(r.get("status") != "failed" for r in result.get("results", [])):
-        # Fixed in 5.6: this used to close the item as done with "Nothing was done."
+        # Fixed in 5.73: this used to close the item as done with "Nothing was done."
         raise RuntimeError(result.get("summary") or "The reboot didn't start.")
     return result, result.get("summary", "Rebooting")
 

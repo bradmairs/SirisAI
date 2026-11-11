@@ -287,7 +287,7 @@ def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:
     reply can say what's missing). It prints the server's boot id first, so
     SirisAI can tell afterwards whether it really rebooted.
 
-    Fixed in 5.6: an immediate reboot used to start in the background
+    Fixed in 5.73: an immediate reboot used to start in the background
     (`nohup sh -c 'sleep 2; ...' &`). Where logind ends a session's
     processes when it logs out (KillUserProcesses), that background job was
     killed with the SSH session and nothing happened; elsewhere the open

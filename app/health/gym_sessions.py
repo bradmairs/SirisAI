@@ -1,4 +1,4 @@
-"""Asking about SirisGym workouts (5.6): "what did I do at the gym on Monday",
+"""Asking about SirisGym workouts (5.73): "what did I do at the gym on Monday",
 "how many sets of squats last week", "show me my last leg day", "what
 weight did I bench on the 3rd".
 

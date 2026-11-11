@@ -1,4 +1,4 @@
-"""Asking about SirisGym workouts (5.6): app/health/gym_sessions.py and the
+"""Asking about SirisGym workouts (5.73): app/health/gym_sessions.py and the
 gym_sessions tool, against a stand-in SirisOS and the workouts kept here."""
 
 from __future__ import annotations

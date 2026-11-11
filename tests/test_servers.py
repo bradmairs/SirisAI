@@ -433,7 +433,7 @@ def test_a_wake_only_computer_is_up_when_it_answers_on_any_port(monkeypatch: pyt
     assert "desktop is awake" in {i["title"] for i in s.attention.list()}
 
 
-# -- reboot follow-up (5.6) ----------------------------------------------------------------
+# -- reboot follow-up (5.73) ----------------------------------------------------------------
 
 OLD_BOOT = "11111111-2222-3333-4444-555555555555"
 NEW_BOOT = "99999999-8888-7777-6666-555555555555"
