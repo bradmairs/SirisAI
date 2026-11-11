@@ -278,4 +278,34 @@ class GymProgressTool(_HealthTool):
                 "week": s.get("week"), "deload": s.get("deload")}
 
 
-HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, HealthExplainTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)
+class GymSessionsTool(_HealthTool):
+    name = "gym_sessions"
+    description = (
+        "The user's SirisGym workouts themselves: what was done on a day or between days, each exercise with every set "
+        "(weight x reps, warm-ups and drop sets, RPE), duration, records, notes and the Watch's effort. For 'what did I do "
+        "at the gym on Monday', 'show me my last leg day', 'what did I bench last week', 'how many sets of squats this "
+        "month'. day is YYYY-MM-DD, today, yesterday or a weekday; or since/until for a range (default: the last 30 days). "
+        "exercise narrows to one lift. For trends, targets and what to lift next use gym_progress instead."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "day": {"type": "string", "description": "One day: YYYY-MM-DD, today, yesterday, or a weekday like monday"},
+            "since": {"type": "string", "description": "From this day (YYYY-MM-DD)"},
+            "until": {"type": "string", "description": "To this day (YYYY-MM-DD), default today"},
+            "exercise": {"type": "string", "description": "Only this exercise, e.g. bench, squat"},
+            "session_id": {"type": "string", "description": "One workout by id"},
+            "limit": {"type": "integer", "description": "How many workouts in full (1-10, default 5)"},
+        },
+        "required": [],
+    }
+
+    def run(self, day: str | None = None, since: str | None = None, until: str | None = None, exercise: str | None = None,
+            session_id: str | None = None, limit: int = 5, **kwargs: Any) -> Any:
+        from app.health import gym_sessions
+
+        return gym_sessions.ask(self._siris, day=day, since=since, until=until, exercise=exercise, session_id=session_id, limit=limit)
+
+
+HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, GymSessionsTool, HealthExplainTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)

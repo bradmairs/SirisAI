@@ -65,3 +65,12 @@ class SirisOSClient:
     def sirishydro(self, question: str, limit: int = 6) -> dict[str, Any]:
         # Synthesis can take a while: SirisOS asks a model (SirisAI's, via the hub).
         return self._get("/api/v1/engineering/sirishydro/evidence", timeout=120.0, question=question, limit=limit)
+
+    def gym_sessions(self, month: str | None = None) -> list[dict[str, Any]]:
+        """SirisGym's workouts for one month (YYYY-MM), newest first: summaries."""
+        return self._get("/api/v1/gym/sessions", month=month).get("sessions") or []
+
+    def gym_session(self, session_id: str) -> dict[str, Any]:
+        """One workout in full: every exercise and set, records and notes. SirisAI has the
+        Watch's heart rate itself, so SirisOS needn't look the Watch workout up."""
+        return self._get(f"/api/v1/gym/sessions/{session_id}", watch="false")

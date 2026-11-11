@@ -318,6 +318,13 @@
   .cron-entry.disabled .cron-schedule { color: var(--muted); }
   .cron-entry .cron-command { font-family: var(--mono); font-size: 0.85rem; margin-top: 0.2rem; word-break: break-all; }
   .cron-entry button { flex-shrink: 0; }
+  .cron-entry .cron-desc { font-size: 0.9rem; font-weight: 600; }
+  .cron-entry .cron-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.25rem; display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; }
+  .cron-host-info { font-size: 0.78rem; color: var(--muted); margin: -4px 0 10px 4px; }
+  .cron-host-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+  .cron-add { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+  .cron-add input { flex: 1 1 220px; min-width: 0; }
+  .cron-add-note { font-size: 0.8rem; color: var(--muted); word-break: break-all; margin: 0 0 1rem; }
   .cron-host-error { color: var(--error); font-size: 0.85rem; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--critical) 40%, transparent); }
 
   /* Gaps */
@@ -465,8 +472,13 @@
 
   <section id="cron-view" class="view">
     <p class="empty" id="cron-unavailable" style="display:none;">
-      No cron hosts configured (SIRISAI_CRON_HOSTS) -- see /siris/status.
+      No cron servers yet. Add one below (user@host, reached with SirisAI's own SSH key).
     </p>
+    <form id="cron-add" class="cron-add">
+      <input id="cron-add-target" placeholder="user@host or user@host:port" autocomplete="off" aria-label="Server to add">
+      <button class="action-btn" type="submit">Add server</button>
+    </form>
+    <p class="cron-add-note" id="cron-add-note"></p>
     <div id="cron-body" style="display:none;">
       <button class="action-btn" id="cron-refresh">Refresh</button>
       <div id="cron-list"></div>
@@ -1575,67 +1587,113 @@
   const cronUnavailable = document.getElementById("cron-unavailable");
   const cronBody = document.getElementById("cron-body");
 
-  function renderCron(jobs) {
+  function cronWhen(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function renderCron(hosts) {
     cronList.innerHTML = "";
-    if (!jobs.length) {
-      cronList.innerHTML = '<p class="empty">No cron jobs found.</p>';
+    if (!hosts.length) {
+      cronList.innerHTML = '<p class="empty">No cron servers.</p>';
       return;
     }
-    const jobsByHost = new Map();
-    for (const job of jobs) {
-      if (!jobsByHost.has(job.host)) jobsByHost.set(job.host, []);
-      jobsByHost.get(job.host).push(job);
-    }
-    for (const [host, hostJobs] of jobsByHost) {
+    for (const host of hosts) {
       const group = document.createElement("div");
       group.className = "cron-host-group";
+      const head = document.createElement("div");
+      head.className = "cron-host-head";
       const heading = document.createElement("h3");
-      heading.textContent = host;
-      group.appendChild(heading);
+      heading.textContent = host.hostname && host.hostname !== host.host.split("@")[1] ? `${host.host} (${host.hostname})` : host.host;
+      head.appendChild(heading);
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "Remove";
+      removeBtn.addEventListener("click", async () => {
+        if (!confirm(`Stop watching cron jobs on ${host.host}?`)) return;
+        try {
+          await withPin((pin) => api(`/siris/cron_jobs/hosts/${encodeURIComponent(host.host)}` + (pin ? `?pin=${encodeURIComponent(pin)}` : ""), { method: "DELETE" }), "Remove a cron server");
+          loadCron();
+        } catch (err) {
+          if (!err.cancelled) alert(err.message);
+        }
+      });
+      head.appendChild(removeBtn);
+      group.appendChild(head);
 
-      const errorJob = hostJobs.find((j) => j.error);
-      if (errorJob) {
+      if (!host.reachable) {
         const errorDiv = document.createElement("div");
         errorDiv.className = "cron-host-error";
-        errorDiv.textContent = errorJob.error;
+        errorDiv.textContent = host.error;
         group.appendChild(errorDiv);
         cronList.appendChild(group);
         continue;
       }
+      const info = document.createElement("div");
+      info.className = "cron-host-info";
+      info.textContent = [host.uptime, host.utc_offset ? `UTC${host.utc_offset}` : "", `${host.jobs.length} job${host.jobs.length === 1 ? "" : "s"}`,
+        host.log_available ? "" : "last runs unknown (cron log not readable)"].filter(Boolean).join(" · ");
+      group.appendChild(info);
+      if (!host.jobs.length) {
+        const none = document.createElement("p");
+        none.className = "empty";
+        none.textContent = "No cron jobs here.";
+        group.appendChild(none);
+      }
 
-      for (const job of hostJobs) {
+      for (const job of host.jobs) {
         const div = document.createElement("div");
         div.className = job.enabled ? "cron-entry" : "cron-entry disabled";
 
         const body = document.createElement("div");
+        const desc = document.createElement("div");
+        desc.className = "cron-desc";
+        desc.textContent = job.description + (job.enabled ? "" : " (off)");
         const schedule = document.createElement("div");
         schedule.className = "cron-schedule";
         schedule.textContent = job.schedule;
         const command = document.createElement("div");
         command.className = "cron-command";
         command.textContent = job.command;
+        const meta = document.createElement("div");
+        meta.className = "cron-meta";
+        for (const text of [
+          job.next_run ? `Next: ${cronWhen(job.next_run)}` : "",
+          job.last_run ? `Last ran: ${cronWhen(job.last_run)}` : host.log_available ? "Not run in the last 3 days" : "",
+          `As ${job.run_as}`,
+          job.source === "crontab" ? "Own crontab" : job.source,
+        ]) {
+          if (!text) continue;
+          const span = document.createElement("span");
+          span.textContent = text;
+          meta.appendChild(span);
+        }
+        body.appendChild(desc);
         body.appendChild(schedule);
         body.appendChild(command);
+        body.appendChild(meta);
         div.appendChild(body);
 
-        const actions = document.createElement("div");
-        actions.className = "entry-actions";
-        const toggleBtn = document.createElement("button");
-        toggleBtn.type = "button";
-        toggleBtn.textContent = job.enabled ? "Disable" : "Enable";
-        toggleBtn.addEventListener("click", async () => {
-          toggleBtn.disabled = true;
-          try {
-            await runTool("cron_set_job_enabled", { host: job.host, line: job.line, enabled: !job.enabled }, true);
-            loadCron();
-          } catch (err) {
-            alert(err.message);
-            toggleBtn.disabled = false;
-          }
-        });
-        actions.appendChild(toggleBtn);
-        div.appendChild(actions);
-
+        if (job.editable) {
+          const actions = document.createElement("div");
+          actions.className = "entry-actions";
+          const toggleBtn = document.createElement("button");
+          toggleBtn.type = "button";
+          toggleBtn.textContent = job.enabled ? "Disable" : "Enable";
+          toggleBtn.addEventListener("click", async () => {
+            toggleBtn.disabled = true;
+            try {
+              await runTool("cron_set_job_enabled", { host: job.host, line: job.line, enabled: !job.enabled }, true);
+              loadCron();
+            } catch (err) {
+              alert(err.message);
+              toggleBtn.disabled = false;
+            }
+          });
+          actions.appendChild(toggleBtn);
+          div.appendChild(actions);
+        }
         group.appendChild(div);
       }
       cronList.appendChild(group);
@@ -1650,12 +1708,29 @@
       cronBody.style.display = available ? "" : "none";
       if (!available) return;
       cronList.innerHTML = '<p class="empty">Loading...</p>';
-      const jobs = await api("/siris/cron_jobs");
-      renderCron(jobs);
+      const data = await api("/siris/cron_jobs/overview");
+      renderCron(data.hosts);
     } catch (err) {
       cronList.innerHTML = `<p class="empty">${err.message}</p>`;
     }
   }
+
+  document.getElementById("cron-add").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = document.getElementById("cron-add-target");
+    const note = document.getElementById("cron-add-note");
+    const target = input.value.trim();
+    if (!target) return;
+    note.textContent = `Connecting to ${target}...`;
+    try {
+      const result = await withPin((pin) => api("/siris/cron_jobs/hosts", { method: "POST", body: JSON.stringify({ target, pin }) }), "Add a cron server");
+      note.textContent = `Added ${result.added}${result.hostname ? ` (${result.hostname})` : ""}.`;
+      input.value = "";
+      loadCron();
+    } catch (err) {
+      note.textContent = err.cancelled ? "" : err.message;
+    }
+  });
 
   document.getElementById("cron-refresh").addEventListener("click", loadCron);
 

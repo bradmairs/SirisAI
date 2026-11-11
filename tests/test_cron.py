@@ -1,6 +1,8 @@
 """Tests for the cron overview feature (app/cron/client.py,
 app/plugins/builtin/cron.py, GET /siris/cron_jobs)."""
 
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -244,3 +246,105 @@ def test_missing_ssh_binary_is_reported_per_host_not_raised() -> None:
 
     assert [j["host"] for j in jobs] == ["brad@192.168.0.127", "root@192.168.0.83"]
     assert all("isn't installed" in j["error"] for j in jobs)
+
+
+# -- the overview, schedules in words, adding servers (5.73) -------------------------------
+
+
+def test_schedules_in_words_and_their_next_run() -> None:
+    from datetime import UTC, datetime
+
+    from app.cron.schedule import describe, next_run
+
+    assert describe("0 3 * * *") == "Every day at 03:00"
+    assert describe("*/5 * * * *") == "Every 5 minutes"
+    assert describe("30 2 * * 1") == "Every Monday at 02:30"
+    assert describe("0 8 * * 1-5") == "Every weekday at 08:00"
+    assert describe("0 22 * * 6,0") == "Weekends at 22:00"
+    assert describe("0 0 1 * *") == "On the 1st of every month at 00:00"
+    assert describe("@reboot") == "When the server starts"
+    assert describe("0 9 * 1,7 *") == "Every day in January and July at 09:00"
+    now = datetime(2026, 11, 11, 1, 0, tzinfo=UTC)  # 12:00 in +11:00
+    assert next_run("0 3 * * *", now, 660).isoformat() == "2026-11-12T03:00:00+11:00"
+    assert next_run("30 2 * * 1", now).isoformat() == "2026-11-16T02:30:00+00:00"
+    assert next_run("@reboot", now) is None and next_run("nonsense", now) is None
+
+
+OVERVIEW_OUTPUT = """##info
+nas
++1100
+up 3 days, 2 hours
+##user
+# backup
+0 3 * * * /usr/bin/backup.sh --full
+# 0 4 * * 0 /usr/bin/old.sh
+##file /etc/crontab
+SHELL=/bin/sh
+17 *\t* * *\troot\tcd / && run-parts --report /etc/cron.hourly
+##file /etc/cron.d/certbot
+0 */12 * * * root certbot -q renew
+##log
+2026-11-11T03:00:01+11:00 nas CRON[123]: (brad) CMD (/usr/bin/backup.sh --full)
+2026-11-10T03:00:01+11:00 nas CRON[99]: (brad) CMD (/usr/bin/backup.sh --full)
+2026-11-11T11:17:01+11:00 nas CRON[5]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)
+"""
+
+
+def test_the_overview_has_every_job_with_details() -> None:
+    from datetime import UTC, datetime
+
+    from app.cron.client import overview
+
+    client = CronHostsClient([CronHost(user="brad", host="nas"), CronHost(user="pi", host="pi.local")])
+
+    def fake_run(args, **kwargs):  # type: ignore[no-untyped-def]
+        if "pi@pi.local" in args:
+            return _FakeCompletedProcess(returncode=255, stderr="No route to host")
+        return _FakeCompletedProcess(stdout=OVERVIEW_OUTPUT)
+
+    with patch("app.cron.client.subprocess.run", side_effect=fake_run):
+        hosts = overview(client, datetime(2026, 11, 11, 1, 0, tzinfo=UTC))
+    nas, pi = hosts
+    assert (nas["hostname"], nas["utc_offset"], nas["uptime"], nas["log_available"]) == ("nas", "+1100", "up 3 days, 2 hours", True)
+    jobs = {j["command"]: j for j in nas["jobs"]}
+    backup = jobs["/usr/bin/backup.sh --full"]
+    assert backup["description"] == "Every day at 03:00" and backup["editable"] and backup["run_as"] == "brad"
+    assert backup["next_run"] == "2026-11-12T03:00:00+11:00" and backup["last_run"] == "2026-11-11T03:00:01+11:00"
+    assert jobs["/usr/bin/old.sh"]["enabled"] is False and jobs["/usr/bin/old.sh"]["next_run"] is None
+    hourly = jobs["cd / && run-parts --report /etc/cron.hourly"]
+    assert (hourly["source"], hourly["run_as"], hourly["editable"]) == ("/etc/crontab", "root", False)
+    assert hourly["last_run"] == "2026-11-11T11:17:01+11:00"
+    assert jobs["certbot -q renew"]["source"] == "/etc/cron.d/certbot" and jobs["certbot -q renew"]["last_run"] is None
+    assert len(nas["jobs"]) == 4  # the SHELL= line and comments aren't jobs
+    assert pi["reachable"] is False and "No route to host" in pi["error"]
+
+
+def test_servers_can_be_added_and_removed(client: TestClient, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from app.core import settings_overrides
+
+    siris = get_siris()
+    monkeypatch.setattr(settings_overrides, "path", lambda: Path(tempfile.mkdtemp()) / "settings.json")
+    monkeypatch.setattr(siris.settings, "cron_hosts", "")
+    before = (siris.cron_client, siris.tools._tools.get("cron_list_jobs"), siris.tools._tools.get("cron_set_job_enabled"))
+    try:
+        assert client.post("/siris/cron_jobs/hosts", json={"target": "not a host"}).status_code == 422
+        with patch("app.cron.client.subprocess.run", return_value=_FakeCompletedProcess(returncode=255, stderr="brad@10.0.0.9: Permission denied (publickey).")):
+            refused = client.post("/siris/cron_jobs/hosts", json={"target": "brad@10.0.0.9"})
+        assert refused.status_code == 502 and "doesn't accept SirisAI's" in refused.json()["detail"]
+        assert siris.settings.cron_hosts == ""
+        with patch("app.cron.client.subprocess.run", return_value=_FakeCompletedProcess(stdout="nas\n3\n")):
+            added = client.post("/siris/cron_jobs/hosts", json={"target": "brad@10.0.0.9:2222"})
+        assert added.status_code == 200 and added.json()["hostname"] == "nas"
+        assert siris.settings.cron_hosts == "brad@10.0.0.9:2222" and siris.cron_client.hosts[0].port == 2222
+        assert siris.tools.get("cron_list_jobs") is not None
+        assert client.post("/siris/cron_jobs/hosts", json={"target": "brad@10.0.0.9"}).status_code == 422  # already there
+        assert client.delete("/siris/cron_jobs/hosts/brad@10.0.0.9").json()["hosts"] == []
+        assert siris.cron_client is None and client.get("/siris/cron_jobs/overview").json()["hosts"] == []
+        assert client.delete("/siris/cron_jobs/hosts/brad@10.0.0.9").status_code == 404
+    finally:
+        siris.cron_client = before[0]
+        for name, tool in (("cron_list_jobs", before[1]), ("cron_set_job_enabled", before[2])):
+            if tool is None:
+                siris.tools._tools.pop(name, None)
+            else:
+                siris.tools._tools[name] = tool

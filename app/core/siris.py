@@ -352,6 +352,7 @@ from app.weather.client import WeatherClient
 _CATEGORY_PREFIXES: list[tuple[str, str]] = [
     ("home_assistant_", "home_assistant"),
     ("health_", "health"),
+    ("gym_", "health"),
     ("documents_", "documents"),
     ("bills_", "bills"),
     ("travel_", "travel"),
@@ -1077,6 +1078,7 @@ class SirisAI:
                     self.ssh_client,
                     self_server=self.settings.ssh_self_server,
                     allowed=self.settings.ssh_allow_power and self.settings.ssh_allow_changes,
+                    on_started=self._track_power,
                 )
             )
 
@@ -1318,6 +1320,12 @@ class SirisAI:
             for tool in self.tools.list()
             if isinstance(tool, SkillTool)
         ]
+
+    def _track_power(self, **started: Any) -> None:
+        """ssh_power started a reboot or shutdown: follow it up (app/servers/power.py)."""
+        from app.servers import power
+
+        power.track(self, **started)
 
     def capabilities(self) -> dict[str, list[str]]:
         """Registered tool names grouped by category -- "what can SirisAI

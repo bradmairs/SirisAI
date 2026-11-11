@@ -18,10 +18,26 @@ Server output is external text: the injection guard (app/core/taint.py)
 treats it as untrusted, so a log line can't instruct SirisAI to act.
 """
 
+import logging
+import re
+from collections.abc import Callable
 from typing import Any
 
 from app.plugins.base import Tool, ToolPermission
-from app.ssh.client import HEALTH_COMMAND, NEEDS_SUDO_EXIT, SshClient, SshError, is_read_only, parse_health, power_command
+from app.ssh.client import (
+    BOOT_ID_COMMAND,
+    HEALTH_COMMAND,
+    NEEDS_SUDO_EXIT,
+    SshClient,
+    SshError,
+    is_read_only,
+    parse_health,
+    power_command,
+    power_started,
+)
+
+logger = logging.getLogger(__name__)
+_BOOT_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 class SshListServersTool(Tool):
@@ -121,10 +137,12 @@ class SshPowerTool(Tool):
         "required": ["action", "servers"],
     }
 
-    def __init__(self, client: SshClient, self_server: str = "", allowed: bool = True) -> None:
+    def __init__(self, client: SshClient, self_server: str = "", allowed: bool = True,
+                 on_started: Callable[..., None] | None = None) -> None:
         self._client = client
         self._self = self_server.strip().lower()
         self._allowed = allowed
+        self._on_started = on_started
 
     def _targets(self, servers: str) -> list[Any]:
         wanted = [s.strip() for s in (servers or "").split(",") if s.strip()]
@@ -144,22 +162,54 @@ class SshPowerTool(Tool):
         results = []
         for host in self._targets(servers):
             command = power_command(host, action, delay)
+            boot_id = self._boot_id(host.name) if action != "cancel" and not delay else None
             try:
                 out = self._client.run(host.name, command, timeout=20)
             except SshError as exc:
-                results.append({"server": host.name, "status": "failed", "detail": str(exc)})
+                if action != "cancel" and not delay and boot_id and power_started(str(exc)):
+                    # It went down under us: that's the reboot starting.
+                    results.append({"server": host.name, "status": "started", "self": host.name == self._self})
+                    self._started(host.name, action, boot_id)
+                else:
+                    results.append({"server": host.name, "status": "failed", "detail": str(exc)})
                 continue
+            lines = out["stdout"].strip().splitlines()
+            if lines and _BOOT_ID_RE.fullmatch(lines[0].strip()):
+                boot_id = lines.pop(0).strip()
             if out["exit_code"] == NEEDS_SUDO_EXIT:
                 results.append({"server": host.name, "status": "failed", "detail": f"{host.user} needs passwordless sudo for this (see deploy/README.md: SSH to your other servers)"})
             elif out["exit_code"] != 0:
                 results.append({"server": host.name, "status": "failed", "detail": (out["stderr"] or out["stdout"]).strip()[-300:] or f"exit {out['exit_code']}"})
             else:
-                status = out["stdout"].strip().splitlines()[-1] if out["stdout"].strip() else "started"
+                status = lines[-1].strip() if lines else "started"
                 results.append({"server": host.name, "status": status, "self": host.name == self._self})
+                if action != "cancel":
+                    self._started(host.name, action, boot_id, delay)
         done = [r["server"] for r in results if r["status"] != "failed"]
         summary = {
             "reboot": f"Rebooting {', '.join(done)}" + (f" in {delay} minutes" if delay else ""),
             "shutdown": f"Shutting down {', '.join(done)}" + (f" in {delay} minutes" if delay else ""),
             "cancel": f"Cancelled the pending shutdown on {', '.join(done)}",
         }[action] if done else "Nothing was done."
+        if done and action != "cancel" and self._on_started:
+            summary += ". I'll tell you when " + ("they're" if len(done) > 1 else "it's") + (" back." if action == "reboot" else " off.")
+        failed = [r for r in results if r["status"] == "failed"]
+        if failed:
+            summary += (". " if done else " ") + "; ".join(f"{r['server']}: {r['detail']}" for r in failed)
         return {"action": action, "delay_minutes": delay, "results": results, "summary": summary}
+
+    def _boot_id(self, server: str) -> str | None:
+        try:
+            out = self._client.run(server, BOOT_ID_COMMAND, timeout=10)
+        except SshError:
+            return None
+        text = out["stdout"].strip()
+        return text if _BOOT_ID_RE.fullmatch(text) else None
+
+    def _started(self, server: str, action: str, boot_id: str | None, delay: int = 0) -> None:
+        if self._on_started is None:
+            return
+        try:
+            self._on_started(server=server, action=action, boot_id=boot_id, delay_minutes=delay)
+        except Exception:  # noqa: BLE001 - following it up is extra; the reboot itself went
+            logger.exception("Couldn't keep track of the %s on %s", action, server)

@@ -274,14 +274,28 @@ def sudo_check(host: SshHost, command: str) -> str:
     return f"{passwordless(command)} || exit {NEEDS_SUDO_EXIT}; "
 
 
+BOOT_ID_COMMAND = "cat /proc/sys/kernel/random/boot_id 2>/dev/null"
+# What ssh says when the server goes down under it: the reboot has started.
+DROPPED_HINTS = ("closed by remote host", "connection reset", "broken pipe", "connection closed", "exited 255")
+
+
 def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:
     """The remote command for a reboot, shutdown or cancelling a pending one.
 
     A non-root account needs passwordless sudo for these (`sudo -n` fails at
     once rather than waiting for a password, and the command exits 77 so the
-    reply can say what's missing). An immediate reboot or shutdown is started
-    in the background two seconds later, so this SSH session ends cleanly
-    instead of being cut off and reported as a failure."""
+    reply can say what's missing). It prints the server's boot id first, so
+    SirisAI can tell afterwards whether it really rebooted.
+
+    Fixed in 5.73: an immediate reboot used to start in the background
+    (`nohup sh -c 'sleep 2; ...' &`). Where logind ends a session's
+    processes when it logs out (KillUserProcesses), that background job was
+    killed with the SSH session and nothing happened; elsewhere the open
+    stdin kept the session up until the server dropped it, and the drop was
+    reported as a failure. Now systemctl runs in the foreground, which only
+    queues the reboot and returns, and a dropped connection counts as
+    started (power_started). SirisAI then checks the boot id until the
+    server is back (app/servers/power.py)."""
     if action not in POWER_ACTIONS:
         raise ValueError(f"Unknown power action '{action}': use reboot, shutdown or cancel.")
     sudo = sudo_prefix(host)
@@ -290,8 +304,14 @@ def power_command(host: SshHost, action: str, delay_minutes: int = 0) -> str:
     if action == "cancel":
         run = f"{sudo}shutdown -c && echo cancelled"
     elif delay_minutes > 0:
-        run = f"{sudo}shutdown {flag} +{int(delay_minutes)} 'SirisAI: {action} requested' && echo scheduled"
+        run = f"{BOOT_ID_COMMAND}; {sudo}shutdown {flag} +{int(delay_minutes)} 'SirisAI: {action} requested' && echo scheduled"
     else:
-        run = f"nohup sh -c 'sleep 2; {sudo}systemctl {verb}' >/dev/null 2>&1 & echo started"
+        run = f"{BOOT_ID_COMMAND}; {sudo}systemctl {verb} </dev/null && echo started"
     allowed = f"systemctl {verb}" if action != "cancel" and delay_minutes <= 0 else "shutdown"
     return sudo_check(host, allowed) + run
+
+
+def power_started(error: str) -> bool:
+    """True when ssh failed only because the server went down mid-command."""
+    text = error.lower()
+    return any(hint in text for hint in DROPPED_HINTS) or "didn't finish within" in text

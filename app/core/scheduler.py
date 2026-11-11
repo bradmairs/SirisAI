@@ -229,6 +229,19 @@ def run_server_watch(siris: "SirisAI") -> dict | None:
         return None
 
 
+def run_power_follow_up(siris: "SirisAI") -> list | None:
+    """Did each reboot or shutdown happen, and is the server back (app/servers/power.py)?"""
+    if siris.ssh_client is None:
+        return None
+    from app.servers import power
+
+    try:
+        return power.check(siris)
+    except Exception:
+        logger.exception("Power follow-up failed")
+        return None
+
+
 def run_device_watch(siris: "SirisAI") -> dict | None:
     """New devices on the network (app/homelab/devices.py)."""
     from app.homelab import devices
@@ -457,6 +470,7 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("tool_choice_eval", lambda s: run_tool_choice_eval(s), _settings_every("eval_interval_days", 86400), at_boot=False),
         Job("attention", lambda s: (run_attention_sync(s), report_update(s)), _settings_every("attention_sync_minutes", 60), at_boot=False),
         Job("servers", lambda s: run_server_watch(s), _settings_every("server_watch_minutes", 60)),
+        Job("power_follow_up", lambda s: run_power_follow_up(s), lambda _s: 30),
         Job("devices", lambda s: run_device_watch(s), _settings_every("network_device_watch_minutes", 60)),
         Job("camera_digest", lambda s: run_camera_digest(s), every_tick),
         Job("health_checks", lambda s: run_health_checks(s), lambda _s: 300),
