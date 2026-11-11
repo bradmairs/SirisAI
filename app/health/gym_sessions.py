@@ -3,7 +3,7 @@
 weight did I bench on the 3rd".
 
 SirisOS holds every workout. SirisAI reads them with its service key
-(GET /api/v1/gym/sessions?month= and /sessions/{id}, SirisOS 8.5 or later);
+(GET /api/v1/gym/sessions?month= and /sessions/{id}, SirisOS 8.41 or later);
 when SirisOS can't be reached it falls back to the workouts SirisGym sent
 here for the heart-rate analysis (only those with set times). Each workout
 comes back with every exercise and set (weight × reps, warm-ups and drop
