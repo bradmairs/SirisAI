@@ -18,10 +18,12 @@ from app.plugins.base import Tool, ToolPermission
 class CronListJobsTool(Tool):
     name = "cron_list_jobs"
     description = (
-        "List cron jobs from every configured host's own crontab (SIRISAI_CRON_HOSTS), e.g. a "
-        "home Linux server or a Raspberry Pi. Each entry has host, schedule, command, line (the "
-        "exact text to pass to cron_set_job_enabled), and enabled (false if it's commented out). "
-        "A host that couldn't be reached shows up as {host, error} instead of being silently omitted."
+        "List cron jobs on every configured server (SIRISAI_CRON_HOSTS), e.g. a home Linux server or "
+        "a Raspberry Pi: per server its hostname, UTC offset and uptime, then each job with schedule, "
+        "description (the schedule in words), command, run_as, source ('crontab' for the account's own, "
+        "else the system file such as /etc/crontab or /etc/cron.d/x), enabled, next_run and last_run "
+        "(server time, from the cron log when readable), editable, and line (the exact text to pass to "
+        "cron_set_job_enabled, for editable jobs only). An unreachable server has reachable=false and error."
     )
     permission = ToolPermission.READ
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -30,7 +32,9 @@ class CronListJobsTool(Tool):
         self._client = client
 
     def run(self, **kwargs: Any) -> Any:
-        return self._client.list_jobs()
+        from app.cron.client import overview
+
+        return overview(self._client)
 
 
 class CronSetJobEnabledTool(Tool):

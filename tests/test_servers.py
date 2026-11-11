@@ -253,7 +253,7 @@ def test_the_feed_buttons_restart_install_reboot_and_wake(servers: Servers, monk
     servers.rule("brad@", ["##uptime"], HEALTH_BAD)
     servers.rule("brad@", ["##pm"], APT_UPDATES)
     servers.rule("brad@", ["systemctl restart nginx.service"], "restarted\n")
-    servers.rule("brad@", ["nohup"], "started\n")
+    servers.rule("brad@", ["systemctl reboot"], "started\n")
     watch.check_health(s)
     watch.check_updates(s)
     attention.act(s, servers.items("servers")["nginx.service has failed on nas"]["id"], "restart")
@@ -263,7 +263,7 @@ def test_the_feed_buttons_restart_install_reboot_and_wake(servers: Servers, monk
     assert any(c.endswith("sudo -n systemctl restart nginx.service && echo restarted") for c in sent)
     assert any(checks.APT_UPGRADE in c and "nohup" in c for c in sent)
     assert any("systemctl reboot" in c for c in sent)
-    audit = {e["tool_name"]: e for e in s.audit.list_recent(limit=20)}
+    audit = {e["tool_name"]: e for e in reversed(s.audit.list_recent(limit=20))}  # the newest of each
     assert audit["ssh_power"]["trigger"].startswith("attention feed: the user chose 'reboot'")
 
     wake.remember_mac(s, s.ssh_client.find("nas"), "aa:bb:cc:00:00:02")  # type: ignore[union-attr]
@@ -431,3 +431,97 @@ def test_a_wake_only_computer_is_up_when_it_answers_on_any_port(monkeypatch: pyt
     desktop = wake.wake_only_machines(s)[0]
     assert wake.wait_until_up(s, desktop, timeout=1, poll=0.01) is True
     assert "desktop is awake" in {i["title"] for i in s.attention.list()}
+
+
+# -- reboot follow-up (5.6) ----------------------------------------------------------------
+
+OLD_BOOT = "11111111-2222-3333-4444-555555555555"
+NEW_BOOT = "99999999-8888-7777-6666-555555555555"
+
+
+def _reboot(servers: Servers, power_out: str = "started\n", power_exit: int = 0, power_err: str = "") -> dict[str, Any]:
+    from app.servers import power
+
+    servers.siris.state.delete(power.STATE_KEY)
+    servers.rule("brad@", ["random/boot_id"], OLD_BOOT + "\n")
+    servers.rule("brad@", ["systemctl reboot"], power_out, exit=power_exit, err=power_err)
+    return servers.siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"}, confirmed=True)
+
+
+def test_a_reboot_is_followed_until_the_server_is_back(servers: Servers) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.servers import power
+
+    result = _reboot(servers)
+    assert result["summary"] == "Rebooting nas. I'll tell you when it's back."
+    start = datetime.now(UTC)
+    assert [p["boot_id"] for p in power.pending(servers.siris)] == [OLD_BOOT]
+    servers.rule("brad@", ["random/boot_id"], exit=255, err="ssh: connect to host 10.0.0.2: No route to host")
+    assert power.check(servers.siris, start + timedelta(seconds=30)) == []  # down: still waiting
+    servers.rule("brad@", ["random/boot_id"], NEW_BOOT + "\n")
+    done = power.check(servers.siris, start + timedelta(seconds=100))
+    assert [d["outcome"] for d in done] == ["back"] and power.pending(servers.siris) == []
+    assert "nas rebooted and is back (1m 40s)" in servers.items("servers-power")
+
+
+def test_a_dropped_connection_is_the_reboot_starting(servers: Servers) -> None:
+    result = _reboot(servers, power_out="", power_exit=255, power_err="Connection to 10.0.0.2 closed by remote host.")
+    assert result["results"] == [{"server": "nas", "status": "started", "self": False}]
+
+
+def test_a_reboot_that_never_happened_is_an_alert(servers: Servers) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.servers import power
+
+    _reboot(servers)
+    start = datetime.now(UTC)
+    assert power.check(servers.siris, start + timedelta(minutes=1)) == []
+    done = power.check(servers.siris, start + timedelta(minutes=4))
+    assert [d["outcome"] for d in done] == ["not rebooted"]
+    assert servers.items("servers-power")["nas didn't reboot"]["kind"] == "alert"
+
+
+def test_a_server_that_doesnt_come_back_is_an_alert(servers: Servers) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.servers import power
+
+    _reboot(servers)
+    servers.rule("brad@", ["random/boot_id"], exit=255, err="No route to host")
+    assert power.check(servers.siris, datetime.now(UTC) + timedelta(minutes=11))[0]["outcome"] == "not back"
+    assert "nas hasn't come back after rebooting" in servers.items("servers-power")
+
+
+def test_the_feed_reboot_button_fails_loudly_when_nothing_happened(servers: Servers) -> None:
+    servers.rule("brad@", ["##pm"], APT_UPDATES)
+    watch.check_updates(servers.siris)
+    servers.rule("brad@", ["systemctl reboot"], exit=NEEDS_SUDO_EXIT)
+    item = servers.items("server-updates")["nas needs a reboot"]
+    with pytest.raises(Exception, match="passwordless sudo"):
+        attention.act(servers.siris, item["id"], "reboot")
+
+
+def test_the_reboot_command_runs_in_a_real_shell(tmp_path: Path) -> None:
+    """The command as sent, against stand-in sudo and systemctl: the reboot is
+    asked for in the foreground and nothing is left running behind it."""
+    import subprocess
+
+    from app.ssh.client import power_command
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls"
+    for name, body in {
+        "sudo": 'echo "sudo $*" >> "$CALLS"; [ "$1" = -n ] && shift; [ "$1" = -l ] && { echo "(root) NOPASSWD: /usr/bin/systemctl reboot"; exit 0; }; [ "$1" = true ] && exit 1; "$@"',
+        "systemctl": 'echo "systemctl $*" >> "$CALLS"',
+    }.items():
+        path = bin_dir / name
+        path.write_text("#!/bin/sh\n" + body + "\n")
+        path.chmod(0o755)
+    command = power_command(SshHost("nas", "brad", "10.0.0.2"), "reboot")
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "CALLS": str(calls)}
+    out = subprocess.run(["sh", "-c", command], capture_output=True, text=True, env=env, timeout=10, stdin=subprocess.DEVNULL)
+    assert out.returncode == 0 and out.stdout.strip().splitlines()[-1] == "started"
+    assert "systemctl reboot" in calls.read_text().splitlines()[-1]

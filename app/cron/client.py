@@ -183,3 +183,122 @@ def _parse_crontab(host_label: str, content: str) -> list[dict[str, Any]]:
             }
         )
     return jobs
+
+
+# -- the overview (5.6): every job with when it runs, what runs it and when it last ran --
+
+OVERVIEW_COMMAND = (
+    "echo '##info'; hostname 2>/dev/null; date +%z; uptime -p 2>/dev/null; "
+    "echo '##user'; crontab -l 2>&1; "
+    "echo '##file /etc/crontab'; cat /etc/crontab 2>/dev/null; "
+    "for f in /etc/cron.d/*; do [ -f \"$f\" ] && { echo \"##file $f\"; cat \"$f\" 2>/dev/null; }; done; "
+    "echo '##log'; { journalctl -q --no-pager -o short-iso -t CRON --since '-3 days' 2>/dev/null "
+    "|| grep -h 'CRON\\[' /var/log/syslog /var/log/cron 2>/dev/null; } | grep 'CMD' | tail -n 600"
+)
+_SYSTEM_LINE_RE = re.compile(r"^(?P<schedule>@\w+|(?:\S+\s+){4}\S+)\s+(?P<user>[a-z_][\w.-]*)\s+(?P<command>.+)$")
+_LOG_RE = re.compile(r"^(?P<at>\S+)\s+\S+\s+\S*CRON\[\d+\]:\s+\((?P<user>[^)]+)\)\s+CMD\s+\((?P<command>.*)\)\s*$")
+
+
+def _sections(output: str) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    current = ""
+    for line in output.splitlines():
+        if line.startswith("##"):
+            current = line[2:].strip()
+            out.setdefault(current, [])
+        elif current:
+            out[current].append(line)
+    return out
+
+
+def _offset_minutes(text: str) -> int:
+    m = re.fullmatch(r"([+-])(\d{2})(\d{2})", text.strip())
+    if not m:
+        return 0
+    minutes = int(m.group(2)) * 60 + int(m.group(3))
+    return -minutes if m.group(1) == "-" else minutes
+
+
+def _last_runs(lines: list[str]) -> list[tuple[str, str, str]]:
+    runs = []
+    for line in lines:
+        m = _LOG_RE.match(line.strip())
+        if m:
+            runs.append((m.group("at"), m.group("user"), m.group("command").strip()))
+    return runs
+
+
+def _last_run(runs: list[tuple[str, str, str]], command: str, user: str | None) -> str | None:
+    want = command.strip()[:80]
+    hits = [at for at, who, cmd in runs if cmd[:80] == want and (user is None or who == user)]
+    return max(hits) if hits else None
+
+
+def overview_for(host: CronHost, output: str, now: Any) -> dict[str, Any]:
+    from app.cron.schedule import describe, next_run
+
+    parts = _sections(output)
+    info = parts.get("info", [])
+    offset = _offset_minutes(info[1]) if len(info) > 1 else 0
+    runs = _last_runs(parts.get("log", []))
+    jobs: list[dict[str, Any]] = []
+
+    def add(job: dict[str, Any], run_as: str | None) -> None:
+        upcoming = next_run(job["schedule"], now, offset) if job["enabled"] else None
+        jobs.append({
+            **job,
+            "description": describe(job["schedule"]),
+            "next_run": upcoming.isoformat() if upcoming else None,
+            "last_run": _last_run(runs, job["command"], run_as),
+        })
+
+    user_lines = parts.get("user", [])
+    if not any("no crontab for" in line.lower() for line in user_lines):
+        for job in _parse_crontab(host.label, "\n".join(user_lines)):
+            add({**job, "source": "crontab", "run_as": host.user, "editable": True}, host.user)
+    for key, lines in parts.items():
+        if not key.startswith("file "):
+            continue
+        source = key[5:]
+        for raw in lines:
+            stripped = raw.strip()
+            if not stripped or (stripped.startswith("#") and not _SYSTEM_LINE_RE.match(stripped.lstrip("#").strip())):
+                continue
+            enabled = not stripped.startswith("#")
+            candidate = stripped if enabled else stripped.lstrip("#").strip()
+            m = _SYSTEM_LINE_RE.match(candidate)
+            if not m or "=" in m.group("schedule"):
+                continue
+            # run-parts lines are the cron.daily/weekly folders: name them as such.
+            command = m.group("command")
+            add({"host": host.label, "schedule": m.group("schedule"), "command": command, "line": candidate, "enabled": enabled,
+                 "source": source, "run_as": m.group("user"), "editable": False}, m.group("user"))
+    return {
+        "host": host.label,
+        "hostname": info[0].strip() if info else None,
+        "utc_offset": info[1].strip() if len(info) > 1 else None,
+        "uptime": info[2].strip() if len(info) > 2 else None,
+        "reachable": True,
+        "log_available": bool(parts.get("log")),
+        "jobs": jobs,
+    }
+
+
+def overview(client: "CronHostsClient", now: Any = None) -> list[dict[str, Any]]:
+    """Each host: its name, time offset and uptime, then every job (its own
+    crontab, which can be switched on and off, and the system ones in
+    /etc/crontab and /etc/cron.d, read only) with the schedule in words, the
+    next run in the host's time and when it last ran (from the cron log,
+    the last three days, when the account can read it)."""
+    from datetime import UTC, datetime
+
+    now = now or datetime.now(UTC)
+    hosts = []
+    for host in client.hosts:
+        try:
+            output = client._run(host, OVERVIEW_COMMAND)
+        except CronHostError as exc:
+            hosts.append({"host": host.label, "reachable": False, "error": str(exc), "jobs": []})
+            continue
+        hosts.append(overview_for(host, output, now))
+    return hosts

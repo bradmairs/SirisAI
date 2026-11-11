@@ -212,12 +212,14 @@ def test_server_health_over_one_or_all(client: TestClient, tmp_path: Path) -> No
 # -- reboot and shut down -------------------------------------------------------------------
 
 
-def test_power_commands_use_sudo_only_for_non_root_and_detach_immediate_ones() -> None:
+def test_power_commands_use_sudo_only_for_non_root_and_note_the_boot_id() -> None:
     brad, root = SshHost("nas", "brad", "10.0.0.2"), SshHost("pi", "root", "10.0.0.3")
-    assert power_command(root, "reboot") == "nohup sh -c 'sleep 2; systemctl reboot' >/dev/null 2>&1 & echo started"
+    boot = "cat /proc/sys/kernel/random/boot_id 2>/dev/null; "
+    # 5.6: systemctl in the foreground (it only queues the reboot), not a
+    # background job that logind can kill with the SSH session.
+    assert power_command(root, "reboot") == boot + "systemctl reboot </dev/null && echo started"
     assert power_command(brad, "shutdown") == (
-        f"{passwordless('systemctl poweroff')} || exit {NEEDS_SUDO_EXIT}; "
-        "nohup sh -c 'sleep 2; sudo -n systemctl poweroff' >/dev/null 2>&1 & echo started"
+        f"{passwordless('systemctl poweroff')} || exit {NEEDS_SUDO_EXIT}; " + boot + "sudo -n systemctl poweroff </dev/null && echo started"
     )
     assert power_command(brad, "reboot", 15).endswith("sudo -n shutdown -r +15 'SirisAI: reboot requested' && echo scheduled")
     assert power_command(root, "cancel") == "shutdown -c && echo cancelled"
@@ -235,13 +237,13 @@ def test_power_reaches_one_several_or_all_with_its_own_server_last(tmp_path: Pat
     result = tool.run(action="reboot", servers="all")
     assert [r["server"] for r in result["results"]] == ["pi", "box", "nas"]  # nas is SirisAI's own: last
     assert result["results"][-1]["self"] is True and result["summary"] == "Rebooting pi, box, nas"
-    assert len(log.read_text().splitlines()) == 3
+    assert len(log.read_text().splitlines()) == 6  # the boot id, then the reboot, for each
     several = tool.run(action="shutdown", servers="pi, BOX, pi", delay_minutes=999)
     assert [r["server"] for r in several["results"]] == ["pi", "box"] and several["delay_minutes"] == 240
     assert several["summary"] == "Shutting down pi, box in 240 minutes"
     with pytest.raises(ValueError, match="Unknown server 'prod'"):
         tool.run(action="reboot", servers="pi,prod")  # nothing runs on a bad name
-    assert len(log.read_text().splitlines()) == 5
+    assert len(log.read_text().splitlines()) == 8
     with pytest.raises(ValueError):
         tool.run(action="reboot", servers=" ")
 
@@ -259,7 +261,7 @@ def test_power_failures_are_per_server_and_say_why(tmp_path: Path) -> None:
     assert "brad needs passwordless sudo" in by["nas"]["detail"]
     assert "Couldn't connect to pi" in by["pi"]["detail"]
     assert by["box"] == {"server": "box", "status": "failed", "detail": "Failed to talk to init"}
-    assert result["summary"] == "Nothing was done."
+    assert result["summary"].startswith("Nothing was done. nas: brad needs passwordless sudo")
 
 
 def test_power_can_be_turned_off(tmp_path: Path) -> None:
@@ -274,7 +276,7 @@ def test_power_always_asks_never_by_voice_and_not_on_its_own(client: TestClient,
         siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"})
     with pytest.raises(ConfirmationRequired):
         siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"}, trigger="routine: 'nightly' (at 03:00)")
-    assert siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"}, confirmed=True)["summary"] == "Rebooting nas"
+    assert siris.run_tool("ssh_power", {"action": "reboot", "servers": "nas"}, confirmed=True)["summary"] == "Rebooting nas. I'll tell you when it's back."
     assert not voice_confirmable("ssh_power", {"action": "reboot", "servers": "nas"}, set())
     assert describe_call("ssh_power", {"action": "shutdown", "servers": "all", "delay_minutes": 10}) == "shutdown all in 10 minutes"
     assert describe_call("ssh_power", {"action": "cancel", "servers": "nas"}) == "cancel the pending shutdown on nas"

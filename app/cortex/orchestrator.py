@@ -156,7 +156,7 @@ class ToolCallOutcome:
 
 
 # Tools whose results are personal health data (SIRISAI_HEALTH_PRIVATE).
-PRIVATE_TOOLS = frozenset({"health_summary", "health_overview", "health_insights", "health_goals", "health_history", "gym_progress", "health_explain"})
+PRIVATE_TOOLS = frozenset({"health_summary", "health_overview", "health_insights", "health_goals", "health_history", "gym_progress", "gym_sessions", "health_explain"})
 
 
 def _local_client(siris: "SirisAI") -> Any:

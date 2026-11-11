@@ -50,6 +50,7 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "ollama_keep_alive": ("Speed", "Keep the model loaded for", "e.g. 30m; -1 always; blank: Ollama's 5 minutes", True),
     "ollama_warm_hours": ("Speed", "Keep the model warm (hours)", "start-end, local, e.g. 6-23; blank: never", False),
     "ssh_hosts": ("Servers", "Servers", "name=user@host, comma-separated (blank: from ~/.ssh/config)", True),
+    "cron_hosts": ("Servers", "Cron servers", "user@host[:port], comma-separated; add them from the Cron tab", False),
     "ssh_allow_changes": ("Servers", "Allow changes over SSH", "Commands that change things, always asking first", False),
     "ssh_allow_power": ("Servers", "Allow reboot and shutdown", "Always asking first", True),
     "ssh_safe_commands": ("Servers", "Extra look-only commands", "Comma-separated command names that never ask", False),
