@@ -588,7 +588,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     try:
         while True:
             # Second brain growth jobs: each decides for itself whether it's due today.
-            # They run beside the other jobs -- the OneNote import alone can take the
+            # They run beside the other jobs -- a brain job can take the
             # better part of an hour. Never two at once, so their order (import before
             # upkeep) holds.
             if siris.second_brain is not None and (brain_task is None or brain_task.done()):

@@ -237,7 +237,7 @@ class Settings(BaseSettings):
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
-        "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "onenote_hour_local", "gmail_hour_local",
+        "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "gmail_hour_local",
         "bills_hour_local", "things_email_hour_local", "travel_hour_local", "reliability_hour_local",
         mode="before",
     )
@@ -786,30 +786,6 @@ class Settings(BaseSettings):
     brain_upkeep_hour_local: int | None = 2
     brain_github_token: str = ""
     brain_github_owner: str = "bradmairs"
-    # OneNote import (app/onenote/): new and changed pages from Brad's OneNote
-    # notebooks into Siris' inbox each night, handwriting transcribed by the
-    # vision model below. Needs an Azure app registration (README, milestone
-    # 130) for onenote_client_id and a one-off sign-in:
-    # `docker exec -it sirisai python -m app.onenote.login`.
-    # onenote_notebooks: comma-separated notebook names; empty = all of them.
-    # onenote_max_pages: pages a night, so a first import spreads over nights.
-    onenote_client_id: str = ""
-    # 5.63: the nightly import is off unless this is on. Brad removed OneNote from Siris (7 Nov), but with the
-    # client id still set it kept importing every night.
-    onenote_import: bool = False
-    onenote_token_path: str = "data/onenote/token.json"
-    onenote_notebooks: str = ""
-    # Notebooks never imported, comma-separated, case-insensitive, `*` wildcards
-    # (e.g. "ENC*,Project 2019"). Their sections aren't even listed.
-    onenote_skip_notebooks: str = ""
-    # Skip pages with pictures or PDF printouts (with or without handwriting on
-    # them); handwriting on a blank page is still imported.
-    onenote_skip_image_pages: bool = False
-    # Keep handwriting renders and pictures in the vault (03-Resources/Attachments/OneNote).
-    # False = transcribe from them in memory and link to the page in OneNote instead.
-    onenote_save_images: bool = True
-    onenote_hour_local: int | None = 1
-    onenote_max_pages: int = 30
     # Email into Siris (app/gmail/): emails Brad gives the Gmail label below
     # come into Siris' inbox each night, read-only over IMAP. Needs Google
     # 2-Step Verification and an app password (myaccount.google.com/apppasswords);

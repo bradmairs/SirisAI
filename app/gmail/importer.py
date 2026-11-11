@@ -25,7 +25,7 @@ from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from app.onenote.convert import html_to_markdown
+from app.gmail.markdown import html_to_markdown
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI

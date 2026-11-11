@@ -5759,7 +5759,10 @@ provider for the same capability actually exists to design against.
     the Siris vault engine 1.3 (`brain.py done`). SirisOS 2.7 puts a Done
     button on each item in Siris' "Coming up". Verified in
     `tests/test_second_brain.py`.
-136. **Done** -- OneNote into Siris (`app/onenote/`). Every night at
+136. **Removed in 5.8** -- Brad stopped importing notes into Siris from OneNote or
+    scans; the import, its handwriting transcription and SirisOS's handwriting
+    review are gone (the notes already imported stay in Siris). What it was:
+    OneNote into Siris (`app/onenote/`). Every night at
     `SIRISAI_ONENOTE_HOUR_LOCAL` (1:00, before the 2:00 upkeep) SirisAI
     reads new and changed pages from Brad's OneNote notebooks through
     Microsoft Graph, read-only. OneNote notebooks in OneDrive aren't files
@@ -5813,7 +5816,6 @@ provider for the same capability actually exists to design against.
        with the OneDrive account (brad6491@gmail.com). The token is kept in
        `data/onenote/token.json`, readable by the owner only.
 
-    Verified in `tests/test_onenote.py`.
 
 137. **Done** -- One look across SirisAI and SirisOS. The web UI, HUD and mind
     map now use SirisOS's Liquid Glass design system (its ADR 106) instead
