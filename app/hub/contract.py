@@ -755,3 +755,18 @@ class TrackingChange(_Model):
     name: str = Field(min_length=1, max_length=120)
     tracked: bool
     why: str = Field("", max_length=200)
+
+
+# -- away mode (5.63) ---------------------------------------------------------------
+
+
+class AwayMode(_Model):
+    """What happens when everyone's out (the presence check, after its grace period): `auto` runs the away
+    protocol, `ask` offers it, `off` does nothing (when Apple Home's own automation already does it)."""
+    mode: Literal["off", "ask", "auto"]
+    protocol: str = "away"
+    away_after_minutes: float = 10.0
+
+
+class AwayModeChange(_Model):
+    mode: Literal["off", "ask", "auto"]

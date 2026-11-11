@@ -74,7 +74,7 @@ def test_all_good_when_nothing_is_open(client: TestClient) -> None:
 
 
 def test_presence_going_empty_triggers_the_heads_up(client: TestClient) -> None:
-    siris, ha, pushes = _setup(client, presence_device_names="brads-iphone")
+    siris, ha, pushes = _setup(client, presence_device_names="brads-iphone", presence_away_after_minutes=0)  # no grace: this is about the heads-up
     clients = [{"name": "brads-iphone"}]
     siris.tools.register(_Static("unifi_list_clients", clients))
     skill = PresenceSkill()
