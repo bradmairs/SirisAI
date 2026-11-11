@@ -31,6 +31,7 @@ _PRESENCE_ENTITY_NAME = "presence"
 _PRESENCE_EVENT_DESCRIPTION = "presence_changed"
 _DEVICES_KEY = "presence:devices"
 _SEEN_KEY = "presence:seen"
+_ABSENT_KEY = "presence:absent_since"
 # 4.4: Dom's iPhone counts as home too, so the away protocol is only offered when both phones have left.
 DEFAULT_ADDED = ["Dom's iPhone"]
 
@@ -81,8 +82,29 @@ class PresenceSkill(Skill):
         siris.state.set(_SEEN_KEY, seen)
         # Home while any counted phone is connected: away only once every one of them (Brad's and Dom's) has gone.
         currently_home = any(seen.values())
+        # 5.63: and only once they've been gone SIRISAI_PRESENCE_AWAY_AFTER_MINUTES without a break; a phone asleep
+        # off the Wi-Fi for a check or two isn't anyone leaving.
+        from datetime import UTC, datetime
+
+        now = kwargs.get("now") or datetime.now(UTC)
+        grace = float(getattr(siris.settings, "presence_away_after_minutes", 0) or 0)
+        absent_since = siris.state.get(_ABSENT_KEY)
+        waiting = None
+        if currently_home:
+            if absent_since:
+                siris.state.set(_ABSENT_KEY, None)
+        elif grace > 0:
+            if not absent_since:
+                absent_since = now.isoformat()
+                siris.state.set(_ABSENT_KEY, absent_since)
+            gone_for = (now - datetime.fromisoformat(absent_since)).total_seconds() / 60
+            if gone_for < grace:
+                currently_home = True  # not yet: still counts as home
+                waiting = round(grace - gone_for, 1)
 
         result: dict[str, Any] = {"currently_home": currently_home, "changed": False, "scene_activated": None}
+        if waiting is not None:
+            result["away_in_minutes"] = waiting
 
         previous = siris.events.recent_events(entity_name=_PRESENCE_ENTITY_NAME, limit=1)
         previously_home = previous[0]["data"]["home"] if previous and previous[0].get("data") else None

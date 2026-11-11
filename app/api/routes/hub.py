@@ -32,6 +32,8 @@ screen, daily brief, search, inbox and controls on.
     POST /siris/hub/v1/scenes/{id}/run          a Siris or Home Assistant scene
     GET  /siris/hub/v1/email/about?q=           latest emails with these words in the subject (project pages)
     GET  /siris/hub/v1/upkeep                   backups and whether an update is waiting
+    GET  /siris/hub/v1/away                     what happens when everyone's out: off, ask or auto (5.63)
+    PUT  /siris/hub/v1/away                     {mode}
     GET  /siris/hub/v1/tracking                 what SirisAI watches, and what you've stopped it tracking (5.51)
     PUT  /siris/hub/v1/tracking                 {kind, name, tracked, why?}
     GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first (up to 400 days)
@@ -208,6 +210,28 @@ async def attention_act(item_id: int, body: c.AttentionActRequest, request: Requ
 @router.post("/attention/{item_id}/dismiss", response_model=c.AttentionActResult)
 async def attention_dismiss(item_id: int, request: Request, siris: SirisAI = Depends(get_siris)) -> c.AttentionActResult:
     return await attention_act(item_id, c.AttentionActRequest(action="dismiss"), request, siris)
+
+
+# -- away mode (5.63) ------------------------------------------------------------------
+
+
+def _away(siris: SirisAI) -> c.AwayMode:
+    st = siris.settings
+    return c.AwayMode(mode=st.away_mode, protocol=st.away_protocol, away_after_minutes=float(st.presence_away_after_minutes))
+
+
+@router.get("/away", response_model=c.AwayMode)
+def away_mode(siris: SirisAI = Depends(get_siris)) -> c.AwayMode:
+    return _away(siris)
+
+
+@router.put("/away", response_model=c.AwayMode)
+def away_mode_change(body: c.AwayModeChange, siris: SirisAI = Depends(get_siris)) -> c.AwayMode:
+    """Off, ask or auto: kept like a change on the Settings page (it can be undone there too)."""
+    from app.core import settings_overrides
+
+    settings_overrides.update(siris, {"away_mode": body.mode})
+    return _away(siris)
 
 
 # -- tracking (5.51) ------------------------------------------------------------------

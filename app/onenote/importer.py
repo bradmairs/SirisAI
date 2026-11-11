@@ -256,8 +256,8 @@ def _follow(siris: "SirisAI", title: str) -> str | None:
 
 def run_import(siris: "SirisAI", now: datetime, client: OneNoteClient | None = None) -> dict[str, Any]:
     s = siris.settings
-    if not s.onenote_client_id:
-        return {"skipped": "OneNote isn't set up"}
+    if not s.onenote_import or not s.onenote_client_id:  # 5.63: off unless SIRISAI_ONENOTE_IMPORT is on
+        return {"skipped": "OneNote import is off (SIRISAI_ONENOTE_IMPORT)" if s.onenote_client_id else "OneNote isn't set up"}
     store = TokenStore(s.onenote_token_path)
     if client is None:
         if store.load() is None:
