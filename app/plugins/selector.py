@@ -168,7 +168,7 @@ def _spec_name(spec: dict[str, Any]) -> str:
 
 
 class ToolSelector:
-    def __init__(self, max_tools: int = 32, embed: Embedder | None = None) -> None:
+    def __init__(self, max_tools: int = 20, embed: Embedder | None = None) -> None:
         self.max_tools = max_tools
         self.embed = embed
         self._doc_cache: dict[str, set[str]] = {}

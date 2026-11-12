@@ -5,6 +5,15 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.04 — 2026-11-13
+
+- Faster tool turns, a nightly self-test, approvals from anywhere, and ready for a second AI machine
+- 20 tools a turn instead of 32 (SIRISAI_TOOL_SELECTION_MAX): measured on the server, llama3.1:8b picked the right tool 88.7% of the time at 20 against 83.1% at 32, and 35% faster. gemma4 (thinking off) scored 78.9% at 20, so chat stays on llama3.1.
+- The tool-choice eval cases are now in the Docker image (the weekly eval was failing without them).
+- Nightly self-test (app/upkeep/self_test.py, SIRISAI_SELF_TEST_HOUR_LOCAL=4): asks about the weather, a light and the day, checks against the weather service, Home Assistant and the clock; wrong answers go to the attention feed. Its turns may only use READ tools.
+- Approval pushes get an "Open in SirisOS" button (SIRISAI_SIRISOS_PUBLIC_URL), which works away from home; Approve/Decline still post to SIRISAI_PUBLIC_BASE_URL.
+- SIRISAI_EMBEDDING_BASE_URL, and a "Two AI machines" guide in deploy/README.md.
+
 ## 5.94 — 2026-11-12
 
 - Return windows on things you bought: read from the receipt, with a last-chance alert

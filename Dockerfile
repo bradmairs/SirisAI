@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
+# The tool-choice eval cases, run weekly against the real model (app/evals/).
+COPY evals ./evals
 
 # Speaker recognition weights (app/voice/speaker.py), converted to numpy at
 # build time -- under /app/models, not /app/data, which is a mounted volume.

@@ -592,7 +592,7 @@ class SirisAI:
         self._embedding_client: OllamaEmbeddingClient | None = None
         if self.settings.embedding_provider == "ollama":
             self._embedding_client = OllamaEmbeddingClient(
-                base_url=self.settings.ollama_base_url,
+                base_url=self.settings.embedding_base_url or self.settings.ollama_base_url,
                 model=self.settings.embedding_model,
             )
             self.memory = MemoryStore(
@@ -656,7 +656,7 @@ class SirisAI:
                 engine_env={
                     "BRAIN_TZ": self.settings.timezone,
                     **(
-                        {"BRAIN_EMBED_URL": self.settings.ollama_base_url, "BRAIN_EMBED_MODEL": self.settings.embedding_model}
+                        {"BRAIN_EMBED_URL": self.settings.embedding_base_url or self.settings.ollama_base_url, "BRAIN_EMBED_MODEL": self.settings.embedding_model}
                         if self.settings.embedding_provider == "ollama"
                         else {}
                     ),
@@ -1443,6 +1443,10 @@ class SirisAI:
             self.audit.record(name, arguments, error=f"Not for a {role}", duration_ms=(time.monotonic() - start) * 1000,
                               conversation_id=conversation_id, trigger=trigger, evidence=evidence)
             raise PermissionError(f"That needs an adult's voice: SirisAI didn't recognise you as one ({role}).")
+        if role == "self_test" and tool.permission is not ToolPermission.READ:
+            self.audit.record(name, arguments, error="The nightly self-test only reads", duration_ms=(time.monotonic() - start) * 1000,
+                              conversation_id=conversation_id, trigger=trigger, evidence=evidence)
+            raise PermissionError("The nightly self-test only asks questions; it doesn't change anything.")
         policy = _describe_policy(tool, confirmed, call_needs_confirmation)
         if not confirmed and not call_needs_confirmation and tool.permission is ToolPermission.SAFE_ACTION:
             copied = taint.copied_from_context(name, arguments)
