@@ -8,6 +8,7 @@ it is still being written.
 """
 
 import asyncio
+import base64
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -22,6 +23,7 @@ from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient
 from app.voice.pronunciation import for_speech
+from app.voice.sentences import strip_wake
 from app.voice.turn import VoiceTurn
 from app.core.user_context import get_current_user_id, resolve_user_id, role_for, set_current_user_id, set_turn_role
 
@@ -78,6 +80,7 @@ async def converse(
     conversation_id: str | None = Form(None),
     room: str | None = Form(None),
     synthesize: bool = Form(True),
+    wake: bool = Form(False),
     x_siris_user: str | None = Header(default=None),
     siris: SirisAI = Depends(get_siris),
 ) -> StreamingResponse:
@@ -113,6 +116,25 @@ async def converse(
 
     async def events() -> AsyncIterator[dict[str, Any]]:
         transcript = typed
+        heard: str | None = None
+        if wake and audio is not None:
+            # Listening for "Hey Siris" (5.8): transcribe first, and drop anything not addressed to SirisAI.
+            try:
+                heard = (await siris.stt.transcribe(audio, filename=filename, content_type=content_type)).strip()
+            except Exception:
+                logger.exception("STT transcribe() failed while listening for the wake word")
+                yield {"type": "ignored"}
+                return
+            request = strip_wake(heard)
+            if request is None:
+                yield {"type": "ignored"}
+                return
+            if not request:
+                yield {"type": "transcript", "text": heard}
+                yield await _yes_event(siris, synthesize)
+                yield {"type": "final", "conversation_id": conversation_id, "response": "Yes?", "expects_reply": True}
+                return
+            heard = request
         if audio is not None and not (x_siris_user and x_siris_user.strip()):
             match = await asyncio.to_thread(siris.identify_speaker, audio)
             if match is not None and match["user_id"]:
@@ -124,7 +146,9 @@ async def converse(
                 # A voice nobody enrolled (5.0): a guest for this turn.
                 set_turn_role("guest")
                 yield {"type": "speaker", "user_id": None, "score": match["score"], "role": "guest"}
-        if audio is not None:
+        if heard is not None:
+            transcript = heard
+        elif audio is not None:
             try:
                 transcript = (await siris.stt.transcribe(audio, filename=filename, content_type=content_type)).strip()
             except Exception:
@@ -145,6 +169,17 @@ async def converse(
             yield json.dumps(event) + "\n"
 
     return StreamingResponse(ndjson(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache"})
+
+
+async def _yes_event(siris: SirisAI, synthesize: bool) -> dict[str, Any]:
+    """A short "Yes?" when only the wake phrase was said; the reply expects an answer, so the HUD listens."""
+    audio = None
+    if synthesize and siris.tts is not None:
+        try:
+            audio = base64.b64encode(await siris.tts.synthesize("Yes?")).decode("ascii")
+        except Exception:  # noqa: BLE001
+            logger.warning("TTS failed for the wake reply")
+    return {"type": "sentence", "text": "Yes?", "audio": audio}
 
 
 class VoiceprintInfo(BaseModel):

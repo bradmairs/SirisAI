@@ -120,3 +120,20 @@ def expects_answer(response: str) -> bool:
     if sentences[-1].endswith("?"):
         return True
     return len(sentences) >= 2 and sentences[-2].endswith("?") and bool(_SIGN_OFF.search(sentences[-1]))
+
+
+# "Hey Siris" (5.8): how speech-to-text tends to write it. Plain "Siri" counts only after "hey",
+# so talking to an iPhone in the room rarely wakes the HUD.
+_WAKE = re.compile(
+    r"^\W*(?:(?:hey|hi|ok|okay)\W+)?(?:siris|siri's|cyrus|sirius)\b\W*|^\W*(?:hey|hi|ok|okay)\W+siri\b\W*",
+    re.IGNORECASE,
+)
+
+
+def strip_wake(transcript: str) -> str | None:
+    """What was said after the wake phrase ("" for the phrase alone), or None if it didn't start with one."""
+    match = _WAKE.match(transcript or "")
+    if not match:
+        return None
+    rest = transcript[match.end():].strip()
+    return rest[:1].upper() + rest[1:] if rest else ""
