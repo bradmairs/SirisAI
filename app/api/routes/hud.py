@@ -63,8 +63,24 @@ def _summary(siris: SirisAI) -> dict[str, Any]:
 
 
 @router.get("/hud/summary")
-async def hud_summary(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
-    return await asyncio.to_thread(_summary, siris)
+async def hud_summary(speaker: bool = False, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """speaker=1: this is a HUD that can play sound (it's been tapped), so it can speak
+    notifications at home (app/notify/routing.py); its pending ones come back too."""
+    summary = await asyncio.to_thread(_summary, siris)
+    if speaker:
+        from app.notify.routing import note_hud_seen
+
+        note_hud_seen(siris)
+        router_ = getattr(siris, "_notify_client", None)
+        summary["announcements"] = router_.pending() if hasattr(router_, "pending") else []
+    return summary
+
+
+@router.post("/hud/announcements/{announcement_id}/heard")
+def hud_announcement_heard(announcement_id: int, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """The HUD finished saying it, so it isn't pushed to the phone as well."""
+    router_ = getattr(siris, "_notify_client", None)
+    return {"heard": bool(hasattr(router_, "heard") and router_.heard(announcement_id))}
 
 
 @router.get("/autonomy/timeline")

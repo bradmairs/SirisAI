@@ -170,8 +170,10 @@
 
   async function refresh() {
     try {
-      const s = await getJSON("/siris/hud/summary");
+      // A tapped HUD can play sound, so it says so and gets notifications to speak (app/notify/routing.py).
+      const s = await getJSON("/siris/hud/summary" + (window.sirisHudSpeaker ? "?speaker=1" : ""));
       errorBox.textContent = "";
+      if (s.announcements && window.sirisHudAnnounce) window.sirisHudAnnounce(s.announcements);
       if (s.system) {
         const disk = Object.values(s.system.disk || {})[0];
         $("rings").innerHTML = ring("CPU", s.system.cpu_percent) + ring("Memory", s.system.memory.percent_used) + (disk ? ring("Disk", disk.percent_used) : "");
@@ -265,6 +267,7 @@
   function unlockAudio() {
     if (audioUnlocked) return;
     audioUnlocked = true;
+    window.sirisHudSpeaker = true;
     playbackAudio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
     playbackAudio.play().then(() => playbackAudio.pause()).catch(() => {});
   }
@@ -393,6 +396,29 @@
     playbackAudio.src = url;
     playbackAudio.play().catch(next);
   }
+
+  // Notifications to say out loud while you're home (5.8). Each is fetched as speech, played
+  // through the same queue as replies, then confirmed so it isn't pushed to the phone as well.
+  const announced = new Set();
+  window.sirisHudAnnounce = async (items) => {
+    for (const a of items) {
+      if (announced.has(a.id) || recording) continue;
+      announced.add(a.id);
+      try {
+        const text = a.title && !a.title.startsWith("SirisAI") ? `${a.title}. ${a.message}` : a.message;
+        const response = await fetch("/siris/voice/speak", {
+          method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+        });
+        if (!response.ok) continue;
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        pendingClips.push(bytes);
+        if (!speaking) playPending();
+        await speechFinished();
+        await fetch(`/siris/hud/announcements/${a.id}/heard`, { method: "POST", headers: authHeaders() });
+        $("reply").textContent = a.message;
+      } catch (err) { /* not confirmed: SirisAI pushes it to the phone instead */ }
+    }
+  };
 
   function speechFinished() {
     return speaking ? new Promise((resolve) => idleWaiters.push(resolve)) : Promise.resolve();

@@ -49,8 +49,8 @@ def test_a_shortened_push_opens_sirisos_when_tapped() -> None:
 
 def test_a_push_that_fails_lands_in_the_feed_and_clears_once_one_arrives() -> None:
     status = {"code": 500}
-    siris = SirisAI(settings=Settings(ntfy_topic="t"))
-    siris._notify_client._client = httpx.Client(  # type: ignore[union-attr]
+    siris = SirisAI(settings=Settings(ntfy_topic="t", quiet_hours="", notify_speak_at_home=False))
+    siris._notify_client.inner._client = httpx.Client(  # type: ignore[union-attr]
         base_url="https://ntfy.example", transport=httpx.MockTransport(lambda r: httpx.Response(status["code"])))
     with pytest.raises(httpx.HTTPStatusError):
         siris.run_tool("notify", {"title": "Bins", "message": "Put the bins out"})

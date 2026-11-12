@@ -307,6 +307,11 @@ class Settings(BaseSettings):
     # still runs the health check but never sends anything.
     ntfy_base_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
+    # Where pushes go (app/notify/routing.py). Quiet hours (local, start-end, 24h): anything
+    # below high priority is held for the morning briefing instead. "" = never quiet.
+    quiet_hours: str = "22-7"
+    # At home with the HUD open, say it on the HUD instead of buzzing the phone.
+    notify_speak_at_home: bool = True
 
     # Actionable push notifications (milestone 43, app/routines/runner.py).
     # Needed only to construct an ntfy action button's target URL -- the

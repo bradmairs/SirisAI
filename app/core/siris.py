@@ -901,10 +901,12 @@ class SirisAI:
             self.tools.register(EmailSendReplyTool(email_client))
 
         if self.settings.ntfy_topic:
-            self._notify_client = NotifyClient(
+            from app.notify.routing import RoutedNotifyClient
+
+            self._notify_client = RoutedNotifyClient(NotifyClient(
                 base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic,
                 click_url=self.settings.sirisos_public_url,
-            )
+            ), self)
             self.tools.register(NotifyTool(self._notify_client, siris=self))
 
         if self.settings.hermes_base_url:
