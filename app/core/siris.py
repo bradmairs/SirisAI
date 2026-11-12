@@ -45,7 +45,7 @@ from app.learning import feedback
 from app.learning.outcomes import OutcomeStore
 from app.llm.base import LLMClient
 from app.llm.embeddings import OllamaEmbeddingClient
-from app.llm.factory import build_llm_client
+from app.llm.factory import build_llm_client, think_setting
 from app.llm.metering import MeteredLLMClient
 from app.llm.router import ModelRouter
 from app.memory.entities import EntityMemoryStore
@@ -557,6 +557,8 @@ class SirisAI:
                     self.settings.ollama_base_url,
                     self.settings.ollama_model,
                     self.settings.ollama_keep_alive,
+                    think=think_setting(self.settings.ollama_think),
+                    fallback_base_urls=self.settings.ollama_fallback_url_list(),
                 ),
                 self.metrics,
             )
@@ -569,6 +571,9 @@ class SirisAI:
                         self.settings.fast_llm_ollama_base_url,
                         self.settings.fast_llm_ollama_model,
                         self.settings.ollama_keep_alive,
+                        think=think_setting(self.settings.fast_llm_think),
+                        fallback_base_urls=[u for u in [self.settings.ollama_base_url, *self.settings.ollama_fallback_url_list()]
+                                            if u != self.settings.fast_llm_ollama_base_url],
                     ),
                     self.metrics,
                 )
@@ -896,10 +901,13 @@ class SirisAI:
             self.tools.register(EmailSendReplyTool(email_client))
 
         if self.settings.ntfy_topic:
-            self._notify_client = NotifyClient(
-                base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic
-            )
-            self.tools.register(NotifyTool(self._notify_client))
+            from app.notify.routing import RoutedNotifyClient
+
+            self._notify_client = RoutedNotifyClient(NotifyClient(
+                base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic,
+                click_url=self.settings.sirisos_public_url,
+            ), self)
+            self.tools.register(NotifyTool(self._notify_client, siris=self))
 
         if self.settings.hermes_base_url:
             self._hermes_client = HermesClient(

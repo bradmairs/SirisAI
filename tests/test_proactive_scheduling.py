@@ -259,7 +259,7 @@ def test_run_skips_a_job_whose_interval_is_zero(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_slow_second_brain_jobs_do_not_hold_up_the_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The OneNote import can take the better part of an hour; reminders and
+    """A brain job can take the better part of an hour; reminders and
     checks keep running meanwhile, and the brain jobs never overlap."""
     import asyncio
 

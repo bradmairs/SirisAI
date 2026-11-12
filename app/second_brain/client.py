@@ -250,18 +250,6 @@ class SecondBrainClient:
         return self._write(["remove-line", "--output", "json", "--", note, heading, starts],
                            message=lambda r: f"siris: updated {r.get('title', note)}")
 
-    def handwriting_queue(self, limit: int = 20) -> list[dict]:
-        """Handwritten pages Brad hasn't checked, the likeliest misreadings first: {title, path, source,
-        score, illegible, odd_words, text}."""
-        self._maybe_pull()
-        return self._engine_call(["handwriting", "--limit", str(limit), "--output", "json"])
-
-    def handwriting_check(self, title: str, text: str | None = None) -> dict:
-        """Brad checked a handwritten page: right as it is, or corrected (`text` replaces the transcription)."""
-        args = ["handwriting-check", "--output", "json"] + (["--text", "-"] if text else []) + ["--", title]
-        return self._write(args, stdin=text if text else None,
-                           message=lambda r: f"siris: Brad {r.get('action', 'checked')} the handwriting in {r.get('title', title)}")
-
     def set_block(self, note: str, name: str, text: str) -> dict:
         """Write Siris' own block in a note, between its `<!-- siris:NAME -->` markers (made under
         the title if missing), replacing what was there. `action` is set or unchanged."""

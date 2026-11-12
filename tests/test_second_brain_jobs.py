@@ -890,13 +890,13 @@ def test_brad_can_say_a_note_is_not_evidence() -> None:
     assert siris.state.get(jobs.CPENG_REJECTED_KEY) == ["Civil 3D Surfaces"]
 
 
-def test_the_weekly_check_points_at_handwriting() -> None:
+def test_the_weekly_check_lists_each_note_with_its_date() -> None:
     siris = _siris(brain_review_notes=2)
     brain = siris.second_brain = FakeBrain()
     brain.queue = [{"title": "Site Notes", "as_of": "2026-10-20", "excerpt": "Riprap", "handwriting": True}]
     siris._notify_client = FakeNotify()
     jobs.ask_to_review_notes(siris)
-    assert "Site Notes (as of 2026-10-20) [handwriting: compare the transcription with the page's images]" in siris._notify_client.sent[0][1]
+    assert "1. Site Notes (as of 2026-10-20): Riprap" in siris._notify_client.sent[0][1]
 
 
 # ---------- topic summaries, CPEng drafts ----------

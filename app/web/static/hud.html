@@ -52,6 +52,7 @@
   @keyframes spin { to { filter: hue-rotate(360deg); } }
   #wave { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   #orb-hint { text-align: center; color: var(--muted); font-size: 0.85rem; margin-top: 0.4rem; }
+  #wake-toggle { display: block; margin: 0.6rem auto 0; cursor: pointer; }
   #transcript { min-height: 1.4em; text-align: center; color: var(--accent-2); margin-top: 0.8rem; font-size: 1rem; }
   #reply { text-align: center; font-size: 1.05rem; line-height: 1.45; max-width: 36rem; margin-top: 0.4rem; }
   .cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
@@ -110,6 +111,7 @@
       <button id="orb" aria-label="Talk to SirisAI"></button>
     </div>
     <div id="orb-hint">Tap to talk</div>
+    <button id="wake-toggle" class="chip" type="button" aria-pressed="false">“Hey Siris”: off</button>
     <div id="transcript"></div>
     <div id="reply"></div>
   </section>
@@ -170,8 +172,10 @@
 
   async function refresh() {
     try {
-      const s = await getJSON("/siris/hud/summary");
+      // A tapped HUD can play sound, so it says so and gets notifications to speak (app/notify/routing.py).
+      const s = await getJSON("/siris/hud/summary" + (window.sirisHudSpeaker ? "?speaker=1" : ""));
       errorBox.textContent = "";
+      if (s.announcements && window.sirisHudAnnounce) window.sirisHudAnnounce(s.announcements);
       if (s.system) {
         const disk = Object.values(s.system.disk || {})[0];
         $("rings").innerHTML = ring("CPU", s.system.cpu_percent) + ring("Memory", s.system.memory.percent_used) + (disk ? ring("Disk", disk.percent_used) : "");
@@ -265,6 +269,7 @@
   function unlockAudio() {
     if (audioUnlocked) return;
     audioUnlocked = true;
+    window.sirisHudSpeaker = true;
     playbackAudio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
     playbackAudio.play().then(() => playbackAudio.pause()).catch(() => {});
   }
@@ -315,9 +320,12 @@
     return micCtx;
   }
 
-  // followUp: listening again because SirisAI asked something. If nothing is
-  // said, it gives up quietly instead of sending silence.
-  async function startRecording(followUp = false) {
+  // mode: "tap" (the orb), "followUp" (SirisAI asked something; silence gives up quietly), or
+  // "wake" (5.8: waiting for "Hey Siris" -- each phrase goes to the server, which drops anything
+  // not addressed to SirisAI, so nothing changes on screen until it is).
+  async function startRecording(mode = "tap") {
+    const followUp = mode === "followUp";
+    const wake = mode === "wake";
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     const ctx = micContext();
     const source = ctx.createMediaStreamSource(stream);
@@ -330,32 +338,41 @@
       const samples = new Float32Array(e.inputBuffer.getChannelData(0));
       chunks.push(samples);
       const rms = Math.sqrt(samples.reduce((a, s) => a + s * s, 0) / samples.length);
-      if (rms > 0.02) { heard = true; silentFor = 0; } else if (heard) { silentFor += samples.length / ctx.sampleRate; }
+      if (rms > 0.02) {
+        if (!heard && wake && recording) recording.timer = setTimeout(stopRecording, 8000);   // a phrase, not the TV all evening
+        heard = true; silentFor = 0;
+      } else if (heard) { silentFor += samples.length / ctx.sampleRate; }
       if (heard && silentFor > 1.2) stopRecording();
     };
     source.connect(analyser);
     source.connect(processor);
     processor.connect(ctx.destination);
-    recording = { stream, ctx, processor, source, chunks, followUp, heard: () => heard,
-                  timer: setTimeout(stopRecording, followUp ? 8000 : 12000) };
+    recording = { stream, ctx, processor, source, chunks, mode, heard: () => heard,
+                  timer: wake ? null : setTimeout(stopRecording, followUp ? 8000 : 12000) };
+    if (wake) {
+      hint.textContent = "Listening for “Hey Siris”";
+      return;
+    }
     orb.className = "listening";
     hint.textContent = "Listening...";
     drawWave(analyser);
   }
 
-  async function stopRecording() {
+  async function stopRecording(discard = false) {
     if (!recording) return;
-    const { stream, ctx, processor, source, chunks, timer, followUp, heard } = recording;
+    const { stream, ctx, processor, source, chunks, timer, mode, heard } = recording;
     recording = null;
     clearTimeout(timer);
     processor.disconnect(); source.disconnect();
     stream.getTracks().forEach((t) => t.stop());
-    if (followUp && !heard()) {
+    if (discard) return;
+    if ((mode === "followUp" || mode === "wake") && !heard()) {
       orb.className = "";
       hint.textContent = "Tap to talk";
+      resumeWake();
       return;
     }
-    converse(encodeWav(chunks, ctx.sampleRate));
+    converse(encodeWav(chunks, ctx.sampleRate), mode === "wake");
   }
 
   // Each sentence arrives as its own MP3 clip, but starting every clip
@@ -394,19 +411,50 @@
     playbackAudio.play().catch(next);
   }
 
+  // Notifications to say out loud while you're home (5.8). Each is fetched as speech, played
+  // through the same queue as replies, then confirmed so it isn't pushed to the phone as well.
+  const announced = new Set();
+  window.sirisHudAnnounce = async (items) => {
+    for (const a of items) {
+      if (announced.has(a.id) || (recording && recording.mode !== "wake")) continue;
+      announced.add(a.id);
+      if (recording) stopRecording(true);   // don't transcribe ourselves
+      try {
+        const text = a.title && !a.title.startsWith("SirisAI") ? `${a.title}. ${a.message}` : a.message;
+        const response = await fetch("/siris/voice/speak", {
+          method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+        });
+        if (!response.ok) continue;
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        pendingClips.push(bytes);
+        if (!speaking) playPending();
+        await speechFinished();
+        await fetch(`/siris/hud/announcements/${a.id}/heard`, { method: "POST", headers: authHeaders() });
+        $("reply").textContent = a.message;
+      } catch (err) { /* not confirmed: SirisAI pushes it to the phone instead */ }
+    }
+    resumeWake();
+  };
+
   function speechFinished() {
     return speaking ? new Promise((resolve) => idleWaiters.push(resolve)) : Promise.resolve();
   }
 
-  async function converse(wav) {
+  function thinking() {
     orb.className = "thinking";
     hint.textContent = "Thinking...";
     $("transcript").textContent = "";
     $("reply").textContent = "";
+  }
+
+  async function converse(wav, wake = false) {
+    if (!wake) thinking();
     const form = new FormData();
     form.append("file", wav, "hud.wav");
     if (conversationId) form.append("conversation_id", conversationId);
+    if (wake) form.append("wake", "true");
     let expectsReply = false;
+    let ignored = false;
     try {
       const response = await fetch("/siris/voice/converse", { method: "POST", body: form, headers: authHeaders() });
       if (!response.ok) throw new Error(`Voice: ${response.status}`);
@@ -423,6 +471,8 @@
           buffer = buffer.slice(newline + 1);
           if (!line) continue;
           const event = JSON.parse(line);
+          if (event.type === "ignored") ignored = true;
+          if (event.type === "transcript" && wake) thinking();
           if (event.type === "transcript") $("transcript").textContent = event.text ? `"${event.text}"` : "";
           if (event.type === "speaker" && event.user_id) hint.textContent = `Hello, ${event.user_id}`;
           if (event.type === "sentence") {
@@ -434,21 +484,51 @@
         }
       }
     } catch (err) {
-      $("reply").textContent = err.message;
+      if (!wake) $("reply").textContent = err.message;
+      else ignored = true;
     }
+    if (ignored) { resumeWake(); return; }
     await speechFinished();
     orb.className = "";
     hint.textContent = expectsReply ? "Tap to answer" : "Tap to talk";
     refresh();
     if (expectsReply && !recording) {
-      startRecording(true).catch(() => { hint.textContent = "Tap to answer"; });
+      startRecording("followUp").catch(() => { hint.textContent = "Tap to answer"; });
+    } else {
+      resumeWake();
     }
   }
+
+  // "Hey Siris" (5.8): remembered per screen; starting the mic needs a tap after each load.
+  const wakeToggle = $("wake-toggle");
+  let wakeMode = false;
+  try { wakeMode = localStorage.getItem("sirisai_hud_wake") === "1"; } catch (err) { /* private mode */ }
+  function showWake() {
+    wakeToggle.textContent = `“Hey Siris”: ${wakeMode ? "on" : "off"}`;
+    wakeToggle.setAttribute("aria-pressed", String(wakeMode));
+    wakeToggle.classList.toggle("on", wakeMode);
+    if (wakeMode && !recording && hint.textContent === "Tap to talk") hint.textContent = "Tap once to start listening for “Hey Siris”";
+  }
+  function resumeWake() {
+    if (!wakeMode || recording || !audioUnlocked) return;
+    startRecording("wake").catch(() => { hint.textContent = "Tap to talk"; });
+  }
+  wakeToggle.addEventListener("click", () => {
+    unlockAudio();
+    micContext();
+    wakeMode = !wakeMode;
+    try { localStorage.setItem("sirisai_hud_wake", wakeMode ? "1" : "0"); } catch (err) { /* fine */ }
+    if (!wakeMode && recording && recording.mode === "wake") { stopRecording(true); hint.textContent = "Tap to talk"; }
+    showWake();
+    resumeWake();
+  });
+  showWake();
 
   orb.addEventListener("click", () => {
     unlockAudio();
     micContext();
-    if (recording) { stopRecording(); return; }
+    if (recording && recording.mode === "wake") stopRecording(true);   // a tap beats waiting for the wake word
+    else if (recording) { stopRecording(); return; }
     startRecording().catch((err) => { hint.textContent = `Microphone unavailable: ${err.message}`; });
   });
 })();

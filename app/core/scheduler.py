@@ -480,6 +480,7 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("warm_model", _warm, lambda _s: 240, is_async=True),
         Job("speed_trial", lambda s: _finish_trial(s), lambda _s: 3600),
         Job("house_watch", lambda s: _house_watch(s), lambda s: s.settings.house_watch_seconds),
+        Job("breakage_watch", lambda s: _breakage_watch(s), lambda _s: 900, at_boot=False),
         Job("conversation_summaries", _summaries, lambda _s: 600, at_boot=False, is_async=True),
     ]
 
@@ -490,6 +491,12 @@ def _brain_watch(siris: "SirisAI") -> None:
     from app.second_brain import watch
 
     watch.check(siris)
+
+
+def _breakage_watch(siris: "SirisAI") -> None:
+    from app.upkeep import breakage
+
+    breakage.check(siris)
 
 
 def _spoken_brief(siris: "SirisAI") -> None:
@@ -588,7 +595,7 @@ async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
     try:
         while True:
             # Second brain growth jobs: each decides for itself whether it's due today.
-            # They run beside the other jobs -- the OneNote import alone can take the
+            # They run beside the other jobs -- a brain job can take the
             # better part of an hour. Never two at once, so their order (import before
             # upkeep) holds.
             if siris.second_brain is not None and (brain_task is None or brain_task.done()):

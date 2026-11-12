@@ -255,3 +255,42 @@ def test_converse_with_audio_but_no_stt_is_501(client: TestClient) -> None:
 def test_a_reply_that_asks_something_expects_an_answer(reply: str, expected: bool) -> None:
     from app.voice.sentences import expects_answer
     assert expects_answer(reply) is expected
+
+
+# -- "Hey Siris" (5.8) ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("heard, request_", [
+    ("Hey Siris, turn the lights off", "Turn the lights off"),
+    ("Cyrus what time is it", "What time is it"),
+    ("Siri's, is the NAS up?", "Is the NAS up?"),
+    ("Hey Siri set a timer", "Set a timer"),
+    ("Hey Siris.", ""),
+    ("Siri set a timer", None),          # an iPhone in the room
+    ("I was serious about it", None),
+    ("and then the sirius satellite", None),
+])
+def test_the_wake_phrase_is_found_and_stripped(heard: str, request_: str | None) -> None:
+    from app.voice.sentences import strip_wake
+    assert strip_wake(heard) == request_
+
+
+def test_speech_not_addressed_to_sirisai_is_dropped(client: TestClient) -> None:
+    siris = _siris(_ScriptedLLM(), stt_text="did you see the game last night")   # the model must not be called
+    events = _converse(client, siris, wake="true", files={"file": ("a.wav", b"RIFF....", "audio/wav")})
+    assert events == [{"type": "ignored"}]
+
+
+def test_the_wake_phrase_with_a_request_runs_just_the_request(client: TestClient) -> None:
+    siris = _siris(_ScriptedLLM(["It's 7 pm."]), stt_text="Hey Siris, what time is it?")
+    events = _converse(client, siris, wake="true", files={"file": ("a.wav", b"RIFF....", "audio/wav")})
+    assert events[0] == {"type": "transcript", "text": "What time is it?"}
+    assert events[-1]["response"] == "It's 7 pm."
+
+
+def test_the_wake_phrase_alone_answers_yes_and_listens(client: TestClient) -> None:
+    siris = _siris(_ScriptedLLM(), stt_text="Hey Siris.")
+    events = _converse(client, siris, wake="true", files={"file": ("a.wav", b"RIFF....", "audio/wav")})
+    assert [e["type"] for e in events] == ["transcript", "sentence", "final"]
+    assert events[1]["text"] == "Yes?" and base64.b64decode(events[1]["audio"]) == b"mp3:Yes?"
+    assert events[-1]["expects_reply"] is True

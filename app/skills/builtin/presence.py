@@ -22,6 +22,8 @@ establishes a baseline rather than guessing a transition happened.
 import re
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from app.skills.base import Skill
 
 if TYPE_CHECKING:
@@ -75,7 +77,17 @@ class PresenceSkill(Skill):
     parameters = {"type": "object", "properties": {}, "required": []}
 
     def run(self, siris: "SirisAI", **kwargs: Any) -> Any:
-        clients = siris.run_tool("unifi_list_clients", {})
+        try:
+            clients = siris.run_tool("unifi_list_clients", {})
+        except (httpx.TransportError, httpx.HTTPStatusError) as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+                raise
+            # The gateway restarting (nightly, ~3:20 am: refused, timed out, then 502 for a few minutes)
+            # says nothing about who's home: keep the last known state rather than fail or guess.
+            # Home Assistant's phone tracker isn't a safe fallback: it has disagreed with UniFi (2026-11).
+            previous = siris.events.recent_events(entity_name=_PRESENCE_ENTITY_NAME, limit=1)
+            previously_home = previous[0]["data"]["home"] if previous and previous[0].get("data") else None
+            return {"currently_home": previously_home, "changed": False, "scene_activated": None, "unifi_unreachable": True}
         known = {norm(d["name"]) for d in counted(siris)}
         here = {norm(c.get(k)) for c in clients for k in ("name", "hostname") if c.get(k)}
         seen = {k: k in here for k in known}

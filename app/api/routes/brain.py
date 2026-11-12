@@ -17,7 +17,7 @@ import base64
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from app.core import clock
@@ -224,47 +224,6 @@ class ReviewedRequest(BaseModel):
 def reviewed(request: ReviewedRequest, siris: SirisAI = Depends(get_siris)) -> dict:
     """Brad checked this note and it's right."""
     return _brain(siris).mark_reviewed(request.title)
-
-
-@router.get("/handwriting")
-def handwriting_queue(limit: int = Query(20, ge=1, le=100), siris: SirisAI = Depends(get_siris)) -> list[dict]:
-    """Handwritten pages Brad hasn't checked, the likeliest misreadings first, each with its transcription
-    and the words that look misread (`odd_words`). For SirisOS's handwriting review."""
-    return _brain(siris).handwriting_queue(limit)
-
-
-@router.get("/handwriting/image")
-def handwriting_image(title: str = Query(min_length=1, max_length=200), n: int = Query(1, ge=1, le=20),
-                      siris: SirisAI = Depends(get_siris)) -> Response:
-    """Part `n` of a handwritten page as a PNG, drawn from its ink in OneNote (fetched once, then kept).
-    The `X-Page-Parts` header says how many parts the page has."""
-    from app.onenote.pages import PageNotFound, page_images
-
-    note = _brain(siris).get_note(title) or {}
-    names = [note.get("title") or title, *(note.get("aliases") or [])]
-    try:
-        images = page_images(siris, names)
-    except PageNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-    if not 1 <= n <= len(images):
-        raise HTTPException(status_code=404, detail="The page has no handwriting to draw." if not images else "No such part.")
-    return Response(images[n - 1], media_type="image/png", headers={"X-Page-Parts": str(len(images)),
-                                                                    "Cache-Control": "private, max-age=86400"})
-
-
-class HandwritingCheck(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
-    # Brad's own reading of the page, replacing the machine's; empty means "it's right as it is".
-    text: str = Field(default="", max_length=50000)
-
-
-@router.post("/handwriting/check")
-def handwriting_check(request: HandwritingCheck, siris: SirisAI = Depends(get_siris)) -> dict:
-    """Brad checked a handwritten page: right as it is, or corrected. It leaves the review queue."""
-    try:
-        return _brain(siris).handwriting_check(request.title, request.text.strip() or None)
-    except SecondBrainError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.get("/map.html", response_class=HTMLResponse)

@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     # with a preload every few minutes, so the first question of the
     # morning doesn't wait for a load. "" = never preload.
     ollama_warm_hours: str = "6-23"
+    # Other Ollama machines (comma-separated URLs) tried in order when the one
+    # above is unreachable or broken (5xx), e.g. a second AI box both ways
+    # round. Used by the general and fast models alike. "" = none.
+    ollama_fallback_base_urls: str = ""
+    # Whether a reasoning model thinks before answering: "on", "off", or ""
+    # for the model's default (gemma4 thinks unless told not to).
+    ollama_think: str = ""
+
+    def ollama_fallback_url_list(self) -> list[str]:
+        return [u.strip() for u in self.ollama_fallback_base_urls.split(",") if u.strip()]
 
     # Semantic memory recall (app/llm/embeddings.py, app/memory/service.py).
     # "none" (default) keeps MemoryStore.recall() on its original plain
@@ -227,7 +237,7 @@ class Settings(BaseSettings):
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
-        "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "onenote_hour_local", "gmail_hour_local",
+        "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "gmail_hour_local",
         "bills_hour_local", "things_email_hour_local", "travel_hour_local", "reliability_hour_local",
         mode="before",
     )
@@ -286,6 +296,9 @@ class Settings(BaseSettings):
     fast_llm_provider: str = "none"
     fast_llm_ollama_base_url: str = "http://localhost:11434"
     fast_llm_ollama_model: str = "llama3.2:1b"
+    # The fast role can be the same model with thinking off (5.8): short
+    # requests answer in a fraction of the time, long ones still think.
+    fast_llm_think: str = "off"
 
     # Proactive notifications (app/notify/client.py,
     # app/plugins/builtin/notify.py, POST /siris/proactive/check) via
@@ -294,6 +307,11 @@ class Settings(BaseSettings):
     # still runs the health check but never sends anything.
     ntfy_base_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
+    # Where pushes go (app/notify/routing.py). Quiet hours (local, start-end, 24h): anything
+    # below high priority is held for the morning briefing instead. "" = never quiet.
+    quiet_hours: str = "22-7"
+    # At home with the HUD open, say it on the HUD instead of buzzing the phone.
+    notify_speak_at_home: bool = True
 
     # Actionable push notifications (milestone 43, app/routines/runner.py).
     # Needed only to construct an ntfy action button's target URL -- the
@@ -773,30 +791,6 @@ class Settings(BaseSettings):
     brain_upkeep_hour_local: int | None = 2
     brain_github_token: str = ""
     brain_github_owner: str = "bradmairs"
-    # OneNote import (app/onenote/): new and changed pages from Brad's OneNote
-    # notebooks into Siris' inbox each night, handwriting transcribed by the
-    # vision model below. Needs an Azure app registration (README, milestone
-    # 130) for onenote_client_id and a one-off sign-in:
-    # `docker exec -it sirisai python -m app.onenote.login`.
-    # onenote_notebooks: comma-separated notebook names; empty = all of them.
-    # onenote_max_pages: pages a night, so a first import spreads over nights.
-    onenote_client_id: str = ""
-    # 5.63: the nightly import is off unless this is on. Brad removed OneNote from Siris (7 Nov), but with the
-    # client id still set it kept importing every night.
-    onenote_import: bool = False
-    onenote_token_path: str = "data/onenote/token.json"
-    onenote_notebooks: str = ""
-    # Notebooks never imported, comma-separated, case-insensitive, `*` wildcards
-    # (e.g. "ENC*,Project 2019"). Their sections aren't even listed.
-    onenote_skip_notebooks: str = ""
-    # Skip pages with pictures or PDF printouts (with or without handwriting on
-    # them); handwriting on a blank page is still imported.
-    onenote_skip_image_pages: bool = False
-    # Keep handwriting renders and pictures in the vault (03-Resources/Attachments/OneNote).
-    # False = transcribe from them in memory and link to the page in OneNote instead.
-    onenote_save_images: bool = True
-    onenote_hour_local: int | None = 1
-    onenote_max_pages: int = 30
     # Email into Siris (app/gmail/): emails Brad gives the Gmail label below
     # come into Siris' inbox each night, read-only over IMAP. Needs Google
     # 2-Step Verification and an app password (myaccount.google.com/apppasswords);
