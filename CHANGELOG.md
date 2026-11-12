@@ -5,6 +5,18 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.93 — 2026-11-12
+
+- Reliability fixes, faster replies, a second AI machine, breakage alerts, notifications where you are, Hey Siris, and OneNote removed
+- Pushes fit ntfy (long briefings were refused for a week), a shortened one opens SirisOS, and a push that fails lands in the feed.
+- Presence holds its state through the gateway's nightly restart; one unreadable to-do list no longer hides the rest.
+- Faster: the fast role can be the same model with thinking off (SIRISAI_FAST_LLM_THINK, SIRISAI_OLLAMA_THINK).
+- A second AI machine: SIRISAI_OLLAMA_FALLBACK_BASE_URLS, tried when one is down or erroring.
+- Breakage watch: something broken is pushed within the hour with its likely fix, daily while it lasts, and when it's fixed.
+- Notifications go where you are: held overnight (SIRISAI_QUIET_HOURS), spoken on the HUD at home, reminders and urgent ones always pushed.
+- "Hey Siris" on the HUD: listens for the wake phrase, transcribed locally; everything else is dropped.
+- Removed: the OneNote import and the handwriting review routes.
+
 ## 5.83 — 2026-11-12
 
 - **Brain watch:** every 15 minutes, checks the Obsidian sync, server inventory and secrets backup heartbeats (from the vault's `.siris-heartbeats.json`), the dream and upkeep, and unpushed vault commits. Pushes an alert when one goes quiet, again daily while it lasts, and "back to normal" when it clears.
