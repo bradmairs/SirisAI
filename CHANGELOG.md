@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.08 — 2026-11-13
+
+- The weather outside goes to weather_current, not Home Assistant
+
 ## 6.07 — 2026-11-13
 
 - A guessed Home Assistant entity id finds the real one instead of failing the turn

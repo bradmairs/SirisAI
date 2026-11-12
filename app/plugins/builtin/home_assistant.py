@@ -133,7 +133,10 @@ class HomeAssistantListEntitiesTool(Tool):
 
 class HomeAssistantGetStateTool(Tool):
     name = "home_assistant_get_state"
-    description = "Get the current state and attributes of one Home Assistant entity."
+    description = (
+        "Get the current state and attributes of one Home Assistant device or sensor in the house "
+        "(a light, door, lock, room temperature). For the weather outside use weather_current."
+    )
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
