@@ -1228,3 +1228,34 @@ def test_delete_automation_verify_raises_not_implemented_without_an_automation_i
     )
     with pytest.raises(NotImplementedError):
         tool.verify({}, {"deleted": True})
+
+
+def _states_handler(states: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/states":
+            return httpx.Response(200, json=states)
+        wanted = request.url.path.removeprefix("/api/states/")
+        found = next((s for s in states if s["entity_id"] == wanted), None)
+        return httpx.Response(200, json=found) if found else httpx.Response(404, json={"message": "Entity not found."})
+
+    return handler
+
+
+def test_get_state_resolves_a_guessed_id() -> None:
+    """6.07: the model guesses ids from names; one close match is used."""
+    states = [
+        {"entity_id": "light.lounge_tv_light_3", "state": "off", "attributes": {"friendly_name": "TV Light 3"}},
+        {"entity_id": "light.kitchen", "state": "on", "attributes": {"friendly_name": "Kitchen"}},
+        {"entity_id": "sensor.lounge_temperature", "state": "19.5", "attributes": {"friendly_name": "Lounge temperature"}},
+        {"entity_id": "sensor.office_temperature", "state": "21", "attributes": {"friendly_name": "Office temperature"}},
+    ]
+    tool = HomeAssistantGetStateTool(_mock_client(_states_handler(states)))
+    found = tool.run(entity_id="light.tv_light_3")
+    assert found["entity_id"] == "light.lounge_tv_light_3" and found["state"] == "off" and "doesn't exist" in found["note"]
+
+    several = tool.run(entity_id="sensor.temperature")
+    assert "error" in several and {d["entity_id"] for d in several["did_you_mean"]} == {"sensor.lounge_temperature", "sensor.office_temperature"}
+
+    none = tool.run(entity_id="sensor.outside_temperature")
+    assert none["did_you_mean"] == [] and "weather_current" in none["hint"]
+    assert tool.run(entity_id="light.kitchen")["state"] == "on"
