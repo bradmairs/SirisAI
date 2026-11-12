@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.18 — 2026-11-12
+
+- Reads Apple Health's State of Mind (mood) from Health Auto Export, as a day's mood_valence and mood_entries
+
 ## 6.08 — 2026-11-13
 
 - The weather outside goes to weather_current, not Home Assistant

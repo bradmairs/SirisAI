@@ -57,3 +57,18 @@ def test_sleep_grouped_by_hour_or_sent_as_stages_is_one_night_on_the_wake_up_day
         p = auto_export.parse({"data": {"metrics": [{"name": "sleep_analysis", "units": "hr", "data": data}]}})
         assert list(p["metrics"]) == ["2026-11-01"] and p["metrics"]["2026-11-01"]["sleep_hours"] == hours  # the nap isn't the night
         assert p["sleep"]["2026-11-01"] == {"start": "2026-10-31 23:30:00 +1100", "end": "2026-11-01 06:40:00 +1100"}
+
+
+def test_state_of_mind_becomes_a_days_mood(client):
+    body = {"data": {"stateOfMind": [
+        {"start": "2026-11-10 08:00:00 +1100", "kind": "momentaryEmotion", "valence": 0.6, "labels": ["calm"]},
+        {"start": "2026-11-10 21:00:00 +1100", "kind": "dailyMood", "valence": -0.2},
+        {"start": "2026-11-11 07:30:00 +1100", "valenceClassification": "Very Unpleasant"},
+        {"start": "2026-11-11 09:00:00 +1100"},  # nothing to go on
+    ]}}
+    assert auto_export.looks_like(body)
+    days = auto_export.parse(body)["metrics"]
+    assert days["2026-11-10"] == {"mood_valence": 0.2, "mood_entries": 2}
+    assert days["2026-11-11"] == {"mood_valence": -0.86, "mood_entries": 1}
+    r = client.post("/siris/health/metrics", json=body, headers={"X-Siris-User": "som-test"})
+    assert r.status_code == 200 and r.json()["days"]["2026-11-10"]["mood_valence"] == 0.2
