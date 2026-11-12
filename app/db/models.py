@@ -813,6 +813,7 @@ class Thing(Base):
     price: Mapped[float | None] = mapped_column(Float, nullable=True)
     shop: Mapped[str] = mapped_column(Text, default="")
     warranty_until: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
+    return_until: Mapped[str | None] = mapped_column(Text, nullable=True)  # YYYY-MM-DD: the last day it can go back (5.94)
     manual: Mapped[str] = mapped_column(Text, default="")  # a URL, or a note title in Siris
     document_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str] = mapped_column(Text, default="")

@@ -35,6 +35,7 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "travel_home_city": ("Life admin", "Home city", "Long events here aren't trips", False),
     "reliability_hour_local": ("Speed", "Weekly reliability report (hour, Sundays)", "Blank: off", False),
     "warranty_warn_days": ("Life admin", "Warn before a warranty ends (days)", "", False),
+    "return_default_days": ("Life admin", "Return window when a receipt doesn't say (days)", "0: only when it says", False),
     "people_remind_days": ("Life admin", "Birthday reminders (days ahead)", "", False),
     "house_watch_seconds": ("Home", "Check for leaks and open doors every (seconds)", "0: off", False),
     "fridge_max_c": ("Home", "Fridge too warm above (°C)", "", False),
