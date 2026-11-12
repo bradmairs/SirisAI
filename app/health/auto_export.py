@@ -71,12 +71,41 @@ SLEEP_FIELDS = {"totalSleep": "sleep_hours", "asleep": "sleep_hours", "deep": "s
 # How each metric adds up within a day (for the ones not listed above).
 COMBINE: dict[str, str] = {metric: how for metric, how in METRICS.values()}
 COMBINE.update({m: "sum" for m in SLEEP_FIELDS.values()})
+COMBINE.update({"mood_valence": "mean", "mood_entries": "sum"})  # State of Mind (6.18)
 COMBINE.update({"heart_rate_min": "min", "heart_rate_max": "max", "heart_rate_avg": "mean", "running_km": "sum", "hrv_overnight": "mean"})
 
 
 def looks_like(body: Any) -> bool:
     data = body.get("data") if isinstance(body, dict) else None
-    return isinstance(data, dict) and (isinstance(data.get("metrics"), list) or isinstance(data.get("workouts"), list))
+    return isinstance(data, dict) and (isinstance(data.get("metrics"), list) or isinstance(data.get("workouts"), list)
+                                       or isinstance(_moods(data), list))
+
+
+# Apple Health's State of Mind (6.18): each entry's valence, -1 (very unpleasant) to 1 (very pleasant). Health Auto Export
+# sends it as its own data type ("stateOfMind"); an entry with only a classification gets that band's middle.
+VALENCE = {"veryunpleasant": -0.857, "unpleasant": -0.571, "slightlyunpleasant": -0.286, "neutral": 0.0,
+           "slightlypleasant": 0.286, "pleasant": 0.571, "verypleasant": 0.857}
+
+
+def _moods(data: dict[str, Any]) -> Any:
+    for key in ("stateOfMind", "state_of_mind", "statesOfMind", "stateOfMinds"):
+        if key in data:
+            return data[key]
+    return None
+
+
+def moods(data: dict[str, Any]) -> list[tuple[str, float]]:
+    """(day, valence) for each State of Mind entry."""
+    out = []
+    for e in _moods(data) or []:
+        if not isinstance(e, dict) or not (day := _day(e.get("start") or e.get("date") or e.get("end"))):
+            continue
+        v = _num(e.get("valence"))
+        if v is None:
+            v = VALENCE.get(str(e.get("valenceClassification") or e.get("valence_classification") or "").replace("_", "").replace(" ", "").lower())
+        if v is not None:
+            out.append((day, max(-1.0, min(1.0, v))))
+    return out
 
 
 def looks_native(body: Any) -> bool:
@@ -249,6 +278,9 @@ def parse(body: dict[str, Any]) -> dict[str, Any]:
             series.append(s)
         if "run" in entry["name"].lower() and km:
             readings[(day, "running_km")].append(km)
+    for day, v in moods(data):
+        readings[(day, "mood_valence")].append(v)
+        readings[(day, "mood_entries")].append(1)
     metrics: dict[str, dict[str, float]] = defaultdict(dict)
     for (day, metric), values in readings.items():
         metrics[day][metric] = combine(metric, values)
@@ -402,6 +434,8 @@ def describe(data: dict[str, Any]) -> dict[str, Any]:
     workouts, grouped by day, hour or not at all, how many days it covered,
     and the first hour it held of its last day (a 'since last sync' export
     starts late in the day)."""
+    if not data.get("metrics") and not data.get("workouts") and _moods(data):
+        return {"kind": "state_of_mind", "entries": len(_moods(data) or [])}
     times = [t for m in data.get("metrics") or [] if isinstance(m, dict) and str(m.get("name") or "").lower() != "sleep_analysis"
              for r in m.get("data") or [] if isinstance(r, dict) and (t := when(r.get("date")))]
     workout_days = {d for w in data.get("workouts") or [] if isinstance(w, dict) and (d := _day(w.get("start")))}
