@@ -5,6 +5,18 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.83 — 2026-11-12
+
+- **Brain watch:** every 15 minutes, checks the Obsidian sync, server inventory and secrets backup heartbeats (from the vault's `.siris-heartbeats.json`), the dream and upkeep, and unpushed vault commits. Pushes an alert when one goes quiet, again daily while it lasts, and "back to normal" when it clears.
+- **One git at a time:** the brain client takes the vault's shared `.git/siris-git.lock` (the engine's Obsidian sync uses the same file), so two pulls no longer collide.
+- **Batched commits:** vault changes are committed together every `SIRISAI_BRAIN_COMMIT_INTERVAL_SECONDS` (900) instead of once per write.
+- **Decisions:** `brain_record_decision` tool and capture `kind: "decision"` write to the Decision Log.
+- **Stalled projects:** the weekly job asks carry on, pause or archive (each project at most every 4 weeks); `brain_project_status` acts on the answer.
+- **People:** birthdays this week in the briefing; a weekly nudge with birthdays and people not heard about in 90 days.
+- **On this day** in the morning briefing.
+- **Voice memos:** `POST /siris/brain/capture` takes `audio` (a data URL), transcribed by the configured speech-to-text and kept in Attachments.
+- **Weekly tidy:** the biggest notes get a model-written "Current state" block and their older updates move to a history note; weak automatic links are pruned. The rebuild readiness table is refreshed in the Home Lab Rebuild Guide.
+
 ## 5.73 — 2026-11-11
 
 - Cron details and adding servers, reboots that are checked through, and asking about SirisGym workouts

@@ -68,7 +68,32 @@ def _sirisos_apps(siris: "SirisAI") -> str | None:
     return "Apps needing a look: " + "; ".join(f"{a['name']} is {a['state']}" + (f" ({a['detail']})" if a.get("detail") else "") for a in apps[:5]) + "."
 
 
-EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _car, _parcels, _sirisos_apps]
+def _on_this_day(siris: "SirisAI") -> str | None:
+    """One note from this day a year ago (or a month or two while the brain is young)."""
+    if siris.second_brain is None:
+        return None
+    found = siris.second_brain.on_this_day(limit=1)
+    if not found:
+        return None
+    f = found[0]
+    text = f["text"] if len(f["text"]) <= 140 else f["text"][:140].rsplit(" ", 1)[0] + "…"
+    return f"On this day, {f['when']}: {f['title']} -- {text}"
+
+
+def _birthdays(siris: "SirisAI") -> str | None:
+    """Birthdays in the next week, from People notes in the brain."""
+    if siris.second_brain is None:
+        return None
+    soon = [b for b in siris.second_brain.people(days=7)["birthdays"]]
+    if not soon:
+        return None
+    def when(b: dict) -> str:
+        return "today" if b["days"] == 0 else "tomorrow" if b["days"] == 1 else f"in {b['days']} days"
+    return "Birthdays: " + "; ".join(
+        f"{b['title']} {when(b)}" + (f" (turning {b['turning']})" if b.get("turning") else "") for b in soon) + "."
+
+
+EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _car, _parcels, _sirisos_apps, _on_this_day, _birthdays]
 
 
 def briefing_lines(siris: "SirisAI") -> list[str]:

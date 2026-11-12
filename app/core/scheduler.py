@@ -476,11 +476,20 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("health_checks", lambda s: run_health_checks(s), lambda _s: 300),
         Job("speed_test", lambda s: run_speed_test(s), _settings_every("internet_speedtest_hours", 3600), at_boot=False),
         Job("daily_jobs", lambda s: run_daily_jobs(s), every_tick),
+        Job("brain_watch", lambda s: _brain_watch(s), lambda _s: 900, at_boot=False),
         Job("warm_model", _warm, lambda _s: 240, is_async=True),
         Job("speed_trial", lambda s: _finish_trial(s), lambda _s: 3600),
         Job("house_watch", lambda s: _house_watch(s), lambda s: s.settings.house_watch_seconds),
         Job("conversation_summaries", _summaries, lambda _s: 600, at_boot=False, is_async=True),
     ]
+
+
+def _brain_watch(siris: "SirisAI") -> None:
+    if siris.second_brain is None:
+        return
+    from app.second_brain import watch
+
+    watch.check(siris)
 
 
 def _spoken_brief(siris: "SirisAI") -> None:

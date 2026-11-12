@@ -159,6 +159,8 @@ from app.plugins.builtin.second_brain import (
     BrainNotCPEngEvidenceTool,
     BrainUnlinkNotesTool,
     BrainDoneTool,
+    BrainProjectStatusTool,
+    BrainRecordDecisionTool,
 )
 from app.plugins.builtin.openapi_tool import DynamicOpenAPITool, build_dynamic_tools
 from app.plugins.builtin.plex import (
@@ -645,6 +647,7 @@ class SirisAI:
                 self.settings.brain_path,
                 git_sync=self.settings.brain_git_sync,
                 pull_interval=self.settings.brain_pull_interval_seconds,
+                commit_interval=self.settings.brain_commit_interval_seconds,
                 engine_env={
                     "BRAIN_TZ": self.settings.timezone,
                     **(
@@ -1008,6 +1011,8 @@ class SirisAI:
             self.tools.register(BrainNotesDistinctTool(self.second_brain))
             self.tools.register(BrainUnlinkNotesTool(self.second_brain))
             self.tools.register(BrainDoneTool(self.second_brain))
+            self.tools.register(BrainRecordDecisionTool(self.second_brain))
+            self.tools.register(BrainProjectStatusTool(self.second_brain))
             self.tools.register(BrainMarkReviewedTool(self.second_brain))
             self.tools.register(BrainDeleteNoteTool(self.second_brain))
             self.tools.register(BrainRestoreNoteTool(self.second_brain))

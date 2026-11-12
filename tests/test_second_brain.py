@@ -1,4 +1,6 @@
+import base64
 import json
+import time
 import shutil
 import uuid
 import subprocess
@@ -205,6 +207,22 @@ FAKE_ENGINE = textwrap.dedent(
                  "as_of": "2026-10-02"}
                 for t, b in notes.items() if q in t.lower() or q in b.lower()]
         print(json.dumps(hits))
+    elif cmd == "on-this-day":
+        print(json.dumps([{"title": "Box Culverts", "date": "2025-11-12", "when": "1 year ago", "text": "Box culverts can take zero cover."}]))
+    elif cmd == "people":
+        print(json.dumps({"birthdays": [{"title": "Dom Mairs", "date": "2026-11-14", "days": 2, "turning": 28}],
+                          "quiet": [{"title": "Aaron Cheong", "last": "2026-07-01", "days": 134}]}))
+    elif cmd == "decide":
+        print(json.dumps({"action": "recorded", "title": "Decision Log", "project": args[args.index("--project") + 1] if "--project" in args else None, "line": args[1]}))
+    elif cmd == "project-status":
+        print(json.dumps({"action": "set", "title": args[1], "status": args[2], "path": "01-Projects/" + args[1] + ".md"}))
+    elif cmd == "readiness":
+        print(json.dumps({"action": "set", "title": "Home Lab Rebuild Guide"} if "--write" in args else [{"title": "SirisAI", "score": 100, "missing": []}]))
+    elif cmd == "compact":
+        apply = "--apply" in args
+        print(json.dumps([{"action": "compacted" if apply else "would-compact", "title": "SirisOS", "moved": 47, "kept": 6}]))
+    elif cmd == "prune-links":
+        print(json.dumps({"action": "pruned" if "--apply" in args else "would-prune", "count": 1, "pairs": []}))
     elif cmd == "show":
         t = find(args[args.index("--") + 1])
         print(json.dumps(None if t is None else {"title": t, "path": f"Notes/{t}.md", "meta": {}, "aliases": [],
@@ -989,3 +1007,154 @@ def test_handwriting_review_routes(brain_api, tmp_path: Path) -> None:
     r = client.get("/siris/brain/handwriting/image", params={"title": "Site Visit", "n": 1})
     assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.headers["x-page-parts"] == "1"
     assert client.get("/siris/brain/handwriting/image", params={"title": "Unknown page"}).status_code == 404
+
+
+
+
+# ---------- 5.83: watch, batched commits, decisions, voice memos, briefing ----------
+
+
+@needs_git
+def test_batched_commits_land_together(tmp_path: Path) -> None:
+    remote, clone = _synced_pair(tmp_path)
+    client = SecondBrainClient(str(clone), git_sync=True, commit_interval=60)
+    client.learn([{"title": "Plex", "content": "Media server."}])
+    client.learn([{"title": "Sonarr", "content": "TV."}])
+    assert _git(remote, "log", "-1", "--format=%s", "main") == "seed"   # nothing pushed yet
+    client.flush()
+    assert _git(remote, "log", "-1", "--format=%s", "main") == "siris: 2 changes -- learned Plex; learned Sonarr"
+    assert client.last_push_ok is not None
+
+
+def test_git_file_lock_is_shared(tmp_path: Path) -> None:
+    import fcntl
+    vault = _vault(tmp_path)
+    (vault / ".git").mkdir()
+    client = SecondBrainClient(str(vault))
+    with open(vault / ".git" / "siris-git.lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        started = time.monotonic()
+        with client._git_file_lock(wait=0.6):
+            pass
+        assert time.monotonic() - started >= 0.5   # waited for the holder, then gave up rather than hang
+    with client._git_file_lock(wait=0.6):
+        pass
+
+
+def test_capture_a_decision(brain_api) -> None:
+    client, vault = brain_api
+    r = client.post("/siris/brain/capture", json={"text": "Keep SirisOS public", "kind": "decision",
+                                                   "why": "Used from everywhere", "project": "SirisOS"})
+    assert r.status_code == 200 and r.json()["title"] == "Decision Log" and r.json()["project"] == "SirisOS"
+    call = _calls(vault)[-1]["args"]
+    assert call[:2] == ["decide", "Keep SirisOS public"] and "--why" in call
+
+
+def test_capture_a_voice_memo(brain_api) -> None:
+    client, vault = brain_api
+    siris = get_siris()
+
+    class FakeSTT:
+        async def transcribe(self, audio, *, filename="audio.wav", content_type="audio/wav"):
+            assert audio == b"memo-bytes" and filename == "memo.m4a"
+            return "Remember to book the car service."
+
+    previous, siris.stt = siris.stt, FakeSTT()
+    try:
+        audio = "data:audio/m4a;base64," + base64.b64encode(b"memo-bytes").decode()
+        r = client.post("/siris/brain/capture", json={"audio": audio})
+        assert r.status_code == 200
+        sent = json.loads(_calls(vault)[-1]["stdin"])[0]
+        assert sent["content"].startswith("Remember to book the car service.")
+        assert "![[Attachments/" in sent["content"] and "voice-memo" in sent["tags"]
+        assert sent["title"] == "Remember to book the car service"
+        assert list((vault / "Attachments").iterdir())[0].read_bytes() == b"memo-bytes"
+        siris.stt = None
+        assert client.post("/siris/brain/capture", json={"audio": audio}).status_code == 503
+        bad = client.post("/siris/brain/capture", json={"audio": "data:text/plain;base64,aGk="})
+        assert bad.status_code == 422
+    finally:
+        siris.stt = previous
+
+
+def test_briefing_has_on_this_day_and_birthdays(brain_api) -> None:
+    from app.skills.builtin.briefing_extras import _birthdays, _on_this_day
+
+    siris = get_siris()
+    assert _on_this_day(siris) == "On this day, 1 year ago: Box Culverts -- Box culverts can take zero cover."
+    assert _birthdays(siris) == "Birthdays: Dom Mairs in 2 days (turning 28)."
+
+
+def test_weekly_asks_about_stalled_projects_and_people(tmp_path: Path) -> None:
+    from datetime import date
+
+    from app.second_brain import jobs
+
+    siris = get_siris()
+    vault = _vault(tmp_path / "v", {"SirisHydro": "x"})
+    previous, siris.second_brain = siris.second_brain, SecondBrainClient(str(vault))
+    sent: list[tuple[str, str]] = []
+    original = jobs._push
+    jobs._push = lambda _s, message, title, priority=None: sent.append((title, message))  # type: ignore[assignment]
+    siris.state.set(jobs.STALLED_KEY, {})
+    siris.state.set(jobs.PEOPLE_KEY, {})
+    try:
+        siris.second_brain.insights = lambda days=30: {"stale_projects": [{"title": "SirisHydro", "days_idle": 37}]}  # type: ignore[method-assign]
+        assert jobs.ask_about_stalled_projects(siris, date(2026, 11, 15)) == {"asked": ["SirisHydro"]}
+        assert jobs.ask_about_stalled_projects(siris, date(2026, 11, 22)) == {"asked": []}   # not again for 4 weeks
+        assert jobs.ask_about_stalled_projects(siris, date(2026, 12, 13))["asked"] == ["SirisHydro"]
+        out = jobs.ask_about_people(siris, date(2026, 11, 12))
+        assert out == {"birthdays": ["Dom Mairs"], "quiet": ["Aaron Cheong"]}
+        assert sent[0][0] == "Siris: stalled projects" and "carry on, pause, or archive" in sent[0][1]
+        assert "Dom Mairs on Sat 14 Nov, turning 28" in sent[-1][1]
+    finally:
+        jobs._push = original  # type: ignore[assignment]
+        siris.second_brain = previous
+
+
+def test_project_status_and_decision_tools(tmp_path: Path) -> None:
+    from app.plugins.builtin.second_brain import BrainProjectStatusTool, BrainRecordDecisionTool
+
+    vault = _vault(tmp_path)
+    c = SecondBrainClient(str(vault))
+    assert BrainProjectStatusTool(c).run(project="SirisHydro", status="on-hold")["status"] == "on-hold"
+    assert BrainRecordDecisionTool(c).run(decision="Pause SirisHydro", why="no time")["title"] == "Decision Log"
+    assert _calls(vault)[-1]["args"][-2:] == ["--source", "SirisAI chat"]
+
+
+def test_watch_alerts_once_then_clears(tmp_path: Path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.second_brain import jobs, watch
+
+    siris = get_siris()
+    vault = _vault(tmp_path / "w")
+    previous, siris.second_brain = siris.second_brain, SecondBrainClient(str(vault))
+    sent: list[tuple[str, str]] = []
+    original = jobs._push
+    jobs._push = lambda _s, message, title, priority=None: sent.append((title, message))  # type: ignore[assignment]
+    siris.state.set(watch.ALERTED_KEY, {})
+    siris.state.set(jobs.STATE_KEY, {})
+    now = datetime(2026, 11, 12, 1, 0, tzinfo=UTC)   # 12:00 in Melbourne
+    beats = vault / ".siris-heartbeats.json"
+    from app.core import clock
+
+    local = lambda t: t.astimezone(clock.get_zone(siris.settings.timezone)).replace(tzinfo=None).isoformat(timespec="seconds")  # noqa: E731
+    try:
+        beats.write_text(json.dumps({"obsidian-sync": {"last_ok": local(now - timedelta(hours=6)), "error": "pull failed"}}))
+        out = watch.check(siris, now)
+        assert list(out["problems"]) == ["obsidian-sync"] and out["alerted"] == ["obsidian-sync"]
+        assert "hasn't succeeded for 6 hours" in sent[-1][1] and "pull failed" in sent[-1][1]
+        assert watch.check(siris, now + timedelta(hours=1))["alerted"] == []    # once, not every 15 minutes
+        assert watch.check(siris, now + timedelta(hours=25))["alerted"] == ["obsidian-sync"]   # daily reminder
+        beats.write_text(json.dumps({"obsidian-sync": {"last_ok": local(now + timedelta(hours=25, minutes=30))}}))
+        out = watch.check(siris, now + timedelta(hours=26))
+        assert out["cleared"] == ["obsidian-sync"] and sent[-1][0] == "Siris: brain OK"
+        beats.write_text(json.dumps({"secrets-backup": {"last_ok": "2026-10-01T01:30:00"}}))
+        assert "secrets-backup" in watch.problems(siris, now)
+        beats.unlink()
+        siris.state.set(jobs.STATE_KEY, {"dream": "2026-11-09", "upkeep": "2026-11-12"})
+        assert list(watch.problems(siris, now)) == ["dream"]
+    finally:
+        jobs._push = original  # type: ignore[assignment]
+        siris.second_brain = previous
