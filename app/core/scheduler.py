@@ -432,6 +432,24 @@ def should_warm(siris: "SirisAI", now: datetime | None = None) -> bool:
 # it's still going (GET /siris/scheduler/jobs).
 JOB_STATUS: dict[str, dict[str, object]] = {}
 _EXECUTOR = ThreadPoolExecutor(max_workers=24, thread_name_prefix="siris-job")
+# The app's event loop, set when the scheduler starts (6.05). The model
+# clients keep their connections on it, so a job thread that needs the model
+# hands its coroutine here (run_on_main_loop) instead of starting a loop of
+# its own, which fails with "Event loop is closed" on the second call.
+MAIN_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def run_on_main_loop(coro, timeout: float = 600.0):  # type: ignore[no-untyped-def]
+    """Run `coro` on the app's loop from a job thread and wait for it; with
+    no app loop running (tests, scripts), in a new loop of its own."""
+    loop = MAIN_LOOP
+    try:
+        on_it = asyncio.get_running_loop() is loop
+    except RuntimeError:
+        on_it = False
+    if loop is None or not loop.is_running() or on_it:
+        return asyncio.run(coro)
+    return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout)
 # A job still going after this long is flagged "slow" in JOB_STATUS. It
 # isn't stopped (a thread can't be), and it won't be started again until
 # it finishes, so a hung check never piles up copies of itself.
@@ -589,6 +607,8 @@ def job_status() -> list[dict[str, object]]:
 
 
 async def run(siris: "SirisAI", interval_seconds: float = 20.0) -> None:
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     tasks = [asyncio.create_task(_job_loop(siris, job, interval_seconds)) for job in _jobs(interval_seconds)]
     tasks.append(asyncio.create_task(_internet_loop(siris)))
     brain_task: asyncio.Task | None = None

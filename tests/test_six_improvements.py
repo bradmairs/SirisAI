@@ -174,3 +174,47 @@ def test_twenty_tools_a_turn_by_default() -> None:
     # (The tests run with SIRISAI_TOOL_SELECTION_MAX=0, see conftest.py.)
     assert Settings.model_fields["tool_selection_max"].default == 20
     assert SirisAI(settings=Settings(tool_selection_max=20)).tool_selector.max_tools == 20
+
+
+def test_a_job_thread_runs_model_calls_on_the_app_loop() -> None:
+    """The self-test's questions run on the app's loop, where the model
+    clients' connections live, not a loop of the job thread's own."""
+    import asyncio
+    import threading
+
+    from app.core import scheduler
+
+    async def where() -> int:
+        return id(asyncio.get_running_loop())
+
+    async def main() -> tuple[int, int]:
+        scheduler.MAIN_LOOP = asyncio.get_running_loop()
+        seen: list[int] = []
+        thread = threading.Thread(target=lambda: seen.append(scheduler.run_on_main_loop(where())))
+        thread.start()
+        while thread.is_alive():
+            await asyncio.sleep(0.01)
+        return id(asyncio.get_running_loop()), seen[0]
+
+    try:
+        app_loop, used = asyncio.run(main())
+    finally:
+        scheduler.MAIN_LOOP = None
+    assert used == app_loop
+    assert isinstance(scheduler.run_on_main_loop(where()), int)   # no app loop: a loop of its own
+
+
+def test_a_tool_call_written_as_text_is_taken_as_the_call() -> None:
+    from app.llm.ollama import text_tool_call
+
+    tools = [{"type": "function", "function": {"name": "weather_current"}},
+             {"type": "function", "function": {"name": "home_assistant_get_state"}}]
+    call = text_tool_call('{"name": "home_assistant_get_state", "parameters": {"entity_id": "sensor.outside"}}', tools)
+    assert (call.name, call.arguments) == ("home_assistant_get_state", {"entity_id": "sensor.outside"})
+    assert text_tool_call('```json\n{"name": "weather_current", "arguments": {}}\n```', tools).name == "weather_current"
+    for text in ('{"name": "rm_everything", "parameters": {}}',            # not offered
+                 'It is {"name": "weather_current"} I think',              # not the whole reply
+                 '{"name": "weather_current", "parameters": {}, "x": 1}',  # something else too
+                 "It's 14 degrees.", None):
+        assert text_tool_call(text, tools) is None
+    assert text_tool_call('{"name": "weather_current", "parameters": {}}', None) is None

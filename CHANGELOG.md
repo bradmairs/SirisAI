@@ -5,6 +5,12 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.05 — 2026-11-13
+
+- The self-test runs on the app's loop, and a tool call written as text is taken as the call
+- Found by the first live self-test: llama3.1 sometimes answered with just `{"name": "home_assistant_get_state", "parameters": {...}}` as text, which was shown as the answer. A reply that is exactly one call to an offered tool is now made as that call (app/llm/ollama.py, `text_tool_call`).
+- Model calls from background jobs run on the app's own event loop (`scheduler.run_on_main_loop`); a loop per call failed with "Event loop is closed" from the second question on.
+
 ## 6.04 — 2026-11-13
 
 - Faster tool turns, a nightly self-test, approvals from anywhere, and ready for a second AI machine
