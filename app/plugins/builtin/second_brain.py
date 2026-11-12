@@ -316,6 +316,61 @@ class BrainNotesDistinctTool(Tool):
             return {"error": str(exc)}
 
 
+class BrainRecordDecisionTool(Tool):
+    name = "brain_record_decision"
+    description = (
+        "Record a decision in Siris' Decision Log when Brad settles something (\"we'll keep SirisOS public\", "
+        "\"let's use Postgres for this\", \"decided not to renew Plex Pass\"), with the reason if he gave one "
+        "and the project it's about. Later \"why did we ...?\" questions are answered from it."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "description": "What was decided, in a short sentence."},
+            "why": {"type": "string", "description": "The reason, if given."},
+            "project": {"type": "string", "description": "The project or note it's about, if any."},
+        },
+        "required": ["decision"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, decision: str = "", why: str = "", project: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.decide(decision, why=why, project=project, source="SirisAI chat")
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
+class BrainProjectStatusTool(Tool):
+    name = "brain_project_status"
+    description = (
+        "Set a project in Siris to active, on-hold or done, e.g. when Brad answers the weekly question about "
+        "stalled projects (\"pause SirisHydro\", \"carry on with it\", \"archive the SirisHome business\"). "
+        "Done moves it to the archive; on-hold stops it being flagged as stalled."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "project": {"type": "string", "description": "The project's title."},
+            "status": {"type": "string", "enum": ["active", "on-hold", "done"]},
+        },
+        "required": ["project", "status"],
+    }
+
+    def __init__(self, client: SecondBrainClient) -> None:
+        self._client = client
+
+    def run(self, project: str = "", status: str = "", **kwargs: Any) -> Any:
+        try:
+            return self._client.project_status(project, status)
+        except SecondBrainError as exc:
+            return {"error": str(exc)}
+
+
 class BrainDoneTool(Tool):
     name = "brain_mark_done"
     description = (

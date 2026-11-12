@@ -741,6 +741,14 @@ class Settings(BaseSettings):
     brain_path: str = ""
     brain_git_sync: bool = False
     brain_pull_interval_seconds: float = 60.0
+    # Commit the vault's changes together at most this often (0 = one commit per write).
+    brain_commit_interval_seconds: float = 900.0
+    # Brain watch (app/second_brain/watch.py): alert when a job goes quiet. Hours of silence
+    # before an alert: Obsidian sync, unpushed commits, server inventory, secrets backup.
+    brain_watch_sync_hours: float = 3.0
+    brain_watch_push_hours: float = 6.0
+    brain_watch_inventory_hours: float = 50.0
+    brain_watch_backup_days: float = 8.0
     brain_mirror_memory: bool = True
     # How many matching notes the context engine adds to each chat turn
     # (0 turns it off). Only reasonably strong matches are used.

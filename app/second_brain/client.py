@@ -29,6 +29,8 @@ fail a read or a write -- the local checkout stays usable and the error is
 kept on `last_sync_error` for the health check.
 """
 
+import contextlib
+import fcntl
 import json
 import logging
 import os
@@ -61,6 +63,7 @@ class SecondBrainClient:
         author_email: str = "sirisai@localhost",
         engine_env: dict[str, str] | None = None,
         runner: Runner = subprocess.run,
+        commit_interval: float = 0.0,
     ) -> None:
         self.path = Path(path)
         self.git_sync = git_sync
@@ -77,6 +80,12 @@ class SecondBrainClient:
         self._push_thread: threading.Thread | None = None
         self._pull_thread: threading.Thread | None = None
         self.last_sync_error: str | None = None
+        # Batched commits (5.83): with commit_interval > 0, writes are committed together at most
+        # that often ("siris: 12 changes -- ..."), instead of one commit per write.
+        self._commit_interval = commit_interval
+        self._pending_messages: list[str] = []
+        self._commit_timer: threading.Timer | None = None
+        self.last_push_ok: float | None = None   # time.time() of the last successful push
 
     @property
     def engine(self) -> Path:
@@ -136,9 +145,15 @@ class SecondBrainClient:
         with self._lock:
             result = self._engine_call(args, stdin=stdin, raw=raw)
             if self.git_sync:
-                self._commit(message(result))
+                if self._commit_interval > 0:
+                    self._pending_messages.append(message(result))
+                else:
+                    self._commit(message(result))
         if self.git_sync:
-            self._schedule_push()
+            if self._commit_interval > 0:
+                self._schedule_commit()
+            else:
+                self._schedule_push()
         return result
 
     ATTACHMENTS = "Attachments"
@@ -376,6 +391,48 @@ class SecondBrainClient:
         self._maybe_pull()
         return self._engine_call(["tasks", "--output", "json"])
 
+    # ---------- 5.83: upkeep commands (vault engine 2.49, tools/upkeep.py) ----------
+
+    def on_this_day(self, limit: int = 3) -> list[dict]:
+        """Notes and updates from this day a year ago (or 1, 3, 6 months while the brain is young)."""
+        self._maybe_pull()
+        return self._engine_call(["on-this-day", "--limit", str(limit)])
+
+    def people(self, days: int = 21, stale: int = 90) -> dict:
+        """{birthdays: upcoming within `days`, quiet: people not heard about in `stale` days}."""
+        self._maybe_pull()
+        return self._engine_call(["people", "--days", str(days), "--stale", str(stale)])
+
+    def decide(self, text: str, why: str = "", project: str = "", source: str = "") -> dict:
+        """Record a decision in the Decision Log (and the project's ## Decisions)."""
+        args = ["decide", text] + (["--why", why] if why else []) + (["--project", project] if project else []) \
+            + (["--source", source] if source else [])
+        return self._write(args, message=lambda r: f"siris: decision recorded ({text[:60]})")
+
+    def project_status(self, title: str, status: str) -> dict:
+        """Set a project active, on-hold or done (done moves it to 04-Archive)."""
+        return self._write(["project-status", title, status], message=lambda r: f"siris: {r['title']} is {r['status']}")
+
+    def readiness(self, write: bool = False) -> Any:
+        """How rebuild-ready each app note is; `write` puts the table in the Home Lab Rebuild Guide."""
+        if write:
+            return self._write(["readiness", "--write"], message=lambda r: "siris: rebuild readiness")
+        return self._engine_call(["readiness", "--output", "json"])
+
+    def compact(self, title: str | None = None, keep: int = 6, apply: bool = False, min_kb: int = 20) -> list[dict]:
+        """Move big notes' older updates into their history notes (dry run unless `apply`)."""
+        args = ["compact"] + ([title] if title else ["--all", "--min-kb", str(min_kb)]) + ["--keep", str(keep)]
+        if not apply:
+            return self._engine_call(args)
+        return self._write(args + ["--apply"], message=lambda r: "siris: moved older updates of "
+                           + ", ".join(x["title"] for x in r if x.get("moved")))
+
+    def prune_links(self, apply: bool = False) -> dict:
+        """Weak automatic links on the busiest notes (removed only with `apply`)."""
+        if not apply:
+            return self._engine_call(["prune-links"])
+        return self._write(["prune-links", "--apply"], message=lambda r: f"siris: pruned {r['count']} weak links")
+
     def render_map(self) -> str:
         """The vault's interactive mind map as one self-contained HTML page,
         drawn fresh from the notes as they are now."""
@@ -406,12 +463,56 @@ class SecondBrainClient:
 
     def _git(self, *args: str) -> subprocess.CompletedProcess:
         name, email = self._author
-        return self._run(
-            ["git", "-C", str(self.path), "-c", f"user.name={name}", "-c", f"user.email={email}", *args],
-            capture_output=True,
-            text=True,
-            timeout=self._timeout,
-        )
+        with self._git_file_lock():
+            return self._run(
+                ["git", "-C", str(self.path), "-c", f"user.name={name}", "-c", f"user.email={email}", *args],
+                capture_output=True,
+                text=True,
+                timeout=self._timeout,
+            )
+
+    @contextlib.contextmanager
+    def _git_file_lock(self, wait: float = 120.0):
+        """The vault's cross-process git lock (the engine's upkeep.git_lock uses the same file), so
+        SirisAI, the hourly Obsidian sync and engine scripts never pull at the same moment."""
+        lock = self.path / ".git" / "siris-git.lock"
+        if not lock.parent.is_dir():
+            yield
+            return
+        with open(lock, "a") as f:
+            end = time.monotonic() + wait
+            while True:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() > end:
+                        yield   # better a rare clash than a hung reply
+                        return
+                    time.sleep(0.3)
+            try:
+                yield
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+
+    def _schedule_commit(self) -> None:
+        if self._commit_timer is None or not self._commit_timer.is_alive():
+            self._commit_timer = threading.Timer(self._commit_interval, self._flush_commits)
+            self._commit_timer.daemon = True
+            self._commit_timer.start()
+
+    def _flush_commits(self) -> None:
+        with self._lock:
+            messages, self._pending_messages = self._pending_messages, []
+            if not messages:
+                return
+            if len(messages) == 1:
+                summary = messages[0]
+            else:
+                parts = list(dict.fromkeys(m.removeprefix("siris: ") for m in messages))
+                summary = f"siris: {len(messages)} changes -- " + "; ".join(parts)
+            self._commit(summary)
+        self._schedule_push()
 
     def _sync_failed(self, what: str, proc: subprocess.CompletedProcess) -> None:
         self.last_sync_error = f"git {what} failed: {(proc.stderr or proc.stdout).strip()[:300]}"
@@ -462,11 +563,15 @@ class SecondBrainClient:
                     proc = self._git("push", "--quiet")
                 if proc.returncode == 0:
                     self.last_sync_error = None
+                    self.last_push_ok = time.time()
                 else:
                     self._sync_failed("push", proc)
 
     def flush(self, timeout: float = 30.0) -> None:
         """Wait for background pulls and pushes to finish (tests, shutdown)."""
+        if self._commit_timer is not None and self._commit_timer.is_alive():
+            self._commit_timer.cancel()
+            self._flush_commits()
         for thread in (self._pull_thread, self._push_thread):
             if thread is not None:
                 thread.join(timeout)

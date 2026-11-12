@@ -41,6 +41,26 @@ def _brain(siris: SirisAI) -> SecondBrainClient:
 IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/heic": "heic", "image/heif": "heif", "image/webp": "webp", "image/gif": "gif"}
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_CHARS = MAX_IMAGE_BYTES * 4 // 3 + 100
+# Voice memos (5.83): an iPhone recording, transcribed by the configured speech-to-text.
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
+MAX_AUDIO_CHARS = MAX_AUDIO_BYTES * 4 // 3 + 100
+AUDIO_TYPES = {"audio/m4a": "m4a", "audio/x-m4a": "m4a", "audio/mp4": "m4a", "audio/mpeg": "mp3",
+               "audio/wav": "wav", "audio/x-wav": "wav", "audio/webm": "webm", "audio/ogg": "ogg",
+               "audio/aac": "aac"}
+
+
+def _decode_audio(data_url: str) -> tuple[bytes, str, str]:
+    match = re.fullmatch(r"data:([\w/+.-]+);base64,([A-Za-z0-9+/=\s]+)", data_url.strip())
+    if not match or match.group(1).lower() not in AUDIO_TYPES:
+        raise HTTPException(status_code=422, detail="The voice memo must be an m4a, mp3, wav, webm, ogg or aac data URL.")
+    try:
+        raw = base64.b64decode(match.group(2), validate=False)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="The voice memo isn't valid base64.") from None
+    if len(raw) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="The voice memo is over 25 MB.")
+    ctype = match.group(1).lower()
+    return raw, AUDIO_TYPES[ctype], ctype
 
 
 def _decode_image(data_url: str) -> tuple[bytes, str]:
@@ -64,10 +84,17 @@ class CaptureRequest(BaseModel):
     # A photo as a data URL (data:image/jpeg;base64,...). Saved into the
     # vault's Attachments/ and embedded in the note.
     image: str = Field(default="", max_length=MAX_IMAGE_CHARS)
+    # A voice memo as a data URL (data:audio/m4a;base64,...). It's transcribed, and the recording is
+    # kept in Attachments/ next to the text.
+    audio: str = Field(default="", max_length=MAX_AUDIO_CHARS)
+    # With kind "decision": the reason and the project it's about (the text is the decision).
+    why: str = ""
+    project: str = ""
     # "chat": a whole conversation with Claude (or another assistant). It waits in the inbox and
     # the nightly upkeep pulls out what's worth keeping, then keeps the chat in 03-Resources/Claude Chats.
     # "memory": a fact or two about the owner's day (SirisOS's wrap-up). It goes to the memory inbox,
     # and the nightly upkeep files it onto the note it's about: no new note of its own, no day note.
+    # "decision": goes to the Decision Log (with `why` and `project`), not the inbox.
     kind: str = ""
 
 
@@ -83,13 +110,32 @@ def capture_title(text: str, url: str) -> str:
 
 
 @router.post("/capture")
-def capture(request: CaptureRequest, siris: SirisAI = Depends(get_siris)) -> dict:
-    text, url = request.text.strip(), request.url.strip()
-    if not text and not url and not request.image:
-        raise HTTPException(status_code=422, detail="Send some text, a url, a photo, or a mix.")
+async def capture(request: CaptureRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    transcript, audio = "", None
+    if request.audio:
+        raw, ext, ctype = _decode_audio(request.audio)
+        if siris.stt is None:
+            raise HTTPException(status_code=503, detail="Speech-to-text isn't set up, so a voice memo can't be read.")
+        try:
+            transcript = (await siris.stt.transcribe(raw, filename=f"memo.{ext}", content_type=ctype)).strip()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"Couldn't transcribe the voice memo: {exc}"[:300]) from None
+        audio = (raw, ext)
+    return await asyncio.to_thread(_capture, request, siris, transcript, audio)
+
+
+def _capture(request: CaptureRequest, siris: SirisAI, transcript: str = "", audio: tuple[bytes, str] | None = None) -> dict:
+    text, url = "\n\n".join(t for t in (request.text.strip(), transcript) if t), request.url.strip()
+    if not text and not url and not request.image and not audio:
+        raise HTTPException(status_code=422, detail="Send some text, a url, a photo, a voice memo, or a mix.")
     brain = _brain(siris)
+    if request.kind == "decision":
+        if not text:
+            raise HTTPException(status_code=422, detail="A decision needs some text.")
+        return {"saved": True, **brain.decide(text, why=request.why.strip(), project=request.project.strip(),
+                                              source="capture")}
     tags = {"capture", *[t.strip().lower() for t in request.tags if t.strip()]}
-    title = request.title.strip() or (capture_title(text, url) if text or url else f"Photo {clock.now_local(siris.settings.timezone):%Y-%m-%d %H:%M}")
+    title = request.title.strip() or (capture_title(text, url) if text or url else f"{'Voice memo' if audio else 'Photo'} {clock.now_local(siris.settings.timezone):%Y-%m-%d %H:%M}")
     content = text or url
     if text and url:
         content += f"\n\n{url}"
@@ -99,6 +145,11 @@ def capture(request: CaptureRequest, siris: SirisAI = Depends(get_siris)) -> dic
         embed = brain.save_attachment(f"{stamp} {title[:60]}.{ext}", raw)
         content = (content + "\n\n" if content else "") + f"![[{embed}]]"
         tags.add("photo")
+    if audio:
+        stamp = clock.now_local(siris.settings.timezone).strftime("%Y-%m-%d %H%M%S")
+        embed = brain.save_attachment(f"{stamp} voice memo.{audio[1]}", audio[0])
+        content = (content + "\n\n" if content else "") + f"![[{embed}]]"
+        tags.add("voice-memo")
     item = {
         "title": title,
         "content": content,
