@@ -99,6 +99,11 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     (frozenset("event events happened recently log".split()), ("log_event", "recall_events", "delete_event", "event_")),
     (frozenset("relationship relationships depends depend affected runs uses".split()), ("remember_entity_relationship", "recall_entity_relationships")),
     (frozenset("who home present presence away".split()), ("home_assistant_list_entities", "home_assistant_get_state", "presence_")),
+    # 6.06: questions about how something is right now. "Is the TV light on or off?" and "what's the temperature
+    # outside?" were offered call_service and list_entities but not get_state, so llama3.1 wrote a get_state call
+    # as its answer (found by the nightly self-test).
+    (frozenset("on off open closed shut locked unlocked state status reading temperature humidity currently right now".split()),
+     ("home_assistant_get_state", "home_assistant_resolve_entity")),
     (frozenset("integration integrations working broken health status".split()), ("integration_health",)),
     # Felt temperature: "it's freezing in here" is a heating request.
     (frozenset("cold freezing chilly warm warmer cooler stuffy heating heat".split()), ("home_assistant_",)),
