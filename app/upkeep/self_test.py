@@ -17,7 +17,6 @@ their own conversation (self-test-<date>), not Brad's.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from datetime import UTC, datetime
@@ -101,6 +100,18 @@ async def _ask(siris: "SirisAI", conversation_id: str, question: str) -> str:
     return result.response or ""
 
 
+async def _ask_all(siris: "SirisAI", conversation_id: str, questions: list[str]) -> list[str]:
+    """One after another, in one task: the role stays "self_test" throughout and
+    a failed turn becomes that question's answer."""
+    answers = []
+    for question in questions:
+        try:
+            answers.append(await _ask(siris, conversation_id, question))
+        except Exception as exc:  # noqa: BLE001 - a failed turn is a wrong answer too
+            answers.append(f"(no answer: {exc})")
+    return answers
+
+
 def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     """Ask each question, judge each answer, and raise or close its feed item.
     Returns {"passed", "failed", "skipped", "results"}."""
@@ -110,22 +121,26 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     conversation_id = f"self-test-{now.date().isoformat()}"
     results: list[dict[str, Any]] = []
     skipped: list[str] = []
+    checks: list[dict[str, Any]] = []
     for build in CHECKS:
         name = build.__name__.strip("_").removesuffix("_check")
         try:
             check = build(siris, now)
         except Exception as exc:  # noqa: BLE001 - the source being down is the breakage watch's job
             logger.info("Self-test %s skipped: %s", name, exc)
-            skipped.append(name)
-            continue
+            check = None
         if check is None:
             skipped.append(name)
-            continue
+        else:
+            checks.append(check)
+    from app.core.scheduler import run_on_main_loop
+
+    answers = run_on_main_loop(_ask_all(siris, conversation_id, [c["question"] for c in checks])) if checks else []
+    for check, answer in zip(checks, answers, strict=True):
         try:
-            answer = asyncio.run(_ask(siris, conversation_id, check["question"]))
             right, truth = check["judge"](answer)
-        except Exception as exc:  # noqa: BLE001 - a failed turn is a wrong answer too
-            answer, right, truth = f"(no answer: {exc})", False, "it should have answered"
+        except Exception as exc:  # noqa: BLE001
+            right, truth = False, f"the check itself failed ({exc})"
         results.append({"name": check["name"], "question": check["question"], "answer": answer[:300], "right": right, "truth": truth})
         key = FEED_PREFIX + check["name"]
         if right:

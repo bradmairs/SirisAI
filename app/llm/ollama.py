@@ -26,6 +26,32 @@ def _retryable(exc: Exception) -> bool:
     return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500
 
 
+
+def text_tool_call(text: str | None, tools: list[dict[str, Any]] | None) -> ToolCall | None:
+    """A tool call the model wrote as its answer instead of making it (6.05).
+    llama3.1 sometimes replies with just `{"name": "weather_current",
+    "parameters": {}}` as text, which was then shown or spoken as the answer
+    (found by the nightly self-test). Taken as a call only when the whole
+    reply is that one JSON object (code fences allowed) naming a tool that
+    was offered this turn; anything else stays text."""
+    if not text or not tools:
+        return None
+    body = text.strip()
+    if body.startswith("```"):
+        body = body.strip("`").removeprefix("json").strip()
+    if not (body.startswith("{") and body.endswith("}")):
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    offered = {(t.get("function") or {}).get("name") for t in tools}
+    arguments = data.get("parameters", data.get("arguments", {})) if isinstance(data, dict) else None
+    if not isinstance(data, dict) or data.get("name") not in offered or not isinstance(arguments, dict) \
+            or set(data) - {"name", "parameters", "arguments", "type"}:
+        return None
+    return ToolCall(name=data["name"], arguments=arguments)
+
 class OllamaClient(LLMClient):
     def __init__(
         self,
@@ -90,12 +116,15 @@ class OllamaClient(LLMClient):
             ToolCall(name=call["function"]["name"], arguments=call["function"].get("arguments") or {})
             for call in message.get("tool_calls") or []
         ]
+        text = message.get("content") or None
+        if not tool_calls and (written := text_tool_call(text, tools)) is not None:
+            tool_calls, text = [written], None
         # Token usage (milestone 47): Ollama reports these on a non-streamed
         # /api/chat response as prompt_eval_count/eval_count -- absent (not
         # zero) if the backend didn't include them, which LLMResponse's
         # Optional fields distinguish from "used zero tokens".
         return LLMResponse(
-            text=message.get("content") or None,
+            text=text,
             tool_calls=tool_calls,
             prompt_tokens=body.get("prompt_eval_count"),
             completion_tokens=body.get("eval_count"),
@@ -160,9 +189,12 @@ class OllamaClient(LLMClient):
                     raise
                 logger.warning("Ollama at %s failed (%s); trying %s", client.base_url, exc, self._clients[i + 1].base_url)
 
+        text = "".join(text_parts) or None
+        if not tool_calls and (written := text_tool_call(text, tools)) is not None:
+            tool_calls, text = [written], None
         yield LLMChunk(
             response=LLMResponse(
-                text="".join(text_parts) or None,
+                text=text,
                 tool_calls=tool_calls,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
