@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.07 — 2026-11-13
+
+- A guessed Home Assistant entity id finds the real one instead of failing the turn
+
 ## 6.06 — 2026-11-13
 
 - State questions (on or off, open, locked, a reading) are offered Home Assistant's get_state

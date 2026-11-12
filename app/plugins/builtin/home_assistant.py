@@ -150,7 +150,31 @@ class HomeAssistantGetStateTool(Tool):
         self._client = client
 
     def run(self, entity_id: str = "", **kwargs: Any) -> Any:
-        return self._client.get_state(entity_id)
+        state = self._client.get_state_or_none(entity_id)
+        if state is not None:
+            return state
+        # 6.07: the model often guesses an id from the name ("light.tv_light_3"
+        # for light.lounge_tv_light_3, "sensor.outside_temperature"), and the
+        # 404 ended the turn (found by the nightly self-test). One close match
+        # in the same domain is used, with a note; otherwise say so, with the
+        # candidates, so the model can pick one or try another tool.
+        domain, _, object_id = entity_id.partition(".")
+        needle = object_id.replace("_", " ").replace("-", " ").split()
+        candidates = [
+            st for st in (self._client.list_states(domain=domain) if domain and needle else [])
+            if _entity_name_matches(needle, f"{st['entity_id']} {st.get('attributes', {}).get('friendly_name', '')}".lower())
+        ]
+        if len(candidates) == 1:
+            return {**candidates[0], "note": f"'{entity_id}' doesn't exist -- this is '{candidates[0]['entity_id']}', the one close match."}
+        return {
+            "error": f"There's no entity '{entity_id}' in Home Assistant.",
+            "did_you_mean": [
+                {"entity_id": st["entity_id"], "friendly_name": st.get("attributes", {}).get("friendly_name"), "state": st.get("state")}
+                for st in candidates[:8]
+            ],
+            "hint": "Use home_assistant_resolve_entity to find it by name"
+            + (", or weather_current for the weather outside." if domain == "sensor" else "."),
+        }
 
 
 class HomeAssistantResolveEntityTool(Tool):
