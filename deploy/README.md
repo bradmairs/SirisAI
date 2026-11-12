@@ -265,6 +265,36 @@ SirisAI is the one place health data lives; SirisOS 5.8 shows it.
 - **Export or delete** a date range from SirisOS's Health page; there's also a
   printable summary for a doctor.
 
+## Two AI machines (a Mac mini beside the GPU server)
+
+One 12 GB card can't keep a chat model and a vision model loaded together:
+each photo or camera look unloads the chat model, and the next reply waits
+~9 s while it loads again. With a second Ollama machine, give each one a job
+so neither swaps. Install Ollama on the Mac (`OLLAMA_HOST=0.0.0.0`, and
+`OLLAMA_KEEP_ALIVE=-1` so models stay loaded), pull the models, then in
+`docker-compose.override.yml`:
+
+```yaml
+      # Chat and photos on the Mac (more memory, both stay loaded)
+      SIRISAI_OLLAMA_BASE_URL: http://<mac>:11434
+      SIRISAI_VISION_BASE_URL: http://<mac>:11434
+      # Short requests and embeddings on the GPU server
+      SIRISAI_MODEL_ROUTER_POLICY: prompt_length
+      SIRISAI_FAST_LLM_PROVIDER: ollama
+      SIRISAI_FAST_LLM_OLLAMA_BASE_URL: http://<gpu-server>:11434
+      SIRISAI_FAST_LLM_OLLAMA_MODEL: llama3.1:8b
+      SIRISAI_EMBEDDING_BASE_URL: http://<gpu-server>:11434
+      # If either machine is down, the other answers instead
+      SIRISAI_OLLAMA_FALLBACK_BASE_URLS: http://<gpu-server>:11434
+```
+
+Plain home commands ("turn off the kitchen lights") don't use a model at all
+(`SIRISAI_QUICK_COMMANDS`). Embeddings must come from the same model on
+whichever machine serves them, or stored memories stop matching; moving
+`SIRISAI_EMBEDDING_BASE_URL` is fine as long as `SIRISAI_EMBEDDING_MODEL`
+stays the same. Check the split with `GET /siris/timings` and the
+Speed card in SirisOS after a day.
+
 ## Data and backups
 
 Everything that matters is in `./data`:

@@ -44,9 +44,10 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
     """ntfy buttons for an attention item's own actions (up to three), each
     posting to POST /siris/hub/v1/attention/{id}/act -- the same thing the
     feed's buttons do, so a tap on the phone is recorded, closes the item
-    everywhere, and counts for the learning loop. None without
-    SIRISAI_PUBLIC_BASE_URL (the phone has nowhere to send the tap)."""
-    if not siris.settings.public_base_url:
+    everywhere, and counts for the learning loop. With SIRISAI_SIRISOS_PUBLIC_URL
+    an "Open in SirisOS" button comes first (6.0). None with neither address
+    (the phone has nowhere to send the tap)."""
+    if not siris.settings.public_base_url and not siris.settings.sirisos_public_url:
         return None
     from app.core import approvals
 
@@ -57,12 +58,16 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
     actions = [a for a in item["actions"] if not approvals.action_needs_pin(siris, item, a["id"], payload)]
     buttons: list[dict[str, Any]] = []
     held = len(actions) < len(item["actions"])
-    if held and siris.settings.sirisos_public_url:
+    if siris.settings.sirisos_public_url:
         # The ones that need the PIN open straight to the approval in
-        # SirisOS (4.6), which asks for it there.
+        # SirisOS (4.6), which asks for it there. Since 6.0 every approval
+        # gets this button: the Approve/Decline buttons post to
+        # SIRISAI_PUBLIC_BASE_URL, which is usually only reachable at home,
+        # while SirisOS's public address works from anywhere (behind its
+        # sign-in), so away from home this is the button that works.
         buttons.append({
             "action": "view",
-            "label": "Approve in SirisOS",
+            "label": "Approve in SirisOS" if held else "Open in SirisOS",
             "url": f"{siris.settings.sirisos_public_url.rstrip('/')}/?attention={item['id']}",
             "clear": True,
         })
@@ -76,7 +81,7 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
             "body": json.dumps({"action": a["id"]}),
             "clear": True,
         }
-        for a in actions[: 3 - len(buttons)]
+        for a in (actions if base else [])[: 3 - len(buttons)]
     ]
 
 

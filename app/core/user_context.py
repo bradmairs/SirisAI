@@ -55,7 +55,8 @@ async def resolve_user_id(x_siris_user: str | None = Header(default=None)) -> st
 
 # What the person speaking may do this turn (5.0): "adult" (everything, the
 # default), "child" or "guest" (no personal information and nothing that
-# needs confirming). Set by a voice turn from who it recognised.
+# needs confirming). Set by a voice turn from who it recognised. "self_test"
+# (6.0, app/upkeep/self_test.py): READ tools only.
 _turn_role: ContextVar[str] = ContextVar("siris_turn_role", default="adult")
 
 
@@ -64,7 +65,7 @@ def get_turn_role() -> str:
 
 
 def set_turn_role(role: str) -> None:
-    _turn_role.set(role if role in ("adult", "child", "guest") else "adult")
+    _turn_role.set(role if role in ("adult", "child", "guest", "self_test") else "adult")
 
 
 def role_for(user_id: str | None, roles: str) -> str:

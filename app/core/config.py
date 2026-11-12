@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # nomic-embed-text` on the Ollama host to make one available.
     embedding_provider: str = "none"
     embedding_model: str = "nomic-embed-text"
+    # Where the embedding model runs, if not on SIRISAI_OLLAMA_BASE_URL (6.0):
+    # with a second AI machine, keep embeddings (small, constant) on one and
+    # chat on the other, see "Two AI machines" in deploy/README.md.
+    embedding_base_url: str = ""
 
     # Speech (app/voice/base.py). "openai_compatible" points at any local
     # server speaking OpenAI's audio API shape (whisper.cpp server,
@@ -239,6 +243,7 @@ class Settings(BaseSettings):
         "server_updates_hour_local", "server_disks_hour_local", "container_updates_hour_local", "server_backups_hour_local",
         "internet_report_hour_local", "expiry_check_hour_local", "energy_report_hour_local", "audit_digest_hour_local", "health_weight_goal_kg", "health_check_hour_local", "gmail_hour_local",
         "bills_hour_local", "things_email_hour_local", "travel_hour_local", "reliability_hour_local",
+        "self_test_hour_local",
         mode="before",
     )
     @classmethod
@@ -552,7 +557,11 @@ class Settings(BaseSettings):
     # Offer the model only the most relevant tools each turn instead of all
     # of them (see app/plugins/selector.py). 110 tools cost ~14,200 prompt
     # tokens per turn versus ~1,050 with none. 0 = always offer everything.
-    tool_selection_max: int = 32
+    # 20 since 6.0: measured on the live server (2026-11-12, 231 tools, the
+    # 71 eval cases) the right tool was offered 100% of the time at 32, 24
+    # and 20, 98.6% at 16, 84.5% at 12 and 56% at 10; 20 sends ~1,600 fewer
+    # prompt tokens per model call than 32 (~1.5 s a tool turn on the 3060).
+    tool_selection_max: int = 20
     # Answer plain home commands ("turn off the kitchen lights", "dim the
     # lounge to 30%") without the model when there's exactly one match and
     # no confirmation is needed (app/cortex/quick.py). Anything else, or
@@ -582,6 +591,11 @@ class Settings(BaseSettings):
     backup_copy_to: str = ""  # a second folder (a NAS mount) to copy each backup to
     restore_drill_hour_local: int | None = 4
     housekeeping_hour_local: int | None = 5
+    # The nightly self-test (app/upkeep/self_test.py): asks SirisAI a few
+    # questions it should get right (the weather, a light, the day) and checks
+    # the answers against the services themselves; a wrong one goes to the
+    # attention feed. Blank = off.
+    self_test_hour_local: int | None = 4
     audit_keep_days: int = 180
     metrics_keep_days: int = 90
     disk_warn_percent: float = 10.0

@@ -124,6 +124,13 @@ def _update_check(siris: "SirisAI", now: datetime) -> Any:
     return updates.check(siris, now)
 
 
+def _self_test(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import self_test
+
+    result = self_test.run(siris, now)
+    return {"passed": result["passed"], "failed": result["failed"]}
+
+
 def _model_trial(siris: "SirisAI", now: datetime) -> Any:
     from app.upkeep import models
 
@@ -243,6 +250,7 @@ JOBS: list[DailyJob] = [
     DailyJob("health_weekly", lambda s: 19, _health_weekly, weekday=lambda s: 6),
     DailyJob("health_monthly", lambda s: 19, _health_monthly, monthday=1),
     DailyJob("expiry_check", lambda s: s.settings.expiry_check_hour_local if (s.settings.security_cert_hosts or s.settings.security_domains or (s.settings.expiry_check_servers and s.ssh_client is not None)) else None, _expiry),
+    DailyJob("self_test", lambda s: s.settings.self_test_hour_local if s.settings.llm_provider != "none" else None, _self_test),
     DailyJob("model_trial", lambda s: s.settings.model_trial_hour_local if s.settings.candidate_models else None, _model_trial, weekday=lambda s: s.settings.model_trial_day),
 ]
 
