@@ -33,7 +33,10 @@ class WeatherForecastTool(Tool):
 
 class WeatherCurrentTool(Tool):
     name = "weather_current"
-    description = "Get current weather conditions at the configured home location."
+    description = (
+        "The weather outside at home right now: temperature, humidity, wind, rain and conditions. Use this for "
+        "'what's the temperature outside', 'how cold is it out', 'is it raining' -- not Home Assistant."
+    )
     permission = ToolPermission.READ
     parameters = {"type": "object", "properties": {}, "required": []}
 
