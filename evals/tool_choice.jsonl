@@ -78,3 +78,7 @@
 {"prompt": "find the clause on minimum cover over stormwater pipes in the standards", "expect": ["engineering_standards_search", "sirishydro_ask"]}
 {"prompt": "is APD PM up?", "expect": ["sirisos_apps_status"]}
 {"prompt": "which engineering projects are active?", "expect": ["engineering_projects"]}
+{"prompt": "Is the TV Light 3 on or off right now?", "expect": ["home_assistant_get_state", "home_assistant_resolve_entity"]}
+{"prompt": "is the garage door open?", "expect": ["home_assistant_get_state", "home_assistant_resolve_entity", "home_assistant_list_entities"]}
+{"prompt": "what's the temperature in the lounge?", "expect": ["home_assistant_get_state", "home_assistant_resolve_entity"]}
+{"prompt": "What's the temperature outside right now?", "expect": ["weather_current", "home_assistant_get_state"]}

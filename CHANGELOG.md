@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.06 — 2026-11-13
+
+- State questions (on or off, open, locked, a reading) are offered Home Assistant's get_state
+
 ## 6.05 — 2026-11-13
 
 - The self-test runs on the app's loop, and a tool call written as text is taken as the call
