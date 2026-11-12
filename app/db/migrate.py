@@ -43,6 +43,8 @@ _ADDED_COLUMNS = [
     ("satellite_registrations", "last_conversation_id", "TEXT"),
     # Semantic memory recall.
     ("memories", "embedding", "TEXT"),
+    # 5.94: the last day a thing you bought can be returned
+    ("things", "return_until", "TEXT"),
     # Capability gap lifecycle (a Jarvis-concept follow-up):
     # dismiss/resolve state for a gap that used to just accumulate forever.
     ("capability_gaps", "status", "TEXT NOT NULL DEFAULT 'open'"),

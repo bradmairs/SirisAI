@@ -290,7 +290,7 @@ async def _scan(siris: "SirisAI", client: Any, days: int, now: datetime, max_rea
             continue
         seen.append(key)
         new = [i for i in items if not _already_there(siris, str(i["name"])[:120], bought)]
-        added += things.from_receipt(siris, new, bought, shop, doc["id"], _note(subject))
+        added += things.from_receipt(siris, new, bought, shop, doc["id"], _note(subject), return_days=things.return_days(answer))
     siris.state.set(SEEN_KEY, seen[-MAX_SEEN:])
     siris.state.set(KEPT_KEY, kept[-MAX_SEEN:])
     out = {"looked_at": len(found), "read": read, "kept": len(receipts), "added": len(added), "linked": linked, "more": max(0, len(wanted) - read),

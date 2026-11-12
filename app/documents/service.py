@@ -156,6 +156,7 @@ async def understand(siris: "SirisAI", text: str, filename: str) -> dict[str, An
         "due": due or base["due"],
         "date": str(answer.get("date") or "")[:10] or None,
         "items": [i for i in answer.get("items") or [] if isinstance(i, dict)] if kind in ("receipt", "bill", "statement") else [],
+        "return_days": things.return_days(answer) if kind == "receipt" else None,
     }
 
 
@@ -227,7 +228,7 @@ async def ingest(siris: "SirisAI", filename: str, content_type: str, data: bytes
             bought = date.fromisoformat(doc["date"]).isoformat() if doc.get("date") else today.isoformat()
         except ValueError:
             bought = today.isoformat()
-        doc["things"] = things.from_receipt(siris, doc["items"], bought, doc["sender"], doc_id)
+        doc["things"] = things.from_receipt(siris, doc["items"], bought, doc["sender"], doc_id, return_days=doc.get("return_days"))
     from app.core import undo
 
     undo.add(siris, f"filed \"{doc['title']}\"", [{"document_id": doc_id}]

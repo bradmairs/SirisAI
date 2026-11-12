@@ -141,6 +141,7 @@ class ThingIn(BaseModel):
     shop: str | None = None
     warranty_months: int | None = None
     warranty_until: str | None = None
+    return_until: str | None = None
     manual: str | None = None
     notes: str | None = None
 

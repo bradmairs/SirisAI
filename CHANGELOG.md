@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 5.94 — 2026-11-12
+
+- Return windows on things you bought: read from the receipt, with a last-chance alert
+
 ## 5.93 — 2026-11-12
 
 - Reliability fixes, faster replies, a second AI machine, breakage alerts, notifications where you are, Hey Siris, and OneNote removed

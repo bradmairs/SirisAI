@@ -453,6 +453,8 @@ class Settings(BaseSettings):
 
     # Things you own (app/things): warn this many days before a warranty ends.
     warranty_warn_days: int = 30
+    # ...and the return window to assume when a receipt doesn't state one (days; 0: only when it says, 5.94).
+    return_default_days: int = 0
     # People (app/people): remind this many days before a birthday or anniversary.
     people_remind_days: int = 7
     # House watch (app/household/watch.py), checked every house_watch_seconds
