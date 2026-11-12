@@ -480,6 +480,7 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("warm_model", _warm, lambda _s: 240, is_async=True),
         Job("speed_trial", lambda s: _finish_trial(s), lambda _s: 3600),
         Job("house_watch", lambda s: _house_watch(s), lambda s: s.settings.house_watch_seconds),
+        Job("breakage_watch", lambda s: _breakage_watch(s), lambda _s: 900, at_boot=False),
         Job("conversation_summaries", _summaries, lambda _s: 600, at_boot=False, is_async=True),
     ]
 
@@ -490,6 +491,12 @@ def _brain_watch(siris: "SirisAI") -> None:
     from app.second_brain import watch
 
     watch.check(siris)
+
+
+def _breakage_watch(siris: "SirisAI") -> None:
+    from app.upkeep import breakage
+
+    breakage.check(siris)
 
 
 def _spoken_brief(siris: "SirisAI") -> None:
