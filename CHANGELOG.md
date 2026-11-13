@@ -5,6 +5,24 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.38 — 2026-11-13
+
+- Cron alerts and editing, scheduled and one-at-a-time reboots, server timelines, workout comparisons, quicker SSH, and actions followed up
+- **Cron jobs that didn't run or failed** (`app/cron/watch.py`, job `cron_watch`, every `SIRISAI_CRON_WATCH_MINUTES`, 30): a job that runs at most hourly and has no run in the cron log at its last scheduled time raises "The 03:00 backup on nas didn't run". `cron_watch_job` wraps a job so its exit code is logged (`logger -t siris-cron`), and a failed run raises an alert. Both clear by themselves.
+- **Edit cron jobs** with `cron_edit_job` (add, change, delete, always asking first), or from the Cron tab's New job, Edit, Watch and Delete buttons. The schedule is checked first and described back to you.
+- **Reboots at a set time**: `ssh_power` takes `at` ("reboot the NAS at 3am Sunday"). SirisAI does it then and checks the server came back. If SirisAI wasn't running at that time, it won't do it late. `ssh_power_scheduled` lists what's planned, and cancelling also clears scheduled reboots.
+- **One at a time**: `ssh_reboot_needed` reboots the servers that need it after updates (or the ones named), now or at a set time. Each server has to come back before the next goes down, SirisAI's own server goes last, and it stops if one doesn't come back. When two or more servers need a reboot, the feed offers "Reboot them one at a time".
+- **Server timeline** (`server_timeline`, `GET /siris/servers/{name}/timeline`): reboots and whether they came back, updates installed, failed services, full disks, not answering, disk trouble and cron runs, newest first, kept for 30 days.
+- **Workouts compared** (`gym_compare`): a workout against the last one with the same name, exercise by exercise. `stalls=true` lists lifts whose estimated 1RM hasn't gone up in 3 weeks.
+- **Mid-workout**: "what did I lift last time on incline press?" is answered straight away, without the model, from the last two sessions with that exercise.
+- **Training in the morning brief**: on Mondays, last week's workouts, sets, records, the muscles under or over their targets, and one change. On a training day when readiness is in Recover, it suggests a lighter version: a third fewer sets and about 10% lighter. `gym_progress` says the same.
+- **Faster SSH**: one connection per server is kept open for `SIRISAI_SSH_REUSE_SECONDS` (120; 0 turns it off) and reused (OpenSSH ControlMaster). When it isn't there, commands connect as before.
+- **Cron tab**: the servers are asked at the same time, and the last overview is shown straight away while a fresh one loads (`?cached=true`).
+- **After each update**: once per new version, `SIRISAI_RELEASE_CHECK_DELAY_SECONDS` (120) after starting, SirisAI checks every integration and runs the self-test. It pushes one alert saying what broke since the last version, or posts a quiet notice that all is well.
+- **Actions followed up** (`app/core/followup.py`): any action whose own check fails (a light, lock or cover that didn't change, including protocol steps) is checked again after 30 seconds and after 2 minutes. If it still hasn't happened, the feed says "That didn't happen: turn off kitchen light".
+- **What I did, by area**: `what_did_you_do` groups actions by area (Home, Servers, Containers...). Each has a details link (`/siris/activity?id=`), and the last one says whether it can be undone.
+- **"Anything I need to know?"**: `attention_summary` reads the feed out, urgent first and numbered, with what can be done about each. `attention_act` dismisses or acknowledges by number, by voice. Anything else, like a reboot or an install, asks first and is only done in the app.
+
 ## 6.28 — 2026-11-13
 
 - Friday work debrief with a CPEng gap question; memories never filed on a note they only share a date with
