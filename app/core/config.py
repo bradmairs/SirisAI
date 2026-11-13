@@ -236,7 +236,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "weather_latitude", "weather_longitude", "briefing_hour_local", "energy_price_max",
-        "brain_dream_hour_local", "brain_weekly_hour_local",
+        "brain_dream_hour_local", "brain_weekly_hour_local", "brain_debrief_hour_local",
         "brain_upkeep_hour_local", "reflection_hour_local", "goal_review_hour_local",
         "backup_hour_local", "restore_drill_hour_local", "housekeeping_hour_local", "update_check_hour_local",
         "model_trial_hour_local", "triage_hour_local", "career_capture_hour_local",
@@ -799,6 +799,13 @@ class Settings(BaseSettings):
     brain_gap_questions: int = 3
     # Notes Siris wrote that it asks Brad to check each week (0 = off).
     brain_review_notes: int = 3
+    # Friday work debrief (jobs.work_debrief): three questions about the
+    # week's decisions and lessons, pushed at this hour on brain_debrief_day
+    # (4 = Friday; an hour of None turns it off), with one question for a
+    # CPEng element that has no evidence yet (brain_cpeng_questions).
+    brain_debrief_day: int = 4
+    brain_debrief_hour_local: int | None = 16
+    brain_cpeng_questions: bool = True
     # Nightly upkeep (jobs.upkeep), with the general model (local Ollama):
     # file the inbox, add GitHub activity to project notes, relink. The
     # GitHub step needs a read-only token (contents, pull requests,
