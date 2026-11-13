@@ -69,7 +69,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.core import taint
-from app.cortex import quick, timings, trial
+from app.cortex import persona, quick, timings, trial
 from app.notify.confirmation import notify_confirmation_needed
 from app.llm.streaming import EventCallback, generate_with_events
 from app.planning.planner import Planner
@@ -156,6 +156,8 @@ class ToolCallOutcome:
 
 
 # Tools whose results are personal health data (SIRISAI_HEALTH_PRIVATE).
+# A follow-up answer may ask for this many more tools in a row (6.7).
+MAX_FOLLOW_UP_CALLS = 2
 PRIVATE_TOOLS = frozenset({"health_summary", "health_overview", "health_insights", "health_goals", "health_history", "gym_progress", "gym_sessions", "gym_compare", "gym_plan_week", "health_sleep_factors", "gym_month_report", "health_explain"})
 
 
@@ -382,8 +384,8 @@ class Cortex:
         system_messages: list[dict[str, Any]] = []
         context_messages: list[dict[str, Any]] = []
         context_text: str | None = None
-        if siris.settings.persona:
-            system_messages.append({"role": "system", "content": siris.settings.persona})
+        if persona_text := persona.system_text(siris.settings):  # 6.7: the style, then your own instructions
+            system_messages.append({"role": "system", "content": persona_text})
         if use_context:
             await self._emit({"type": "status", "message": "Gathering context"})
             with self.timer.stage("context"):
@@ -473,8 +475,8 @@ class Cortex:
         self, siris: "SirisAI", conversation_id: str, name: str, arguments: dict[str, Any], *, use_planner: bool = False
     ) -> CortexResult:
         messages = self._load_messages(siris, conversation_id)
-        if siris.settings.persona:
-            messages = [{"role": "system", "content": siris.settings.persona}, *messages]
+        if persona_text := persona.system_text(siris.settings):
+            messages = [{"role": "system", "content": persona_text}, *messages]
         confirmed = await self._run_single_tool(
             siris,
             conversation_id,
@@ -571,6 +573,7 @@ class Cortex:
         messages: list[dict[str, Any]] | None = None,
         llm_client: Any = None,
         trigger: str,
+        hops: int = 0,
     ) -> CortexResult:
         """Run one tool through SirisAI.run_tool() (full permission gating
         and audit logging), persist the exchange, and -- when a
@@ -657,6 +660,17 @@ class Cortex:
             except Exception:
                 logger.exception("Follow-up LLM call after tool '%s' failed", name)
             else:
+                repeat = bool(follow_up.tool_calls) and (follow_up.tool_calls[0].name, follow_up.tool_calls[0].arguments) == (name, arguments)
+                if follow_up.tool_calls and hops < MAX_FOLLOW_UP_CALLS and not repeat:
+                    # 6.7: the answer asked for one more tool ("let me check the note"): run it and answer from both.
+                    nxt = follow_up.tool_calls[0]
+                    chained = await self._run_single_tool(
+                        siris, conversation_id, nxt.name, nxt.arguments, confirmed=False, model_role=model_role,
+                        messages=follow_up_messages[:-1], llm_client=llm_client,
+                        trigger="chat: model chose this tool while answering", hops=hops + 1,
+                    )
+                    if chained.response or chained.pending_confirmation or chained.error:
+                        return chained
                 if follow_up.text:
                     siris.conversation.add_message(conversation_id, role="assistant", content=follow_up.text)
                     return CortexResult(

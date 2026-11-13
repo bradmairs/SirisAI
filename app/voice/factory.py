@@ -3,6 +3,7 @@
 import shutil
 
 from app.core.config import Settings
+from app.cortex import persona
 from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient, SpeechToTextClient, TextToSpeechClient
 from app.voice.effects import EffectTTSClient
 from app.voice.openai_compatible import OpenAICompatibleSTTClient, OpenAICompatibleTTSClient
@@ -17,7 +18,7 @@ def build_stt_client(settings: Settings) -> SpeechToTextClient:
 def build_tts_client(settings: Settings) -> TextToSpeechClient:
     if settings.tts_provider == "openai_compatible":
         client: TextToSpeechClient = OpenAICompatibleTTSClient(
-            base_url=settings.tts_base_url, model=settings.tts_model, voice=settings.tts_voice, speed=settings.tts_speed
+            base_url=settings.tts_base_url, model=settings.tts_model, voice=settings.tts_voice, speed=persona.tts_speed(settings)
         )
         if settings.tts_effect:
             client = EffectTTSClient(client, settings.tts_effect)

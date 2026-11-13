@@ -31,7 +31,9 @@ class TautulliCurrentActivityTool(Tool):
 class TautulliRecentHistoryTool(Tool):
     name = "tautulli_recent_history"
     description = (
-        "List recent Plex playback history (who watched what, and when) from Tautulli."
+        "List recent Plex playback history (who watched what, and when) from Tautulli. user='me' gives only "
+        "what the user themself watched ('what have I watched', 'my watch history'); a Plex username gives that "
+        "person's; leave it out for everyone on the server."
     )
     permission = ToolPermission.READ
     parameters = {
@@ -41,15 +43,25 @@ class TautulliRecentHistoryTool(Tool):
                 "type": "integer",
                 "description": "How many recent history entries to return. Defaults to 10.",
             },
+            "user": {"type": "string", "description": "'me' for the user's own history, or a Plex username. Omit for everyone."},
         },
         "required": [],
     }
 
-    def __init__(self, client: TautulliClient) -> None:
+    def __init__(self, client: TautulliClient, my_username: str = "") -> None:
         self._client = client
+        self._me = my_username.strip()
 
-    def run(self, length: int = 10, **kwargs: Any) -> Any:
-        return self._client.recent_history(length=length)
+    def run(self, length: int = 10, user: str | None = None, **kwargs: Any) -> Any:
+        who = (user or "").strip()
+        if who.lower() in ("", "all", "everyone", "anyone"):
+            return self._client.recent_history(length=length)
+        if who.lower() in ("me", "mine", "my", "myself", "i"):  # 6.7: the user's own, not the whole household's
+            who = self._me or self._client.owner_username() or ""
+            if not who:
+                raise ValueError("I don't know your Plex username: set SIRISAI_PLEX_USERNAME.")
+        rows = self._client.recent_history(length=length, user=who)
+        return {"user": who, "history": rows}
 
 
 class TautulliHomeStatsTool(Tool):
