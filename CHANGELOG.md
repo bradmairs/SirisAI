@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.6 — 2026-11-13
+
+- Home controls report a light's new state, not the old one: a toggle waits for Home Assistant to catch up
+
 ## 6.59 — 2026-11-13
 
 - Safer as a public repo: the API key is compared in constant time, a loud warning without one, read-only CI, and no personal email in the README or tests
