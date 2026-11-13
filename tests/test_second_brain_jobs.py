@@ -114,6 +114,11 @@ class FakeBrain:
     def gaps(self) -> list[dict]:
         return self._gaps
 
+    open_tasks: list[dict] = []
+
+    def tasks(self) -> list[dict]:
+        return list(self.open_tasks)
+
     def list_notes(self) -> list[dict]:
         return [{"title": t, "type": self.types.get(t, "note"), "aliases": [], "path": "", "source": self.sources.get(t, "")}
                 for t in self.notes]
@@ -998,3 +1003,52 @@ def test_the_debrief_runs_on_friday_afternoon() -> None:
     assert "debrief" not in asyncio.run(jobs.run_due(siris, _at(15, friday)))
     assert "debrief" in asyncio.run(jobs.run_due(siris, _at(16, friday)))
     assert "debrief" not in asyncio.run(jobs.run_due(siris, _at(17, friday)))
+
+
+def test_old_tasks_are_asked_about_oldest_first_and_not_every_week() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain()
+    brain.open_tasks = [
+        {"task": "Pick a city", "note": "Move Back to New Zealand", "due": None, "since": "2026-08-20"},
+        {"task": "Expand the NAS to RAID", "note": "Synology NAS", "due": None, "since": "2026-08-02"},
+        {"task": "Book shipping", "note": "Move Back to New Zealand", "due": "2027-06-01", "since": "2026-08-01"},
+        {"task": "Brand new", "note": "SirisOS", "due": None, "since": "2026-10-01"},
+        {"task": "From an old engine", "note": "SirisOS", "due": None},
+    ]
+    siris._notify_client = FakeNotify()
+    assert jobs.ask_about_old_tasks(siris, DAY) == {"asked": ["Expand the NAS to RAID", "Pick a city"]}
+    title, message = siris._notify_client.sent[0]
+    assert title == "Siris: old tasks" and "done, keep, or drop" in message
+    assert "1. Expand the NAS to RAID (Synology NAS, since 2026-08-02)" in message
+    assert jobs.ask_about_old_tasks(siris, date(2026, 10, 13)) == {"asked": []}   # just asked; the new one isn't old yet
+    assert jobs.ask_about_old_tasks(siris, date(2026, 11, 3))["asked"] == ["Expand the NAS to RAID", "Pick a city", "Brand new"]
+
+
+def test_monthly_review_brings_goals_decisions_and_lessons_together() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain({
+        "Decision Log": "## October 2026\n- **2026-10-24** Stop impulse buying PC games.\n- **2026-09-02** Removed Authentik.\n",
+        "Lessons Learned": "## Work\n- check the valve schedule first ([[Valves]], 2026-10-05)\n- old one ([[X]], 2026-09-01)\n",
+    })
+
+    class Goals:
+        def list_goals(self, status=None):
+            return [{"title": "CPEng submitted", "objectives": [{"description": "Draft element 10", "done": False},
+                                                                  {"description": "Coverage table", "done": True}]}]
+    siris.goals = Goals()
+    siris.llm = FakeLLM("## This month\n- A good month.")
+    assert asyncio.run(jobs.monthly_review(siris, date(2026, 11, 1))) == {"written": "2026-10 review"}
+    facts = siris.llm.messages[1]["content"]
+    assert "Stop impulse buying PC games" in facts and "Authentik" not in facts
+    assert "check the valve schedule first" in facts and "old one" not in facts
+    assert '"steps_done": 1' in facts and "Draft element 10" in facts
+    item = brain.learned[-1]
+    assert item["folder"] == "03-Resources/Monthly Reviews" and item["content"].startswith("## This month")
+
+
+def test_monthly_review_runs_on_the_first() -> None:
+    siris = _siris(brain_upkeep_hour_local=None, brain_dream_hour_local=None, brain_debrief_hour_local=None)
+    siris.second_brain = FakeBrain()
+    siris.llm = None
+    assert "monthly" not in asyncio.run(jobs.run_due(siris, _at(18, date(2026, 10, 31))))
+    assert asyncio.run(jobs.run_due(siris, _at(18, date(2026, 11, 1))))["monthly"] == {"written": "2026-10 review"}
