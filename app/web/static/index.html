@@ -1973,6 +1973,46 @@
   // --- Status ---
   const statusBody = document.getElementById("status-body");
 
+  // 6.48: how SirisAI itself is doing (GET /siris/upkeep/dashboard).
+  async function renderHealthPage() {
+    const box = document.createElement("div");
+    box.className = "health-page";
+    const head = document.createElement("h3");
+    head.textContent = "How SirisAI is doing";
+    box.appendChild(head);
+    try {
+      const d = await api("/siris/upkeep/dashboard");
+      const summary = document.createElement("p");
+      summary.textContent = `${d.version}, up ${d.up_hours} h. ${d.text}`;
+      box.appendChild(summary);
+      const rows = [];
+      const total = (d.replies.stages || {}).total;
+      if (total) rows.push(["Replies", `median ${Math.round(total.p50_ms)} ms, slowest 5% ${Math.round(total.p95_ms)} ms` + (d.replies.trend ? ` (${d.replies.trend.change_percent >= 0 ? "+" : ""}${d.replies.trend.change_percent}% on before)` : "")]);
+      rows.push(["Tools today", `${d.tools.calls} calls, ${d.tools.failed} failed` + (d.tools.worst.length ? `: ${d.tools.worst.map((w) => `${w.tool} ${w.failed}/${w.calls}`).join(", ")}` : "")]);
+      rows.push(["Model fallbacks today", String(d.fallbacks.length)]);
+      const tests = d.checks.self_test || [];
+      if (tests.length) rows.push(["Self-test", tests.slice(-14).map((t) => (t.failed ? "✗" : "✓")).join(" ") + ` (last ${tests.length})`]);
+      const slowOrBad = (d.jobs || []).filter((j) => j.slow || j.last_error);
+      rows.push(["Background jobs", slowOrBad.length ? slowOrBad.map((j) => `${j.name}${j.slow ? " (slow)" : ""}${j.last_error ? ": " + j.last_error.slice(0, 80) : ""}`).join("; ") : `${(d.jobs || []).length} running normally`]);
+      const dl = document.createElement("dl");
+      dl.className = "status-grid";
+      for (const [label, value] of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.append(dt, dd);
+      }
+      box.appendChild(dl);
+    } catch (err) {
+      const p = document.createElement("p");
+      p.className = "empty";
+      p.textContent = err.message;
+      box.appendChild(p);
+    }
+    return box;
+  }
+
   async function loadStatus() {
     statusBody.innerHTML = '<p class="empty">Loading...</p>';
     try {
@@ -2044,7 +2084,9 @@
         }
       } catch (err) { /* health is extra; the rest of the status still shows */ }
 
+      const healthPage = await renderHealthPage();
       statusBody.innerHTML = "";
+      statusBody.appendChild(healthPage);
       statusBody.appendChild(dl);
       voiceIdBox.hidden = !status.speaker_recognition;
       if (status.speaker_recognition) loadVoiceprints();

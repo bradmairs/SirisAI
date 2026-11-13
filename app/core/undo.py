@@ -139,9 +139,42 @@ def last(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | None
     return None
 
 
-def needs_confirming(siris: "SirisAI", now: datetime | None = None) -> bool:
+def history(siris: "SirisAI", now: datetime | None = None) -> list[dict[str, Any]]:
+    """6.48: everything of yours that can still be undone, newest first, numbered (1 = the last)."""
+    now = now or datetime.now(UTC)
+    user = get_current_user_id()
+    out = []
+    for entry in reversed(siris.state.get(KEY) or []):
+        at = datetime.fromisoformat(entry["at"])
+        if entry.get("user") == user and at >= now - timedelta(hours=UNDO_HOURS):
+            out.append({**entry, "number": len(out) + 1, "minutes_ago": round((now - at).total_seconds() / 60)})
+    return out
+
+
+def find(siris: "SirisAI", which: str | int | None, now: datetime | None = None) -> dict[str, Any] | None:
+    """An entry by number (1 = the last), by "N minutes ago", or by words in what it did ("the lights")."""
+    import re
+
+    entries = history(siris, now)
+    if not entries:
+        return None
+    if which in (None, "", 1, "1", "last", "that", "it"):
+        return entries[0]
+    text = str(which).strip().lower()
+    if text.isdigit():
+        n = int(text)
+        return entries[n - 1] if 1 <= n <= len(entries) else None
+    m = re.search(r"(\d+)\s*(?:min|minute)", text)
+    if m:
+        return min(entries, key=lambda e: abs(e["minutes_ago"] - int(m.group(1))))
+    words = [w.rstrip("s") for w in re.findall(r"[a-z]+", text) if w not in {"the", "a", "my", "undo", "that", "ago", "from", "of"}]
+    hits = [e for e in entries if words and all(w in e["label"].lower() for w in words)]
+    return hits[0] if hits else None
+
+
+def needs_confirming(siris: "SirisAI", now: datetime | None = None, entry: dict[str, Any] | None = None) -> bool:
     """Whether any reversing call would ask first (deleting an automation, say)."""
-    entry = last(siris, now)
+    entry = entry if entry is not None else last(siris, now)
     if entry is None:
         return False
     from app.plugins.base import ToolPermission
@@ -153,10 +186,13 @@ def needs_confirming(siris: "SirisAI", now: datetime | None = None) -> bool:
     return False
 
 
-def undo_last(siris: "SirisAI", now: datetime | None = None, confirmed: bool = False) -> dict[str, Any]:
-    entry = last(siris, now)
+def undo_last(siris: "SirisAI", now: datetime | None = None, confirmed: bool = False, which: str | int | None = None) -> dict[str, Any]:
+    entry = find(siris, which, now) if which not in (None, "") else last(siris, now)
     if entry is None:
+        if which not in (None, ""):
+            return {"undone": None, "message": f"I couldn't find '{which}' among what can still be undone (the last two hours)."}
         return {"undone": None, "message": "There's nothing of yours from the last two hours to undo."}
+    entry = {k: v for k, v in entry.items() if k not in ("number", "minutes_ago")}
     journal = [e for e in siris.state.get(KEY) or [] if e != entry]
     siris.state.set(KEY, journal)
     done, refused = [], []

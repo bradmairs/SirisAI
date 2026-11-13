@@ -233,6 +233,8 @@ from app.cleanuparr.client import CleanuparrClient
 from app.cron.client import CronHostsClient, parse_cron_hosts
 from app.plugins.builtin.ssh import SshListServersTool, SshPowerTool, SshRunTool, SshServerHealthTool
 from app.plugins.builtin.servers import (
+    DiskForecastTool,
+    NetworkMapTool,
     ServerTimelineTool,
     SshDiskHealthTool,
     SshPowerScheduledTool,
@@ -242,7 +244,7 @@ from app.plugins.builtin.servers import (
     SshServerUpdatesTool,
     SshWakeTool,
 )
-from app.plugins.builtin.household import AuditDigestTool, CameraSummaryTool, EnergyReportTool
+from app.plugins.builtin.household import AuditDigestTool, CameraSummaryTool, EnergyByDeviceTool, EnergyReportTool
 from app.plugins.builtin.life import BillsUpcomingTool, DocumentsSearchTool, TravelUpcomingTool
 from app.plugins.builtin.undo import UndoLastTool
 from app.plugins.builtin.household_more import (
@@ -1086,7 +1088,7 @@ class SirisAI:
                 )
             )
             for server_tool in (SshWakeTool, SshServerUpdatesTool, SshInstallUpdatesTool, SshDiskHealthTool, SshServerPermissionsTool,
-                                SshRebootNeededTool, SshPowerScheduledTool, ServerTimelineTool):
+                                SshRebootNeededTool, SshPowerScheduledTool, ServerTimelineTool, DiskForecastTool):
                 self.tools.register(server_tool(self))
             if self.settings.server_backups:
                 self.tools.register(ServerBackupsCheckTool(self))
@@ -1106,9 +1108,18 @@ class SirisAI:
         self.tools.register(AuditDigestTool(self))
         self.tools.register(DocumentsSearchTool(self))
         self.tools.register(UndoLastTool(self))
+        self.tools.register(NetworkMapTool(self))
         for extra in (ThingsFindTool, ThingsAddTool, PeopleUpcomingTool, PeopleRememberTool, PeopleLastSeenTool):
             self.tools.register(extra(self))
         from app.plugins.builtin.attention_voice import AttentionActTool, AttentionSummaryTool
+        from app.plugins.builtin.everyday import EVERYDAY_TOOLS
+        from app.plugins.builtin.undo import UndoHistoryTool
+
+        for everyday_tool in EVERYDAY_TOOLS:
+            if everyday_tool.name in ("create_state_reminder", "state_reminders") and getattr(self, "_home_assistant_client", None) is None:
+                continue
+            self.tools.register(everyday_tool(self))
+        self.tools.register(UndoHistoryTool(self))
 
         self.tools.register(AttentionSummaryTool(self))
         self.tools.register(AttentionActTool(self))
@@ -1120,6 +1131,7 @@ class SirisAI:
             self.tools.register(TravelUpcomingTool(self))
         if self._home_assistant_client is not None:
             self.tools.register(EnergyReportTool(self))
+            self.tools.register(EnergyByDeviceTool(self))
         if self._frigate_client is not None:
             self.tools.register(CameraSummaryTool(self))
 
@@ -1519,8 +1531,11 @@ class SirisAI:
                 raise
 
         prior = undo.capture(self, name, arguments)  # what "undo that" would put back (5.0)
+        from app.core import prefetch
+
+        ready, kept = prefetch.get(self, name, arguments)  # 6.48: fetched just before the usual time
         try:
-            result = tool.run(**arguments)
+            result = kept if ready else tool.run(**arguments)
         except Exception as exc:
             duration_ms = (time.monotonic() - start) * 1000
             self.audit.record(

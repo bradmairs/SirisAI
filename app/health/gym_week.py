@@ -115,3 +115,29 @@ def briefing_line(siris: "SirisAI", on: date | None = None) -> str | None:
     if lighter:
         lines.append(lighter["text"])
     return " ".join(lines) or None
+
+
+def month_training(siris: "SirisAI", first: date, last: date) -> dict[str, Any] | None:
+    """6.48, for the monthly report: SirisGym's workouts that month, sets, records,
+    and how each lift trained three times or more moved (first to last session)."""
+    from app.health import gym_sessions
+
+    found, source = gym_sessions.find(siris, first, last)
+    if not found:
+        return None
+    sets, records, lifts = 0, [], {}
+    for s in sorted(found, key=lambda s: str(s.get("started_at"))):
+        full = gym_sessions.detail(siris, s, source)
+        records += [r.get("text") for r in full.get("records") or [] if r.get("text")]
+        for e in full.get("entries") or []:
+            done = [x for x in e.get("sets") or [] if x.get("done", True) and x.get("type") != "warmup"]
+            sets += len(done)
+            best = gym_sessions._best(e)["e1rm"]
+            if best:
+                lifts.setdefault(e.get("name") or e.get("exercise") or "?", []).append(best)
+    moved = sorted(((name, v[0], v[-1]) for name, v in lifts.items() if len(v) >= 3), key=lambda t: -(t[2] - t[1]))
+    lines = [f"- SirisGym: {len(found)} workouts, {sets} working sets, {len(records)} records"]
+    lines += [f"- {name}: estimated 1RM {a:g} → {b:g} kg ({b - a:+.1f})" for name, a, b in moved[:6]]
+    lines += [f"- Record: {r}" for r in records[:5]]
+    return {"workouts": len(found), "sets": sets, "records": records, "lifts": [{"name": n, "from": a, "to": b} for n, a, b in moved],
+            "lines": lines}

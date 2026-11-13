@@ -248,6 +248,24 @@ _GYM_LAST = re.compile(
     rf"|^{_POLITE}(?:what was|what's) my last (?P<b>[a-z][a-z \-]{{1,40}}?)(?: session| workout)?\??$", re.I)
 
 
+_REST = re.compile(rf"^{_POLITE}(?:start (?:a |the )?|set (?:a )?)?(?:(?P<n>\d{{1,3}}|a|one|two|three|four|five)[ -](?P<unit>minutes?|mins?|seconds?|secs?) "
+                   rf"rest(?: timer)?|rest (?:for )?(?P<n2>\d{{1,3}}) ?(?P<unit2>minutes?|mins?|seconds?|secs?|s)){_TAIL}$", re.I)
+_WORDS = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def _rest(siris: "SirisAI", text: str) -> QuickPlan | None:
+    """6.48: "start a 2-minute rest" without the model."""
+    m = _REST.match(text)
+    if not m or siris.tools.get("gym_rest_timer") is None:
+        return None
+    n, unit = (m.group("n"), m.group("unit")) if m.group("n") else (m.group("n2"), m.group("unit2"))
+    amount = _WORDS.get(n.lower(), None) if not n.isdigit() else int(n)
+    if not amount:
+        return None
+    seconds = amount * 60 if unit.lower().startswith("m") else amount
+    return QuickPlan("gym_rest_timer", {"seconds": seconds}, None)
+
+
 def _gym_last(siris: "SirisAI", text: str) -> QuickPlan | None:
     """6.38: mid-workout, "what did I lift last time on incline press?" without the model."""
     m = _GYM_LAST.match(text)
@@ -273,7 +291,7 @@ def plan(siris: "SirisAI", text: str) -> QuickPlan | None:
         return QuickPlan("undo_last", {}, None) if siris.tools.get("undo_last") is not None else None
     excluded = siris.restricted_tool_names_to_exclude()
     found: QuickPlan | None = None
-    for attempt in (_learned, _gym_last, _device, _scene, _media, _climate):
+    for attempt in (_learned, _rest, _gym_last, _device, _scene, _media, _climate):
         if attempt is not _learned and _NOT_SIMPLE.search(text):
             break
         try:

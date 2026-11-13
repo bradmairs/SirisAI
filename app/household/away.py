@@ -34,7 +34,30 @@ OFFER_KEY = "away:offer"
 UNSAFE_SERVICES = {"unlock", "open_cover", "open", "alarm_disarm", "open_valve"}
 
 
+AWAY_LOG_KEY = "presence:away_log"
+
+
+def log_change(siris: "SirisAI", home: bool, now: datetime | None = None) -> None:
+    """6.48: when everyone was out, as [start, end] pairs (end None while out), the last 60."""
+    at = (now or datetime.now(UTC)).isoformat()
+    log = [list(p) for p in siris.state.get(AWAY_LOG_KEY) or []]
+    if not home and not (log and log[-1][1] is None):
+        log.append([at, None])
+    elif home and log and log[-1][1] is None:
+        log[-1][1] = at
+    siris.state.set(AWAY_LOG_KEY, log[-60:])
+
+
+def away_periods(siris: "SirisAI", now: datetime | None = None) -> list[tuple[datetime, datetime]]:
+    now = now or datetime.now(UTC)
+    return [(datetime.fromisoformat(a), datetime.fromisoformat(b) if b else now) for a, b in siris.state.get(AWAY_LOG_KEY) or []]
+
+
 def on_change(siris: "SirisAI", home: bool, now: datetime | None = None) -> dict[str, Any] | None:
+    try:
+        log_change(siris, home, now)
+    except Exception:  # noqa: BLE001
+        logger.debug("Couldn't log the away period", exc_info=True)
     mode = getattr(siris.settings, "away_mode", "off")
     if mode == "off":
         return None

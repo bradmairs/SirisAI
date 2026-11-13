@@ -200,7 +200,9 @@ HEALTH_COMMAND = (
     # The MAC of the interface the default route uses, learned while the server
     # is up so Wake-on-LAN works later without configuring it.
     "echo '##mac'; dev=$(awk '$2==\"00000000\" {print $1; exit}' /proc/net/route 2>/dev/null); "
-    "[ -n \"$dev\" ] && cat /sys/class/net/$dev/address 2>/dev/null"
+    "[ -n \"$dev\" ] && cat /sys/class/net/$dev/address 2>/dev/null; "
+    # 6.48: exact sizes, for the disk-full forecast (app/servers/forecast.py).
+    "echo '##dfk'; df -kP -x tmpfs -x devtmpfs -x overlay -x squashfs 2>/dev/null"
 )
 
 

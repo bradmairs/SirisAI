@@ -32,6 +32,25 @@ class EnergyReportTool(Tool):
         return energy.report(self._siris, max(1, min(int(days or 7), 30)))
 
 
+class EnergyByDeviceTool(Tool):
+    """6.48: what each device costs, and what's left on."""
+
+    name = "energy_by_device"
+    description = ("What each device costs to run: its kWh over the last N days (default 30) and a month's cost, what draws power "
+                   "overnight, and what was on while everyone was out. For 'what does the pool pump cost', 'what's using power when "
+                   "we're away', 'what's left on at night'.")
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {"days": {"type": "integer", "description": "How many days (7-60, default 30)."}}, "required": []}
+
+    def __init__(self, siris: "SirisAI") -> None:
+        self._siris = siris
+
+    def run(self, days: int = 30, **kwargs: Any) -> Any:
+        from app.household import device_costs
+
+        return device_costs.report(self._siris, max(7, min(int(days or 30), 60)))
+
+
 class CameraSummaryTool(Tool):
     name = "camera_summary"
     description = (
