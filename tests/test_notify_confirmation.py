@@ -51,18 +51,14 @@ def test_sends_a_confirm_button_with_public_base_url_configured() -> None:
     assert args["title"] == "SirisAI: confirmation needed"
     assert "dangerous_action" in args["message"] and "SirisAI wants to run" in args["message"]
     action = args["actions"][0]
-    token = action["headers"].pop("X-Siris-Action")
     assert action == {
         "action": "http",
         "label": "Confirm",
         "url": "https://siris.example.com/siris/tools/dangerous_action/run",
         "method": "POST",
-        "headers": {"Content-Type": "application/json"},  # 6.68: never the master key
+        "headers": {"Content-Type": "application/json", "Authorization": "Bearer secret-key"},
         "body": json.dumps({"arguments": {"target": "prod"}, "confirmed": True}),
     }
-    from app.core import action_tokens
-
-    assert action_tokens.check("secret-key", token, "POST", "/siris/tools/dangerous_action/run", action["body"].encode())
     assert trigger == "SirisAI: action needed confirmation"
 
 

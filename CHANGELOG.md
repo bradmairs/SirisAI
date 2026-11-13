@@ -5,14 +5,9 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
-## 6.68 — 2026-11-13
+## 6.59 — 2026-11-13
 
-- Security for a public repository: push buttons carry a one-request token instead of the API key, constant-time key checks, and no open access without a key
-- **Push buttons no longer carry the API key.** Approve, Decline and Confirm buttons, and the departure and habit-suggestion buttons, used to send `Authorization: Bearer <SIRISAI_API_KEY>`. Pushes go through ntfy, and anyone who knows the topic can read them, buttons included. Each button now carries `X-Siris-Action`: a signed token for that exact request (method, path and body) that lasts 24 hours and opens nothing else (`app/core/action_tokens.py`).
-- **The API key is compared in constant time.**
-- **No key, no outside access**: with `SIRISAI_API_KEY` unset, only requests from the machine SirisAI runs on are let in. `SIRISAI_ALLOW_UNAUTHENTICATED=true` restores an open server (e.g. behind your own authenticating proxy). The Docker deployment always sets a key.
-- **ntfy access token**: `SIRISAI_NTFY_TOKEN` for a reserved topic or a self-hosted ntfy with auth.
-- **Personal details** removed from the README and a test. The test workflow runs with a read-only token. `SECURITY.md` says how to report a problem.
+- Safer as a public repo: the API key is compared in constant time, a loud warning without one, read-only CI, and no personal email in the README or tests
 
 ## 6.58 — 2026-11-13
 

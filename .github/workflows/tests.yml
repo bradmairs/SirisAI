@@ -11,7 +11,7 @@ on:
     branches: [main]
   pull_request:
 
-# Read-only: the tests need no write access (and a fork's PR gets none anyway).
+# 6.59: the repo is public; tests only read it.
 permissions:
   contents: read
 

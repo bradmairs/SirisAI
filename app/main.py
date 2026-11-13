@@ -85,6 +85,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
+    if not settings.api_key:
+        # 6.59: the code is public, so anyone who can reach this port knows every route. Without a key, all of them are open.
+        import logging
+
+        logging.getLogger("sirisai").warning(
+            "SIRISAI_API_KEY isn't set: every /siris route is open to anyone who can reach this port. "
+            "Set it (openssl rand -hex 32), or run deploy/setup.sh, which makes one.")
 
     app.include_router(health.router)
     app.include_router(siris.router)
