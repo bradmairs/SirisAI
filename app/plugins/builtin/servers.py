@@ -263,3 +263,42 @@ class ServerTimelineTool(Tool):
                 pass
         days = max(1, min(int(days or 7), 30))
         return {"server": name, "events": timeline.events(self._siris, name, days), "text": timeline.text(self._siris, name, days)}
+
+
+class DiskForecastTool(Tool):
+    """6.58: when each disk will be full at the rate it's filling."""
+
+    name = "disk_forecast"
+    description = ("When each server's disks will be full at the rate they're filling, from a daily record of their size. "
+                   "For 'when will the NAS fill up', 'how fast is the media disk growing'.")
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, siris: "SirisAI") -> None:
+        self._siris = siris
+
+    def run(self, **kwargs: Any) -> Any:
+        from app.servers import forecast
+
+        return {"disks": forecast.forecasts(self._siris), "text": forecast.text(self._siris)}
+
+
+class NetworkMapTool(Tool):
+    """6.58: what runs where."""
+
+    name = "network_map"
+    description = ("What runs where on the home network: each server, the containers on it, and which services (Home Assistant, "
+                   "Plex, SirisOS, Ollama...) it hosts. what is given, instead says what depends on that server, container or "
+                   "service: 'what breaks if the NAS goes down'.")
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {"what": {"type": "string", "description": "A server, container or service name"}}, "required": []}
+
+    def __init__(self, siris: "SirisAI") -> None:
+        self._siris = siris
+
+    def run(self, what: str = "", **kwargs: Any) -> Any:
+        from app.homelab import network_map
+
+        if what.strip():
+            return network_map.depends_on(self._siris, what)
+        return {**network_map.build(self._siris), "text": network_map.text(self._siris)}

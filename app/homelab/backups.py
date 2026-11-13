@@ -11,8 +11,10 @@ snapshot or file is older than SIRISAI_SERVER_BACKUP_MAX_AGE_HOURS (26) is
 raised in the attention feed, urgently past twice that. One with nothing in
 it, or that can't be read, is raised too.
 
-**Monthly** (on the 1st): picks a random file from the newest snapshot (or
-the folder) and reads all of it. Archives are listed (`tar -t`) or tested
+**Monthly** (on the 1st): picks a random file (under 2 GB) from the newest
+snapshot (or the folder) and reads all of it, then (6.58) restores it to a
+scratch folder and checks the copy's checksum, and for a ZFS snapshot
+compares it with the live file (the same, changed since, or gone). Archives are listed (`tar -t`) or tested
 (`gzip -t`) rather than just read. This proves the backup can be read back,
 not that every file in it is intact. A failed test is urgent; a passed one is
 noted in the feed.
@@ -78,14 +80,21 @@ def test_command(backup: Backup) -> str:
             '[ -n "$snap" ] || { echo "##none"; exit 0; }; dir="$mnt/.zfs/snapshot/$snap"; echo "##from $snap"; '
         )
     else:
-        where = f"dir={t}; "
+        where = f"dir={t}; mnt=; "
     return (
         where
-        + 'f=$(find "$dir" -type f -size +0c 2>/dev/null | shuf -n 1); [ -n "$f" ] || { echo "##none"; exit 0; }; '
+        + 'f=$(find "$dir" -type f -size +0c -size -2048M 2>/dev/null | shuf -n 1); [ -n "$f" ] || { echo "##none"; exit 0; }; '
         + 'echo "##file $f"; echo "##bytes $(wc -c < "$f")"; '
         + 'case "$f" in *.tar|*.tar.gz|*.tgz|*.tar.zst|*.tar.xz) tar -tf "$f" >/dev/null 2>&1 && echo "##ok listed the archive" || echo "##failed the archive is unreadable";; '
         + '*.gz) gzip -t "$f" 2>/dev/null && echo "##ok gzip test passed" || echo "##failed gzip test failed";; '
-        + '*) cat "$f" >/dev/null 2>&1 && echo "##ok read it all" || echo "##failed couldn\'t read it";; esac'
+        + '*) cat "$f" >/dev/null 2>&1 && echo "##ok read it all" || echo "##failed couldn\'t read it";; esac; '
+        # 6.58: restore it to a scratch folder and check the copy, then (a snapshot) against the live file.
+        + 'tmp=$(mktemp -d 2>/dev/null) && cp -p "$f" "$tmp/r" 2>/dev/null && a=$(sha256sum < "$f" | cut -c1-64) '
+        + '&& b=$(sha256sum < "$tmp/r" | cut -c1-64) && [ "$a" = "$b" ] && echo "##restored $a" || echo "##restorefailed"; '
+        + '[ -n "$tmp" ] && rm -rf "$tmp"; '
+        + 'if [ -n "$mnt" ] && [ -n "$a" ]; then live="$mnt/${f#$dir/}"; if [ ! -f "$live" ]; then echo "##live missing"; '
+        + 'elif [ "$(sha256sum < "$live" | cut -c1-64)" = "$a" ]; then echo "##live same"; '
+        + 'elif [ "$live" -nt "$f" ]; then echo "##live changed"; else echo "##live differs"; fi; fi'
     )
 
 
@@ -105,6 +114,17 @@ def parse_test(stdout: str) -> dict[str, Any]:
             out["ok"], out["how"] = True, rest
         elif tag == "##failed":
             out["why"] = rest
+        elif tag == "##restored":
+            out["restored"] = True
+        elif tag == "##restorefailed":
+            out["restored"] = False
+        elif tag == "##live":
+            out["live"] = rest.strip()
+    # 6.58: a copy that doesn't match, or a snapshot that differs from a live file older than it, is a failed test.
+    if out.get("ok") and out.get("restored") is False:
+        out["ok"], out["why"] = False, "restoring it to a scratch folder didn't give an identical copy"
+    if out.get("ok") and out.get("live") == "differs":
+        out["ok"], out["why"] = False, "the snapshot's copy differs from the live file, which hasn't changed since"
     return out
 
 
@@ -184,7 +204,11 @@ def restore_test(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any
                 f"Backup test passed: {backup.label}",
                 source="server-backups-test",
                 severity="info",
-                body=f"Read {found.get('file')} ({_size(found.get('bytes'))}){where}: {found.get('how')}. This proves the backup can be read back, not that every file in it is intact.",
+                body=f"Read {found.get('file')} ({_size(found.get('bytes'))}){where}: {found.get('how')}."
+                + (" Restored it to a scratch folder and the copy matched." if found.get("restored") else "")
+                + {"same": " It matches the live file.", "changed": " The live file has changed since, as expected.",
+                   "missing": " The live file has gone since (deleted or moved)."}.get(found.get("live") or "", "")
+                + " This proves the backup can be restored, not that every file in it is intact.",
             )
         else:
             siris.attention.raise_item(

@@ -95,3 +95,11 @@ async def model_trial(body: ModelRequest, siris: SirisAI = Depends(get_siris)) -
 def model_switch(body: ModelRequest, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     """Use a model from now on; no model (or SIRISAI_OLLAMA_MODEL's) reverts."""
     return models.switch(siris, body.model)
+
+
+@router.get("/dashboard")
+def upkeep_dashboard(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """SirisAI's own health on one page (6.58, app/upkeep/dashboard.py)."""
+    from app.upkeep import dashboard
+
+    return dashboard.build(siris)

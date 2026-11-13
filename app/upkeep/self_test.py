@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 FEED_PREFIX = "self_test:"
 RESULTS_KEY = "self_test_last"
+HISTORY_KEY = "self_test_history"
 TEMPERATURE_TOLERANCE_C = 2.0
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 _ON_OFF = re.compile(r"\b(on|off)\b", re.I)
@@ -160,4 +161,7 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
         "results": results,
     }
     siris.state.set(RESULTS_KEY, summary)
+    history = list(siris.state.get(HISTORY_KEY) or [])  # 6.58: for the health page
+    history.append({"at": summary["at"], "passed": summary["passed"], "failed": summary["failed"]})
+    siris.state.set(HISTORY_KEY, history[-30:])
     return summary

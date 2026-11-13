@@ -346,4 +346,81 @@ class GymCompareTool(_HealthTool):
         return gym_sessions.compare(self._siris, day, against)
 
 
-HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, GymSessionsTool, GymCompareTool, HealthExplainTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)
+class GymPlanWeekTool(_HealthTool):
+    """6.58: which days to train this week."""
+
+    name = "gym_plan_week"
+    description = ("Plan this week's workouts: which days to train given the calendar (avoiding early starts, packed days and "
+                   "taken evenings, and two days running), how often you usually train, and this morning's readiness. For 'when "
+                   "should I train this week', 'plan my gym week'. sessions overrides how many.")
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {"sessions": {"type": "integer", "description": "How many workouts (1-6)"}}, "required": []}
+
+    def run(self, sessions: int | None = None, **kwargs: Any) -> Any:
+        from app.health import training_plan
+
+        return training_plan.plan(self._siris, per_week=int(sessions) if sessions else None)
+
+
+class SleepFactorsTool(_HealthTool):
+    """6.58: what goes with better or worse sleep."""
+
+    name = "health_sleep_factors"
+    description = ("What goes with better or worse sleep and readiness over the last 6 weeks: drinks, caffeine, late workouts and "
+                   "screen time, with the two clearest differences. For 'what's hurting my sleep', 'does drinking affect my sleep'.")
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def run(self, **kwargs: Any) -> Any:
+        from app.health import sleep_factors
+
+        return sleep_factors.find(self._siris)
+
+
+class GymRestTimerTool(_HealthTool):
+    """6.58: a rest timer between sets."""
+
+    name = "gym_rest_timer"
+    description = ("Start a rest timer between sets ('start a 2-minute rest', 'rest 90 seconds'), or stop it (cancel=true). It says "
+                   "when the rest is up, or sooner once heart rate is back down when the Watch's readings are arriving live.")
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {"seconds": {"type": "integer", "description": "How long (15-900, default 120)"},
+                       "exercise": {"type": "string", "description": "Optional: what's next"},
+                       "cancel": {"type": "boolean", "description": "Stop the timer instead"}},
+        "required": [],
+    }
+
+    def run(self, seconds: int = 120, exercise: str | None = None, cancel: bool = False, **kwargs: Any) -> Any:
+        from app.health import rest_timer
+
+        return rest_timer.cancel(self._siris) if cancel else rest_timer.start(self._siris, seconds, exercise)
+
+
+class TrainingMonthTool(_HealthTool):
+    """6.58: a month of training."""
+
+    name = "gym_month_report"
+    description = ("A month of training from SirisGym: workouts, working sets, records and how each main lift moved. month is "
+                   "YYYY-MM (default last month). For 'how did my training go in October', 'my progress this month'.")
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {"month": {"type": "string", "description": "YYYY-MM"}}, "required": []}
+
+    def run(self, month: str | None = None, **kwargs: Any) -> Any:
+        from datetime import date as _date, timedelta as _td
+
+        from app.health import gym_week, overview
+
+        if month:
+            first = _date.fromisoformat(f"{month[:7]}-01")
+        else:
+            first = (overview.today(self._siris).replace(day=1) - _td(days=1)).replace(day=1)
+        last = (first.replace(day=28) + _td(days=4)).replace(day=1) - _td(days=1)
+        found = gym_week.month_training(self._siris, first, last)
+        if not found:
+            return {"text": f"No SirisGym workouts in {first:%B %Y}."}
+        return {**found, "text": f"{first:%B %Y}: " + "; ".join(line.lstrip("- ") for line in found["lines"]) + "."}
+
+
+HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, GymSessionsTool, GymCompareTool, GymPlanWeekTool, SleepFactorsTool, GymRestTimerTool, TrainingMonthTool, HealthExplainTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)

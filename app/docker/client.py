@@ -38,6 +38,15 @@ class DockerClient:
             for c in response.json()
         ]
 
+    def published_ports(self) -> dict[str, list[int]]:
+        """Each running container's ports published on the host (6.58, for the network map)."""
+        response = self._client.get("/containers/json", params={"all": "false"})
+        response.raise_for_status()
+        return {
+            (c.get("Names") or ["/" + c["Id"][:12]])[0].lstrip("/"): sorted({p["PublicPort"] for p in c.get("Ports") or [] if p.get("PublicPort")})
+            for c in response.json()
+        }
+
     def restart_container(self, container: str, timeout_seconds: int = 10) -> dict:
         response = self._client.post(f"/containers/{container}/restart", params={"t": timeout_seconds})
         response.raise_for_status()

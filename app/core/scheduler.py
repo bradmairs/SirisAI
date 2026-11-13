@@ -229,6 +229,17 @@ def run_server_watch(siris: "SirisAI") -> dict | None:
         return None
 
 
+def _quiet(siris: "SirisAI", module: str, func: str) -> object:
+    """Run `module.func(siris)`, logging rather than raising (6.58's small jobs)."""
+    import importlib
+
+    try:
+        return getattr(importlib.import_module(module), func)(siris)
+    except Exception:
+        logger.exception("%s.%s failed", module, func)
+        return None
+
+
 def run_action_follow_up(siris: "SirisAI") -> list | None:
     """Actions whose check failed, checked again (app/core/followup.py)."""
     from app.core import followup
@@ -529,6 +540,9 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("cron_watch", lambda s: run_cron_watch(s), _settings_every("cron_watch_minutes", 60), at_boot=False),
         Job("release_check", lambda s: run_release_check(s), lambda _s: 60),
         Job("action_follow_up", lambda s: run_action_follow_up(s), lambda _s: 15),
+        Job("rest_timer", lambda s: _quiet(s, "app.health.rest_timer", "check"), lambda _s: 5),
+        Job("state_reminders", lambda s: _quiet(s, "app.reminders.conditions", "check") if getattr(s, "_home_assistant_client", None) else None, lambda _s: 60),
+        Job("prefetch", lambda s: _quiet(s, "app.core.prefetch", "run"), lambda _s: 60),
         Job("devices", lambda s: run_device_watch(s), _settings_every("network_device_watch_minutes", 60)),
         Job("camera_digest", lambda s: run_camera_digest(s), every_tick),
         Job("health_checks", lambda s: run_health_checks(s), lambda _s: 300),

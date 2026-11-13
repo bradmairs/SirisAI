@@ -80,6 +80,12 @@ def check_health(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any
         if health.get("mac"):
             wake.remember_mac(siris, host, health["mac"])
         report[host.name] = {"reachable": True, **health}
+        try:
+            from app.servers import forecast
+
+            forecast.record(siris, host.name, health, result["stdout"], now)
+        except Exception:  # noqa: BLE001 - the forecast never gets in the way of the check
+            logger.debug("Couldn't record disk history", exc_info=True)
         for disk in health.get("disks", []):
             if disk["used_percent"] >= warn:
                 wanted.append(
@@ -117,6 +123,12 @@ def check_health(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any
                 }
             )
     siris.state.set(STATE_KEY, state)
+    try:
+        from app.servers import forecast
+
+        wanted += forecast.wanted(siris, warn)
+    except Exception:  # noqa: BLE001
+        logger.debug("Disk forecast failed", exc_info=True)
     _timeline(siris, "health", wanted)
     siris.attention.sync("servers", wanted, outcome="Cleared up")
     return report

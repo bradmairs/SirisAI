@@ -1438,6 +1438,14 @@ def _monthly_facts(siris: "SirisAI", first: date, last: date) -> dict[str, Any]:
         learned += [r["title"] for r in brain.learned_today(day.isoformat())]
         day += timedelta(days=1)
     facts["notes_learned_or_updated"] = list(dict.fromkeys(learned))[:60]
+    try:  # 6.58: the month's SirisGym training, set by set
+        from app.health import gym_week
+
+        training = gym_week.month_training(siris, first, last)
+        if training:
+            facts["training"] = training["lines"]
+    except Exception:  # noqa: BLE001
+        pass
     return facts
 
 
@@ -1488,8 +1496,17 @@ async def weekly_review(siris: "SirisAI", day: date) -> dict[str, Any]:
             learned.append(r["title"])
     facts = {k: found.get(k) for k in ("highlights", "deadlines", "overdue_tasks", "stale_projects", "inbox")}
     facts["notes_learned_or_updated"] = list(dict.fromkeys(learned))[:60]
+    week: dict[str, Any] = {}
+    try:  # 6.58: what got done, the servers, training and sleep (app/upkeep/weekly_review.py)
+        from app.upkeep import weekly_review as week_review
+
+        week = await asyncio.to_thread(week_review.compose, siris)
+        facts["week_beyond_the_notes"] = week["sections"]
+    except Exception:  # noqa: BLE001 - the vault's own review still gets written
+        logger.debug("No SirisAI week for the weekly review", exc_info=True)
     reply = await _generate(siris, "second brain weekly review", REVIEW_PROMPT, json.dumps(facts, default=str)[:_MAX_MATERIAL_CHARS])
-    body = (reply or "").strip() or "## This week\n" + "\n".join(f"- {h}" for h in found.get("highlights") or ["A quiet week."])
+    body = (reply or "").strip() or "## This week\n" + "\n".join(f"- {h}" for h in found.get("highlights") or ["A quiet week."]) + (
+        "\n\n" + week["body"] if week.get("body") else "")
     await asyncio.to_thread(brain.learn, [{
         "title": title, "content": body[:4000], "type": "note", "folder": "03-Resources/Weekly Reviews",
         "tags": ["weekly-review"], "source": "SirisAI weekly review",

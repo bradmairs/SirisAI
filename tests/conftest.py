@@ -42,6 +42,8 @@ os.environ.setdefault("SIRISAI_SCHEDULER_ENABLED", "false")
 # The stand-in ssh binaries in the tests log every call; no shared-connection checks among them.
 os.environ.setdefault("SIRISAI_SSH_REUSE_SECONDS", "0")
 os.environ.setdefault("SIRISAI_RELEASE_CHECK_DELAY_SECONDS", "-1")
+os.environ.setdefault("SIRISAI_CONTAINER_RELEASE_NOTES", "false")
+os.environ.setdefault("SIRISAI_PREFETCH_FRESH_SECONDS", "0")
 
 # No real internet probes or speed tests from the scheduler loop in tests.
 os.environ.setdefault("SIRISAI_INTERNET_PROBE_SECONDS", "0")

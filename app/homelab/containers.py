@@ -108,7 +108,13 @@ def check(siris: "SirisAI", now: datetime | None = None, raise_feed: bool = True
         elif remote in pulled_as:
             up_to_date.append(name)
         else:
-            updates.append({"container": name, "image": ref, "current": sorted(pulled_as)[0][:19], "available": remote[:19]})
+            update = {"container": name, "image": ref, "current": sorted(pulled_as)[0][:19], "available": remote[:19]}
+            from app.homelab import release_notes
+
+            notes = release_notes.summarise(siris, (local.get("Config") or {}).get("Labels") or {})  # 6.58
+            if notes:
+                update["notes"] = notes
+            updates.append(update)
     report = {"updates": updates, "up_to_date": sorted(up_to_date), "skipped": skipped, "checked_at": (now or datetime.now(UTC)).isoformat()}
     siris.state.set(STATE_KEY, report)
     if raise_feed:
@@ -136,6 +142,8 @@ def _skip_reason(info: dict[str, Any], name: str, excluded: set[str]) -> str | N
 
 
 def _sync_feed(siris: "SirisAI", updates: list[dict[str, Any]]) -> None:
+    from app.homelab import release_notes
+
     wanted = []
     if updates:
         names = [u["container"] for u in updates]
@@ -146,8 +154,10 @@ def _sync_feed(siris: "SirisAI", updates: list[dict[str, Any]]) -> None:
             {
                 "key": f"containers:updates:{digest}",
                 "kind": "suggestion",
-                "title": f"{len(names)} container update{'s' if len(names) != 1 else ''}: {listed}",
+                "title": f"{len(names)} container update{'s' if len(names) != 1 else ''}: {listed}"
+                + (f" ({breaking} with breaking changes)" if (breaking := sum(1 for u in updates if (u.get("notes") or {}).get("breaking"))) else ""),
                 "body": "\n".join(f"{u['container']}: {u['image']}" for u in updates[:20])
+                + (("\nWhat's new:\n" + "\n".join(n for n in notes if n)) if any(notes := [release_notes.line(u["container"], u.get("notes")) for u in updates[:20]]) else "")
                 + "\nEach is rolled back automatically if it doesn't come up healthy.",
                 "severity": "info",
                 "actions": [action("update", "Update all", "primary", confirm=f"Update {len(names)} container{'s' if len(names) != 1 else ''}?"), action("dismiss", "Not now")],

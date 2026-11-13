@@ -3,7 +3,7 @@ gym_sessions tool, against a stand-in SirisOS and the workouts kept here."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -201,3 +201,78 @@ def test_mondays_brief_has_last_weeks_training(gym: tuple[SirisAI, FakeSirisOS],
     assert line == ("Training last week: 2 workouts, 6 working sets, 1 record (Back Squat: heaviest ever, 125). Under target: back. "
                     "This week: Get to bed about 30 minutes earlier.")
     assert gym_week.briefing_line(siris, date(2026, 11, 17)) is None  # not a Monday, and nothing lighter to suggest
+
+
+# -- 6.58: planning the week, sleep factors, the rest timer, the month -------------------
+
+
+def test_the_training_week_avoids_early_starts_and_low_readiness(gym: tuple[SirisAI, FakeSirisOS], monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.health import gym_week, training_plan
+
+    siris, _ = gym
+    monkeypatch.setattr(training_plan, "_events", lambda s, days=7: [
+        {"summary": "Flight", "start": "2026-11-12T06:00:00+11:00", "end": "2026-11-12T08:00:00+11:00"},
+        {"summary": "Workshop", "start": "2026-11-14T09:00:00+11:00", "end": "2026-11-14T17:00:00+11:00"},
+    ])
+    monkeypatch.setattr(gym_week, "readiness_today", lambda s, on=None: {"band": "Recover", "score": 35})
+    out = training_plan.plan(siris, on=date(2026, 11, 11), per_week=3)
+    days = [d["date"] for d in out["days"]]
+    assert len(days) == 3 and "2026-11-11" not in days and "2026-11-12" not in days and "2026-11-14" not in days
+    assert not any((date.fromisoformat(b) - date.fromisoformat(a)).days == 1 for a, b in zip(days, days[1:]))
+    assert "Thu 12 Nov: an early start (Flight at 06:00)" in out["text"] and "readiness is 35 (recover)" in out["text"]
+
+
+def test_sleep_factors_find_the_clearest(gym: tuple[SirisAI, FakeSirisOS], monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.health import overview, sleep_factors
+
+    siris, _ = gym
+    on = date(2026, 11, 11)
+    data, ready = {}, []
+    for i in range(1, 30):
+        evening = on - timedelta(days=i)
+        drank = i % 3 == 0
+        data[evening.isoformat()] = {"alcohol_drinks": 2 if drank else 0, "caffeine_mg": 100}
+        data.setdefault((evening + timedelta(days=1)).isoformat(), {})
+        morning = (evening + timedelta(days=1)).isoformat()
+        data[morning] = {**data.get(morning, {}), "sleep_hours": 6.5 if drank else 7.5}
+        ready.append({"date": morning, "score": 55 if drank else 70})
+    for i in range(1, 30):  # re-add the evening values the mornings overwrote
+        evening = on - timedelta(days=i)
+        data[evening.isoformat()].update({"alcohol_drinks": 2 if i % 3 == 0 else 0, "caffeine_mg": 100})
+    monkeypatch.setattr(overview, "days", lambda s, on, n=70: data)
+    monkeypatch.setattr(overview, "recent_readiness", lambda s, on, n=5: ready)
+    monkeypatch.setattr(siris.health, "workouts", lambda since, user_id=None: [])
+    out = sleep_factors.find(siris, on)
+    assert out["clearest"][0]["factor"] == "a drink" and out["clearest"][0]["readiness_diff"] == -15
+    assert out["text"].startswith("After a drink you slept 60 minutes less and readiness was 15 lower")
+
+
+def test_the_rest_timer(gym: tuple[SirisAI, FakeSirisOS]) -> None:
+    from app.cortex import quick
+    from app.health import gym_effort, rest_timer
+
+    siris, _ = gym
+    assert quick.plan(siris, "start a 2-minute rest").arguments == {"seconds": 120}
+    assert quick.plan(siris, "rest 90 seconds").arguments == {"seconds": 90}
+    t0 = datetime(2026, 11, 11, 7, 0, tzinfo=UTC)
+    started = rest_timer.start(siris, 120, "squat", now=t0)
+    assert started["message"] == "Resting 2 minutes. I'll tell you when it's up."
+    assert rest_timer.check(siris, t0 + timedelta(seconds=40)) is None
+    gym_effort.keep_samples(siris, [[(t0 + timedelta(seconds=58)).isoformat(), 104, 106]])
+    said = rest_timer.check(siris, t0 + timedelta(seconds=60))
+    assert said == "Heart rate's down to 104, go when ready (60 s of rest left)."
+    rest_timer.start(siris, 60, now=t0)
+    assert rest_timer.check(siris, t0 + timedelta(seconds=61)) == "Rest's up."
+    assert rest_timer.cancel(siris)["cancelled"] is False
+
+
+def test_a_month_of_training(gym: tuple[SirisAI, FakeSirisOS], monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests import test_gym_sessions as me
+
+    siris, _ = gym
+    for i, (day, weight) in enumerate([("2026-11-02", 80), ("2026-11-05", 82.5), ("2026-11-09", 85)]):
+        monkeypatch.setitem(me.FULL, f"m{i}", {"id": f"m{i}", "title": "Push", "started_at": f"{day}T07:00:00+11:00", "ended_at": f"{day}T08:00:00+11:00",
+                                               "records": [], "entries": [{"name": "Overhead Press", "sets": [{"weight": weight, "reps": 6, "done": True}]}]})
+    out = siris.run_tool("gym_month_report", {"month": "2026-11"})
+    assert "Overhead Press: estimated 1RM 96 → 102 kg (+6.0)" in out["text"]
+    assert out["text"].startswith("November 2026: SirisGym: 5 workouts")
