@@ -346,6 +346,7 @@ def test_memories_go_where_the_router_or_the_model_says() -> None:
                 _entry("c3", "ok thanks")],
         known={"Dom": "Dom Mairs"},
     )
+    brain.search_results = [{"title": "Coffee"}]   # the search agrees flat whites are about Coffee
     siris.llm = FakeLLM('{"filed": [{"id": "b2", "title": "Coffee"}, {"id": "zz", "title": "Made Up"}]}')
     result = asyncio.run(jobs.file_memory_inbox(siris))
     assert result == {"filed": ["Dom Mairs", "Coffee"], "left": 1}
@@ -948,3 +949,52 @@ def test_cpeng_elements_with_two_pieces_of_evidence_get_a_draft_once() -> None:
     assert (note, name) == (jobs.CPENG_DRAFTS_NOTE, "cpeng-04")
     assert "*Draft from [[Dellows Outlet]], [[Site Visit]]: check every fact.*" in text
     assert asyncio.run(jobs.cpeng_drafts(siris)) == {"drafted": []}   # nothing new: not redrafted
+
+
+def test_a_memory_never_lands_on_a_note_it_only_shares_a_date_with() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain(
+        {"SirisGym Session (2026-11-10)": "Upper body.", "Goulburn Valley Water": "Employer.", "Gym Training": "x"},
+        memory=[_entry("a1", "Tuesday 10 November 2026: Had a pretty good day at GVW."),
+                _entry("b2", "Bench press felt strong in today's gym session.")],
+    )
+    siris.llm = FakeLLM('{"filed": [{"id": "a1", "title": "SirisGym Session (2026-11-10)"}, '
+                        '{"id": "b2", "title": "Gym Training"}]}')
+    result = asyncio.run(jobs.file_memory_inbox(siris))
+    assert result == {"filed": ["Gym Training"], "left": 1}   # the GVW day waits for tomorrow, not the gym note
+    assert [c["id"] for c in brain.cleared] == ["b2"]
+    assert "shares a date" in siris.llm.messages[0]["content"]
+
+
+def test_friday_debrief_asks_about_the_week_and_one_cpeng_gap() -> None:
+    siris = _siris()
+    body = "## Coverage\n| 1. Deal with ethical issues | 1 |\n\n**No evidence yet:** 9 Performance, 10 Taking action.\n"
+    brain = siris.second_brain = FakeBrain({"CPEng Chartership": body})
+    brain.list_notes = lambda: [{"title": "Melrose East Pump Station", "path": "Work/GVW/Projects/Melrose East Pump Station.md"},
+                                {"title": "Gym Training", "path": "Notes/Gym Training.md"}]
+    siris._notify_client = FakeNotify()
+    assert jobs.work_debrief(siris, DAY) == {"asked": True, "cpeng": True}
+    title, message = siris._notify_client.sent[0]
+    assert title == "Siris: work debrief"
+    assert "What did you decide this week" in message and "Your GVW projects: Melrose East Pump Station." in message
+    assert "no evidence yet for 9 Performance" in message
+    jobs.work_debrief(siris, date(2026, 10, 12))
+    assert "no evidence yet for 10 Taking action" in siris._notify_client.sent[1][1]   # the next gap the week after
+
+
+def test_debrief_without_gaps_or_with_cpeng_questions_off() -> None:
+    siris = _siris(brain_cpeng_questions=False)
+    siris.second_brain = FakeBrain({"CPEng Chartership": "**No evidence yet:** 10 Taking action."})
+    siris._notify_client = FakeNotify()
+    assert jobs.work_debrief(siris, DAY) == {"asked": True, "cpeng": False}
+    assert "CPEng" not in siris._notify_client.sent[0][1]
+
+
+def test_the_debrief_runs_on_friday_afternoon() -> None:
+    siris = _siris(brain_upkeep_hour_local=None, brain_dream_hour_local=None)
+    siris.second_brain = FakeBrain()
+    siris._notify_client = FakeNotify()
+    friday = date(2026, 10, 9)
+    assert "debrief" not in asyncio.run(jobs.run_due(siris, _at(15, friday)))
+    assert "debrief" in asyncio.run(jobs.run_due(siris, _at(16, friday)))
+    assert "debrief" not in asyncio.run(jobs.run_due(siris, _at(17, friday)))
