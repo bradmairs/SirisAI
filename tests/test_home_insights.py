@@ -1,4 +1,4 @@
-"""6.48: backups restored, disks forecast, update notes, device costs, the network
+"""6.58: backups restored, disks forecast, update notes, device costs, the network
 map, briefing order, state reminders, undo history, prefetching, the weekly
 review and SirisAI's health page."""
 
@@ -288,32 +288,22 @@ def test_common_answers_are_fetched_before_the_usual_time(monkeypatch: pytest.Mo
 
 
 class FakeBrain:
-    def __init__(self) -> None:
-        self.learned: list[dict[str, Any]] = []
-
     def activity(self, days: int) -> list[dict[str, Any]]:
         return [{"line": "🧠 Learned [[SirisAI]]"}, {"line": "Decision: keep the NAS on ZFS"}]
 
-    def learn(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        self.learned += items
-        return items
 
-
-def test_the_weekly_review_is_written_to_siris(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_weekly_review_has_the_week_beyond_the_notes() -> None:
     from app.servers import timeline
     from app.upkeep import weekly_review
 
     siris = SirisAI(settings=Settings(timezone="UTC"))
     siris.state.delete(timeline.STATE_KEY)
     timeline.add(siris, "nas", "power", "rebooted and came back")
-    brain = FakeBrain()
-    siris.second_brain = brain  # type: ignore[assignment]
+    siris.second_brain = FakeBrain()  # type: ignore[assignment]
     review = weekly_review.compose(siris, datetime.now(UTC))
-    assert review["title"].startswith("Weekly review ") and "## Notes and decisions\n- 🧠 Learned [[SirisAI]]" in review["content"]
-    assert "## Servers\n- nas: rebooted and came back" in review["content"]
-    out = siris.run_tool("weekly_review", {"write": True})
-    assert out["written"] == review["title"] and brain.learned[0]["tags"] == ["weekly-review"]
-    assert any(t.startswith("Your weekly review is in Siris") for t in _feed(siris, "weekly-review"))
+    assert review["title"].endswith("-review") and "## Notes and decisions\n- 🧠 Learned [[SirisAI]]" in review["content"]
+    assert "## Servers\n- nas: rebooted and came back" in review["body"]
+    assert siris.run_tool("weekly_review", {})["sections"]["Servers"] == ["- nas: rebooted and came back"]
 
 
 # -- 15. SirisAI's own health -------------------------------------------------------------

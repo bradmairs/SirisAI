@@ -1,4 +1,4 @@
-"""SirisAI's own health, on one page (6.48): GET /siris/upkeep/dashboard,
+"""SirisAI's own health, on one page (6.58): GET /siris/upkeep/dashboard,
 and the Status tab's "How SirisAI is doing".
 
 - **Replies**: median and 95th-percentile time per stage (context, tools,

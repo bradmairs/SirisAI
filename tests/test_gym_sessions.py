@@ -203,7 +203,7 @@ def test_mondays_brief_has_last_weeks_training(gym: tuple[SirisAI, FakeSirisOS],
     assert gym_week.briefing_line(siris, date(2026, 11, 17)) is None  # not a Monday, and nothing lighter to suggest
 
 
-# -- 6.48: planning the week, sleep factors, the rest timer, the month -------------------
+# -- 6.58: planning the week, sleep factors, the rest timer, the month -------------------
 
 
 def test_the_training_week_avoids_early_starts_and_low_readiness(gym: tuple[SirisAI, FakeSirisOS], monkeypatch: pytest.MonkeyPatch) -> None:

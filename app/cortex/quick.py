@@ -254,7 +254,7 @@ _WORDS = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
 
 
 def _rest(siris: "SirisAI", text: str) -> QuickPlan | None:
-    """6.48: "start a 2-minute rest" without the model."""
+    """6.58: "start a 2-minute rest" without the model."""
     m = _REST.match(text)
     if not m or siris.tools.get("gym_rest_timer") is None:
         return None

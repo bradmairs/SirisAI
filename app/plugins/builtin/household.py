@@ -33,7 +33,7 @@ class EnergyReportTool(Tool):
 
 
 class EnergyByDeviceTool(Tool):
-    """6.48: what each device costs, and what's left on."""
+    """6.58: what each device costs, and what's left on."""
 
     name = "energy_by_device"
     description = ("What each device costs to run: its kWh over the last N days (default 30) and a month's cost, what draws power "

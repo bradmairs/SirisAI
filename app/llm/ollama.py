@@ -17,7 +17,7 @@ import httpx
 from app.llm.base import LLMChunk, LLMClient, LLMResponse, ToolCall
 
 
-# Each switch to a fallback Ollama machine (6.48, shown on SirisAI's health page).
+# Each switch to a fallback Ollama machine (6.58, shown on SirisAI's health page).
 FALLBACKS: deque[dict[str, str]] = deque(maxlen=200)
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ class OllamaClient(LLMClient):
                     raise
                 logger.warning("Ollama at %s failed (%s); trying %s", client.base_url, exc, self._clients[i + 1].base_url)
                 FALLBACKS.append({"at": datetime.now(UTC).isoformat(), "from": str(client.base_url), "to": str(self._clients[i + 1].base_url),
-                                  "why": f"{type(exc).__name__}: {exc}"[:160]})  # 6.48: for the health page
+                                  "why": f"{type(exc).__name__}: {exc}"[:160]})  # 6.58: for the health page
         assert body is not None
         message = body["message"]
 

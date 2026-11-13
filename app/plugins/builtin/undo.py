@@ -20,7 +20,7 @@ class UndoLastTool(Tool):
     permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
         "type": "object",
-        "properties": {"which": {"type": "string", "description": "6.48, optional: not the last one but this: its number from "
+        "properties": {"which": {"type": "string", "description": "6.58, optional: not the last one but this: its number from "
                                  "undo_history (1 = the last), 'the lights', or '10 minutes ago'."}},
         "required": [],
     }
@@ -52,7 +52,7 @@ class UndoLastTool(Tool):
 
 
 class UndoHistoryTool(Tool):
-    """6.48: what can still be undone, not just the last thing."""
+    """6.58: what can still be undone, not just the last thing."""
 
     name = "undo_history"
     description = ("What SirisAI did for this person in the last two hours that can still be undone, newest first and numbered. "

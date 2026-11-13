@@ -517,7 +517,7 @@ def monthly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
         if ms:
             m = ms[-1]
             lines.append("- Measured " + ", ".join(f"{k} {v:g} cm" for k, v in m.items() if isinstance(v, (int, float)) and k != "date"))
-    try:  # 6.48: the month's workouts from SirisGym itself, set by set
+    try:  # 6.58: the month's workouts from SirisGym itself, set by set
         from app.health import gym_week
 
         training = gym_week.month_training(siris, first, last)
@@ -528,7 +528,7 @@ def monthly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     if not lines:
         return {"skipped": "no health data last month"}
     content = f"**Health and training, {first:%B %Y}:**\n" + "\n".join(lines)
-    # 6.48: also in the attention feed, so SirisOS shows the month's report.
+    # 6.58: also in the attention feed, so SirisOS shows the month's report.
     siris.attention.raise_item(f"health:monthly:{first:%Y-%m}", "notice", f"Your {first:%B} in training and health",
                                source="health-monthly", severity="info", body="\n".join(lines))
     if siris.second_brain is None:

@@ -1533,7 +1533,7 @@ class SirisAI:
         prior = undo.capture(self, name, arguments)  # what "undo that" would put back (5.0)
         from app.core import prefetch
 
-        ready, kept = prefetch.get(self, name, arguments)  # 6.48: fetched just before the usual time
+        ready, kept = prefetch.get(self, name, arguments)  # 6.58: fetched just before the usual time
         try:
             result = kept if ready else tool.run(**arguments)
         except Exception as exc:

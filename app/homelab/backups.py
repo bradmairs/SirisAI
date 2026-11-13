@@ -12,7 +12,7 @@ raised in the attention feed, urgently past twice that. One with nothing in
 it, or that can't be read, is raised too.
 
 **Monthly** (on the 1st): picks a random file (under 2 GB) from the newest
-snapshot (or the folder) and reads all of it, then (6.48) restores it to a
+snapshot (or the folder) and reads all of it, then (6.58) restores it to a
 scratch folder and checks the copy's checksum, and for a ZFS snapshot
 compares it with the live file (the same, changed since, or gone). Archives are listed (`tar -t`) or tested
 (`gzip -t`) rather than just read. This proves the backup can be read back,
@@ -88,7 +88,7 @@ def test_command(backup: Backup) -> str:
         + 'case "$f" in *.tar|*.tar.gz|*.tgz|*.tar.zst|*.tar.xz) tar -tf "$f" >/dev/null 2>&1 && echo "##ok listed the archive" || echo "##failed the archive is unreadable";; '
         + '*.gz) gzip -t "$f" 2>/dev/null && echo "##ok gzip test passed" || echo "##failed gzip test failed";; '
         + '*) cat "$f" >/dev/null 2>&1 && echo "##ok read it all" || echo "##failed couldn\'t read it";; esac; '
-        # 6.48: restore it to a scratch folder and check the copy, then (a snapshot) against the live file.
+        # 6.58: restore it to a scratch folder and check the copy, then (a snapshot) against the live file.
         + 'tmp=$(mktemp -d 2>/dev/null) && cp -p "$f" "$tmp/r" 2>/dev/null && a=$(sha256sum < "$f" | cut -c1-64) '
         + '&& b=$(sha256sum < "$tmp/r" | cut -c1-64) && [ "$a" = "$b" ] && echo "##restored $a" || echo "##restorefailed"; '
         + '[ -n "$tmp" ] && rm -rf "$tmp"; '
@@ -120,7 +120,7 @@ def parse_test(stdout: str) -> dict[str, Any]:
             out["restored"] = False
         elif tag == "##live":
             out["live"] = rest.strip()
-    # 6.48: a copy that doesn't match, or a snapshot that differs from a live file older than it, is a failed test.
+    # 6.58: a copy that doesn't match, or a snapshot that differs from a live file older than it, is a failed test.
     if out.get("ok") and out.get("restored") is False:
         out["ok"], out["why"] = False, "restoring it to a scratch folder didn't give an identical copy"
     if out.get("ok") and out.get("live") == "differs":

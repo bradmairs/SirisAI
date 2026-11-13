@@ -99,7 +99,7 @@ def model_switch(body: ModelRequest, siris: SirisAI = Depends(get_siris)) -> dic
 
 @router.get("/dashboard")
 def upkeep_dashboard(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
-    """SirisAI's own health on one page (6.48, app/upkeep/dashboard.py)."""
+    """SirisAI's own health on one page (6.58, app/upkeep/dashboard.py)."""
     from app.upkeep import dashboard
 
     return dashboard.build(siris)

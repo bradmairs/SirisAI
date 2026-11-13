@@ -266,7 +266,7 @@ class ServerTimelineTool(Tool):
 
 
 class DiskForecastTool(Tool):
-    """6.48: when each disk will be full at the rate it's filling."""
+    """6.58: when each disk will be full at the rate it's filling."""
 
     name = "disk_forecast"
     description = ("When each server's disks will be full at the rate they're filling, from a daily record of their size. "
@@ -284,7 +284,7 @@ class DiskForecastTool(Tool):
 
 
 class NetworkMapTool(Tool):
-    """6.48: what runs where."""
+    """6.58: what runs where."""
 
     name = "network_map"
     description = ("What runs where on the home network: each server, the containers on it, and which services (Home Assistant, "

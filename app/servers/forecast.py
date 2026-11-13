@@ -1,4 +1,4 @@
-"""When each disk fills up, at the rate it's filling (6.48).
+"""When each disk fills up, at the rate it's filling (6.58).
 
 The health check (app/servers/watch.py) now also records each mount's
 used and total space (`df -kP`) once a day per server, kept for 60 days. A

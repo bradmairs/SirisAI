@@ -5,6 +5,25 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.58 — 2026-11-13
+
+- Backups restored and compared, disks forecast, update notes, device costs, a network map, training plans, sleep factors, a rest timer, a brief that adapts, state reminders, undo history, answers ready early and a health page
+- **Backups restored**: the monthly backup test now restores its random file to a scratch folder and checks the copy's checksum. For a ZFS snapshot it also compares the file with the live one: the same, changed since, or gone. A copy that doesn't match, or a snapshot that differs from an unchanged live file, fails the test.
+- **When disks fill** (`disk_forecast`): the health check keeps each disk's exact size once a day (`df -kP`). A disk that will be full within `SIRISAI_DISK_FORECAST_DAYS` (30) at its current rate is raised early, e.g. "/mnt/media on nas fills in about 3 weeks at this rate".
+- **What an update changes**: before offering a container update, SirisAI reads that project's GitHub releases newer than the running version (from the image's labels) and links them in the feed item. Any release mentioning a breaking change is flagged. Turn this off with `SIRISAI_CONTAINER_RELEASE_NOTES=false`.
+- **What each device costs** (`energy_by_device`): each device's kWh and monthly cost over 30 days, what draws power overnight, and what was on while everyone was out. Away mode now records when the house was empty.
+- **Network map** (`network_map`): servers, their containers and published ports, and which services (Home Assistant, Plex, SirisOS...) run where. "What breaks if the NAS goes down?" lists its services, its containers, and SirisAI itself when it's SirisAI's own server.
+- **Plan the training week** (`gym_plan_week`): picks the training days around early starts, packed days, taken evenings and low readiness, and avoids two days in a row.
+- **What helps sleep** (`health_sleep_factors`): compares sleep and readiness after evenings with and without drinks, lots of caffeine, a late workout or more screen time, over 6 weeks, and reports the two clearest differences.
+- **Rest timer** (`gym_rest_timer`, or "start a 2-minute rest" with no model): says "Rest's up", or sooner, "go when ready", once live heart rate is back under `SIRISAI_REST_RECOVERED_BPM` (110).
+- **A month of training** (`gym_month_report`): workouts, sets, records and how each lift moved. This is now also in the monthly Health note, the second brain's monthly review, and the feed (so SirisOS shows it).
+- **The brief adapts**: what changed since yesterday comes first, and parts that are the same fold into "Same as yesterday: to-do, goals". `briefing_preferences` hides parts or puts some first.
+- **Reminders on a device** (`create_state_reminder`): "remind me to hang the washing out when the washing machine finishes", using a state change or a power reading dropping below a threshold.
+- **Undo history** (`undo_history`, `undo_last` with `which`): undo by number, "the lights" or "10 minutes ago", not just the last thing.
+- **Weekly review**: Siris's weekly review note now also covers what got done, the servers, training and sleep. `weekly_review` shows it at any time.
+- **Answers ready early**: the weather, calendar and readiness are fetched 5 minutes before the hours you usually ask (learned from 14 days), and handed back for `SIRISAI_PREFETCH_FRESH_SECONDS` (600).
+- **SirisAI's health page** (Status tab, `GET /siris/upkeep/dashboard`, `sirisai_health`): reply times and whether they're getting slower, failing and paused tools, model fallbacks, background jobs, and the self-test history.
+
 ## 6.48 — 2026-11-13
 
 - Monthly review note and a weekly question about tasks open over a month

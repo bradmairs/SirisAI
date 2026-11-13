@@ -38,7 +38,7 @@ AWAY_LOG_KEY = "presence:away_log"
 
 
 def log_change(siris: "SirisAI", home: bool, now: datetime | None = None) -> None:
-    """6.48: when everyone was out, as [start, end] pairs (end None while out), the last 60."""
+    """6.58: when everyone was out, as [start, end] pairs (end None while out), the last 60."""
     at = (now or datetime.now(UTC)).isoformat()
     log = [list(p) for p in siris.state.get(AWAY_LOG_KEY) or []]
     if not home and not (log and log[-1][1] is None):

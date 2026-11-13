@@ -1,4 +1,4 @@
-"""What runs where, and what depends on what (6.48).
+"""What runs where, and what depends on what (6.58).
 
 Built from what SirisAI already knows, without scanning the network:
 

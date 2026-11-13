@@ -1,4 +1,4 @@
-"""Reminders on a device's state (6.48): "remind me to hang the washing out
+"""Reminders on a device's state (6.58): "remind me to hang the washing out
 when the washing machine finishes".
 
 create_state_reminder watches one Home Assistant entity and fires once:

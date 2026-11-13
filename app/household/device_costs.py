@@ -1,4 +1,4 @@
-"""What each device costs (6.48): energy_by_device.
+"""What each device costs (6.58): energy_by_device.
 
 From Home Assistant's energy sensors (the ones the weekly energy report
 uses): each device's kWh over the last N days (30) and what that comes to

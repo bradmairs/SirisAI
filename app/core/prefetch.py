@@ -1,4 +1,4 @@
-"""Answers ready before they're asked (6.48).
+"""Answers ready before they're asked (6.58).
 
 SirisAI learns when each of a few everyday questions gets asked (the
 weather, the calendar, how you slept and your readiness): from the last 14

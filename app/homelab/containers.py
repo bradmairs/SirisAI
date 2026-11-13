@@ -111,7 +111,7 @@ def check(siris: "SirisAI", now: datetime | None = None, raise_feed: bool = True
             update = {"container": name, "image": ref, "current": sorted(pulled_as)[0][:19], "available": remote[:19]}
             from app.homelab import release_notes
 
-            notes = release_notes.summarise(siris, (local.get("Config") or {}).get("Labels") or {})  # 6.48
+            notes = release_notes.summarise(siris, (local.get("Config") or {}).get("Labels") or {})  # 6.58
             if notes:
                 update["notes"] = notes
             updates.append(update)

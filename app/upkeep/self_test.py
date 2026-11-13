@@ -161,7 +161,7 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
         "results": results,
     }
     siris.state.set(RESULTS_KEY, summary)
-    history = list(siris.state.get(HISTORY_KEY) or [])  # 6.48: for the health page
+    history = list(siris.state.get(HISTORY_KEY) or [])  # 6.58: for the health page
     history.append({"at": summary["at"], "passed": summary["passed"], "failed": summary["failed"]})
     siris.state.set(HISTORY_KEY, history[-30:])
     return summary

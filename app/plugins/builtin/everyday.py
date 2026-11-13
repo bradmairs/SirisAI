@@ -1,4 +1,4 @@
-"""Everyday tools added in 6.48: the brief's preferences, reminders on a
+"""Everyday tools added in 6.58: the brief's preferences, reminders on a
 device's state, the weekly review, and SirisAI's own health."""
 
 from __future__ import annotations
@@ -80,14 +80,14 @@ class StateRemindersTool(_SirisTool):
 class WeeklyReviewTool(_SirisTool):
     name = "weekly_review"
     description = ("This week in review: what got done (goals, and what SirisAI did by area), notes and decisions in Siris, "
-                   "servers, training and sleep. It's written to Siris on Sundays; this shows it now. write=true writes it now.")
-    permission = ToolPermission.SAFE_ACTION
-    parameters = {"type": "object", "properties": {"write": {"type": "boolean"}}, "required": []}
+                   "servers, training and sleep. Siris's weekly review note includes it; this shows it now.")
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
 
-    def run(self, write: bool = False, **kwargs: Any) -> Any:
+    def run(self, **kwargs: Any) -> Any:
         from app.upkeep import weekly_review
 
-        return weekly_review.write(self._siris) if write else weekly_review.compose(self._siris)
+        return weekly_review.compose(self._siris)
 
 
 class SirisHealthTool(_SirisTool):

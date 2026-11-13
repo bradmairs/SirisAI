@@ -900,19 +900,17 @@ class Settings(BaseSettings):
     # commands through it (OpenSSH ControlMaster), instead of logging in afresh each
     # time. 0 turns it off. Commands still connect on their own when it isn't there.
     ssh_reuse_seconds: float = 120.0
-    # 6.48: warn when a server's disk will be full within this many days at the rate
+    # 6.58: warn when a server's disk will be full within this many days at the rate
     # it's filling (from a daily record of its size). 0: off.
     disk_forecast_days: int = 30
-    # 6.48: read a container's GitHub releases (from its image labels) before offering an
+    # 6.58: read a container's GitHub releases (from its image labels) before offering an
     # update, and flag breaking changes.
     container_release_notes: bool = True
-    # 6.48: the rest timer says "go when ready" early once live heart rate is at or below this.
+    # 6.58: the rest timer says "go when ready" early once live heart rate is at or below this.
     rest_recovered_bpm: float = 110.0
-    # 6.48: the weather, calendar and readiness fetched 5 minutes before the hours you usually
+    # 6.58: the weather, calendar and readiness fetched 5 minutes before the hours you usually
     # ask, and handed back for this long (seconds). 0: off.
     prefetch_fresh_seconds: float = 600.0
-    # 6.48: write the weekly review to the second brain on Sundays at this hour (blank: off).
-    weekly_review_hour_local: int | None = 18
     # 6.38: after starting on a new version, wait this long (seconds), then check every
     # integration and run the self-test once, alerting on what broke. -1: off.
     release_check_delay_seconds: float = 120.0

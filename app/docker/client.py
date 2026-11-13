@@ -39,7 +39,7 @@ class DockerClient:
         ]
 
     def published_ports(self) -> dict[str, list[int]]:
-        """Each running container's ports published on the host (6.48, for the network map)."""
+        """Each running container's ports published on the host (6.58, for the network map)."""
         response = self._client.get("/containers/json", params={"all": "false"})
         response.raise_for_status()
         return {

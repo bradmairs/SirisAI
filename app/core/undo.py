@@ -140,7 +140,7 @@ def last(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | None
 
 
 def history(siris: "SirisAI", now: datetime | None = None) -> list[dict[str, Any]]:
-    """6.48: everything of yours that can still be undone, newest first, numbered (1 = the last)."""
+    """6.58: everything of yours that can still be undone, newest first, numbered (1 = the last)."""
     now = now or datetime.now(UTC)
     user = get_current_user_id()
     out = []

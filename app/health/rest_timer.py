@@ -1,4 +1,4 @@
-"""A rest timer between sets (6.48): "start a 2-minute rest".
+"""A rest timer between sets (6.58): "start a 2-minute rest".
 
 gym_rest_timer starts it (from chat, voice or the HUD; also a quick
 command, so no model is needed). The scheduler's `rest_timer` job, every 5

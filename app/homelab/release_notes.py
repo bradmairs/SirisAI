@@ -1,4 +1,4 @@
-"""What an update changes (6.48).
+"""What an update changes (6.58).
 
 A container image usually says where it comes from
 (`org.opencontainers.image.source`, a GitHub repository) and which version

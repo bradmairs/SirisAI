@@ -136,7 +136,7 @@ class DailyBriefingSkill(Skill):
             g["title"] for g in siris.goals.list_goals(status="active")
         ]
         briefing["summary"] = self._compose_summary(briefing)
-        try:  # 6.48: what changed first, your order, what you've left out
+        try:  # 6.58: what changed first, your order, what you've left out
             from app.core import clock
             from app.skills.builtin.briefing_adapt import adapt
 

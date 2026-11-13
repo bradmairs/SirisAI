@@ -230,7 +230,7 @@ def run_server_watch(siris: "SirisAI") -> dict | None:
 
 
 def _quiet(siris: "SirisAI", module: str, func: str) -> object:
-    """Run `module.func(siris)`, logging rather than raising (6.48's small jobs)."""
+    """Run `module.func(siris)`, logging rather than raising (6.58's small jobs)."""
     import importlib
 
     try:

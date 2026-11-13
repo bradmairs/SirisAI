@@ -347,7 +347,7 @@ class GymCompareTool(_HealthTool):
 
 
 class GymPlanWeekTool(_HealthTool):
-    """6.48: which days to train this week."""
+    """6.58: which days to train this week."""
 
     name = "gym_plan_week"
     description = ("Plan this week's workouts: which days to train given the calendar (avoiding early starts, packed days and "
@@ -363,7 +363,7 @@ class GymPlanWeekTool(_HealthTool):
 
 
 class SleepFactorsTool(_HealthTool):
-    """6.48: what goes with better or worse sleep."""
+    """6.58: what goes with better or worse sleep."""
 
     name = "health_sleep_factors"
     description = ("What goes with better or worse sleep and readiness over the last 6 weeks: drinks, caffeine, late workouts and "
@@ -378,7 +378,7 @@ class SleepFactorsTool(_HealthTool):
 
 
 class GymRestTimerTool(_HealthTool):
-    """6.48: a rest timer between sets."""
+    """6.58: a rest timer between sets."""
 
     name = "gym_rest_timer"
     description = ("Start a rest timer between sets ('start a 2-minute rest', 'rest 90 seconds'), or stop it (cancel=true). It says "
@@ -399,7 +399,7 @@ class GymRestTimerTool(_HealthTool):
 
 
 class TrainingMonthTool(_HealthTool):
-    """6.48: a month of training."""
+    """6.58: a month of training."""
 
     name = "gym_month_report"
     description = ("A month of training from SirisGym: workouts, working sets, records and how each main lift moved. month is "

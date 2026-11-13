@@ -118,7 +118,7 @@ def briefing_line(siris: "SirisAI", on: date | None = None) -> str | None:
 
 
 def month_training(siris: "SirisAI", first: date, last: date) -> dict[str, Any] | None:
-    """6.48, for the monthly report: SirisGym's workouts that month, sets, records,
+    """6.58, for the monthly report: SirisGym's workouts that month, sets, records,
     and how each lift trained three times or more moved (first to last session)."""
     from app.health import gym_sessions
 

@@ -1,4 +1,4 @@
-"""The morning brief, adapted (6.48).
+"""The morning brief, adapted (6.58).
 
 - **What changed first**: each part of the brief is compared with
   yesterday's. Parts that changed come first; parts word-for-word the same

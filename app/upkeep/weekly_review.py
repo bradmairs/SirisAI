@@ -1,8 +1,9 @@
-"""The weekly review in Siris (6.48).
+"""What the week's review in Siris adds beyond the notes (6.58).
 
-On Sundays at SIRISAI_WEEKLY_REVIEW_HOUR_LOCAL (18; blank: off) SirisAI
-writes a note to the second brain, "Weekly review 2026-W46", through its
-engine so it's linked like any other note:
+The second brain's own weekly review (app/second_brain/jobs.py,
+03-Resources/Weekly Reviews/<YYYY>-W<week>-review) is written from the
+vault's insights. This adds what happened outside the vault, which it
+passes to that review (and appends when there's no model):
 
 - **Done**: goals completed, and what SirisAI did on its own, by area;
 - **Notes and decisions**: what changed in Siris this week (its activity log);
@@ -11,7 +12,7 @@ engine so it's linked like any other note:
   change;
 - **Sleep**: hours a night and readiness.
 
-weekly_review shows the same without writing it.
+The weekly_review tool shows it any time.
 """
 
 from __future__ import annotations
@@ -84,24 +85,13 @@ def compose(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
         sleep.append(f"- Readiness averaged {mean(ready):.0f} (lowest {min(ready)})")
     sections["Sleep"] = sleep
 
-    title = f"Weekly review {year}-W{week:02d}"
+    title = f"{year}-W{week:02d}-review"
     body = "\n\n".join(f"## {head}\n" + "\n".join(lines) for head, lines in sections.items() if lines)
     return {"title": title, "week": f"{year}-W{week:02d}", "from": start.isoformat(), "to": on.isoformat(), "sections": sections,
-            "content": f"Week {start:%-d %b} to {on:%-d %b %Y}.\n\n" + (body or "A quiet week: nothing recorded.")}
+            "body": body, "content": f"Week {start:%-d %b} to {on:%-d %b %Y}.\n\n" + (body or "A quiet week: nothing recorded.")}
 
 
 def _zone(siris: "SirisAI") -> Any:
     from app.core import clock
 
     return clock.get_zone(siris.settings.timezone)
-
-
-def write(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
-    review = compose(siris, now)
-    if siris.second_brain is None:
-        return {"skipped": "no second brain connected", **review}
-    siris.second_brain.learn([{"title": review["title"], "content": review["content"], "type": "note",
-                               "tags": ["weekly-review"], "source": "SirisAI weekly review"}])
-    siris.attention.raise_item(f"weekly-review:{review['week']}", "notice", f"Your weekly review is in Siris: {review['title']}",
-                               source="weekly-review", severity="info", body=review["content"][:1500])
-    return {"written": review["title"], "sections": {k: len(v) for k, v in review["sections"].items()}}

@@ -1,4 +1,4 @@
-"""Planning the training week (6.48): gym_plan_week.
+"""Planning the training week (6.58): gym_plan_week.
 
 Takes how often you train (your SirisGym workouts over the last four weeks,
 3 a week when there's no history), the next 7 days of the calendar and
