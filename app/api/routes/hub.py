@@ -23,6 +23,7 @@ screen, daily brief, search, inbox and controls on.
     PUT  /siris/hub/v1/presence/phones          the phones added from SirisOS that count as home (4.4)
     GET  /siris/hub/v1/reminders                pending reminders ("remind me at 7")
     POST /siris/hub/v1/reminders/{id}/done      cancel one that's no longer needed
+    POST /siris/hub/v1/reminders                {message, due_at}: set one (SirisOS's pay day, 6.71)
     GET  /siris/hub/v1/email/with?address=      latest emails from these people (meeting prep)
     GET  /siris/hub/v1/network                  UniFi gateway, switches, APs and clients with live rates (SirisOS house view)
     POST /siris/hub/v1/network/{mac}/block      {blocked}: block a client, or let it back in (SirisOS network alerts)
@@ -495,6 +496,22 @@ async def hub_presence_phones(body: c.PresenceDevices, siris: SirisAI = Depends(
 @router.get("/reminders", response_model=c.ReminderList)
 async def hub_reminders(siris: SirisAI = Depends(get_siris)) -> c.ReminderList:
     return await asyncio.to_thread(compose.reminders, siris)
+
+
+@router.post("/reminders", response_model=c.Reminder)
+async def hub_reminder_create(body: c.ReminderCreate, siris: SirisAI = Depends(get_siris)) -> c.Reminder:
+    """A reminder set by another Siris app (6.71): it's pushed when due, like one you asked for."""
+    from datetime import UTC, datetime
+
+    try:
+        due = datetime.fromisoformat(body.due_at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="due_at isn't a date and time.") from None
+    if due.tzinfo is None:
+        raise HTTPException(status_code=422, detail="due_at needs its time zone (e.g. +11:00 or Z).")
+    row = await asyncio.to_thread(siris.reminders.create, body.message, due.astimezone(UTC))
+    stamp = str(row["due_at"])
+    return c.Reminder(id=row["id"], message=row["message"], due_at=stamp if "+" in stamp or stamp.endswith("Z") else stamp + "Z", status="pending")
 
 
 @router.post("/reminders/{reminder_id}/done", response_model=c.ReminderDone)

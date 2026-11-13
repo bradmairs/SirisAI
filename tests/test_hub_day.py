@@ -89,6 +89,21 @@ def test_reminders_list_and_cancel(use) -> None:
     assert client.get("/siris/hub/v1/reminders").json() == {"guest_mode": True, "reminders": None}
 
 
+def test_another_app_sets_a_reminder(use) -> None:
+    """6.71: SirisOS sets pay day reminders; they're pushed when due like any other."""
+    siris = full_siris()
+    client = use(siris)
+    r = client.post("/siris/hub/v1/reminders", json={"message": "Pay day: Salary", "due_at": "2026-11-20T08:00:00+11:00"})
+    assert r.status_code == 200
+    made = r.json()
+    assert made["message"] == "Pay day: Salary" and made["due_at"].startswith("2026-11-19T21:00:00") and made["status"] == "pending"
+    assert any(x["id"] == made["id"] for x in client.get("/siris/hub/v1/reminders").json()["reminders"])
+    due = siris.reminders.due(datetime(2026, 11, 19, 21, 1, tzinfo=UTC))
+    assert [d["id"] for d in due if d["id"] == made["id"]] == [made["id"]]
+    assert client.post("/siris/hub/v1/reminders", json={"message": "x", "due_at": "2026-11-20T08:00:00"}).status_code == 422
+    assert client.post("/siris/hub/v1/reminders", json={"message": "x", "due_at": "soon"}).status_code == 422
+
+
 def test_email_with_reads_the_latest_from_those_people(use) -> None:
     siris = full_siris()
     client = use(siris)
