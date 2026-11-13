@@ -321,6 +321,13 @@ class ReminderDone(_Model):
     status: str
 
 
+class ReminderCreate(_Model):
+    """A reminder another Siris app sets (SirisOS 9.5: pay day from the budget)."""
+
+    message: str = Field(min_length=1, max_length=300)
+    due_at: str = Field(description="ISO date-time with its offset (or UTC with Z).", max_length=40)
+
+
 class EmailBrief(_Model):
     uid: str
     sender: str

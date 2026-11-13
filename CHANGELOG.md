@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.71 — 2026-11-13
+
+- Other Siris apps can set a reminder (POST /siris/hub/v1/reminders): SirisOS uses it for pay day
+
 ## 6.7 — 2026-11-13
 
 - Proper replies instead of code, a Jarvis-like voice, Plex history that's yours, and the microphone working after idle
