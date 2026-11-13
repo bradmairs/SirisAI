@@ -874,6 +874,9 @@ class Settings(BaseSettings):
     # feature entirely (cron_list_jobs/cron_set_job_enabled unregistered,
     # GET /siris/cron_jobs returns an empty list).
     cron_hosts: str = ""
+    # 6.38: check the cron servers this often (minutes) for jobs that didn't run or
+    # failed, and keep the overview for the Cron tab. 0: off.
+    cron_watch_minutes: float = 30.0
 
     # SSH to servers on the home network (app/ssh/, app/plugins/builtin/ssh.py):
     # comma-separated "name=user@host[:port]", e.g.
@@ -886,6 +889,13 @@ class Settings(BaseSettings):
     ssh_allow_changes: bool = True
     ssh_safe_commands: str = ""
     ssh_command_timeout_seconds: float = 30.0
+    # 6.38: keep one SSH connection per server open this long (seconds) and send later
+    # commands through it (OpenSSH ControlMaster), instead of logging in afresh each
+    # time. 0 turns it off. Commands still connect on their own when it isn't there.
+    ssh_reuse_seconds: float = 120.0
+    # 6.38: after starting on a new version, wait this long (seconds), then check every
+    # integration and run the self-test once, alerting on what broke. -1: off.
+    release_check_delay_seconds: float = 120.0
     # Reboot/shut down servers (ssh_power): always asks first, never by a
     # spoken yes. ssh_self_server names the server SirisAI itself runs on, so
     # "all" does it last.

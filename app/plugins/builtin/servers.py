@@ -115,6 +115,9 @@ class SshInstallUpdatesTool(Tool):
             raise PermissionError(f"{host.user} on {host.name} needs passwordless sudo to install updates (ask me which permissions are missing)")
         if result["exit_code"] != 0:
             raise RuntimeError((result["stderr"] or result["stdout"]).strip()[-300:] or f"exit {result['exit_code']}")
+        from app.servers import timeline
+
+        timeline.add(self._siris, host.name, "updates", f"installing {found['updates']} update{'s' if found['updates'] != 1 else ''}")
         return {
             "server": host.name,
             "status": "installing",
@@ -166,3 +169,97 @@ class SshServerPermissionsTool(Tool):
             except SshError as exc:
                 out.append({"server": host.name, "error": str(exc)})
         return out
+
+
+class SshRebootNeededTool(Tool):
+    """6.38: reboot the servers that need it, one at a time."""
+
+    name = "ssh_reboot_needed"
+    description = (
+        "Reboot the servers that need a reboot after updates (or the ones named), one at a time: each has to be back "
+        "before the next goes down, SirisAI's own server last, and it stops if one doesn't come back. Now, or at a set "
+        "time ('reboot whatever needs it at 3am'). Always asks first. Use for 'reboot the servers that need it'."
+    )
+    permission = ToolPermission.CONFIRM_REQUIRED
+    parameters = {
+        "type": "object",
+        "properties": {
+            "servers": {"type": "string", "description": "Optional: these servers instead of the ones that need it."},
+            "at": {"type": "string", "description": "Optional: when, e.g. '03:00' or 'sunday 2am' (local)."},
+        },
+        "required": [],
+    }
+
+    def __init__(self, siris: "SirisAI") -> None:
+        self._siris = siris
+
+    def run(self, servers: str = "", at: str = "", **kwargs: Any) -> Any:
+        from app.core import clock
+        from app.servers import power, watch
+
+        if self._siris.tools.get("ssh_power") is None or not getattr(self._siris.tools.get("ssh_power"), "_allowed", False):
+            raise PermissionError("Rebooting servers is turned off (SIRISAI_SSH_ALLOW_POWER / SIRISAI_SSH_ALLOW_CHANGES).")
+        names = [h.name for h in _targets(self._siris, servers)] if servers.strip() else watch.needs_reboot(self._siris)
+        if not names:
+            return {"servers": [], "summary": "No server needs a reboot right now."}
+        if self._siris.state.get(power.ROLLING_KEY):
+            raise ValueError("A one-at-a-time reboot is already under way.")
+        if at:
+            when = power.parse_when(self._siris, at)
+            power.schedule(self._siris, "rolling", names, when)
+            local = when.astimezone(clock.get_zone(self._siris.settings.timezone))
+            return {"servers": names, "at": when.isoformat(),
+                    "summary": f"At {local.strftime('%a %-d %b %H:%M')} I'll reboot {', '.join(names)}, one at a time."}
+        order = power.start_rolling(self._siris, names)["queue"]
+        power.tick(self._siris)
+        return {"servers": order, "summary": f"Rebooting {', '.join(order)}, one at a time; I'll say when they're all back."}
+
+
+class SshPowerScheduledTool(Tool):
+    """6.38: what reboots are coming up."""
+
+    name = "ssh_power_scheduled"
+    description = "The reboots and shutdowns set for later, and any one-at-a-time reboot under way. Cancel one with ssh_power action cancel."
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, siris: "SirisAI") -> None:
+        self._siris = siris
+
+    def run(self, **kwargs: Any) -> Any:
+        from app.servers import power
+
+        return {"scheduled": power.scheduled(self._siris), "rolling": self._siris.state.get(power.ROLLING_KEY),
+                "following_up": power.pending(self._siris)}
+
+
+class ServerTimelineTool(Tool):
+    """6.38: what happened to a server."""
+
+    name = "server_timeline"
+    description = (
+        "What happened to a server lately, newest first: reboots (and whether it came back), updates installed, failed "
+        "services, full disks, not answering, disk trouble and its cron jobs' runs. For 'what happened to the Pi this week', "
+        "'when did the NAS last reboot'. days defaults to 7."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {"server": {"type": "string"}, "days": {"type": "integer", "description": "How far back (1-30)."}},
+        "required": ["server"],
+    }
+
+    def __init__(self, siris: "SirisAI") -> None:
+        self._siris = siris
+
+    def run(self, server: str = "", days: int = 7, **kwargs: Any) -> Any:
+        from app.servers import timeline
+
+        name = server.strip()
+        if self._siris.ssh_client is not None:
+            try:
+                name = self._siris.ssh_client.find(server).name
+            except ValueError:
+                pass
+        days = max(1, min(int(days or 7), 30))
+        return {"server": name, "events": timeline.events(self._siris, name, days), "text": timeline.text(self._siris, name, days)}

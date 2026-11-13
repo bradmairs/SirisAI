@@ -525,3 +525,137 @@ def test_the_reboot_command_runs_in_a_real_shell(tmp_path: Path) -> None:
     out = subprocess.run(["sh", "-c", command], capture_output=True, text=True, env=env, timeout=10, stdin=subprocess.DEVNULL)
     assert out.returncode == 0 and out.stdout.strip().splitlines()[-1] == "started"
     assert "systemctl reboot" in calls.read_text().splitlines()[-1]
+
+
+# -- 6.38: reboots at a set time, one at a time, and each server's timeline ------------------
+
+
+@pytest.fixture
+def clean_power(servers: Servers):  # type: ignore[no-untyped-def]
+    from app.servers import power, timeline
+
+    for key in (power.STATE_KEY, power.SCHEDULED_KEY, power.ROLLING_KEY, timeline.STATE_KEY, timeline.SEEN_KEY, watch.REBOOT_KEY):
+        servers.siris.state.delete(key)
+    yield servers
+
+
+def test_when_words_become_times(clean_power: Servers) -> None:
+    from datetime import UTC, datetime
+
+    from app.servers import power
+
+    s = clean_power.siris
+    s.settings.timezone = "Australia/Sydney"
+    now = datetime(2026, 11, 11, 1, 0, tzinfo=UTC)  # Wed 12:00 in Sydney (+11)
+    assert power.parse_when(s, "03:00", now).isoformat() == "2026-11-11T16:00:00+00:00"  # Thu 03:00
+    assert power.parse_when(s, "sunday 3am", now).isoformat() == "2026-11-14T16:00:00+00:00"
+    assert power.parse_when(s, "tomorrow 2:30pm", now).isoformat() == "2026-11-12T03:30:00+00:00"
+    assert power.parse_when(s, "2026-11-20T03:00", now).isoformat() == "2026-11-19T16:00:00+00:00"
+    with pytest.raises(ValueError):
+        power.parse_when(s, "whenever", now)
+    with pytest.raises(ValueError, match="passed"):
+        power.parse_when(s, "2026-11-01T03:00", now)
+
+
+def test_a_reboot_at_a_set_time_runs_then_and_can_be_cancelled(clean_power: Servers) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.servers import power
+
+    s = clean_power.siris
+    clean_power.rule("brad@", ["random/boot_id"], OLD_BOOT + "\n")
+    clean_power.rule("brad@", ["systemctl reboot"], "started\n")
+    out = s.run_tool("ssh_power", {"action": "reboot", "servers": "nas", "at": "03:00"}, confirmed=True)
+    assert out["summary"].startswith("Rebooting nas at ") and out["summary"].endswith("I'll check it comes back.")
+    assert not any("systemctl reboot" in c for c in clean_power.commands("brad@"))  # not yet
+    when = datetime.fromisoformat(power.scheduled(s)[0]["at"])
+    power.tick(s, when - timedelta(minutes=1))
+    assert power.scheduled(s)
+    power.tick(s, when + timedelta(seconds=30))
+    assert power.scheduled(s) == [] and any("systemctl reboot" in c for c in clean_power.commands("brad@"))
+    assert [p["server"] for p in power.pending(s)] == ["nas"]
+    assert s.audit.list_recent(limit=1)[0]["trigger"].startswith("scheduled by you for ")
+
+    s.run_tool("ssh_power", {"action": "reboot", "servers": "nas", "at": "04:00"}, confirmed=True)
+    cancelled = s.run_tool("ssh_power", {"action": "cancel", "servers": "nas"}, confirmed=True)
+    assert "Cancelled the scheduled reboot of nas" in cancelled["summary"] and power.scheduled(s) == []
+
+
+def test_a_scheduled_reboot_missed_while_down_is_not_done_late(clean_power: Servers) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.servers import power
+
+    s = clean_power.siris
+    at = datetime.now(UTC) + timedelta(hours=1)
+    power.schedule(s, "reboot", ["nas"], at)
+    power.tick(s, at + timedelta(hours=2))
+    assert not any("systemctl reboot" in c for c in clean_power.commands("brad@"))
+    assert "The reboot of nas didn't happen" in clean_power.items("servers-power")
+
+
+def test_servers_reboot_one_at_a_time(clean_power: Servers) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.servers import power
+
+    s = clean_power.siris
+    s.settings.ssh_self_server = "nas"
+    clean_power.rule("", ["random/boot_id"], OLD_BOOT + "\n")
+    clean_power.rule("", ["systemctl reboot"], "started\n")
+    out = s.run_tool("ssh_reboot_needed", {"servers": "nas,pi"}, confirmed=True)
+    assert out["servers"] == ["pi", "nas"]  # SirisAI's own server last
+    assert s.state.get(power.ROLLING_KEY)["current"] == "pi" and not any("systemctl reboot" in c for c in clean_power.commands("brad@"))
+    now = datetime.now(UTC)
+    power.tick(s, now + timedelta(seconds=30))
+    assert s.state.get(power.ROLLING_KEY)["current"] == "pi"  # pi isn't back yet
+    clean_power.rule("root@", ["random/boot_id"], NEW_BOOT + "\n")
+    power.tick(s, now + timedelta(seconds=90))
+    assert s.state.get(power.ROLLING_KEY)["current"] == "nas" and any("systemctl reboot" in c for c in clean_power.commands("brad@"))
+    clean_power.rule("brad@", ["random/boot_id"], NEW_BOOT + "\n")
+    power.tick(s, now + timedelta(seconds=150))
+    assert s.state.get(power.ROLLING_KEY) is None
+    assert "Rebooted pi, nas, one at a time; all back" in clean_power.items("servers-power")
+    assert [e["text"] for e in s.run_tool("server_timeline", {"server": "pi"})["events"]][:2] == ["rebooted and came back", "reboot started"]
+
+
+def test_one_that_doesnt_come_back_stops_the_rest(clean_power: Servers) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.servers import power
+
+    s = clean_power.siris
+    clean_power.rule("", ["random/boot_id"], OLD_BOOT + "\n")
+    clean_power.rule("", ["systemctl reboot"], "started\n")
+    s.run_tool("ssh_reboot_needed", {"servers": "nas,pi"}, confirmed=True)
+    first = s.state.get(power.ROLLING_KEY)["current"]
+    power.tick(s, datetime.now(UTC) + timedelta(minutes=5))  # still the old boot id: didn't reboot
+    assert s.state.get(power.ROLLING_KEY) is None
+    assert any(t.startswith(f"Stopped rebooting the servers: {first}") for t in clean_power.items("servers-power"))
+
+
+def test_two_servers_needing_a_reboot_offer_one_at_a_time(clean_power: Servers) -> None:
+    clean_power.rule("", ["##pm"], APT_UPDATES)
+    watch.check_updates(clean_power.siris)
+    assert watch.needs_reboot(clean_power.siris) == ["nas", "pi"]
+    item = clean_power.items("server-updates")["2 servers need a reboot: nas, pi"]
+    assert [a["id"] for a in item["actions"]] == ["reboot_all", "dismiss"]
+    from app.voice.confirmations import NEVER_BY_VOICE
+
+    assert "ssh_reboot_needed" in NEVER_BY_VOICE
+
+
+def test_the_timeline_keeps_warnings_once(clean_power: Servers) -> None:
+    s = clean_power.siris
+    clean_power.rule("brad@", ["##uptime"], HEALTH_BAD)
+    watch.check_health(s)
+    watch.check_health(s)
+    texts = [e["text"] for e in s.run_tool("server_timeline", {"server": "nas"})["events"]]
+    assert "nginx.service has failed on nas" in texts and texts.count("nginx.service has failed on nas") == 1
+    assert "nas, the last 7 days (newest first):" in s.run_tool("server_timeline", {"server": "nas"})["text"]
+    clean_power.rule("brad@", ["##uptime"], HEALTH_OK)
+    watch.check_health(s)
+    clean_power.rule("brad@", ["##uptime"], HEALTH_BAD)
+    watch.check_health(s)  # failed again after clearing: a new event
+    texts = [e["text"] for e in s.run_tool("server_timeline", {"server": "nas"})["events"]]
+    assert texts.count("nginx.service has failed on nas") == 2

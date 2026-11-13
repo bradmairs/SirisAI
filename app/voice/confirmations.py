@@ -46,7 +46,7 @@ def classify_reply(text: str) -> str | None:
 
 # Too big to approve with a spoken "yes" (a TV or a guest can say yes): these
 # wait for a tap on Allow or Approve instead (with the PIN, when one is set).
-NEVER_BY_VOICE = frozenset({"ssh_power", "ssh_install_updates", "ssh_run"})
+NEVER_BY_VOICE = frozenset({"ssh_power", "ssh_install_updates", "ssh_run", "ssh_reboot_needed", "cron_edit_job", "cron_watch_job"})
 
 
 def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:
@@ -55,6 +55,8 @@ def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:
         action = str(arguments.get("action") or "reboot")
         delay = int(arguments.get("delay_minutes") or 0)
         when = f" in {delay} minutes" if delay > 0 and action != "cancel" else ""
+        if arguments.get("at") and action != "cancel":
+            when = f" at {arguments['at']}"
         what = "cancel the pending shutdown on" if action == "cancel" else action
         return f"{what} {arguments.get('servers') or 'the server'}{when}"
     if tool_name == "home_assistant_call_service":
@@ -78,6 +80,8 @@ def describe_call(tool_name: str, arguments: dict[str, Any]) -> str:
 def voice_confirmable(tool_name: str, arguments: dict[str, Any], blocked_domains: set[str]) -> bool:
     if tool_name in NEVER_BY_VOICE:
         return False
+    if tool_name == "attention_act":  # 6.38: only acknowledging or dismissing by voice; the rest is for the app
+        return str(arguments.get("action") or "").lower() in ("acknowledge", "dismiss", "decline")
     if tool_name == "home_assistant_call_service":
         domain = str(arguments.get("domain", "")).lower()
         entity = str(arguments.get("entity_id") or "").lower()

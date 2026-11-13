@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
@@ -348,3 +349,173 @@ def test_servers_can_be_added_and_removed(client: TestClient, monkeypatch) -> No
                 siris.tools._tools.pop(name, None)
             else:
                 siris.tools._tools[name] = tool
+
+
+# -- 6.38: editing, watching, missed and failed runs, the cache, reusing SSH --------------
+
+
+class _FakeCrontab:
+    """A stand-in `ssh` for one host's crontab: `crontab -l` and `crontab -`."""
+
+    def __init__(self, content: str = "") -> None:
+        self.content = content
+        self.calls: list[list[str]] = []
+
+    def __call__(self, args, input=None, **kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append(args)
+        if args[-1] == "crontab -":
+            self.content = input
+            return _FakeCompletedProcess()
+        if args[-1] == "crontab -l":
+            if not self.content:
+                return _FakeCompletedProcess(returncode=1, stderr="no crontab for brad")
+            return _FakeCompletedProcess(stdout=self.content)
+        return _FakeCompletedProcess()
+
+
+def test_jobs_can_be_added_changed_watched_and_deleted() -> None:
+    from app.cron.client import unwrap, wrap
+
+    client = CronHostsClient([CronHost(user="brad", host="nas")])
+    fake = _FakeCrontab()
+    with patch("app.cron.client.subprocess.run", side_effect=fake):
+        client.add_job("brad@nas", "0 3 * * *", "/usr/bin/backup.sh", comment="nightly backup")
+        assert fake.content == "# nightly backup\n0 3 * * * /usr/bin/backup.sh\n"
+        with pytest.raises(ValueError, match="already there"):
+            client.add_job("brad@nas", "0  3 * * *", "/usr/bin/backup.sh")
+        with pytest.raises(ValueError, match="isn't a cron schedule"):
+            client.add_job("brad@nas", "every day", "/bin/true")
+        with pytest.raises(ValueError, match="%"):
+            client.add_job("brad@nas", "@daily", "date +%F")
+        client.change_job("brad@nas", "0 3 * * * /usr/bin/backup.sh", schedule="30 4 * * 1")
+        assert "30 4 * * 1 /usr/bin/backup.sh" in fake.content
+        client.set_watched("brad@nas", "30 4 * * 1 /usr/bin/backup.sh", True)
+        watched = fake.content.splitlines()[-1]
+        assert watched == "30 4 * * 1 " + wrap("/usr/bin/backup.sh") and unwrap(watched[11:])[0] == "/usr/bin/backup.sh"
+        client.set_watched("brad@nas", watched, False)
+        assert fake.content.splitlines()[-1] == "30 4 * * 1 /usr/bin/backup.sh"
+        client.delete_job("brad@nas", "30 4 * * 1 /usr/bin/backup.sh")
+        assert fake.content == "# nightly backup\n"
+        with pytest.raises(ValueError, match="No matching"):
+            client.delete_job("brad@nas", "30 4 * * 1 /usr/bin/backup.sh")
+
+
+def test_the_edit_tool_says_when_it_runs() -> None:
+    siris = SirisAI(settings=Settings(cron_hosts="brad@nas"))
+    fake = _FakeCrontab("0 3 * * * /bin/true\n")
+    with patch("app.cron.client.subprocess.run", side_effect=fake):
+        out = siris.run_tool("cron_edit_job", {"action": "add", "host": "brad@nas", "schedule": "0 8 * * 1-5", "command": "/bin/report"}, confirmed=True)
+    assert out["summary"] == "Added on brad@nas: every weekday at 08:00." and out["next_run_utc"]
+    assert siris.tools.get("cron_edit_job").permission is ToolPermission.CONFIRM_REQUIRED
+    assert siris.tools.get("cron_watch_job").permission is ToolPermission.CONFIRM_REQUIRED
+
+
+def test_previous_runs_and_valid_schedules() -> None:
+    from datetime import UTC, datetime
+
+    from app.cron.schedule import prev_run, valid
+
+    at = datetime(2026, 11, 11, 1, 0, tzinfo=UTC)  # 12:00 +11:00
+    assert prev_run("0 3 * * *", at, 660).isoformat() == "2026-11-11T03:00:00+11:00"
+    assert prev_run("30 2 * * 1", at).isoformat() == "2026-11-09T02:30:00+00:00"
+    assert prev_run("@reboot", at) is None
+    assert valid("0 3 * * *") and valid("@daily") and valid("@reboot") and not valid("0 3 * *") and not valid("61 * * * *")
+
+
+def _host(jobs: list[dict], log_since: str | None = "2026-11-08T00:00:00+11:00") -> dict:
+    return {"host": "brad@nas", "reachable": True, "utc_offset": "+1100", "log_since": log_since, "jobs": jobs}
+
+
+def _job(schedule: str, command: str, **extra) -> dict:  # type: ignore[no-untyped-def]
+    from app.cron.schedule import describe
+
+    return {"schedule": schedule, "command": command, "line": f"{schedule} {command}", "enabled": True, "inner": command,
+            "description": describe(schedule), "run_as": "brad", "source": "crontab", "last_run": None, "watched": False,
+            "last_exit": None, **extra}
+
+
+def test_missed_and_failed_runs_are_found() -> None:
+    from datetime import UTC, datetime
+
+    from app.cron.watch import problems
+
+    now = datetime(2026, 11, 11, 1, 0, tzinfo=UTC)  # 12:00 in +11:00
+    hosts = [_host([
+        _job("0 3 * * *", "/usr/bin/backup.sh", last_run="2026-11-10T03:00:01+11:00"),  # missed today's 03:00
+        _job("0 4 * * *", "/usr/bin/ok.sh", last_run="2026-11-11T04:00:01+11:00"),
+        _job("*/5 * * * *", "/usr/bin/often.sh"),  # too frequent to judge
+        _job("0 5 * * *", "/usr/bin/off.sh", enabled=False),
+        _job("0 6 * * *", "/usr/bin/flaky.sh", last_run="2026-11-11T06:00:01+11:00", watched=True, last_exit=2,
+             last_exit_at="2026-11-11T06:00:09+11:00"),
+    ])]
+    found = {p["title"]: p for p in problems(hosts, now)}
+    assert set(found) == {"/usr/bin/backup.sh on brad@nas didn't run at Wed 03:00", "/usr/bin/flaky.sh on brad@nas failed (exit 2)"}
+    assert "it last ran Tue 10 Nov 03:00" in found["/usr/bin/backup.sh on brad@nas didn't run at Wed 03:00"]["body"]
+    # A log that starts after the run (rotated, or unreadable) can't say it was missed.
+    assert problems([_host([_job("0 3 * * *", "/usr/bin/backup.sh")], log_since="2026-11-11T05:00:00+11:00")], now) == []
+    assert problems([_host([_job("0 3 * * *", "/usr/bin/backup.sh")], log_since=None)], now) == []
+
+
+def test_the_overview_reads_exit_codes_and_is_kept(client: TestClient, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from datetime import UTC, datetime
+
+    from app.cron import watch
+    from app.cron.client import overview_for, wrap
+
+    out = OVERVIEW_OUTPUT.replace("0 3 * * * /usr/bin/backup.sh --full", "0 3 * * * " + wrap("/usr/bin/backup.sh --full")) + (
+        "2026-11-11T03:00:09+11:00 nas siris-cron[44]: job=" + wrap("/usr/bin/backup.sh --full").split("job=")[1][:8] + " exit=1\n")
+    host = overview_for(CronHost(user="brad", host="nas"), out, datetime(2026, 11, 11, 1, 0, tzinfo=UTC))
+    backup = next(j for j in host["jobs"] if j["inner"] == "/usr/bin/backup.sh --full")
+    assert backup["watched"] and backup["last_exit"] == 1 and host["log_since"] == "2026-11-10T03:00:01+11:00"
+
+    siris = get_siris()
+    monkeypatch.setattr(siris, "cron_client", CronHostsClient([CronHost(user="brad", host="nas")]))
+    with patch("app.cron.client.subprocess.run", return_value=_FakeCompletedProcess(stdout=out)):
+        fresh = client.get("/siris/cron_jobs/overview").json()
+    kept = client.get("/siris/cron_jobs/overview?cached=true").json()
+    assert kept["cached"] and kept["hosts"] == fresh["hosts"] and kept["at"]
+    assert watch.cached(siris)["hosts"][0]["host"] == "brad@nas"
+
+
+def test_servers_are_asked_together_in_order() -> None:
+    import threading
+    import time as _time
+
+    from app.cron.client import overview
+
+    client = CronHostsClient([CronHost(user="a", host="one"), CronHost(user="b", host="two"), CronHost(user="c", host="three")])
+    seen: set[str] = set()
+
+    def slow(args, **kwargs):  # type: ignore[no-untyped-def]
+        seen.add(threading.current_thread().name)
+        _time.sleep(0.2)
+        return _FakeCompletedProcess(stdout="##info\nh\n+0000\nup\n##user\n")
+
+    start = _time.monotonic()
+    with patch("app.cron.client.subprocess.run", side_effect=slow):
+        hosts = overview(client)
+    assert [h["host"] for h in hosts] == ["a@one", "b@two", "c@three"]
+    assert _time.monotonic() - start < 0.5 and len(seen) > 1
+
+
+def test_ssh_connections_are_reused_when_on(tmp_path: Path) -> None:
+    import stat
+
+    from app.ssh import reuse
+    from app.ssh.client import SshClient, parse_ssh_hosts
+
+    log = tmp_path / "calls"
+    fake = tmp_path / "ssh"
+    fake.write_text(f'#!/bin/sh\necho "$*" >> {log}\ncase "$*" in *"-O check"*) exit 255;; esac\necho ok\n')
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    reuse.forget()
+    os_env = {"SIRISAI_SSH_CONTROL_DIR": str(tmp_path / "cm")}
+    with patch.dict("os.environ", os_env):
+        client = SshClient(parse_ssh_hosts("nas=brad@10.0.0.2"), ssh_binary=str(fake), reuse_seconds=120)
+        client.run("nas", "uptime")
+        client.run("nas", "uptime")
+    calls = log.read_text().splitlines()
+    assert "-O check" in calls[0] and "ControlMaster=yes" in calls[1] and "ControlPersist=120" in calls[1] and "-f -N" in calls[1]
+    assert all("ControlMaster=no" in c and c.endswith("uptime") for c in calls[2:]) and len(calls) == 4  # checked once
+    assert reuse.options(0) == []
+    reuse.forget()

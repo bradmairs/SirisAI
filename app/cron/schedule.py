@@ -103,6 +103,39 @@ def next_run(schedule: str, now: datetime, utc_offset_minutes: int = 0) -> datet
     return None
 
 
+def prev_run(schedule: str, at: datetime, utc_offset_minutes: int = 0) -> datetime | None:
+    """The last time `schedule` fired at or before `at` (6.38), in the host's offset."""
+    if schedule.strip().lower() == "@reboot":
+        return None
+    try:
+        minutes, hours, dom, months, dow, dom_set, dow_set = parse(schedule)
+    except ValueError:
+        return None
+    zone = timezone(timedelta(minutes=utc_offset_minutes))
+    local = at.astimezone(zone).replace(second=0, microsecond=0)
+    day = local.date()
+    for _ in range(366 * 5):
+        if _day_ok(day, dom, months, dow, dom_set, dow_set):
+            for h in sorted(hours, reverse=True):
+                for m in sorted(minutes, reverse=True):
+                    when = datetime(day.year, day.month, day.day, h, m, tzinfo=zone)
+                    if when <= local:
+                        return when
+        day -= timedelta(days=1)
+    return None
+
+
+def valid(schedule: str) -> bool:
+    s = schedule.strip().lower()
+    if s == "@reboot" or s in SHORTCUTS:
+        return True
+    try:
+        parse(schedule)
+    except (ValueError, IndexError):
+        return False
+    return True
+
+
 def _clock(h: int, m: int) -> str:
     return f"{h:02d}:{m:02d}"
 

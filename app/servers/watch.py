@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 STATE_KEY = "server_watch"
+REBOOT_KEY = "server_watch:needs_reboot"
 DOWN_AFTER = 2
 
 
@@ -116,6 +117,7 @@ def check_health(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any
                 }
             )
     siris.state.set(STATE_KEY, state)
+    _timeline(siris, "health", wanted)
     siris.attention.sync("servers", wanted, outcome="Cleared up")
     return report
 
@@ -169,8 +171,34 @@ def check_updates(siris: "SirisAI", now: datetime | None = None) -> dict[str, An
                     "actions": [action("acknowledge", "Got it")],
                 }
             )
+    needing = [name for name, found in report.items() if found.get("reboot_required")]
+    siris.state.set(REBOOT_KEY, needing)
+    if len(needing) > 1:  # 6.38: all of them, one at a time
+        wanted.append({
+            "key": "server-updates:reboot-all", "kind": "suggestion", "severity": "info",
+            "title": f"{len(needing)} servers need a reboot: {', '.join(needing)}",
+            "body": "Reboot them one at a time: each has to come back before the next goes down, and it stops if one doesn't.",
+            "actions": [action("reboot_all", "Reboot them one at a time", "primary", confirm=f"Reboot {', '.join(needing)}, one at a time?"),
+                        action("dismiss", "Later")],
+            "payload": {"servers": needing},
+        })
+    _timeline(siris, "updates", wanted)
     siris.attention.sync("server-updates", wanted, outcome="Up to date")
     return report
+
+
+def _timeline(siris: "SirisAI", kind: str, wanted: list[dict[str, Any]]) -> None:
+    from app.servers import timeline
+
+    try:
+        timeline.note_items(siris, kind, wanted, [h.name for h in _hosts(siris)])
+    except Exception:  # noqa: BLE001 - the timeline never gets in the way of the checks
+        logger.debug("Couldn't add to the server timeline", exc_info=True)
+
+
+def needs_reboot(siris: "SirisAI") -> list[str]:
+    """The servers that said they need a reboot at the last update check (6.38)."""
+    return list(siris.state.get(REBOOT_KEY) or [])
 
 
 def check_disks(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
@@ -195,6 +223,7 @@ def check_disks(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]
                     "actions": [action("acknowledge", "Got it")],
                 }
             )
+    _timeline(siris, "disks", wanted)
     siris.attention.sync("server-disks", wanted, outcome="Disks healthy again")
     return report
 
@@ -292,3 +321,11 @@ register_action("servers", "wake", _wake)
 register_action("servers-power", "wake", _wake)
 register_action("server-updates", "install", _install)
 register_action("server-updates", "reboot", _reboot)
+
+
+def _reboot_all(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:
+    result = siris.run_tool("ssh_reboot_needed", {"servers": ",".join(payload.get("servers") or [])}, confirmed=True, trigger=trigger)
+    return result, result.get("summary", "Rebooting one at a time")
+
+
+register_action("server-updates", "reboot_all", _reboot_all)

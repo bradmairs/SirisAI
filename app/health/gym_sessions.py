@@ -270,6 +270,9 @@ def ask(siris: "SirisAI", day: str | None = None, since: str | None = None, unti
     for s in found:
         if len(shown) >= (limit if full else 1):
             break
+        names = s.get("names")
+        if exercise and names and len(names) < 8 and "entries" not in s and not any(_matches(n, exercise) for n in names):
+            continue  # 6.38: the summary already says it isn't in this one, so don't fetch it
         one = describe(siris, detail(siris, s, source), exercise)
         if exercise and not one["exercises"]:
             continue
@@ -292,3 +295,105 @@ def ask(siris: "SirisAI", day: str | None = None, since: str | None = None, unti
                 + "; ".join(_summary_line(s) for s in listed) + (f"; and {len(found) - len(listed)} more" if len(found) > len(listed) else "")
                 + f". The latest in full: {shown[0]['text']}")
     return {"text": text, "sessions": shown, "count": len(found), "from": a.isoformat(), "to": b.isoformat(), "source": source}
+
+
+# -- 6.38: comparing workouts, stalls, and "what did I lift last time" ------------------
+
+
+def _best(entry: dict[str, Any]) -> dict[str, Any]:
+    sets = [x for x in entry.get("sets") or [] if x.get("done", True) and x.get("type") != "warmup"]
+    e1 = [(v, x) for x in sets if (v := _e1rm(x))]
+    top = max(e1, key=lambda t: t[0]) if e1 else (None, max(sets, key=lambda x: (x.get("weight") or 0, x.get("reps") or 0)) if sets else None)
+    volume = sum((x.get("weight") or 0) * (x.get("reps") or 0) for x in sets)
+    return {"sets": len(sets), "e1rm": top[0], "top": top[1], "volume": round(volume, 1)}
+
+
+def _key(name: str) -> str:
+    return " ".join(name.lower().split())
+
+
+def compare(siris: "SirisAI", day: str | None = None, against: str | None = None) -> dict[str, Any]:
+    """A workout against the last one like it (the same title), exercise by exercise."""
+    today = _today(siris)
+    found, source = find(siris, today - timedelta(days=120), today)
+    if not found:
+        return {"text": "No gym workouts in the last four months to compare.", "exercises": []}
+    on = resolve_day(siris, day) if day else None
+    first = next((s for s in found if on is None or _day(s) == on.isoformat()), None)
+    if first is None:
+        return {"text": f"No gym workout on {_when({'date': on.isoformat()})}.", "exercises": []}  # type: ignore[union-attr]
+    other_day = resolve_day(siris, against) if against else None
+    second = next((s for s in found if s["id"] != first["id"] and _day(s) < _day(first)
+                   and ((other_day and _day(s) == other_day.isoformat()) or (not other_day and (s.get("title") or "") == (first.get("title") or "")))), None)
+    if second is None:
+        what = f"on {_when({'date': other_day.isoformat()})}" if other_day else f"called {first.get('title')} before it"
+        return {"text": f"No other workout {what} to compare with.", "exercises": []}
+    a, b = detail(siris, first, source), detail(siris, second, source)
+    before = {_key(e.get("name") or e.get("exercise") or ""): e for e in b.get("entries") or []}
+    rows, lines = [], []
+    for e in a.get("entries") or []:
+        name = e.get("name") or e.get("exercise") or "?"
+        now_best = _best(e)
+        then = before.get(_key(name))
+        if then is None or not now_best["sets"]:
+            continue
+        was = _best(then)
+        change = round(now_best["e1rm"] - was["e1rm"], 1) if now_best["e1rm"] and was["e1rm"] else None
+        rows.append({"name": name, "now": now_best, "before": was, "e1rm_change": change})
+        top_now = set_text(now_best["top"]) if now_best["top"] else "-"
+        top_then = set_text(was["top"]) if was["top"] else "-"
+        trend = "" if change is None else (f", up {change:g} kg" if change > 0 else f", down {abs(change):g} kg" if change < 0 else ", the same")
+        sets = "" if now_best["sets"] == was["sets"] else f", {now_best['sets']} sets against {was['sets']}"
+        lines.append(f"{name}: best {top_now} against {top_then}{trend} estimated 1RM{sets}")
+    head = f"{_when(a)}, {a.get('title')}, against {_when(b)}"
+    if not rows:
+        return {"text": f"{head}: no exercises in common.", "exercises": []}
+    up = sum(1 for r in rows if (r["e1rm_change"] or 0) > 0)
+    down = sum(1 for r in rows if (r["e1rm_change"] or 0) < 0)
+    return {"text": f"{head}: " + "; ".join(lines) + f". {up} up, {down} down.", "exercises": rows,
+            "sessions": [a.get("id"), b.get("id")]}
+
+
+def stalls(siris: "SirisAI", weeks: int = 3) -> dict[str, Any]:
+    """Lifts whose best estimated 1RM hasn't gone up in `weeks` weeks, over at least four sessions."""
+    today = _today(siris)
+    found, source = find(siris, today - timedelta(days=90), today)
+    history: dict[str, list[tuple[str, float, str]]] = {}
+    for s in found[:40]:
+        full = detail(siris, s, source)
+        for e in full.get("entries") or []:
+            best = _best(e)["e1rm"]
+            if best:
+                name = e.get("name") or e.get("exercise") or "?"
+                history.setdefault(_key(name), []).append((_day(full), best, name))
+    cutoff = (today - timedelta(weeks=weeks)).isoformat()
+    out = []
+    for rows in history.values():
+        rows.sort()
+        if len(rows) < 4 or rows[0][0] > cutoff:
+            continue
+        before = max(v for d, v, _ in rows if d <= cutoff)
+        recent = [v for d, v, _ in rows if d > cutoff]
+        if recent and max(recent) <= before:
+            out.append({"name": rows[-1][2], "best": before, "recent_best": max(recent), "sessions": len(rows),
+                        "since": next(d for d, v, _ in rows if v == before)})
+    if not out:
+        return {"stalled": [], "text": f"Nothing has stalled: every lift trained at least four times has gone up in the last {weeks} weeks."}
+    text = "Stalled: " + "; ".join(f"{r['name']}, best estimated 1RM {r['best']:g} kg on {_when({'date': r['since']})}, "
+                                   f"{r['recent_best']:g} kg since" for r in out)
+    return {"stalled": out, "text": text + ". A deload or a change of rep range usually gets it moving."}
+
+
+def last_time(siris: "SirisAI", exercise: str, sessions: int = 2) -> dict[str, Any]:
+    """Short, for mid-workout: the last sessions' sets of one exercise."""
+    out = ask(siris, exercise=exercise, limit=sessions)
+    shown = out.get("sessions") or []
+    if not shown:
+        return {"text": out.get("text") or f"No {exercise} in the last two months.", "sessions": []}
+    parts = []
+    for i, s in enumerate(shown):
+        for e in s["exercises"]:
+            sets = [t for t in e["sets"] if "(warm-up)" not in t]
+            label = "Last time" if i == 0 else "Before that"
+            parts.append(f"{label} ({_when(s)}), {e['name']}: {', '.join(sets) or 'no working sets'}")
+    return {"text": ". ".join(parts) + ".", "sessions": shown}

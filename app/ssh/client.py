@@ -23,6 +23,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from app.ssh import reuse
+
 MAX_OUTPUT_CHARS = 6000
 _MAC_RE = re.compile(r"[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")
 
@@ -123,11 +125,13 @@ class SshError(RuntimeError):
 
 
 class SshClient:
-    def __init__(self, hosts: list[SshHost], timeout: float = 30.0, connect_timeout: float = 8.0, ssh_binary: str = "ssh") -> None:
+    def __init__(self, hosts: list[SshHost], timeout: float = 30.0, connect_timeout: float = 8.0, ssh_binary: str = "ssh",
+                 reuse_seconds: float = 0) -> None:
         self._hosts = {h.name: h for h in hosts}
         self._timeout = timeout
         self._connect_timeout = connect_timeout
         self._ssh_binary = ssh_binary
+        self._reuse = reuse_seconds
 
     @property
     def hosts(self) -> list[SshHost]:
@@ -143,21 +147,23 @@ class SshClient:
         known = ", ".join(self._hosts) or "none"
         raise ValueError(f"Unknown server '{name}'. Configured: {known}.")
 
-    def _args(self, host: SshHost, command: str) -> list[str]:
+    def _base(self, host: SshHost) -> list[str]:
         return [
             self._ssh_binary,
             "-p", str(host.port),
             "-o", "BatchMode=yes",
             "-o", f"ConnectTimeout={int(self._connect_timeout)}",
             "-o", "StrictHostKeyChecking=accept-new",
-            host.target,
-            command,
         ]
+
+    def _args(self, host: SshHost, command: str) -> list[str]:
+        return [*self._base(host), *reuse.options(self._reuse), host.target, command]
 
     def run(self, name: str, command: str, timeout: float | None = None) -> dict[str, Any]:
         host = self.find(name)
         limit = min(timeout or self._timeout, self._timeout)
         start = time.monotonic()
+        reuse.ensure(self._base(host), host.target, self._reuse, self._connect_timeout)
         try:
             result = subprocess.run(self._args(host, command), capture_output=True, text=True, timeout=limit + self._connect_timeout)
         except subprocess.TimeoutExpired as exc:

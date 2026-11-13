@@ -42,13 +42,13 @@ def _spec(hosts: list[CronHost]) -> str:
 
 def apply(siris: "SirisAI", hosts: list[CronHost]) -> None:
     """Use these hosts from now on, registering the cron tools the first time."""
-    from app.plugins.builtin.cron import CronListJobsTool, CronSetJobEnabledTool
+    from app.plugins.builtin.cron import CRON_TOOLS
 
     if not hosts:
         siris.cron_client = None
         return
-    siris.cron_client = CronHostsClient(hosts)
-    for tool_cls in (CronListJobsTool, CronSetJobEnabledTool):
+    siris.cron_client = CronHostsClient(hosts, reuse_seconds=siris.settings.ssh_reuse_seconds)
+    for tool_cls in CRON_TOOLS:
         existing = siris.tools.get(tool_cls.name)
         if existing is None:
             siris.tools.register(tool_cls(siris.cron_client))

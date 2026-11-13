@@ -93,7 +93,14 @@ def _birthdays(siris: "SirisAI") -> str | None:
         f"{b['title']} {when(b)}" + (f" (turning {b['turning']})" if b.get("turning") else "") for b in soon) + "."
 
 
-EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _car, _parcels, _sirisos_apps, _on_this_day, _birthdays]
+def _training(siris: "SirisAI") -> str | None:
+    """6.38: last week's training on Mondays; a lighter plan on a low-readiness training day."""
+    from app.health import gym_week
+
+    return gym_week.briefing_line(siris)
+
+
+EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _training, _car, _parcels, _sirisos_apps, _on_this_day, _birthdays]
 
 
 def briefing_lines(siris: "SirisAI") -> list[str]:

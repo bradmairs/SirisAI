@@ -22,7 +22,6 @@ from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
 from app.cron import hosts as cron_hosts
-from app.cron.client import overview
 
 router = APIRouter(
     prefix="/siris/cron_jobs", tags=["cron"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)]
@@ -42,11 +41,17 @@ def list_cron_jobs(siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
 
 
 @router.get("/overview")
-def cron_overview(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
-    return {
-        "hosts": overview(siris.cron_client) if siris.cron_client is not None else [],
-        "public_key": cron_hosts.public_key(),
-    }
+def cron_overview(cached: bool = False, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """`?cached=true` (6.38): the last overview SirisAI kept (the cron watch or the
+    last visit), at once, for the Cron tab to show while it asks the servers."""
+    from app.cron import watch
+
+    if cached:
+        kept = watch.cached(siris) if siris.cron_client is not None else None
+        return {"hosts": (kept or {}).get("hosts") or [], "at": (kept or {}).get("at"), "cached": True,
+                "public_key": cron_hosts.public_key()}
+    hosts = watch.refresh(siris) if siris.cron_client is not None else []
+    return {"hosts": hosts, "at": None, "cached": False, "public_key": cron_hosts.public_key()}
 
 
 @router.post("/hosts")

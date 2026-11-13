@@ -242,6 +242,25 @@ def learn(siris: "SirisAI", text: str, tool: str, arguments: dict[str, Any]) -> 
     siris.state.set(LEARNED_KEY, learned)
 
 
+_GYM_LAST = re.compile(
+    rf"^{_POLITE}what (?:did|weight did|weights did) i (?:lift|do|use|have|get|put)(?: last time)? (?:on|for|with) (?:the |my )?"
+    rf"(?P<a>[a-z][a-z \-]{{1,40}}?)(?: last time| last session)?\??$"
+    rf"|^{_POLITE}(?:what was|what's) my last (?P<b>[a-z][a-z \-]{{1,40}}?)(?: session| workout)?\??$", re.I)
+
+
+def _gym_last(siris: "SirisAI", text: str) -> QuickPlan | None:
+    """6.38: mid-workout, "what did I lift last time on incline press?" without the model."""
+    m = _GYM_LAST.match(text)
+    if not m or siris.tools.get("gym_sessions") is None:
+        return None
+    exercise = (m.group("a") or m.group("b") or "").strip()
+    words = set(exercise.lower().split())
+    if exercise in ("", "it", "that", "this") or words & {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+                                                          "sunday", "today", "yesterday", "week", "weekend", "month", "gym"}:
+        return None  # a day, not an exercise: that's gym_sessions with the model
+    return QuickPlan("gym_sessions", {"exercise": exercise, "last_time": True}, None)
+
+
 def plan(siris: "SirisAI", text: str) -> QuickPlan | None:
     """The tool call for a quick command, and what to say once done, or None
     to leave the message to the model."""
@@ -254,7 +273,7 @@ def plan(siris: "SirisAI", text: str) -> QuickPlan | None:
         return QuickPlan("undo_last", {}, None) if siris.tools.get("undo_last") is not None else None
     excluded = siris.restricted_tool_names_to_exclude()
     found: QuickPlan | None = None
-    for attempt in (_learned, _device, _scene, _media, _climate):
+    for attempt in (_learned, _gym_last, _device, _scene, _media, _climate):
         if attempt is not _learned and _NOT_SIMPLE.search(text):
             break
         try:

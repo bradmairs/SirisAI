@@ -783,9 +783,12 @@ class ActivityEntryResponse(BaseModel):
 
 @router.get("/activity", response_model=list[ActivityEntryResponse])
 def get_activity(
-    limit: int = 50, siris: SirisAI = Depends(get_siris)
+    limit: int = 50, id: int | None = None, siris: SirisAI = Depends(get_siris)
 ) -> list[ActivityEntryResponse]:
-    """Recent tool executions (successful or not), most recent first."""
+    """Recent tool executions (successful or not), most recent first.
+    `?id=` (6.38): just that one, for the details link in what_did_you_do."""
+    if id is not None:
+        return [ActivityEntryResponse(**e) for e in siris.audit.list_recent(limit=500) if e["id"] == id][:1]
     return [
         ActivityEntryResponse(**entry) for entry in siris.audit.list_recent(limit=limit)
     ]

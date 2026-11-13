@@ -1593,6 +1593,28 @@
     return isNaN(d) ? iso : d.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   }
 
+  function cronNote(text) {
+    let note = document.getElementById("cron-as-of");
+    if (!note) {
+      note = document.createElement("p");
+      note.id = "cron-as-of";
+      note.className = "cron-add-note";
+      cronList.before(note);
+    }
+    note.textContent = text;
+  }
+
+  async function cronTool(name, args) {
+    try {
+      const result = await runTool(name, args, true);
+      const out = result && result.tool_call && result.tool_call.result;
+      if (out && out.summary) cronNote(out.summary);
+      loadCron();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   function renderCron(hosts) {
     cronList.innerHTML = "";
     if (!hosts.length) {
@@ -1620,6 +1642,19 @@
         }
       });
       head.appendChild(removeBtn);
+      if (host.reachable) {
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.textContent = "New job";
+        addBtn.addEventListener("click", () => {
+          const schedule = prompt("When? A cron schedule, e.g. 0 3 * * * (03:00 daily) or @daily");
+          if (!schedule) return;
+          const command = prompt("The command to run:");
+          if (!command) return;
+          cronTool("cron_edit_job", { action: "add", host: host.host, schedule, command });
+        });
+        head.appendChild(addBtn);
+      }
       group.appendChild(head);
 
       if (!host.reachable) {
@@ -1655,13 +1690,14 @@
         schedule.textContent = job.schedule;
         const command = document.createElement("div");
         command.className = "cron-command";
-        command.textContent = job.command;
+        command.textContent = job.inner || job.command;
         const meta = document.createElement("div");
         meta.className = "cron-meta";
         for (const text of [
           job.next_run ? `Next: ${cronWhen(job.next_run)}` : "",
           job.last_run ? `Last ran: ${cronWhen(job.last_run)}` : host.log_available ? "Not run in the last 3 days" : "",
           `As ${job.run_as}`,
+          job.watched ? (job.last_exit === null || job.last_exit === undefined ? "Watched" : job.last_exit === 0 ? "Last run OK" : `Last run failed (exit ${job.last_exit})`) : "",
           job.source === "crontab" ? "Own crontab" : job.source,
         ]) {
           if (!text) continue;
@@ -1692,6 +1728,28 @@
             }
           });
           actions.appendChild(toggleBtn);
+          const editBtn = document.createElement("button");
+          editBtn.type = "button";
+          editBtn.textContent = "Edit";
+          editBtn.addEventListener("click", () => {
+            const schedule = prompt("Schedule:", job.schedule);
+            if (schedule === null) return;
+            const command = prompt("Command:", job.inner || job.command);
+            if (command === null) return;
+            cronTool("cron_edit_job", { action: "change", host: job.host, line: job.line, schedule, command });
+          });
+          const watchBtn = document.createElement("button");
+          watchBtn.type = "button";
+          watchBtn.textContent = job.watched ? "Unwatch" : "Watch";
+          watchBtn.title = "Tell me when a run fails";
+          watchBtn.addEventListener("click", () => cronTool("cron_watch_job", { host: job.host, line: job.line, watch: !job.watched }));
+          const deleteBtn = document.createElement("button");
+          deleteBtn.type = "button";
+          deleteBtn.textContent = "Delete";
+          deleteBtn.addEventListener("click", () => {
+            if (confirm(`Delete this job from ${job.host}?\n\n${job.line}`)) cronTool("cron_edit_job", { action: "delete", host: job.host, line: job.line });
+          });
+          actions.append(editBtn, watchBtn, deleteBtn);
           div.appendChild(actions);
         }
         group.appendChild(div);
@@ -1707,9 +1765,17 @@
       cronUnavailable.style.display = available ? "none" : "";
       cronBody.style.display = available ? "" : "none";
       if (!available) return;
-      cronList.innerHTML = '<p class="empty">Loading...</p>';
+      // 6.38: what SirisAI last saw, straight away, then the servers' answer.
+      const kept = await api("/siris/cron_jobs/overview?cached=true").catch(() => null);
+      if (kept && kept.hosts.length) {
+        renderCron(kept.hosts);
+        cronNote(`As of ${cronWhen(kept.at)}; checking now...`);
+      } else {
+        cronList.innerHTML = '<p class="empty">Loading...</p>';
+      }
       const data = await api("/siris/cron_jobs/overview");
       renderCron(data.hosts);
+      cronNote("");
     } catch (err) {
       cronList.innerHTML = `<p class="empty">${err.message}</p>`;
     }

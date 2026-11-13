@@ -117,6 +117,8 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     (frozenset("readiness flat why changed low recover recovery hrv".split()), ("health_explain", "health_overview")),
     (frozenset("gym lift lifts lifting bench squat deadlift press row workout workouts pr prs record records deload strength sets reps trending".split()), ("gym_progress", "gym_sessions")),
     (frozenset("session sessions workout workouts gym lifted trained training".split()), ("gym_sessions",)),
+    (frozenset("compare compared better worse stalled stall stalling plateau plateaued progress".split()), ("gym_compare",)),
+    (frozenset("anything need know alerts alert attention going feed urgent dismiss".split()), ("attention_summary", "attention_act")),
     (frozenset("car ev charge charging battery range drive driving precondition vehicle".split()), ("car_",)),
     (frozenset("parcel parcels package packages delivery deliveries post courier tracking arrived".split()), ("parcel_",)),
     (frozenset("energy electricity power solar cheap tariff price dishwasher washing dryer".split()), ("energy_status", "schedule_for_cheap_energy", "list_deferred_jobs", "cancel_deferred_job")),
