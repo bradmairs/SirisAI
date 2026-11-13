@@ -313,7 +313,7 @@
   // One audio context for the mic, made on the first tap and kept: on iPhone a
   // context created later, without a tap (listening again for an answer), would
   // start suspended and record silence.
-  // 6.69: after a reply has played, or a few minutes idle, iPhone leaves the context
+  // 6.7: after a reply has played, or a few minutes idle, iPhone leaves the context
   // "interrupted" (or closes it) and the next recording came back empty ("I didn't
   // catch that"). Such a context is replaced here, during the tap.
   let micCtx = null;

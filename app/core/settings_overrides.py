@@ -186,7 +186,7 @@ def undo(siris: "SirisAI", change_id: int) -> dict[str, Any]:
 
 
 def _apply_live(siris: "SirisAI", changes: dict[str, Any]) -> None:
-    """6.69: the voice and its pace change on the next thing said, no restart."""
+    """6.7: the voice and its pace change on the next thing said, no restart."""
     if not {"tts_voice", "tts_speed", "persona_style"} & set(changes):
         return
     from app.cortex import persona

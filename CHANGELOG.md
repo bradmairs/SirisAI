@@ -5,6 +5,16 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.7 — 2026-11-13
+
+- Proper replies instead of code, a Jarvis-like voice, Plex history that's yours, and the microphone working after idle
+- **No more code in replies**: a tool call the model writes as text (`{"name": "brain_get_note", ...}`, even after a sentence or in a ```json block) is now run instead of shown. While streaming, anything that might be one is held back until it's clear. When an answer asks for one more tool ("let me check that note"), it's run and answered from, up to 2 in a row.
+- **Sounds like Jarvis**: a new `SIRISAI_PERSONA_STYLE` (`jarvis` by default, or `plain`): calm, brief, dry British wit, "sir", reports what it did, and never shows tool names, JSON or code. `SIRISAI_PERSONA` is added after it.
+- **Speaks faster**: the jarvis style speaks at 1.2× unless `SIRISAI_TTS_SPEED` is set. The style, persona, voice and pace are on the Settings page and change live. `bm_lewis` or `bm_george` give a British voice.
+- **Your Plex history**: `tautulli_recent_history` takes `user`; "me" means `SIRISAI_PLEX_USERNAME`, or the Plex server's owner when that's blank.
+- **The microphone after a pause**: the HUD reopens or resumes the iPhone audio context when it was interrupted after playback or idle, instead of recording silence and answering "I didn't catch that". If nothing was picked up, it says so and resets.
+- **6.68's security fixes are back** (#158 had undone them): signed action tokens instead of the API key in notification buttons, loopback-only access when no key is set (`SIRISAI_ALLOW_UNAUTHENTICATED` to open it), and the ntfy token.
+
 ## 6.6 — 2026-11-13
 
 - Home controls report a light's new state, not the old one: a toggle waits for Home Assistant to catch up

@@ -156,7 +156,7 @@ class ToolCallOutcome:
 
 
 # Tools whose results are personal health data (SIRISAI_HEALTH_PRIVATE).
-# A follow-up answer may ask for this many more tools in a row (6.69).
+# A follow-up answer may ask for this many more tools in a row (6.7).
 MAX_FOLLOW_UP_CALLS = 2
 PRIVATE_TOOLS = frozenset({"health_summary", "health_overview", "health_insights", "health_goals", "health_history", "gym_progress", "gym_sessions", "gym_compare", "gym_plan_week", "health_sleep_factors", "gym_month_report", "health_explain"})
 
@@ -384,7 +384,7 @@ class Cortex:
         system_messages: list[dict[str, Any]] = []
         context_messages: list[dict[str, Any]] = []
         context_text: str | None = None
-        if persona_text := persona.system_text(siris.settings):  # 6.69: the style, then your own instructions
+        if persona_text := persona.system_text(siris.settings):  # 6.7: the style, then your own instructions
             system_messages.append({"role": "system", "content": persona_text})
         if use_context:
             await self._emit({"type": "status", "message": "Gathering context"})
@@ -662,7 +662,7 @@ class Cortex:
             else:
                 repeat = bool(follow_up.tool_calls) and (follow_up.tool_calls[0].name, follow_up.tool_calls[0].arguments) == (name, arguments)
                 if follow_up.tool_calls and hops < MAX_FOLLOW_UP_CALLS and not repeat:
-                    # 6.69: the answer asked for one more tool ("let me check the note"): run it and answer from both.
+                    # 6.7: the answer asked for one more tool ("let me check the note"): run it and answer from both.
                     nxt = follow_up.tool_calls[0]
                     chained = await self._run_single_tool(
                         siris, conversation_id, nxt.name, nxt.arguments, confirmed=False, model_role=model_role,

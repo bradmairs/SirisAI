@@ -39,7 +39,7 @@ class TautulliClient:
         ]
 
     def recent_history(self, length: int = 10, user: str | None = None) -> list[dict]:
-        """`user` (a Plex username) narrows it to what that person watched (6.69)."""
+        """`user` (a Plex username) narrows it to what that person watched (6.7)."""
         params: dict[str, Any] = {"length": length}
         if user:
             params["user"] = user

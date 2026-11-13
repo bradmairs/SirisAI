@@ -9,7 +9,7 @@ LLMResponse is still returned at the end, so callers' logic is identical
 either way. A client with no `stream_generate` (a test fake, a backend that
 can't stream) just falls back to generate().
 
-**Tool calls written as text (6.69).** Smaller models sometimes write a tool
+**Tool calls written as text (6.7).** Smaller models sometimes write a tool
 call into their answer instead of making it: the whole reply
 (`{"name": "brain_get_note", "parameters": {...}}`), or after a sentence
 ("Let me try filtering again. {"name": ...}"). Streamed, that JSON reached

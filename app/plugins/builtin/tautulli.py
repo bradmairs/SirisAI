@@ -56,7 +56,7 @@ class TautulliRecentHistoryTool(Tool):
         who = (user or "").strip()
         if who.lower() in ("", "all", "everyone", "anyone"):
             return self._client.recent_history(length=length)
-        if who.lower() in ("me", "mine", "my", "myself", "i"):  # 6.69: the user's own, not the whole household's
+        if who.lower() in ("me", "mine", "my", "myself", "i"):  # 6.7: the user's own, not the whole household's
             who = self._me or self._client.owner_username() or ""
             if not who:
                 raise ValueError("I don't know your Plex username: set SIRISAI_PLEX_USERNAME.")

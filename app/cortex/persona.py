@@ -1,4 +1,4 @@
-"""How SirisAI talks (6.69).
+"""How SirisAI talks (6.7).
 
 SIRISAI_PERSONA_STYLE picks a built-in voice ("jarvis", the default, or
 "plain" for none), and SIRISAI_PERSONA adds your own instructions after it.

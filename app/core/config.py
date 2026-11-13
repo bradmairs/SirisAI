@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     tts_base_url: str = "http://localhost:8082"
     tts_model: str = "tts-1"
     tts_voice: str = "default"
-    # 1.0 = the backend's natural pace (Kokoro accepts roughly 0.5-2.0). Unset (6.69): the
+    # 1.0 = the backend's natural pace (Kokoro accepts roughly 0.5-2.0). Unset (6.7): the
     # persona style's pace, 1.2 for "jarvis".
     tts_speed: float | None = None
     # Optional ffmpeg `-af` filter chain run over every spoken clip
@@ -352,7 +352,7 @@ class Settings(BaseSettings):
     # deliberately via this setting, not something imposed by default.
     # See .env.example for a starting example.
     persona: str = ""
-    # 6.69: a built-in way of talking, before `persona`: "jarvis" (brief, dry British wit,
+    # 6.7: a built-in way of talking, before `persona`: "jarvis" (brief, dry British wit,
     # "sir", never shows tool calls or code) or "plain" (none). See app/cortex/persona.py.
     persona_style: str = "jarvis"
 
@@ -715,7 +715,7 @@ class Settings(BaseSettings):
     # must be set for the tautulli_* tools to be registered.
     tautulli_base_url: str = ""
     tautulli_api_key: str = ""
-    # 6.69: your own Plex username, for "my watch history" (blank: the Plex server's owner).
+    # 6.7: your own Plex username, for "my watch history" (blank: the Plex server's owner).
     plex_username: str = ""
 
     # Radarr (app/radarr/, app/plugins/builtin/radarr.py) -- movie

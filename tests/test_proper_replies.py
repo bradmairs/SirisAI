@@ -1,4 +1,4 @@
-"""6.69: tool calls written as text never reach the chat or the voice, a
+"""6.7: tool calls written as text never reach the chat or the voice, a
 follow-up may ask for another tool, the Jarvis style and pace, and "my" Plex
 history."""
 
