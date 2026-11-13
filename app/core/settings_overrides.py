@@ -45,6 +45,10 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "news_feeds": ("Morning brief", "News feeds", "RSS or Atom URLs, comma-separated", False),
     "news_topics": ("Morning brief", "News topics", "Comma-separated; blank: the top stories", False),
     "podcast_feeds": ("Morning brief", "Podcast feeds", "RSS URLs, comma-separated", False),
+    "persona_style": ("Voice", "Personality", "jarvis (brief, dry British wit) or plain", False),
+    "persona": ("Voice", "Extra personality instructions", "Added after the personality, e.g. 'Call me Brad'", False),
+    "tts_voice": ("Voice", "Speaking voice", "Kokoro British male voices: bm_george, bm_lewis, bm_daniel, bm_fable", False),
+    "tts_speed": ("Voice", "Speaking speed", "1.0 natural; blank: the personality's (1.2 for jarvis)", False),
     "voice_roles": ("Voice", "Voice roles", "user=adult|child|guest, comma-separated", False),
     "voice_unknown_as_guest": ("Voice", "Treat unrecognised voices as guests", "No personal info, no approvals", False),
     "quick_commands": ("Speed", "Instant home commands", "Plain light/switch/fan commands without the model", False),
@@ -181,6 +185,23 @@ def undo(siris: "SirisAI", change_id: int) -> dict[str, Any]:
     return update(siris, restore, undo_of=change_id)
 
 
+def _apply_live(siris: "SirisAI", changes: dict[str, Any]) -> None:
+    """6.69: the voice and its pace change on the next thing said, no restart."""
+    if not {"tts_voice", "tts_speed", "persona_style"} & set(changes):
+        return
+    from app.cortex import persona
+
+    tts = getattr(siris, "tts", None)
+    inner = getattr(tts, "inner", tts)  # through the effects wrapper
+    for client in {id(tts): tts, id(inner): inner}.values():
+        if client is None:
+            continue
+        if hasattr(client, "speed"):
+            client.speed = persona.tts_speed(siris.settings)
+        if hasattr(client, "voice"):
+            client.voice = siris.settings.tts_voice
+
+
 def update(siris: "SirisAI", changes: dict[str, Any], undo_of: int | None = None) -> dict[str, Any]:
     """Validate, store and apply. Raises ValueError for an unknown field or a
     bad value (nothing is stored then). A value of None clears the web
@@ -213,6 +234,7 @@ def update(siris: "SirisAI", changes: dict[str, Any], undo_of: int | None = None
     for name in changes:
         setattr(siris.settings, name, getattr(fresh, name))
         (restart if EDITABLE[name][3] else applied).append(name)
+    _apply_live(siris, changes)
     siris.audit.record("settings_update", {"changed": sorted(changes)}, result={"applied": applied, "restart": restart}, trigger="the Settings page")
     past = history(siris)
     entry = {

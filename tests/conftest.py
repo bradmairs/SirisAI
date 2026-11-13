@@ -44,6 +44,8 @@ os.environ.setdefault("SIRISAI_SSH_REUSE_SECONDS", "0")
 os.environ.setdefault("SIRISAI_RELEASE_CHECK_DELAY_SECONDS", "-1")
 os.environ.setdefault("SIRISAI_CONTAINER_RELEASE_NOTES", "false")
 os.environ.setdefault("SIRISAI_PREFETCH_FRESH_SECONDS", "0")
+# The tests check exactly what reaches the model; the Jarvis style (on by default) is tested on its own.
+os.environ.setdefault("SIRISAI_PERSONA_STYLE", "plain")
 
 # No real internet probes or speed tests from the scheduler loop in tests.
 os.environ.setdefault("SIRISAI_INTERNET_PROBE_SECONDS", "0")

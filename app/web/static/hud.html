@@ -313,10 +313,16 @@
   // One audio context for the mic, made on the first tap and kept: on iPhone a
   // context created later, without a tap (listening again for an answer), would
   // start suspended and record silence.
+  // 6.69: after a reply has played, or a few minutes idle, iPhone leaves the context
+  // "interrupted" (or closes it) and the next recording came back empty ("I didn't
+  // catch that"). Such a context is replaced here, during the tap.
   let micCtx = null;
   function micContext() {
-    if (!micCtx) micCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (micCtx.state === "suspended") micCtx.resume().catch(() => {});
+    if (!micCtx || micCtx.state === "closed" || micCtx.state === "interrupted") {
+      if (micCtx) micCtx.close().catch(() => {});
+      micCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (micCtx.state !== "running") micCtx.resume().catch(() => {});
     return micCtx;
   }
 
@@ -328,16 +334,18 @@
     const wake = mode === "wake";
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
     const ctx = micContext();
+    if (ctx.state !== "running") await Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 1000))]);
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     const processor = ctx.createScriptProcessor(4096, 1, 1);
     const chunks = [];
-    let silentFor = 0, heard = false;
+    let silentFor = 0, heard = false, captured = false;
     processor.onaudioprocess = (e) => {
       const samples = new Float32Array(e.inputBuffer.getChannelData(0));
       chunks.push(samples);
       const rms = Math.sqrt(samples.reduce((a, s) => a + s * s, 0) / samples.length);
+      if (rms > 0) captured = true;
       if (rms > 0.02) {
         if (!heard && wake && recording) recording.timer = setTimeout(stopRecording, 8000);   // a phrase, not the TV all evening
         heard = true; silentFor = 0;
@@ -347,7 +355,7 @@
     source.connect(analyser);
     source.connect(processor);
     processor.connect(ctx.destination);
-    recording = { stream, ctx, processor, source, chunks, mode, heard: () => heard,
+    recording = { stream, ctx, processor, source, chunks, mode, heard: () => heard, captured: () => captured,
                   timer: wake ? null : setTimeout(stopRecording, followUp ? 8000 : 12000) };
     if (wake) {
       hint.textContent = "Listening for “Hey Siris”";
@@ -360,7 +368,7 @@
 
   async function stopRecording(discard = false) {
     if (!recording) return;
-    const { stream, ctx, processor, source, chunks, timer, mode, heard } = recording;
+    const { stream, ctx, processor, source, chunks, timer, mode, heard, captured } = recording;
     recording = null;
     clearTimeout(timer);
     processor.disconnect(); source.disconnect();
@@ -369,6 +377,15 @@
     if ((mode === "followUp" || mode === "wake") && !heard()) {
       orb.className = "";
       hint.textContent = "Tap to talk";
+      resumeWake();
+      return;
+    }
+    if (!captured()) {
+      // The microphone gave no sound at all (the audio was asleep): don't send silence; the next tap starts fresh.
+      if (micCtx) micCtx.close().catch(() => {});
+      micCtx = null;
+      orb.className = "";
+      hint.textContent = "The microphone didn't pick anything up. Tap to try again";
       resumeWake();
       return;
     }

@@ -38,8 +38,12 @@ class TautulliClient:
             for s in sessions
         ]
 
-    def recent_history(self, length: int = 10) -> list[dict]:
-        rows = self._call("get_history", length=length).get("data", [])
+    def recent_history(self, length: int = 10, user: str | None = None) -> list[dict]:
+        """`user` (a Plex username) narrows it to what that person watched (6.69)."""
+        params: dict[str, Any] = {"length": length}
+        if user:
+            params["user"] = user
+        rows = self._call("get_history", **params).get("data", [])
         return [
             {"title": r.get("full_title"), "user": r.get("user"), "date": r.get("date")} for r in rows
         ]
@@ -72,6 +76,14 @@ class TautulliClient:
             {"user_id": u.get("user_id"), "username": u.get("username"), "friendly_name": u.get("friendly_name")}
             for u in users
         ]
+
+    def owner_username(self) -> str | None:
+        """The Plex server owner's username (Tautulli marks them admin): "me" when no
+        SIRISAI_PLEX_USERNAME is set."""
+        for u in self._call("get_users") or []:
+            if str(u.get("is_admin")) in ("1", "True", "true"):
+                return u.get("username")
+        return None
 
     def get_libraries(self) -> list[dict]:
         """Per-library item counts, distinct from PlexLibrarySectionsTool

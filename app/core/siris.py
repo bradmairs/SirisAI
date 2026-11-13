@@ -910,7 +910,7 @@ class SirisAI:
 
             self._notify_client = RoutedNotifyClient(NotifyClient(
                 base_url=self.settings.ntfy_base_url, topic=self.settings.ntfy_topic,
-                click_url=self.settings.sirisos_public_url,
+                click_url=self.settings.sirisos_public_url, token=self.settings.ntfy_token,
             ), self)
             self.tools.register(NotifyTool(self._notify_client, siris=self))
 
@@ -940,7 +940,7 @@ class SirisAI:
                 api_key=self.settings.tautulli_api_key,
             )
             self.tools.register(TautulliCurrentActivityTool(self._tautulli_client))
-            self.tools.register(TautulliRecentHistoryTool(self._tautulli_client))
+            self.tools.register(TautulliRecentHistoryTool(self._tautulli_client, self.settings.plex_username))
             self.tools.register(TautulliHomeStatsTool(self._tautulli_client))
             self.tools.register(TautulliTerminateSessionTool(self._tautulli_client))
             self.tools.register(TautulliGetUsersTool(self._tautulli_client))
