@@ -5,6 +5,14 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.28 — 2026-11-13
+
+- Friday work debrief with a CPEng gap question; memories never filed on a note they only share a date with
+- **Work debrief** (`jobs.work_debrief`): every Friday at 4 pm (`SIRISAI_BRAIN_DEBRIEF_DAY`, `SIRISAI_BRAIN_DEBRIEF_HOUR_LOCAL`), a push with three questions: what you decided and why, what went wrong, what you'd do differently. It also lists your GVW projects so each answer can name its project. Answers in chat are filed by brain_learn.
+- **CPEng gap question**: the same push asks about one element that CPEng Chartership's coverage table lists under "No evidence yet", the longest-unasked first. Each of the 16 elements has its own question. `SIRISAI_BRAIN_CPENG_QUESTIONS=false` turns it off.
+- **Memory filing guard** (`_fits`): the model's pick of an existing note is kept only if a word of the note's title (not a date, a weekday or "session") is in the memory, or a search for the memory finds that note. Otherwise the memory waits in the inbox. "Tuesday 10 November 2026: Had a pretty good day at GVW." had been filed on "SirisGym Session (2026-11-10)".
+- The nightly digest is told that titles name the thing, never a day or a session: a workout goes on Gym Training. (Vault 2.61 also folds session notes into Gym Training.)
+
 ## 6.18 — 2026-11-12
 
 - Reads Apple Health's State of Mind (mood) from Health Auto Export, as a day's mood_valence and mood_entries
