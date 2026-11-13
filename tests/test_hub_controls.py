@@ -98,3 +98,42 @@ def test_a_pin_on_home_assistant_is_respected(use) -> None:
     r = use(siris).post("/siris/hub/v1/controls/light.deck", json={"action": "toggle"})
     assert r.status_code == 403 and "pin_required" in r.json()["detail"]
     assert ha.states["light.deck"]["state"] == "off"
+
+
+class SlowHA(HA):
+    """A light that takes a couple of reads to report its new state, like a real Zigbee or Hue bulb (6.6)."""
+
+    def __init__(self, catch_up_after: int | None) -> None:
+        super().__init__()
+        self.catch_up_after, self.pending, self.reads = catch_up_after, None, 0
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/api/services/light/"):
+            self.calls.append(request.url.path)
+            entity = __import__("json").loads(request.content)["entity_id"]
+            now = self.states[entity]["state"]
+            self.pending = (entity, ("off" if now == "on" else "on") if request.url.path.endswith("/toggle")
+                            else "on" if request.url.path.endswith("/turn_on") else "off")
+            self.reads = 0
+            return httpx.Response(200, json=[])
+        if request.url.path.startswith("/api/states/") and self.pending and request.url.path.endswith(self.pending[0]):
+            self.reads += 1
+            if self.catch_up_after is not None and self.reads > self.catch_up_after:
+                self.states[self.pending[0]]["state"] = self.pending[1]
+        return super().handler(request)
+
+
+def test_a_slow_light_reports_its_new_state_not_the_old_one(use, monkeypatch) -> None:
+    import sys
+
+    ha = SlowHA(catch_up_after=3)
+    client = use(_siris(ha))
+    compose = sys.modules["app.hub.compose"]  # the module the app is running now
+    monkeypatch.setattr(compose, "CONTROL_POLL_S", 0.01)
+    monkeypatch.setattr(compose, "CONTROL_SETTLE_S", 0.3)
+    # A tap in SirisOS is a toggle, which nothing checked: it was read back at once, still "off" (6.6).
+    assert client.post("/siris/hub/v1/controls/light.deck", json={"action": "toggle"}).json()["state"] == "on"
+
+    never = SlowHA(catch_up_after=None)  # Home Assistant never catches up in time: say nothing rather than "off"
+    client = use(_siris(never))
+    assert client.post("/siris/hub/v1/controls/light.deck", json={"action": "toggle"}).json()["state"] is None

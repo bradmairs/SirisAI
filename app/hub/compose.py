@@ -638,10 +638,32 @@ def control(siris: "SirisAI", entity_id: str, action: str, confirmed: bool, trig
         raise ControlRefused(f"{ctl.name} can't {action.replace('_', ' ')}.", 422)
     if (ctl.kind == "garage" or action == "unlock") and not confirmed:
         raise ControlRefused(f"{'Garage doors' if ctl.kind == 'garage' else 'Unlocking'} needs a yes first.", 409)
+    before = str(state.get("state"))
     siris.run_tool("home_assistant_call_service", {"domain": entity_id.split(".", 1)[0], "service": service, "entity_id": entity_id},
                    confirmed=True, trigger=trigger)
-    after = client.get_state_or_none(entity_id)
-    return c.ControlResult(entity_id=entity_id, action=action, state=str(after["state"]) if after else None)
+    return c.ControlResult(entity_id=entity_id, action=action, state=_settled(client, entity_id, before))
+
+
+CONTROL_SETTLE_S = 3.0
+CONTROL_POLL_S = 0.25
+
+
+def _settled(client: Any, entity_id: str, before: str) -> str | None:
+    """The state once Home Assistant has caught up (6.6). Read straight after the call, a light or plug (Zigbee, Hue,
+    HomeKit) still reports what it was, so SirisOS showed a light you'd just turned on as off, and kept it that way.
+    This waits up to CONTROL_SETTLE_S for the state to change; if it hasn't, it says nothing (None) rather than the
+    old state, and SirisOS reads the controls again."""
+    import time
+
+    deadline = time.monotonic() + CONTROL_SETTLE_S
+    while True:
+        after = client.get_state_or_none(entity_id)
+        now = str(after["state"]) if after else None
+        if now is not None and now != before:
+            return now
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(CONTROL_POLL_S)
 
 
 def run_scene(siris: "SirisAI", scene_id: str, trigger: str) -> c.ControlResult:
