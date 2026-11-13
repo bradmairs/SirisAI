@@ -5,6 +5,19 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.48 — 2026-11-13
+
+- Monthly review note and a weekly question about tasks open over a month
+- **Monthly review** (`jobs.monthly_review`): on the 1st at the weekly hour, Siris writes `03-Resources/Monthly Reviews/<YYYY-MM> review`. It brings together:
+  - active goals and their steps (done of total, next step)
+  - health goals (percent, on pace or not)
+  - SirisGym's best and latest lifts
+  - the month's lines from the Decision Log and Lessons Learned
+  - what the notes recorded
+
+  The general model writes it as This month / Goals / Decisions and lessons / Next month. Without a model it's the facts as a list.
+- **Old tasks** (`ask_about_old_tasks`, weekly): tasks written over 30 days ago with no due date. It asks about the five oldest ("done, keep, or drop"), each at most every four weeks. Answers go through brain_done. Needs vault engine 2.71, which gives each task a `since` date.
+
 ## 6.38 — 2026-11-13
 
 - Cron alerts and editing, scheduled and one-at-a-time reboots, server timelines, workout comparisons, quicker SSH, and actions followed up

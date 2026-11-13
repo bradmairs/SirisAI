@@ -375,7 +375,8 @@ class SecondBrainClient:
 
     def tasks(self) -> list[dict]:
         """Every open task in the vault, soonest due first: {task, note, due,
-        type}. Needs the vault engine 1.41 or later (`brain.py tasks`)."""
+        type, since}. Needs the vault engine 1.41 or later (`brain.py tasks`);
+        `since` (when it was written) comes with 2.71."""
         self._maybe_pull()
         return self._engine_call(["tasks", "--output", "json"])
 
