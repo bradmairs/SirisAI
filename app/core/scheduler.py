@@ -183,14 +183,14 @@ def run_habit_check(siris: "SirisAI") -> list[dict]:
     for suggestion in fresh:
         actions = None
         if siris.settings.public_base_url:
-            headers = {"Content-Type": "application/json"}
-            if siris.settings.api_key:
-                headers["Authorization"] = f"Bearer {siris.settings.api_key}"
+            from app.notify.confirmation import push_headers
+
             base = siris.settings.public_base_url.rstrip("/")
             body = json.dumps({"arguments": {"suggestion_id": suggestion["id"]}, "confirmed": True})
-            actions = [
-                {"action": "http", "label": "Create automation", "url": f"{base}/siris/tools/accept_habit_suggestion/run", "method": "POST", "headers": headers, "body": body},
-                {"action": "http", "label": "No thanks", "url": f"{base}/siris/tools/dismiss_habit_suggestion/run", "method": "POST", "headers": headers, "body": body},
+            accept, dismiss = "/siris/tools/accept_habit_suggestion/run", "/siris/tools/dismiss_habit_suggestion/run"
+            actions = [  # 6.68: each button carries a token for its own request, not the key
+                {"action": "http", "label": "Create automation", "url": f"{base}{accept}", "method": "POST", "headers": push_headers(siris, accept, body), "body": body},
+                {"action": "http", "label": "No thanks", "url": f"{base}{dismiss}", "method": "POST", "headers": push_headers(siris, dismiss, body), "body": body},
             ]
         message = f"{suggestion['description']} Want me to automate it?"
         if feedback.muted(siris, "attention:habits"):

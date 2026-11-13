@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # reachable off localhost. /health is never gated, so infra probes work
     # regardless.
     api_key: str | None = None
+    # 6.68: with no API key, only requests from this machine are let in. True: let anyone in
+    # (an open server, e.g. behind your own authenticating proxy).
+    allow_unauthenticated: bool = False
 
     # LLM settings are model-agnostic at the app layer; a specific backend
     # is wired up behind app/llm/base.py.
@@ -312,6 +315,9 @@ class Settings(BaseSettings):
     # still runs the health check but never sends anything.
     ntfy_base_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
+    # 6.68: an ntfy access token. Anyone who knows a topic on ntfy.sh can read it: use a
+    # long random topic, and reserve it (or self-host ntfy) with a token here.
+    ntfy_token: str = ""
     # Where pushes go (app/notify/routing.py). Quiet hours (local, start-end, 24h): anything
     # below high priority is held for the morning briefing instead. "" = never quiet.
     quiet_hours: str = "22-7"

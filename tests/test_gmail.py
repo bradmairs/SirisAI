@@ -93,7 +93,7 @@ class FakeNotify:
 
 
 def _siris(tmp_path: Path, **settings: Any) -> SirisAI:
-    siris = SirisAI(settings=Settings(timezone="Australia/Melbourne", gmail_address="brad6491@gmail.com",
+    siris = SirisAI(settings=Settings(timezone="Australia/Melbourne", gmail_address="me@example.com",
                                       gmail_app_password="app-pass", **settings))
     siris.state.set(importer.STATE_KEY, {})
     siris.state.set(importer.AUTH_ALERT_KEY, False)
