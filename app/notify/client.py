@@ -64,13 +64,11 @@ def fit_message(message: str, limit: int = MAX_MESSAGE_BYTES) -> str:
 class NotifyClient:
     def __init__(
         self, base_url: str, topic: str, timeout: float = 10.0, transport: httpx.BaseTransport | None = None,
-        click_url: str = "", token: str = "",
+        click_url: str = "",
     ) -> None:
         self._topic = topic
         self._click_url = click_url
-        # 6.68: an ntfy access token (SIRISAI_NTFY_TOKEN) for a topic that's reserved or on a server with auth.
-        headers = {"Authorization": f"Bearer {token}"} if token else None
-        self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport, headers=headers)
+        self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
 
     def send(
         self,

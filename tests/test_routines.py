@@ -217,7 +217,7 @@ def test_runner_notifies_with_an_action_button_when_public_base_url_configured()
     assert action["action"] == "http"
     assert action["url"] == "https://siris.example.com/siris/tools/needs_confirmation/run"
     assert action["method"] == "POST"
-    assert "Authorization" not in action["headers"] and action["headers"]["X-Siris-Action"]  # 6.68: a token, not the key
+    assert action["headers"]["Authorization"] == "Bearer secret-key"
     assert json.loads(action["body"]) == {"arguments": {"target": "prod-server"}, "confirmed": True}
 
 
@@ -238,8 +238,7 @@ def test_runner_notify_action_omits_auth_header_without_an_api_key() -> None:
     RoutineRunner(siris).run_due()
 
     notify_call = next(a for name, a, _ in siris.run_tool_calls if name == "notify")
-    headers = notify_call["actions"][0]["headers"]
-    assert "Authorization" not in headers and "X-Siris-Action" not in headers
+    assert "Authorization" not in notify_call["actions"][0]["headers"]
 
 
 def test_run_due_endpoint_actually_runs_a_due_routine(client: TestClient) -> None:

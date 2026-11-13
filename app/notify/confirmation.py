@@ -33,14 +33,10 @@ logger = logging.getLogger(__name__)
 _DESCRIBED = {"ssh_power", "home_assistant_call_service", "home_assistant_create_automation", "run_protocol"}
 
 
-def push_headers(siris: "SirisAI", path: str, body: str) -> dict[str, str]:
-    """6.68: a token for exactly this request (app/core/action_tokens.py), never the
-    master key: pushes pass through ntfy, where anyone with the topic can read them."""
+def _headers(siris: "SirisAI") -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if siris.settings.api_key:
-        from app.core import action_tokens
-
-        headers[action_tokens.HEADER] = action_tokens.make(siris.settings.api_key, "POST", path, body)
+        headers["Authorization"] = f"Bearer {siris.settings.api_key}"
     return headers
 
 
@@ -75,14 +71,13 @@ def item_actions(siris: "SirisAI", item: dict[str, Any]) -> list[dict[str, Any]]
             "url": f"{siris.settings.sirisos_public_url.rstrip('/')}/?attention={item['id']}",
             "clear": True,
         })
-    path = f"/siris/hub/v1/attention/{item['id']}/act"
     return buttons + [
         {
             "action": "http",
             "label": a["label"],
-            "url": f"{base}{path}",
+            "url": f"{base}/siris/hub/v1/attention/{item['id']}/act",
             "method": "POST",
-            "headers": {**push_headers(siris, path, json.dumps({"action": a["id"]})), "X-Siris-Client": "your phone"},
+            "headers": {**_headers(siris), "X-Siris-Client": "your phone"},
             "body": json.dumps({"action": a["id"]}),
             "clear": True,
         }
@@ -110,16 +105,14 @@ def notify_confirmation_needed(siris: "SirisAI", context: str, tool_name: str, a
         # Approve / Decline on the phone act on the feed item itself.
         actions = item_actions(siris, item)
     elif siris.settings.public_base_url and not approvals.tool_needs_pin(siris, tool_name, arguments):
-        path = f"/siris/tools/{tool_name}/run"
-        body = json.dumps({"arguments": arguments, "confirmed": True})
         actions = [
             {
                 "action": "http",
                 "label": "Confirm",
-                "url": f"{siris.settings.public_base_url.rstrip('/')}{path}",
+                "url": f"{siris.settings.public_base_url.rstrip('/')}/siris/tools/{tool_name}/run",
                 "method": "POST",
-                "headers": push_headers(siris, path, body),
-                "body": body,
+                "headers": _headers(siris),
+                "body": json.dumps({"arguments": arguments, "confirmed": True}),
             }
         ]
     else:

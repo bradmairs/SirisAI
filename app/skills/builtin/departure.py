@@ -134,16 +134,16 @@ class DepartureCheckSkill(Skill):
             away = (siris.tools.get("run_protocol") is not None and left_open and siris.settings.public_base_url
                     and protocol_service.get_protocol(siris, "away") is not None and protocol_service.is_active(siris, "away"))  # 5.1
             if away:
-                from app.notify.confirmation import push_headers
-
-                path, body = "/siris/tools/run_protocol/run", json.dumps({"arguments": {"name": "away"}, "confirmed": True})
+                headers = {"Content-Type": "application/json"}
+                if siris.settings.api_key:
+                    headers["Authorization"] = f"Bearer {siris.settings.api_key}"
                 actions = [{
                     "action": "http",
                     "label": "Run Away protocol",
-                    "url": f"{siris.settings.public_base_url.rstrip('/')}{path}",
+                    "url": f"{siris.settings.public_base_url.rstrip('/')}/siris/tools/run_protocol/run",
                     "method": "POST",
-                    "headers": push_headers(siris, path, body),  # 6.68: a token for this one tap, not the key
-                    "body": body,
+                    "headers": headers,
+                    "body": json.dumps({"arguments": {"name": "away"}, "confirmed": True}),
                 }]
             siris.run_tool(
                 "notify",
