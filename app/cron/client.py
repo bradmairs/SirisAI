@@ -58,16 +58,17 @@ class CronHostError(RuntimeError):
 
 
 class CronHostsClient:
-    def __init__(self, hosts: list[CronHost], timeout: float = 10.0, ssh_binary: str = "ssh") -> None:
+    def __init__(self, hosts: list[CronHost], timeout: float = 10.0, ssh_binary: str = "ssh", reuse_seconds: float = 0) -> None:
         self._hosts = hosts
         self._timeout = timeout
         self._ssh_binary = ssh_binary
+        self._reuse = reuse_seconds
 
     @property
     def hosts(self) -> list[CronHost]:
         return list(self._hosts)
 
-    def _ssh_args(self, host: CronHost, remote_command: str) -> list[str]:
+    def _base(self, host: CronHost) -> list[str]:
         return [
             self._ssh_binary,
             "-p",
@@ -78,11 +79,17 @@ class CronHostsClient:
             f"ConnectTimeout={int(self._timeout)}",
             "-o",
             "StrictHostKeyChecking=accept-new",
-            host.label,
-            remote_command,
         ]
 
+    def _ssh_args(self, host: CronHost, remote_command: str) -> list[str]:
+        from app.ssh import reuse
+
+        return [*self._base(host), *reuse.options(self._reuse), host.label, remote_command]
+
     def _run(self, host: CronHost, remote_command: str, input_text: str | None = None) -> str:
+        from app.ssh import reuse
+
+        reuse.ensure(self._base(host), host.label, self._reuse, self._timeout)
         try:
             result = subprocess.run(
                 self._ssh_args(host, remote_command),
@@ -158,6 +165,111 @@ class CronHostsClient:
         self._run(host, "crontab -", input_text=new_content)
         return {"host": host_label, "line": target, "enabled": enabled}
 
+    # -- editing (6.38): add, change and delete jobs in the account's own crontab --
+
+    def _rewrite(self, host_label: str, change: Any) -> None:
+        host = self._find_host(host_label)
+        try:
+            current = self._run(host, "crontab -l")
+        except CronHostError as exc:
+            if "no crontab for" not in str(exc).lower():
+                raise
+            current = ""
+        lines = change(current.splitlines())
+        self._run(host, "crontab -", input_text="\n".join(lines).rstrip("\n") + "\n")
+
+    @staticmethod
+    def _index(lines: list[str], target: str) -> int:
+        for i, raw in enumerate(lines):
+            stripped = raw.strip()
+            normalized = stripped.lstrip("#").strip() if stripped.startswith("#") else stripped
+            if normalized == target.strip():
+                return i
+        raise ValueError(f"No matching crontab line: {target!r}")
+
+    def add_job(self, host_label: str, schedule: str, command: str, comment: str = "") -> dict[str, Any]:
+        line = job_line(schedule, command)
+
+        def change(lines: list[str]) -> list[str]:
+            if any(raw.strip().lstrip("#").strip() == line for raw in lines):
+                raise ValueError("That job is already there.")
+            return [*lines, *([f"# {comment.strip()}"] if comment.strip() else []), line]
+
+        self._rewrite(host_label, change)
+        return {"host": host_label, "line": line, "enabled": True}
+
+    def change_job(self, host_label: str, line: str, schedule: str | None = None, command: str | None = None) -> dict[str, Any]:
+        m = _CRON_LINE_RE.match(line.strip())
+        if not m:
+            raise ValueError(f"Not a cron line: {line!r}")
+        new = job_line(schedule or m.group("schedule"), command or m.group("command"))
+
+        def change(lines: list[str]) -> list[str]:
+            i = self._index(lines, line)
+            lines[i] = new if not lines[i].strip().startswith("#") else f"# {new}"
+            return lines
+
+        self._rewrite(host_label, change)
+        return {"host": host_label, "line": new, "was": line.strip()}
+
+    def delete_job(self, host_label: str, line: str) -> dict[str, Any]:
+        def change(lines: list[str]) -> list[str]:
+            i = self._index(lines, line)
+            return lines[:i] + lines[i + 1:]
+
+        self._rewrite(host_label, change)
+        return {"host": host_label, "deleted": line.strip()}
+
+    def set_watched(self, host_label: str, line: str, watched: bool) -> dict[str, Any]:
+        """Wrap a job so its exit code is logged (`logger -t siris-cron`), or unwrap it."""
+        m = _CRON_LINE_RE.match(line.strip())
+        if not m:
+            raise ValueError(f"Not a cron line: {line!r}")
+        inner, _ = unwrap(m.group("command"))
+        new = job_line(m.group("schedule"), wrap(inner) if watched else inner)
+
+        def change(lines: list[str]) -> list[str]:
+            i = self._index(lines, line)
+            lines[i] = new if not lines[i].strip().startswith("#") else f"# {new}"
+            return lines
+
+        self._rewrite(host_label, change)
+        return {"host": host_label, "line": new, "watched": watched}
+
+
+_WRAP_RE = re.compile(r"^\( (?P<inner>.+) \); logger -t siris-cron \"job=(?P<id>[0-9a-f]{8}) exit=\$\?\"$")
+
+
+def job_id(command: str) -> str:
+    import hashlib
+
+    return hashlib.sha1(command.strip().encode()).hexdigest()[:8]
+
+
+def wrap(command: str) -> str:
+    """The command with its exit code logged after it runs (6.38)."""
+    inner = command.strip()
+    return f'( {inner} ); logger -t siris-cron "job={job_id(inner)} exit=$?"'
+
+
+def unwrap(command: str) -> tuple[str, str | None]:
+    """The original command, and its watch id if it's wrapped."""
+    m = _WRAP_RE.match(command.strip())
+    return (m.group("inner"), m.group("id")) if m else (command.strip(), None)
+
+
+def job_line(schedule: str, command: str) -> str:
+    from app.cron.schedule import valid
+
+    schedule, command = " ".join(schedule.split()), command.strip()
+    if not valid(schedule):
+        raise ValueError(f"{schedule!r} isn't a cron schedule (five fields, e.g. '0 3 * * *', or @daily, @reboot).")
+    if not command or "\n" in command or "\r" in command:
+        raise ValueError("The command must be one line.")
+    if "%" in command and "\\%" not in command:
+        raise ValueError("cron treats % as a new line: write it as \\% in the command.")
+    return f"{schedule} {command}"
+
 
 def _parse_crontab(host_label: str, content: str) -> list[dict[str, Any]]:
     jobs = []
@@ -192,11 +304,12 @@ OVERVIEW_COMMAND = (
     "echo '##user'; crontab -l 2>&1; "
     "echo '##file /etc/crontab'; cat /etc/crontab 2>/dev/null; "
     "for f in /etc/cron.d/*; do [ -f \"$f\" ] && { echo \"##file $f\"; cat \"$f\" 2>/dev/null; }; done; "
-    "echo '##log'; { journalctl -q --no-pager -o short-iso -t CRON --since '-3 days' 2>/dev/null "
-    "|| grep -h 'CRON\\[' /var/log/syslog /var/log/cron 2>/dev/null; } | grep 'CMD' | tail -n 600"
+    "echo '##log'; { journalctl -q --no-pager -o short-iso -t CRON -t siris-cron --since '-3 days' 2>/dev/null "
+    "|| grep -hE 'CRON\\[|siris-cron' /var/log/syslog /var/log/cron 2>/dev/null; } | grep -E 'CMD|siris-cron' | tail -n 800"
 )
 _SYSTEM_LINE_RE = re.compile(r"^(?P<schedule>@\w+|(?:\S+\s+){4}\S+)\s+(?P<user>[a-z_][\w.-]*)\s+(?P<command>.+)$")
 _LOG_RE = re.compile(r"^(?P<at>\S+)\s+\S+\s+\S*CRON\[\d+\]:\s+\((?P<user>[^)]+)\)\s+CMD\s+\((?P<command>.*)\)\s*$")
+_EXIT_RE = re.compile(r"^(?P<at>\S+)\s+\S+\s+siris-cron(?:\[\d+\])?:\s+job=(?P<id>[0-9a-f]{8}) exit=(?P<exit>\d+)")
 
 
 def _sections(output: str) -> dict[str, list[str]]:
@@ -241,15 +354,27 @@ def overview_for(host: CronHost, output: str, now: Any) -> dict[str, Any]:
     info = parts.get("info", [])
     offset = _offset_minutes(info[1]) if len(info) > 1 else 0
     runs = _last_runs(parts.get("log", []))
+    exits: dict[str, tuple[str, int]] = {}
+    for raw in parts.get("log", []):
+        m = _EXIT_RE.match(raw.strip())
+        if m and (m.group("id") not in exits or m.group("at") > exits[m.group("id")][0]):
+            exits[m.group("id")] = (m.group("at"), int(m.group("exit")))
     jobs: list[dict[str, Any]] = []
 
     def add(job: dict[str, Any], run_as: str | None) -> None:
         upcoming = next_run(job["schedule"], now, offset) if job["enabled"] else None
+        inner, watch_id = unwrap(job["command"])
+        last_exit = exits.get(watch_id) if watch_id else None
         jobs.append({
             **job,
             "description": describe(job["schedule"]),
             "next_run": upcoming.isoformat() if upcoming else None,
             "last_run": _last_run(runs, job["command"], run_as),
+            # 6.38: a watched job (see wrap) logs its exit code after each run.
+            "inner": inner,
+            "watched": watch_id is not None,
+            "last_exit": last_exit[1] if last_exit else None,
+            "last_exit_at": last_exit[0] if last_exit else None,
         })
 
     user_lines = parts.get("user", [])
@@ -280,6 +405,7 @@ def overview_for(host: CronHost, output: str, now: Any) -> dict[str, Any]:
         "uptime": info[2].strip() if len(info) > 2 else None,
         "reachable": True,
         "log_available": bool(parts.get("log")),
+        "log_since": min((at for at, _, _ in runs), default=None),
         "jobs": jobs,
     }
 
@@ -289,16 +415,24 @@ def overview(client: "CronHostsClient", now: Any = None) -> list[dict[str, Any]]
     crontab, which can be switched on and off, and the system ones in
     /etc/crontab and /etc/cron.d, read only) with the schedule in words, the
     next run in the host's time and when it last ran (from the cron log,
-    the last three days, when the account can read it)."""
+    the last three days, when the account can read it).
+
+    6.38: the servers are asked at the same time, so one slow or
+    unreachable server no longer holds up the rest."""
+    from concurrent.futures import ThreadPoolExecutor
     from datetime import UTC, datetime
 
     now = now or datetime.now(UTC)
-    hosts = []
-    for host in client.hosts:
+
+    def one(host: CronHost) -> dict[str, Any]:
         try:
             output = client._run(host, OVERVIEW_COMMAND)
         except CronHostError as exc:
-            hosts.append({"host": host.label, "reachable": False, "error": str(exc), "jobs": []})
-            continue
-        hosts.append(overview_for(host, output, now))
-    return hosts
+            return {"host": host.label, "reachable": False, "error": str(exc), "jobs": []}
+        return overview_for(host, output, now)
+
+    hosts = client.hosts
+    if len(hosts) <= 1:
+        return [one(h) for h in hosts]
+    with ThreadPoolExecutor(max_workers=min(8, len(hosts))) as pool:
+        return list(pool.map(one, hosts))

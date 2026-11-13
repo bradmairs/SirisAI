@@ -229,6 +229,43 @@ def run_server_watch(siris: "SirisAI") -> dict | None:
         return None
 
 
+def run_action_follow_up(siris: "SirisAI") -> list | None:
+    """Actions whose check failed, checked again (app/core/followup.py)."""
+    from app.core import followup
+
+    try:
+        return followup.check(siris)
+    except Exception:
+        logger.exception("Action follow-up failed")
+        return None
+
+
+def run_release_check(siris: "SirisAI") -> dict | None:
+    """Once per new version, after start-up: what broke (app/upkeep/release_check.py)."""
+    from app.upkeep import release_check
+
+    if not release_check.due(siris):
+        return None
+    try:
+        return release_check.run(siris)
+    except Exception:
+        logger.exception("Release check failed")
+        return None
+
+
+def run_cron_watch(siris: "SirisAI") -> int | None:
+    """Cron jobs that didn't run or failed (app/cron/watch.py)."""
+    if siris.cron_client is None:
+        return None
+    from app.cron import watch
+
+    try:
+        return watch.check(siris)
+    except Exception:
+        logger.exception("Cron watch failed")
+        return None
+
+
 def run_power_follow_up(siris: "SirisAI") -> list | None:
     """Did each reboot or shutdown happen, and is the server back (app/servers/power.py)?"""
     if siris.ssh_client is None:
@@ -236,7 +273,7 @@ def run_power_follow_up(siris: "SirisAI") -> list | None:
     from app.servers import power
 
     try:
-        return power.check(siris)
+        return power.tick(siris)
     except Exception:
         logger.exception("Power follow-up failed")
         return None
@@ -489,6 +526,9 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("attention", lambda s: (run_attention_sync(s), report_update(s)), _settings_every("attention_sync_minutes", 60), at_boot=False),
         Job("servers", lambda s: run_server_watch(s), _settings_every("server_watch_minutes", 60)),
         Job("power_follow_up", lambda s: run_power_follow_up(s), lambda _s: 30),
+        Job("cron_watch", lambda s: run_cron_watch(s), _settings_every("cron_watch_minutes", 60), at_boot=False),
+        Job("release_check", lambda s: run_release_check(s), lambda _s: 60),
+        Job("action_follow_up", lambda s: run_action_follow_up(s), lambda _s: 15),
         Job("devices", lambda s: run_device_watch(s), _settings_every("network_device_watch_minutes", 60)),
         Job("camera_digest", lambda s: run_camera_digest(s), every_tick),
         Job("health_checks", lambda s: run_health_checks(s), lambda _s: 300),

@@ -124,7 +124,7 @@ class SshPowerTool(Tool):
         "Reboot or shut down one, several or all of the servers on the home network over SSH, now or after a "
         "delay, or cancel a pending delayed one. Always asks the user first. Use for 'reboot the NAS', 'shut down "
         "all the servers', 'restart the Pi in 10 minutes', 'cancel the shutdown'. servers is a name, a "
-        "comma-separated list, or 'all'."
+        "comma-separated list, or 'all'. at sets a time ('reboot the NAS at 3am Sunday'); SirisAI does it then and checks it came back."
     )
     permission = ToolPermission.CONFIRM_REQUIRED
     parameters = {
@@ -133,12 +133,14 @@ class SshPowerTool(Tool):
             "action": {"type": "string", "enum": ["reboot", "shutdown", "cancel"]},
             "servers": {"type": "string", "description": "A server name, several separated by commas, or 'all'."},
             "delay_minutes": {"type": "integer", "description": "Wait this many minutes first (0-240). Defaults to now."},
+            "at": {"type": "string", "description": "Or at a set time instead: '03:00', 'sunday 3am', 'tomorrow 02:30' or an ISO time (local)."},
         },
         "required": ["action", "servers"],
     }
 
     def __init__(self, client: SshClient, self_server: str = "", allowed: bool = True,
-                 on_started: Callable[..., None] | None = None) -> None:
+                 on_started: Callable[..., None] | None = None, siris: Any = None) -> None:
+        self._siris = siris
         self._client = client
         self._self = self_server.strip().lower()
         self._allowed = allowed
@@ -159,6 +161,9 @@ class SshPowerTool(Tool):
         if not self._allowed:
             raise PermissionError("Rebooting and shutting down servers is turned off (SIRISAI_SSH_ALLOW_POWER / SIRISAI_SSH_ALLOW_CHANGES).")
         delay = max(0, min(int(delay_minutes or 0), 240))
+        at = kwargs.get("at")
+        if at and action != "cancel":
+            return self._schedule(action, servers, str(at))
         results = []
         for host in self._targets(servers):
             command = power_command(host, action, delay)
@@ -193,10 +198,33 @@ class SshPowerTool(Tool):
         }[action] if done else "Nothing was done."
         if done and action != "cancel" and self._on_started:
             summary += ". I'll tell you when " + ("they're" if len(done) > 1 else "it's") + (" back." if action == "reboot" else " off.")
+        if action == "cancel" and self._siris is not None:
+            from app.servers import power
+
+            dropped = power.cancel_scheduled(self._siris, [h.name for h in self._targets(servers)])
+            if dropped:
+                names = sorted({s for d in dropped for s in d["servers"]})
+                summary = (summary if done else "") + ("; " if done else "") + f"Cancelled the scheduled reboot of {', '.join(names)}"
         failed = [r for r in results if r["status"] == "failed"]
         if failed:
             summary += (". " if done else " ") + "; ".join(f"{r['server']}: {r['detail']}" for r in failed)
         return {"action": action, "delay_minutes": delay, "results": results, "summary": summary}
+
+    def _schedule(self, action: str, servers: str, at: str) -> dict[str, Any]:
+        from app.core import clock
+        from app.servers import power
+
+        if self._siris is None:
+            raise ValueError("A set time isn't available here; use delay_minutes.")
+        names = [h.name for h in self._targets(servers)]
+        when = power.parse_when(self._siris, at)
+        entry = power.schedule(self._siris, action, names, when)
+        local = when.astimezone(clock.get_zone(self._siris.settings.timezone))
+        verb = "Rebooting" if action == "reboot" else "Shutting down"
+        return {"action": action, "scheduled": entry, "results": [],
+                "summary": f"{verb} {', '.join(names)} at {local.strftime('%a %-d %b %H:%M')}. I'll check "
+                           + ("they come back." if len(names) > 1 else "it comes back.") if action == "reboot" else
+                           f"{verb} {', '.join(names)} at {local.strftime('%a %-d %b %H:%M')}."}
 
     def _boot_id(self, server: str) -> str | None:
         try:

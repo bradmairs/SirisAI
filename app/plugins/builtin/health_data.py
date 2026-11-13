@@ -274,7 +274,12 @@ class GymProgressTool(_HealthTool):
         from app.health import gym_effort
 
         extra = gym_effort.latest_text(self._siris) if not exercise else None
-        return {"text": gym.text(s, exercise) + (f" {extra}" if extra else ""), "as_of": s.get("received_at"), "lifts": s.get("lifts"), "next": s.get("next"),
+        from app.health import gym_week
+
+        lighter = gym_week.lighter_plan(self._siris) if not exercise else None  # 6.38
+        if lighter:
+            extra = f"{extra} {lighter['text']}" if extra else lighter["text"]
+        return {"text": gym.text(s, exercise) + (f" {extra}" if extra else ""), "lighter": lighter, "as_of": s.get("received_at"), "lifts": s.get("lifts"), "next": s.get("next"),
                 "week": s.get("week"), "deload": s.get("deload")}
 
 
@@ -297,6 +302,7 @@ class GymSessionsTool(_HealthTool):
             "exercise": {"type": "string", "description": "Only this exercise, e.g. bench, squat"},
             "session_id": {"type": "string", "description": "One workout by id"},
             "limit": {"type": "integer", "description": "How many workouts in full (1-10, default 5)"},
+            "last_time": {"type": "boolean", "description": "With exercise: just the last two sessions' sets, short (mid-workout)"},
         },
         "required": [],
     }
@@ -305,7 +311,39 @@ class GymSessionsTool(_HealthTool):
             session_id: str | None = None, limit: int = 5, **kwargs: Any) -> Any:
         from app.health import gym_sessions
 
+        if kwargs.get("last_time") and exercise:
+            return gym_sessions.last_time(self._siris, exercise)
         return gym_sessions.ask(self._siris, day=day, since=since, until=until, exercise=exercise, session_id=session_id, limit=limit)
 
 
-HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, GymSessionsTool, HealthExplainTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)
+class GymCompareTool(_HealthTool):
+    """6.38: one workout against the last one like it, and lifts that have stalled."""
+
+    name = "gym_compare"
+    description = (
+        "Compare a SirisGym workout with the last one like it (same name, e.g. Push), exercise by exercise: best set, "
+        "estimated 1RM up or down, sets. For 'compare today's push to last week's', 'did I do better than last leg day'. "
+        "day picks the workout (default the latest), against another day instead of the last same-named one. "
+        "stalls=true instead lists lifts whose estimated 1RM hasn't gone up in weeks (default 3)."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "day": {"type": "string", "description": "YYYY-MM-DD, today, yesterday or a weekday"},
+            "against": {"type": "string", "description": "Compare with this day's workout instead"},
+            "stalls": {"type": "boolean", "description": "List stalled lifts instead"},
+            "weeks": {"type": "integer", "description": "For stalls: no gain in this many weeks (2-12, default 3)"},
+        },
+        "required": [],
+    }
+
+    def run(self, day: str | None = None, against: str | None = None, stalls: bool = False, weeks: int = 3, **kwargs: Any) -> Any:
+        from app.health import gym_sessions
+
+        if stalls:
+            return gym_sessions.stalls(self._siris, max(2, min(int(weeks or 3), 12)))
+        return gym_sessions.compare(self._siris, day, against)
+
+
+HEALTH_TOOLS = (HealthOverviewTool, GymProgressTool, GymSessionsTool, GymCompareTool, HealthExplainTool, HealthHistoryTool, HealthInsightsTool, HealthLogTool, HealthLogMealTool, HealthSetGoalTool, HealthGoalsTool)

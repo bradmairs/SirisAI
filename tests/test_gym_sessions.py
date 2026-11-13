@@ -122,3 +122,82 @@ def test_it_is_private_health_data(gym: tuple[SirisAI, FakeSirisOS]) -> None:
     assert "gym_sessions" in PRIVATE_TOOLS
     assert "gym_sessions" in siris.capabilities()["health"]
     assert guest.is_personal_tool("gym_sessions", "health")
+
+
+# -- 6.38: comparing, stalls, mid-workout answers, the brief and a lighter day --------------
+
+
+def test_a_workout_against_the_last_one_like_it(gym: tuple[SirisAI, FakeSirisOS]) -> None:
+    siris, _ = gym
+    out = siris.run_tool("gym_compare", {})
+    assert out["text"] == ("Wed 11 Nov, Push, against Wed 28 Oct: Bench Press: best 90 kg × 6 against 85 kg × 6, up 6 kg "
+                           "estimated 1RM, 2 sets against 1. 1 up, 0 down.")
+    assert siris.run_tool("gym_compare", {"day": "monday"})["text"] == "No other workout called Legs before it to compare with."
+    assert "gym_compare" in __import__("app.cortex.orchestrator", fromlist=["PRIVATE_TOOLS"]).PRIVATE_TOOLS
+
+
+def test_stalled_lifts(gym: tuple[SirisAI, FakeSirisOS], monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests import test_gym_sessions as me
+
+    siris, _ = gym
+    for i, (day, weight) in enumerate([("2026-10-07", 100), ("2026-10-14", 105), ("2026-10-28", 102.5), ("2026-11-04", 105)]):
+        monkeypatch.setitem(me.FULL, f"r{i}", {"id": f"r{i}", "title": "Pull", "started_at": f"{day}T07:00:00+11:00", "ended_at": f"{day}T08:00:00+11:00",
+                                               "records": [], "entries": [{"name": "Barbell Row", "sets": [{"weight": weight, "reps": 5, "done": True}]}]})
+    out = siris.run_tool("gym_compare", {"stalls": True})
+    assert [r["name"] for r in out["stalled"]] == ["Barbell Row"]
+    assert out["text"].startswith("Stalled: Barbell Row, best estimated 1RM 122.5 kg on Wed 14 Oct, 122.5 kg since")
+
+
+def test_what_did_i_lift_last_time_needs_no_model(gym: tuple[SirisAI, FakeSirisOS]) -> None:
+    import asyncio
+
+    from app.cortex import quick
+    from app.cortex.orchestrator import Cortex
+    from app.llm.base import LLMClient, LLMResponse
+
+    class NoModel(LLMClient):
+        calls = 0
+
+        async def generate(self, messages, *, tools=None, **kwargs):  # type: ignore[no-untyped-def]
+            NoModel.calls += 1
+            return LLMResponse(text="model")
+
+    siris, _ = gym
+    siris.llm = NoModel()
+    assert quick.plan(siris, "what did I lift last time on bench press?").arguments == {"exercise": "bench press", "last_time": True}
+    assert quick.plan(siris, "what was my last squat session") is not None
+    assert quick.plan(siris, "what did I do on Monday") is None
+    result = asyncio.run(Cortex().process(siris, siris.conversation.create_conversation(), "what did I lift last time on bench press?"))
+    assert NoModel.calls == 0
+    assert result.response == ("Last time (Wed 11 Nov), Bench Press: 90 kg × 6, 90 kg × 5 (drop set). "
+                               "Before that (Wed 28 Oct), Bench Press: 85 kg × 6.")
+
+
+def test_a_lighter_day_when_readiness_is_low(gym: tuple[SirisAI, FakeSirisOS], monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.health import gym as gym_summary
+    from app.health import gym_week
+
+    siris, _ = gym
+    gym_summary.keep(siris, {"lifts": {}, "next": {"routine": "PPL", "day": "Push", "exercises": [
+        {"name": "Bench Press", "sets": 3, "reps": "5-8", "weight": 100}, {"name": "Dips", "sets": 2, "reps": "8-12", "weight": None}]}})
+    monkeypatch.setattr(gym_week, "readiness_today", lambda s, on=None: {"band": "Recover", "score": 38})
+    plan = gym_week.lighter_plan(siris)
+    assert plan["text"] == ("Readiness is 38 (recover), so a lighter PPL Push: a third fewer sets and about 10% lighter: "
+                            "Bench Press 2×5-8 at 90 kg, Dips 1×8-12. Or swap it for a walk and mobility.")
+    assert plan["text"] in siris.run_tool("gym_progress", {})["text"]
+    monkeypatch.setattr(gym_week, "readiness_today", lambda s, on=None: {"band": "Steady", "score": 60})
+    assert gym_week.lighter_plan(siris) is None
+
+
+def test_mondays_brief_has_last_weeks_training(gym: tuple[SirisAI, FakeSirisOS], monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.health import gym as gym_summary
+    from app.health import gym_coach, gym_week
+
+    siris, _ = gym
+    gym_summary.keep(siris, {"muscles": [{"muscle": "back", "status": "under"}, {"muscle": "chest", "status": "ok"}]})
+    monkeypatch.setattr(gym_coach, "weekly", lambda s, on=None: {"changes": [{"title": "Get to bed about 30 minutes earlier"}]})
+    monkeypatch.setattr(gym_week, "readiness_today", lambda s, on=None: None)
+    line = gym_week.briefing_line(siris, date(2026, 11, 16))
+    assert line == ("Training last week: 2 workouts, 6 working sets, 1 record (Back Squat: heaviest ever, 125). Under target: back. "
+                    "This week: Get to bed about 30 minutes earlier.")
+    assert gym_week.briefing_line(siris, date(2026, 11, 17)) is None  # not a Monday, and nothing lighter to suggest

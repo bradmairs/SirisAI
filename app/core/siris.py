@@ -75,7 +75,7 @@ from app.plugins.builtin.bazarr import (
     BazarrWantedMoviesTool,
 )
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
-from app.plugins.builtin.cron import CronListJobsTool, CronSetJobEnabledTool
+from app.plugins.builtin.cron import CRON_TOOLS
 from app.plugins.builtin.clock import GetCurrentTimeTool
 from app.plugins.selector import ToolSelector
 from app.plugins.builtin.docker import (
@@ -233,7 +233,10 @@ from app.cleanuparr.client import CleanuparrClient
 from app.cron.client import CronHostsClient, parse_cron_hosts
 from app.plugins.builtin.ssh import SshListServersTool, SshPowerTool, SshRunTool, SshServerHealthTool
 from app.plugins.builtin.servers import (
+    ServerTimelineTool,
     SshDiskHealthTool,
+    SshPowerScheduledTool,
+    SshRebootNeededTool,
     SshInstallUpdatesTool,
     SshServerPermissionsTool,
     SshServerUpdatesTool,
@@ -1063,15 +1066,16 @@ class SirisAI:
             self.tools.register(SynologyGetStatusTool(self._synology_client))
 
         if self.settings.cron_hosts:
-            self.cron_client = CronHostsClient(parse_cron_hosts(self.settings.cron_hosts))
-            self.tools.register(CronListJobsTool(self.cron_client))
-            self.tools.register(CronSetJobEnabledTool(self.cron_client))
+            self.cron_client = CronHostsClient(parse_cron_hosts(self.settings.cron_hosts), reuse_seconds=self.settings.ssh_reuse_seconds)
+            for cron_tool in CRON_TOOLS:
+                self.tools.register(cron_tool(self.cron_client))
 
         ssh_spec = self.settings.ssh_hosts or ",".join(
             h.strip() for h in self.settings.cron_hosts.split(",") if h.strip()
         )
         if ssh_spec:
-            self.ssh_client = SshClient(parse_ssh_hosts(ssh_spec), timeout=self.settings.ssh_command_timeout_seconds)
+            self.ssh_client = SshClient(parse_ssh_hosts(ssh_spec), timeout=self.settings.ssh_command_timeout_seconds,
+                                        reuse_seconds=self.settings.ssh_reuse_seconds)
             self.tools.register(SshListServersTool(self.ssh_client))
             self.tools.register(SshServerHealthTool(self.ssh_client))
             self.tools.register(
@@ -1081,7 +1085,8 @@ class SirisAI:
                     allow_changes=self.settings.ssh_allow_changes,
                 )
             )
-            for server_tool in (SshWakeTool, SshServerUpdatesTool, SshInstallUpdatesTool, SshDiskHealthTool, SshServerPermissionsTool):
+            for server_tool in (SshWakeTool, SshServerUpdatesTool, SshInstallUpdatesTool, SshDiskHealthTool, SshServerPermissionsTool,
+                                SshRebootNeededTool, SshPowerScheduledTool, ServerTimelineTool):
                 self.tools.register(server_tool(self))
             if self.settings.server_backups:
                 self.tools.register(ServerBackupsCheckTool(self))
@@ -1092,6 +1097,7 @@ class SirisAI:
                     self_server=self.settings.ssh_self_server,
                     allowed=self.settings.ssh_allow_power and self.settings.ssh_allow_changes,
                     on_started=self._track_power,
+                    siris=self,
                 )
             )
 
@@ -1102,6 +1108,10 @@ class SirisAI:
         self.tools.register(UndoLastTool(self))
         for extra in (ThingsFindTool, ThingsAddTool, PeopleUpcomingTool, PeopleRememberTool, PeopleLastSeenTool):
             self.tools.register(extra(self))
+        from app.plugins.builtin.attention_voice import AttentionActTool, AttentionSummaryTool
+
+        self.tools.register(AttentionSummaryTool(self))
+        self.tools.register(AttentionActTool(self))
         if self.settings.news_feeds or self.settings.podcast_feeds:
             self.tools.register(NewsBriefTool(self))
         if self.email_client is not None:
@@ -1539,6 +1549,10 @@ class SirisAI:
             # take the tool call down with it, same "best-effort" posture
             # as the chat follow-up call in Cortex._run_single_tool.
             logger.exception("Tool '%s' verify() failed", name)
+        if verification is not None and not verification.verified:
+            from app.core import followup
+
+            followup.later(name, arguments, result, verification.detail, trigger)  # 6.38: check again, then say so
 
         duration_ms = (time.monotonic() - start) * 1000
         self.audit.record(

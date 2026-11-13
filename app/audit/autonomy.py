@@ -88,6 +88,9 @@ def timeline(siris: "SirisAI", hours: float = 24, include_reads: bool = False, n
         created = datetime.fromisoformat(entry["created_at"]).replace(tzinfo=UTC)
         items.append(
             {
+                "id": entry.get("id"),
+                "area": _area(tool, entry["tool_name"]),
+                "details": f"/siris/activity?id={entry.get('id')}",
                 "time": created.isoformat(),
                 "local_time": created.astimezone(clock.get_zone(siris.settings.timezone)).strftime("%H:%M"),
                 "tool": entry["tool_name"],
@@ -98,9 +101,60 @@ def timeline(siris: "SirisAI", hours: float = 24, include_reads: bool = False, n
             }
         )
     items.reverse()
-    summary = (
-        f"In the last {hours:g} hours I took {len(items)} action{'s' if len(items) != 1 else ''} on my own."
-        if items
-        else f"I haven't done anything on my own in the last {hours:g} hours."
-    )
-    return {"summary": summary, "items": items}
+    _mark_undo(siris, items, now)
+    by_area: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        by_area.setdefault(item["area"], []).append(item)
+    if items:
+        parts = []
+        for area, group in sorted(by_area.items(), key=lambda kv: -len(kv[1])):
+            failed = sum(1 for i in group if i["outcome"] == "failed")
+            shown = "; ".join(f"{i['local_time']} {i['what']}" for i in group[:3]) + ("; ..." if len(group) > 3 else "")
+            parts.append(f"{AREA_NAMES.get(area, area)} ({len(group)}{f', {failed} failed' if failed else ''}): {shown}")
+        summary = (f"In the last {hours:g} hours I took {len(items)} action{'s' if len(items) != 1 else ''} on my own. "
+                   + ". ".join(parts) + ".")
+        if any(i.get("undo") for i in items):
+            summary += " The last one can be undone: say 'undo that'."
+    else:
+        summary = f"I haven't done anything on my own in the last {hours:g} hours."
+    groups = [{"area": a, "name": AREA_NAMES.get(a, a), "count": len(g), "items": g} for a, g in sorted(by_area.items(), key=lambda kv: -len(kv[1]))]
+    return {"summary": summary, "items": items, "by_area": groups}
+
+
+# 6.38: grouped by area, each with a details link and, for the last one, undo.
+AREA_NAMES = {
+    "home_assistant": "Home", "home": "Home", "scenes": "Home", "protocols": "Protocols", "modes": "Modes",
+    "docker": "Containers", "servers": "Servers", "ssh": "Servers", "cron": "Cron", "notify": "Notifications",
+    "memory": "Memory", "reminders": "Reminders", "energy": "Energy", "health": "Health", "misc": "Other",
+}
+
+
+def _area(tool: Any, name: str) -> str:
+    if name.startswith(("ssh_", "server_")):
+        return "servers"
+    if name == "notify":
+        return "notify"
+    if tool is None:
+        return "misc"
+    from app.core.siris import _categorize_tool
+
+    try:
+        return _categorize_tool(tool)
+    except Exception:  # noqa: BLE001
+        return "misc"
+
+
+def _mark_undo(siris: "SirisAI", items: list[dict[str, Any]], now: datetime) -> None:
+    from app.core import undo
+
+    try:
+        last = undo.last(siris, now)
+    except Exception:  # noqa: BLE001
+        return
+    if not last:
+        return
+    at = datetime.fromisoformat(last["at"])
+    for item in items:
+        if abs((datetime.fromisoformat(item["time"]) - at).total_seconds()) <= 10:
+            item["undo"] = f"Say 'undo that': {last['label']}"
+            break

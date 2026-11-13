@@ -46,3 +46,12 @@ async def run_updates(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
 async def run_disks(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     _need_ssh(siris)
     return await asyncio.to_thread(watch.check_disks, siris)
+
+
+@router.get("/{name}/timeline")
+def server_timeline(name: str, days: int = 7, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """What happened to one server lately, newest first (6.38)."""
+    from app.servers import timeline
+
+    days = max(1, min(days, 30))
+    return {"server": name, "days": days, "events": timeline.events(siris, name, days)}

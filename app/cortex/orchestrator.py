@@ -156,7 +156,7 @@ class ToolCallOutcome:
 
 
 # Tools whose results are personal health data (SIRISAI_HEALTH_PRIVATE).
-PRIVATE_TOOLS = frozenset({"health_summary", "health_overview", "health_insights", "health_goals", "health_history", "gym_progress", "gym_sessions", "health_explain"})
+PRIVATE_TOOLS = frozenset({"health_summary", "health_overview", "health_insights", "health_goals", "health_history", "gym_progress", "gym_sessions", "gym_compare", "health_explain"})
 
 
 def _local_client(siris: "SirisAI") -> Any:
@@ -300,13 +300,13 @@ class Cortex:
         self.timer.path = "quick"
         result = await self._run_single_tool(
             siris, conversation_id, planned.tool, planned.arguments,
-            confirmed=False, trigger="chat: quick home command (no model needed)",
+            confirmed=False, trigger="chat: quick command (no model needed)",
         )
         if result.tool_call is not None and not result.error:
             reply = planned.reply
             if reply is None:
                 output = result.tool_call.result
-                reply = (output or {}).get("message") if isinstance(output, dict) else None
+                reply = ((output or {}).get("message") or (output or {}).get("text")) if isinstance(output, dict) else None
                 reply = reply or "Done."
             result.response = reply
             siris.conversation.add_message(conversation_id, role="assistant", content=reply)
