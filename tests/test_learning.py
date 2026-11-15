@@ -338,3 +338,25 @@ def test_learning_routes(client: TestClient) -> None:
         assert siris.run_tool("what_have_you_learned", {})["learned_eval_cases"] == 0
     finally:
         app.dependency_overrides.pop(get_siris, None)
+
+
+def test_the_report_says_what_changed_in_words_not_the_same_list_every_night(monkeypatch) -> None:
+    """6.72: the nightly report named the standing 'ask first' list, as keys, every day."""
+    for name in ("undos", "unverified", "corrections", "ignored_items"):  # only the ask-first list here, nothing shared
+        monkeypatch.setattr(reflection.observe, name, lambda siris, now: [])
+    siris = _siris()
+    key = f"goals:review:{uuid.uuid4().hex[:4]}"
+    siris.attention.raise_item(key, "suggestion", "Review this year's goals", source="goals", severity="info")
+    for _ in range(3):
+        siris.outcomes.record("attention:goals", "dismissed", key=key)
+    day1 = datetime(2026, 11, 13, 17, tzinfo=UTC)
+    reflection.reflect(siris, day1)
+    first = next(i for i in siris.attention.list() if i["key"] == "learning:report:2026-11-13")
+    assert "Review this year's goals" in first["body"] and key not in first["body"]
+    reflection.reflect(siris, day1 + timedelta(days=1))  # nothing new: no second "I'll ask first"
+    assert not any(i["key"] == "learning:report:2026-11-14" and "ask before" in i["body"] for i in siris.attention.list())
+    for _ in range(5):
+        siris.outcomes.record("attention:goals", "accepted", key=key)
+    report = reflection.reflect(siris, day1 + timedelta(days=2))
+    assert "go back to doing these myself: Review this year's goals" in report["summary"]
+    assert reflection._label(siris, "away:offer") == "Away offer"
