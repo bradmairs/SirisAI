@@ -37,5 +37,6 @@ def test_the_weekly_digest_counts_what_happened(client: TestClient) -> None:
         "5 wrong PINs, 1 lockout. Settings changed 1 time."
     )
     item = next(i for i in siris.attention.list() if i["source"] == "audit-weekly")
-    assert item["severity"] == "attention" and "Refused ssh power: pin_required" in item["body"]
+    assert item["severity"] == "attention" and "Didn't ssh power: it needed your PIN." in item["body"]
+    assert item["title"] == "SirisAI's week: 4 things done on its own, 5 wrong PINs" and item["title"] not in item["body"]
     assert {j.name: j for j in daily_jobs.JOBS}["audit_weekly"].weekday(siris) == 6
