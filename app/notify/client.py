@@ -20,6 +20,7 @@ surface rather than hiding it" posture as this codebase's other
 thin-client integrations.
 """
 
+import json
 from typing import Any
 
 import httpx
@@ -61,6 +62,33 @@ def fit_message(message: str, limit: int = MAX_MESSAGE_BYTES) -> str:
     return cut.rstrip(" ,;:") + _MORE
 
 
+# 6.73: ntfy limits the whole JSON body to 4,096 bytes, not just the message
+# (its "JSON body too large" 413), so a long title, action buttons or escaped
+# characters could still push a fitted message over. Measure the body itself.
+MAX_BODY_BYTES = 4000
+
+
+def _encode(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def _fit_body(payload: dict[str, Any], message: str) -> bytes:
+    """The JSON body, with the message shortened until the body fits ntfy."""
+    if "title" in payload:
+        payload["title"] = fit_message(payload["title"], 250).replace(_MORE, "…")
+    body = _encode(payload)
+    while len(body) > MAX_BODY_BYTES:
+        room = len(payload["message"].encode("utf-8")) - (len(body) - MAX_BODY_BYTES) - 50
+        if room < 200:
+            payload.pop("actions", None)
+            room = max(200, room)
+        payload["message"] = fit_message(message, room)
+        body = _encode(payload)
+        if room <= 200 and len(body) > MAX_BODY_BYTES:
+            break
+    return body
+
+
 class NotifyClient:
     def __init__(
         self, base_url: str, topic: str, timeout: float = 10.0, transport: httpx.BaseTransport | None = None,
@@ -89,7 +117,11 @@ class NotifyClient:
         level = _ntfy_priority(priority)
         if level is not None:
             payload["priority"] = level
-        response = self._client.post("/", json=payload)
+        body = _fit_body(payload, message)
+        if self._click_url and payload["message"] != message:
+            payload["click"] = self._click_url
+            body = _fit_body(payload, message)
+        response = self._client.post("/", content=body, headers={"Content-Type": "application/json"})
         response.raise_for_status()
 
     def close(self) -> None:

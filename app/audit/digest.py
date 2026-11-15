@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from app.audit.autonomy import is_autonomous, timeline
+from app.core import clock
 from app.core.approvals import LOCK_AFTER
 
 if TYPE_CHECKING:
@@ -31,6 +32,12 @@ NOUNS = {
     "run_protocol": ("protocol run", "protocol runs"),
 }
 REFUSED_MARKERS = ("pin_required", "restricted", "not enabled", "turned off", "not allowed", "refused", "guest mode")
+NOT_REFUSALS = ("connection refused", "errno 111")   # a service that's down, not SirisAI being told no
+
+
+def _refused(error: str) -> bool:
+    text = error.lower()
+    return any(m in text for m in REFUSED_MARKERS) and not any(m in text for m in NOT_REFUSALS)
 
 
 def _plural(n: int, one: str, many: str | None = None) -> str:
@@ -45,7 +52,7 @@ def digest(siris: "SirisAI", days: float = 7, now: datetime | None = None) -> di
     held = [e for e in entries if e.get("confirmation_required")]
     refused = [
         e for e in entries
-        if e.get("error") and e["tool_name"] != "approval_pin" and any(m in e["error"].lower() for m in REFUSED_MARKERS)
+        if e.get("error") and e["tool_name"] != "approval_pin" and _refused(e["error"])
     ]
     wrong_pins = [e for e in entries if e["tool_name"] == "approval_pin" and e.get("error")]
     lockouts = sum(1 for e in wrong_pins if _count(e) == LOCK_AFTER)
@@ -92,22 +99,56 @@ def sentence(d: dict[str, Any]) -> str:
     return text
 
 
+_REFUSAL_WORDS = [
+    ("pin_required", "it needed your PIN"),
+    ("guest mode", "guest mode was on"),
+    ("restricted", "it's restricted"),
+    ("not allowed", "it isn't allowed to do that on its own"),
+    ("not enabled", "it's turned off in Settings"),
+    ("turned off", "it's turned off in Settings"),
+]
+
+
+def _refusal(error: str) -> str:
+    text = error.lower()
+    return next((said for marker, said in _REFUSAL_WORDS if marker in text), "it wasn't allowed")
+
+
 def weekly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
+    """The feed item (6.73): a short title, then what happened in plain words.
+    No raw errors: what broke is in the weekly reliability report."""
+    from app.upkeep.plain import _times, service
+
     now = now or datetime.now(UTC)
     found = digest(siris, 7, now)
-    lines = [found["text"]]
+    lines = []
     if found["by_tool"]:
-        lines.append("Done on its own: " + ", ".join(f"{t.replace('_', ' ')} x{n}" for t, n in found["by_tool"].items()))
-    for r in found["refused"][:8]:
-        lines.append(f"Refused {r['tool'].replace('_', ' ')}: {r['error']}")
-    for f in found["failed_on_own"][:8]:
-        lines.append(f"Failed {f['tool'].replace('_', ' ')}: {f['error']}")
+        lines.append("Done on its own: " + ", ".join(
+            f"{_plural(n, *NOUNS.get(t, (t.replace('_', ' '), t.replace('_', ' '))))}" for t, n in found["by_tool"].items()) + ".")
+    else:
+        lines.append("Nothing done on its own.")
+    lines.append(f"Held for your OK: {found['held_for_ok']}.")
+    for r in found["refused"][:5]:
+        lines.append(f"Didn't {r['tool'].replace('_', ' ')}: {_refusal(r['error'])}.")
+    if found["failed_on_own"]:
+        names = ", ".join(dict.fromkeys(service(f["tool"]) for f in found["failed_on_own"]))
+        lines.append(f"{_times(len(found['failed_on_own'])).capitalize()} something it tried didn't work ({names}); "
+                     "the reliability report says why.")
+    if found["wrong_pins"]:
+        lines.append(f"{_plural(found['wrong_pins'], 'wrong PIN')}" + (f", {_plural(found['lockouts'], 'lockout')}." if found["lockouts"] else "."))
+    if found["settings_changes"]:
+        lines.append(f"Settings changed {_times(found['settings_changes'])}.")
+    key = f"audit:weekly:{now.astimezone(clock.get_zone(siris.settings.timezone)):%G-W%V}"
+    siris.attention.supersede("audit-weekly", key, "Replaced by this week's")
+    title = f"SirisAI's week: {_plural(found['done_on_own'], 'thing')} done on its own" if found["done_on_own"] else "SirisAI's week: a quiet one"
+    if found["wrong_pins"]:
+        title += f", {_plural(found['wrong_pins'], 'wrong PIN')}"
     siris.attention.raise_item(
-        f"audit:weekly:{now:%G-W%V}",
+        key,
         "alert",
-        found["text"][:300],
+        title,
         source="audit-weekly",
         severity="attention" if found["wrong_pins"] or found["refused"] else "info",
-        body="\n".join(lines) + "\nThe full log is in the web UI's Activity tab.",
+        body="\n".join(lines),
     )
     return found

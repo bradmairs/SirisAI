@@ -24,7 +24,10 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from app.core import clock
+
 from app.db.models import MetricSample, ToolExecution
+from app.upkeep import plain
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -83,10 +86,10 @@ def build(siris: "SirisAI", days: int = 7, now: datetime | None = None) -> dict[
             j["last_error"] = f["error"]
     out["jobs"] = sorted(jobs.values(), key=lambda j: -(j["failed"] + j["slow"]))
     for j in out["jobs"]:
-        what = f"{j['failed']} failure{'s' if j['failed'] != 1 else ''}" if j["failed"] else f"slow {j['slow']} time{'s' if j['slow'] != 1 else ''}"
-        out["problems"].append(f"The {j['job'].replace('_', ' ')} job: {what}"
-                               + (f" (last: {j['last_error']})" if j["last_error"] else "")
-                               + f". Fix: {_JOB_ADVICE.get(j['job'], 'look at its last error in GET /siris/scheduler/jobs')}.")
+        what = f"failed {plain._times(j['failed'])}" if j["failed"] else f"ran slow {plain._times(j['slow'])}"
+        why = f" because {plain.reason(j['last_error'])}" if j["last_error"] else ""
+        out["problems"].append(f"The {j['job'].replace('_', ' ')} job {what}{why}."
+                               + (f" Fix: {_JOB_ADVICE[j['job']]}." if j["job"] in _JOB_ADVICE else ""))
 
     with siris.audit._session_factory() as session:
         rows = session.execute(
@@ -103,8 +106,9 @@ def build(siris: "SirisAI", days: int = 7, now: datetime | None = None) -> dict[
         ({"tool": t, "errors": sum(c.values()), "commonest": c.most_common(1)[0][0]} for t, c in errors.items()),
         key=lambda t: -t["errors"],
     )[:8]
-    for t in out["tools"][:5]:
-        out["problems"].append(f"{t['tool']} failed {t['errors']} time{'s' if t['errors'] != 1 else ''}, mostly: {t['commonest']}.")
+    # 6.73: in plain words, one line per service (the raw errors stay in out["tools"]).
+    out["problems"] += plain.summarise([(tool, error) for tool, error in rows
+                                        if not any(w in (error or "").lower() for w in ("confirmation", "pin"))])
     try:
         from app.core.health import broken_tools
 
@@ -112,7 +116,8 @@ def build(siris: "SirisAI", days: int = 7, now: datetime | None = None) -> dict[
     except Exception:  # noqa: BLE001
         out["paused_tools"] = []
     if out["paused_tools"]:
-        out["problems"].append("Paused now because their service is down: " + ", ".join(out["paused_tools"]) + ".")
+        names = sorted({plain.service(t) for t in out["paused_tools"]})
+        out["problems"].append("Paused for now because they're down: " + ", ".join(names) + ".")
 
     from app.evals import tool_choice
 
@@ -132,27 +137,32 @@ def build(siris: "SirisAI", days: int = 7, now: datetime | None = None) -> dict[
     }
     if out["speed"]["p50_ms"] and out["speed"]["previous_p50_ms"] and out["speed"]["p50_ms"] > 1.3 * out["speed"]["previous_p50_ms"]:
         out["problems"].append(f"Replies got slower: typically {out['speed']['p50_ms'] / 1000:.1f} s, up from "
-                               f"{out['speed']['previous_p50_ms'] / 1000:.1f} s. GET /siris/timings shows which stage.")
+                               f"{out['speed']['previous_p50_ms'] / 1000:.1f} s.")
     out["ok"] = not out["problems"]
     return out
 
 
 def text(report: dict[str, Any]) -> str:
+    """The feed item's body: what went wrong, one line each, then the speed."""
+    lines = list(report["problems"]) or ["Nothing failed."]
     speed = report["speed"]
-    lines = []
     if speed["replies"]:
-        lines.append(f"{speed['replies']} replies, typically {speed['p50_ms'] / 1000:.1f} s (slowest 5%: {speed['p95_ms'] / 1000:.1f} s).")
+        lines.append(f"{speed['replies']} replies, typically {speed['p50_ms'] / 1000:.1f} s.")
     if report.get("tool_choice"):
-        lines.append(f"Tool choice {report['tool_choice']['accuracy']}% right.")
-    lines += report["problems"] or ["Nothing failed."]
-    return " ".join(lines)
+        lines.append(f"Picked the right tool {report['tool_choice']['accuracy']}% of the time.")
+    return "\n".join(lines)
 
 
 def weekly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now(UTC)
     report = build(siris, 7, now)
-    title = "SirisAI this week: all fine" if report["ok"] else f"SirisAI this week: {len(report['problems'])} thing{'s' if len(report['problems']) != 1 else ''} to fix"
+    count = len(report["problems"])
+    title = "SirisAI this week: all fine" if report["ok"] else f"SirisAI this week: {count} thing{'s' if count != 1 else ''} to fix"
+    # One card a week (6.73): keyed by the week, and last week's goes when this one arrives.
+    key = f"reliability:{now.astimezone(clock.get_zone(siris.settings.timezone)):%G-W%V}"
+    siris.attention.supersede("reliability", key, "Replaced by this week's report")
     siris.attention.raise_item(
-        f"reliability:{(now or datetime.now(UTC)).date().isoformat()}", "notice" if report["ok"] else "alert", title,
+        key, "notice" if report["ok"] else "alert", title,
         source="reliability", severity="info" if report["ok"] else "attention", body=text(report),
     )
     if not report["ok"] and siris.tools.get("notify") is not None:

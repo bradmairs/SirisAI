@@ -160,6 +160,15 @@ class AttentionFeed:
         for item_id in ids:
             self.close(item_id, "done", outcome)
 
+    def supersede(self, source: str, keep_key: str, outcome: str) -> None:
+        """Close the open items from `source` other than `keep_key`: a weekly
+        report replaces last week's instead of piling up beside it."""
+        with self._session_factory() as session:
+            ids = [r.id for r in session.scalars(select(AttentionItem).where(
+                AttentionItem.source == source, AttentionItem.status == "open", AttentionItem.key != keep_key))]
+        for item_id in ids:
+            self.close(item_id, "done", outcome)
+
     def sync(self, source: str, wanted: list[dict[str, Any]], outcome: str = "No longer needed") -> None:
         """Make the open items from `source` match `wanted` (raise_item kwargs,
         each with a `key`): new ones open, dismissed ones stay dismissed,

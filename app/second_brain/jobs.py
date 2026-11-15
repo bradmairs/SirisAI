@@ -67,7 +67,8 @@ reasons for them; plans with dates; preferences; how something works.
 
 Never keep:
 - current status or readings: something being up, down, exited or unhealthy; CPU, memory or disk levels; \
-warnings, alerts or health-check results; weather; what's on or playing. These change by the hour.
+warnings, alerts or health-check results; weather or temperatures; whether a light, lamp, switch, room or \
+device is on or off; the time, date or day of the week; what's on or playing. These change by the hour.
 - one-off requests, small talk, or questions the user asked without saying anything about themselves.
 - anything about SirisAI itself, how it answered, or these conversations.
 When unsure, leave it out. Most days produce a few notes or none.
@@ -173,6 +174,25 @@ def day_material(siris: "SirisAI", day: date) -> str:
     return "\n\n".join(parts)[:_MAX_MATERIAL_CHARS]
 
 
+# 6.73: the local model kept filing readings anyway ("Current Temperature
+# Outside", "Lounge Lamp Status", "Day of the Week"), so they're dropped here too.
+_MOMENTARY_TITLE = re.compile(
+    r"\b(status|state|temperature|weather|forecast|humidity|right now|currently|today|tonight|"
+    r"day of the week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.I)
+_MOMENTARY_CONTENT = re.compile(
+    r"-?\d+(\.\d+)?\s*°|\b(is|are|was)\s+(currently\s+|now\s+|still\s+)?(on|off|open|closed|locked|unlocked|playing|idle)\b"
+    r"(?!\s+(when|if|at|from|after|before|during|whenever|by))|\b(it's|it is|today is)\s+\w+day\b|\bat the moment\b|\bright now\b", re.I)
+
+
+def momentary(item: dict[str, Any]) -> bool:
+    """A reading or a passing state rather than lasting knowledge: a short
+    note whose title or content is about how something is right now."""
+    content = item.get("content", "")
+    if _MOMENTARY_TITLE.search(item.get("title", "")) and len(content) < 400:
+        return True
+    return len(content) < 200 and bool(_MOMENTARY_CONTENT.search(content))
+
+
 def parse_notes(text: str | None) -> list[dict[str, Any]]:
     """The model's JSON reply as clean learn() items; anything malformed is
     dropped rather than guessed at."""
@@ -200,7 +220,8 @@ def parse_notes(text: str | None) -> list[dict[str, Any]]:
         links = [str(link).strip() for link in (n.get("links") or []) if str(link).strip()][:8]
         if links:
             item["links"] = links
-        items.append(item)
+        if not momentary(item):
+            items.append(item)
     return items[:_MAX_DREAM_NOTES]
 
 
