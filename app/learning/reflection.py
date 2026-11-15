@@ -139,6 +139,21 @@ def _remember(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], t
 register_action(SOURCE, "remember", _remember)
 
 
+def _label(siris: "SirisAI", key: str) -> str:
+    """What a demoted or undone action is, in words (6.72): the title it had in your feed, else the key made readable.
+    The report used to show the keys themselves ("goals:review:2, away:offer")."""
+    try:
+        for item in siris.attention.list(status=None, limit=500):
+            if item.get("key") == key and item.get("title"):
+                return str(item["title"])
+    except Exception:  # noqa: BLE001 - a readable key will do
+        pass
+    if key.startswith("tool:") or "." in key.split(":")[-1]:
+        return key.split(":", 1)[-1].replace("_", " ")
+    words = [w for w in key.replace("_", " ").replace("-", " ").split(":") if w and not w.isdigit()]
+    return " ".join(words).capitalize() or key
+
+
 def _n(count: int, word: str) -> str:
     return f"{count} {word}{'' if count == 1 else 's'}"
 
@@ -153,6 +168,10 @@ def reflect(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     cases = _add_cases(siris, corrections, today)
     proposals = propose_memories(siris, corrections, failures)
     demoted = feedback.demoted_keys(siris)
+    # 6.72: say what changed, not the whole standing list every night (it repeated the same line daily).
+    before = set(((siris.state.get(HISTORY_KEY) or [{}])[-1] or {}).get("now_asking_first") or [])
+    newly = [k for k in demoted if k not in before]
+    released = sorted(before - set(demoted))
     report = {
         "at": now.isoformat(),
         "kept": sum(1 for u in undos if u["signal"] == "kept"),
@@ -169,9 +188,11 @@ def reflect(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
 
     lines = []
     if report["undone"]:
-        lines.append(f"You undid {_n(len(report['undone']), 'thing')} I did on my own: {', '.join(report['undone'][:3])}.")
-    if report["now_asking_first"]:
-        lines.append(f"I'll ask before doing these on my own again: {', '.join(demoted[:3])}.")
+        lines.append(f"You undid {_n(len(report['undone']), 'thing')} I did on my own: {', '.join(_label(siris, k) for k in report['undone'][:3])}.")
+    if newly:
+        lines.append(f"You've turned these down a few times, so I'll ask before doing them on my own: {', '.join(_label(siris, k) for k in newly[:3])}.")
+    if released:
+        lines.append(f"You've been saying yes again, so I'll go back to doing these myself: {', '.join(_label(siris, k) for k in released[:3])}.")
     if corrections:
         lines.append(f"You corrected me {_n(len(corrections), 'time')}" + (f"; {_n(len(cases), 'new eval case')} came of it." if cases else "."))
     if failures:
