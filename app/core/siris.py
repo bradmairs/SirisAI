@@ -940,7 +940,7 @@ class SirisAI:
                 api_key=self.settings.tautulli_api_key,
             )
             self.tools.register(TautulliCurrentActivityTool(self._tautulli_client))
-            self.tools.register(TautulliRecentHistoryTool(self._tautulli_client, self.settings.plex_username))
+            self.tools.register(TautulliRecentHistoryTool(self._tautulli_client, lambda: self.settings.plex_username))
             self.tools.register(TautulliHomeStatsTool(self._tautulli_client))
             self.tools.register(TautulliTerminateSessionTool(self._tautulli_client))
             self.tools.register(TautulliGetUsersTool(self._tautulli_client))

@@ -9,6 +9,7 @@ file, it has a real, immediate effect on another person's Plex playback,
 not just a query.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 from app.plugins.base import Tool, ToolPermission, ToolVerification
@@ -48,18 +49,31 @@ class TautulliRecentHistoryTool(Tool):
         "required": [],
     }
 
-    def __init__(self, client: TautulliClient, my_username: str = "") -> None:
+    def __init__(self, client: TautulliClient, my_username: str | Callable[[], str] = "") -> None:
         self._client = client
-        self._me = my_username.strip()
+        # 6.74: read when asked, so a change on the Settings page applies at once.
+        self._my_username = my_username if callable(my_username) else (lambda: my_username)
+
+    def _mine(self) -> tuple[str, list[int]]:
+        """Your Plex accounts: SIRISAI_PLEX_USERNAME (one name or several, comma-separated,
+        each a username, display name or email), else the server's owner."""
+        names = [n.strip() for n in (self._my_username() or "").split(",") if n.strip()]
+        if names:
+            return ", ".join(names), self._client.find_user_ids(names)
+        owner = self._client.owner_user_id()
+        if owner is None:
+            raise ValueError("I don't know your Plex username: set SIRISAI_PLEX_USERNAME.")
+        return self._client.owner_username() or "you", [owner]
 
     def run(self, length: int = 10, user: str | None = None, **kwargs: Any) -> Any:
         who = (user or "").strip()
         if who.lower() in ("", "all", "everyone", "anyone"):
             return self._client.recent_history(length=length)
         if who.lower() in ("me", "mine", "my", "myself", "i"):  # 6.7: the user's own, not the whole household's
-            who = self._me or self._client.owner_username() or ""
-            if not who:
-                raise ValueError("I don't know your Plex username: set SIRISAI_PLEX_USERNAME.")
+            who, ids = self._mine()
+            if ids:
+                return {"user": who, "history": self._client.recent_history(length=length, user_ids=ids)}
+            who = who.split(",")[0].strip()  # no account matched: ask Tautulli by name
         rows = self._client.recent_history(length=length, user=who)
         return {"user": who, "history": rows}
 
