@@ -257,6 +257,29 @@ def source_from_trigger(trigger: str | None) -> str:
     return head[:60] or "siris"
 
 
+BRIEFING_TITLE = "SirisAI: daily briefing"
+LISTEN = action("listen", "Read it to me", "primary")
+
+
+def raise_briefing(siris: "SirisAI", text: str) -> None:
+    """6.74: the briefing as one tidy card with Read it to me, not a wall of
+    text. The text stays in the body: SirisOS hides the body of a card with a
+    Listen action and reads it aloud through SirisAI's voice on tap. One card a
+    day (yesterday's closes), and copies from before 6.74 are cleared."""
+    from app.core import clock
+
+    day = datetime.now(UTC).astimezone(clock.get_zone(siris.settings.timezone)).date()
+    key = f"briefing:{day.isoformat()}"
+    for item in siris.attention.list():
+        if item["title"] == BRIEFING_TITLE:
+            siris.attention.close(item["id"], "done", "Replaced by the tidy briefing card")
+    siris.attention.supersede("briefing", key, "Replaced by today's briefing")
+    siris.attention.raise_item(
+        key, "notice", f"Your briefing for {day:%A} is ready", source="briefing", severity="info", body=text,
+        actions=[LISTEN, action("acknowledge", "Got it", "secondary")],
+    )
+
+
 def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) -> None:
     """Every push notification also lands in the feed -- except a
     confirmation request (notify_confirmation_needed), which
@@ -269,6 +292,9 @@ def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) ->
         return
     title = str(arguments.get("title") or "SirisAI")
     message = str(arguments.get("message") or "")
+    if title == BRIEFING_TITLE:
+        raise_briefing(siris, message)
+        return
     priority = arguments.get("priority")
     source = source_from_trigger(trigger)
     severity = "urgent" if priority in ("urgent", "high") or source in ("intruder_check", "self-healing") else "attention"
@@ -474,7 +500,7 @@ def act(
     trigger = f"attention feed: the user chose '{action_id}' on '{item['title']}' in {client}"
     result: Any = None
 
-    risky = action_id not in ("acknowledge", "decline", "dismiss")
+    risky = action_id not in ("acknowledge", "decline", "dismiss", "listen")
     if risky and approvals.expired(siris, item):
         siris.attention.close(item_id, "dismissed", f"Expired: approvals last {siris.settings.approval_expiry_minutes:g} minutes")
         raise approvals.ApprovalExpired(f"That approval expired (they last {siris.settings.approval_expiry_minutes:g} minutes). Ask again if you still want it.")
@@ -487,6 +513,8 @@ def act(
 
 def _dispatch(siris: "SirisAI", item: dict[str, Any], item_id: int, action_id: str, payload: dict[str, Any], trigger: str) -> tuple[dict[str, Any], Any]:
     result: Any = None
+    if action_id == "listen":   # read aloud by the client; the card stays until "Got it"
+        return item, {"text": item["body"]}
     _learn(siris, item, action_id, payload)
     if action_id in ("acknowledge", "decline"):
         closed = siris.attention.close(item_id, "done" if action_id == "acknowledge" else "dismissed", action_id.capitalize() + "d")

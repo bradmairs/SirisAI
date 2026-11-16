@@ -51,7 +51,7 @@ class TautulliRecentHistoryTool(Tool):
 
     def __init__(self, client: TautulliClient, my_username: str | Callable[[], str] = "") -> None:
         self._client = client
-        # 6.74: read when asked, so a change on the Settings page applies at once.
+        # 6.76: read when asked, so a change on the Settings page applies at once.
         self._my_username = my_username if callable(my_username) else (lambda: my_username)
 
     def _mine(self) -> tuple[str, list[int]]:

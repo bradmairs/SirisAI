@@ -113,7 +113,7 @@ class DailyBriefingSkill(Skill):
 
         if siris.tools.get("tautulli_recent_history") is not None:
             try:
-                # 6.74: only what you watched, not the whole household's history.
+                # 6.76: only what you watched, not the whole household's history.
                 mine = siris.run_tool("tautulli_recent_history", {"length": 5, "user": "me"})
                 briefing["plex_recent_activity"] = mine["history"] if isinstance(mine, dict) else mine
             except Exception:

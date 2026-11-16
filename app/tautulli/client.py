@@ -40,7 +40,7 @@ class TautulliClient:
 
     def recent_history(self, length: int = 10, user: str | None = None, user_ids: list[int] | None = None) -> list[dict]:
         """`user` (a Plex username) narrows it to what that person watched (6.7). `user_ids`
-        (6.74) narrows it to those Tautulli users, one account or several, newest first."""
+        (6.76) narrows it to those Tautulli users, one account or several, newest first."""
         if user_ids:
             rows: list[dict] = []
             for uid in user_ids:
@@ -87,7 +87,7 @@ class TautulliClient:
 
     def find_user_ids(self, names: list[str]) -> list[int]:
         """The Tautulli user ids whose username, display name or email (or the part before
-        its @) is one of `names`, ignoring case (6.74): "Brad" and "bradm" can be one person."""
+        its @) is one of `names`, ignoring case (6.76): "Brad" and "bradm" can be one person."""
         wanted = {n.strip().lower() for n in names if n.strip()}
         found: list[int] = []
         for u in self._call("get_users") or []:
@@ -98,7 +98,7 @@ class TautulliClient:
         return found
 
     def owner_user_id(self) -> int | None:
-        """The Plex server owner's Tautulli user id (6.74)."""
+        """The Plex server owner's Tautulli user id (6.76)."""
         for u in self._call("get_users") or []:
             if str(u.get("is_admin")) in ("1", "True", "true") and u.get("user_id") is not None:
                 return int(u["user_id"])

@@ -1,4 +1,4 @@
-"""6.74: the morning brief's Plex section is only what you watched."""
+"""6.76: the morning brief's Plex section is only what you watched."""
 
 from typing import Any
 
