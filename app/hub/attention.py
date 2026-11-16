@@ -257,6 +257,9 @@ def source_from_trigger(trigger: str | None) -> str:
     return head[:60] or "siris"
 
 
+NOT_IN_FEED = {"SirisAI: daily briefing"}
+
+
 def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) -> None:
     """Every push notification also lands in the feed -- except a
     confirmation request (notify_confirmation_needed), which
@@ -268,6 +271,13 @@ def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) ->
     if (trigger or "").startswith("upkeep:"):  # app/upkeep/alerts.py raised its own item before pushing
         return
     title = str(arguments.get("title") or "SirisAI")
+    if title in NOT_IN_FEED:
+        # 6.74: the daily briefing has its own page in SirisOS (Brief, "Start my day"), so a copy in the
+        # feed was the same thing to read twice. Clear any copies left from before too.
+        for item in siris.attention.list():
+            if item["title"] == title:
+                siris.attention.close(item["id"], "done", "The briefing lives on SirisOS's Brief page")
+        return
     message = str(arguments.get("message") or "")
     priority = arguments.get("priority")
     source = source_from_trigger(trigger)

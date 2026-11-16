@@ -259,3 +259,16 @@ def test_a_slow_action_answers_at_once_and_reports_later(use, monkeypatch) -> No
         time.sleep(0.05)
     assert notices and notices[0]["title"] == "Done: Reboot nas" and notices[0]["body"] == "Rebooted nas"
     assert siris.attention.get(item["id"])["outcome"] == "Rebooted nas"
+
+
+def test_the_daily_briefing_push_stays_out_of_the_feed(client: TestClient) -> None:
+    """6.74: the briefing is read on SirisOS's Brief page; a copy in the feed was the same thing twice."""
+    with SessionLocal() as session:
+        session.query(AttentionItem).delete()
+        session.commit()
+    siris = SirisAI(settings=Settings())
+    siris.attention.raise_item("push:old", "alert", "SirisAI: daily briefing", source="proactive check", body="Weather: 8.5°C")
+    attention.on_push(siris, {"title": "SirisAI: daily briefing", "message": "Weather: 9°C"}, "proactive check: automated schedule (daily briefing)")
+    assert not [i for i in siris.attention.list() if i["title"] == "SirisAI: daily briefing"]
+    attention.on_push(siris, {"title": "SirisAI: urgent", "message": "Plex is down"}, "proactive check: x")
+    assert [i["title"] for i in siris.attention.list()] == ["SirisAI: urgent"]
