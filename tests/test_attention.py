@@ -261,14 +261,22 @@ def test_a_slow_action_answers_at_once_and_reports_later(use, monkeypatch) -> No
     assert siris.attention.get(item["id"])["outcome"] == "Rebooted nas"
 
 
-def test_the_daily_briefing_push_stays_out_of_the_feed(client: TestClient) -> None:
-    """6.74: the briefing is read on SirisOS's Brief page; a copy in the feed was the same thing twice."""
+def test_the_daily_briefing_is_one_tidy_card_with_read_it_to_me(client: TestClient) -> None:
+    """6.74: no wall of text: a short title, Read it to me (the text stays in the body for the
+    client to speak), one card a day, and the old raw copies cleared."""
     with SessionLocal() as session:
         session.query(AttentionItem).delete()
         session.commit()
     siris = SirisAI(settings=Settings())
     siris.attention.raise_item("push:old", "alert", "SirisAI: daily briefing", source="proactive check", body="Weather: 8.5°C")
+    siris.attention.raise_item("briefing:2020-01-01", "notice", "Your briefing for Wednesday is ready", source="briefing", body="old")
     attention.on_push(siris, {"title": "SirisAI: daily briefing", "message": "Weather: 9°C"}, "proactive check: automated schedule (daily briefing)")
-    assert not [i for i in siris.attention.list() if i["title"] == "SirisAI: daily briefing"]
-    attention.on_push(siris, {"title": "SirisAI: urgent", "message": "Plex is down"}, "proactive check: x")
-    assert [i["title"] for i in siris.attention.list()] == ["SirisAI: urgent"]
+    items = siris.attention.list()
+    assert len(items) == 1
+    card = items[0]
+    assert card["title"].startswith("Your briefing for ") and card["body"] == "Weather: 9°C"
+    assert [a["id"] for a in card["actions"]] == ["listen", "acknowledge"] and card["actions"][0]["label"] == "Read it to me"
+    item, result = attention.act(siris, card["id"], "listen")
+    assert result == {"text": "Weather: 9°C"} and siris.attention.get(card["id"])["status"] == "open"
+    attention.act(siris, card["id"], "acknowledge")
+    assert siris.attention.list() == []
