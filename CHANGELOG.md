@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.74 — 2026-11-16
+
+- The daily briefing push no longer lands in the feed; it lives on SirisOS's Brief page
+
 ## 6.73 — 2026-11-15
 
 - Weekly reports in plain words, one card a week; pushes always fit ntfy; no temperatures or device states in Siris
