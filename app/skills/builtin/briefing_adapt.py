@@ -25,7 +25,7 @@ PREFS_KEY = "briefing:prefs"
 LAST_KEY = "briefing:last_parts"
 SECTIONS = {
     "weather": r"^Weather:", "forecast": r"^Forecast:", "calendar": r"^(Today:|Nothing on the calendar)", "todo": r"^To-do",
-    "reminders": r"^Reminders today:", "plex": r"^(Recently watched|Nothing recently watched)", "warnings": r"^(\d+ warning|All systems normal)",
+    "reminders": r"^Reminders today:", "plex": r"^(You recently watched|You haven't watched anything recently)", "warnings": r"^(\d+ warning|All systems normal)",
     "queued": r"^Also since last time:", "goals": r"^(Active goals|No active goals)", "health": r"^(Readiness|Health|Sleep)",
     "training": r"^(Training last week|Readiness is \d+ \(recover\))", "email": r"^(Email|\d+ (?:new|unread) email)", "car": r"^(Car|The car)",
     "parcels": r"^(Parcel|\d+ parcel)", "birthdays": r"birthday", "on_this_day": r"^On this day",

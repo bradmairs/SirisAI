@@ -45,6 +45,7 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "news_feeds": ("Morning brief", "News feeds", "RSS or Atom URLs, comma-separated", False),
     "news_topics": ("Morning brief", "News topics", "Comma-separated; blank: the top stories", False),
     "podcast_feeds": ("Morning brief", "Podcast feeds", "RSS URLs, comma-separated", False),
+    "plex_username": ("Morning brief", "Your Plex accounts", "Whose watch history is yours: usernames or display names, comma-separated; blank: the server owner", False),
     "persona_style": ("Voice", "Personality", "jarvis (brief, dry British wit) or plain", False),
     "persona": ("Voice", "Extra personality instructions", "Added after the personality, e.g. 'Call me Brad'", False),
     "tts_voice": ("Voice", "Speaking voice", "Kokoro British male voices: bm_george, bm_lewis, bm_daniel, bm_fable", False),

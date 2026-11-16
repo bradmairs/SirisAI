@@ -38,12 +38,20 @@ class TautulliClient:
             for s in sessions
         ]
 
-    def recent_history(self, length: int = 10, user: str | None = None) -> list[dict]:
-        """`user` (a Plex username) narrows it to what that person watched (6.7)."""
-        params: dict[str, Any] = {"length": length}
-        if user:
-            params["user"] = user
-        rows = self._call("get_history", **params).get("data", [])
+    def recent_history(self, length: int = 10, user: str | None = None, user_ids: list[int] | None = None) -> list[dict]:
+        """`user` (a Plex username) narrows it to what that person watched (6.7). `user_ids`
+        (6.76) narrows it to those Tautulli users, one account or several, newest first."""
+        if user_ids:
+            rows: list[dict] = []
+            for uid in user_ids:
+                rows += self._call("get_history", length=length, user_id=uid).get("data", [])
+            rows.sort(key=lambda r: r.get("date") or 0, reverse=True)
+            rows = rows[:length]
+        else:
+            params: dict[str, Any] = {"length": length}
+            if user:
+                params["user"] = user
+            rows = self._call("get_history", **params).get("data", [])
         return [
             {"title": r.get("full_title"), "user": r.get("user"), "date": r.get("date")} for r in rows
         ]
@@ -76,6 +84,25 @@ class TautulliClient:
             {"user_id": u.get("user_id"), "username": u.get("username"), "friendly_name": u.get("friendly_name")}
             for u in users
         ]
+
+    def find_user_ids(self, names: list[str]) -> list[int]:
+        """The Tautulli user ids whose username, display name or email (or the part before
+        its @) is one of `names`, ignoring case (6.76): "Brad" and "bradm" can be one person."""
+        wanted = {n.strip().lower() for n in names if n.strip()}
+        found: list[int] = []
+        for u in self._call("get_users") or []:
+            email = str(u.get("email") or "").lower()
+            keys = {str(u.get("username") or "").lower(), str(u.get("friendly_name") or "").lower(), email, email.split("@")[0]}
+            if wanted & (keys - {""}) and u.get("user_id") is not None and int(u["user_id"]) not in found:
+                found.append(int(u["user_id"]))
+        return found
+
+    def owner_user_id(self) -> int | None:
+        """The Plex server owner's Tautulli user id (6.76)."""
+        for u in self._call("get_users") or []:
+            if str(u.get("is_admin")) in ("1", "True", "true") and u.get("user_id") is not None:
+                return int(u["user_id"])
+        return None
 
     def owner_username(self) -> str | None:
         """The Plex server owner's username (Tautulli marks them admin): "me" when no

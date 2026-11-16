@@ -5,6 +5,12 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.76 — 2026-11-16
+
+- The morning brief's Plex section is only what you watched, not everyone on the server
+- The brief now asks Tautulli for your history only (`user: "me"`) and lists each title once, without a name after it: "You recently watched: The Bear; Dune: Part Two."
+- "Me" is the Plex server's owner unless `SIRISAI_PLEX_USERNAME` is set. That setting can now list several accounts, comma-separated, each a username, display name or email, and it's on the Settings page under Morning brief, taking effect at once.
+
 ## 6.75 — 2026-11-16
 
 - The daily briefing is one tidy card with Read it to me, instead of its full text

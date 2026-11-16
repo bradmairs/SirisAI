@@ -113,9 +113,9 @@ class DailyBriefingSkill(Skill):
 
         if siris.tools.get("tautulli_recent_history") is not None:
             try:
-                briefing["plex_recent_activity"] = siris.run_tool(
-                    "tautulli_recent_history", {"length": 5}
-                )
+                # 6.76: only what you watched, not the whole household's history.
+                mine = siris.run_tool("tautulli_recent_history", {"length": 5, "user": "me"})
+                briefing["plex_recent_activity"] = mine["history"] if isinstance(mine, dict) else mine
             except Exception:
                 pass
 
@@ -181,12 +181,10 @@ class DailyBriefingSkill(Skill):
         plex_activity = briefing.get("plex_recent_activity")
         if plex_activity is not None:
             if plex_activity:
-                watched = "; ".join(
-                    f"{a['title']} ({a['user']})" for a in plex_activity
-                )
-                lines.append(f"Recently watched: {watched}.")
+                watched = "; ".join(dict.fromkeys(a["title"] for a in plex_activity if a.get("title")))
+                lines.append(f"You recently watched: {watched}.")
             else:
-                lines.append("Nothing recently watched.")
+                lines.append("You haven't watched anything recently.")
 
         lines.extend(briefing.get("extras") or [])
 

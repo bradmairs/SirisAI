@@ -165,13 +165,13 @@ def test_my_plex_history_is_only_mine() -> None:
         params = dict(request.url.params)
         seen.append(params)
         if params["cmd"] == "get_users":
-            return httpx.Response(200, json={"response": {"data": [{"username": "guest1", "is_admin": 0}, {"username": "bradm", "is_admin": 1}]}})
+            return httpx.Response(200, json={"response": {"data": [{"user_id": 7, "username": "guest1", "is_admin": 0}, {"user_id": 9, "username": "bradm", "is_admin": 1}]}})
         return httpx.Response(200, json={"response": {"data": {"data": [{"full_title": "The Bear", "user": params.get("user", "x"), "date": 1}]}}})
 
     client = TautulliClient(base_url="http://t", api_key="k", transport=httpx.MockTransport(handler))
     mine = TautulliRecentHistoryTool(client).run(user="me")
-    assert mine["user"] == "bradm" and seen[-1]["user"] == "bradm"
-    named = TautulliRecentHistoryTool(client, my_username="brad_plex").run(user="mine", length=5)
+    assert mine["user"] == "bradm" and seen[-1]["user_id"] == "9"
+    named = TautulliRecentHistoryTool(client, my_username="brad_plex").run(user="mine", length=5)  # no such account: by name
     assert named["user"] == "brad_plex" and seen[-1]["user"] == "brad_plex" and seen[-1]["length"] == "5"
     everyone = TautulliRecentHistoryTool(client).run()
     assert isinstance(everyone, list) and "user" not in seen[-1]

@@ -238,13 +238,13 @@ def test_briefing_includes_recent_plex_activity_when_configured() -> None:
     briefing = DailyBriefingSkill().run(siris)
 
     assert briefing["plex_recent_activity"] == activity
-    assert "Recently watched: Inception (brad)." in briefing["summary"]
+    assert "You recently watched: Inception." in briefing["summary"]
 
 
 def test_briefing_reports_nothing_watched_when_tautulli_history_is_empty() -> None:
     siris = _FakeSirisForBriefing(has_tautulli=True, tautulli_result=[])
     briefing = DailyBriefingSkill().run(siris)
-    assert "Nothing recently watched." in briefing["summary"]
+    assert "You haven't watched anything recently." in briefing["summary"]
 
 
 def test_briefing_survives_tautulli_being_unreachable() -> None:
