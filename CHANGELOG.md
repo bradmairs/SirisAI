@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.77 — 2026-11-17
+
+- No workout logs in Siris: the nightly dream and health snapshots leave SirisGym's sessions to SirisGym
+
 ## 6.76 — 2026-11-16
 
 - The morning brief's Plex section is only what you watched, not everyone on the server
