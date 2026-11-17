@@ -405,10 +405,7 @@ def write_week_note(siris: "SirisAI", found: list[dict[str, Any]], goals: list[d
         lines.append("- Signs of getting sick: " + ", ".join(built["getting_sick"]["today"]))
     lines += [f"- {f['text']}" for f in found[:3]]
     lines += [f"- Goal: {g['title']}: {g['done']:,.0f} ({'on pace' if g['on_pace'] else 'behind'})" for g in goals]
-    from app.health import gym
-
-    if line := gym.week_line(siris):
-        lines.append(line)
+    # 6.76: no SirisGym line here. Brad's workouts live in SirisGym; a weekly copy in Siris was noise.
     notes = [n for n in built["logged"]["notes"] if n["kind"] in ("symptom", "medication", "feeling")]
     lines += [f"- {n['day']}: {n['kind']} — {n['text']}" for n in notes[:5]]
     if not lines:
@@ -507,6 +504,7 @@ def monthly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     weights = [(d.isoformat(), data[d.isoformat()]["weight_kg"]) for d in days if (data.get(d.isoformat()) or {}).get("weight_kg")]
     if len(weights) >= 2:
         lines.append(f"- Weight {weights[0][1]:.1f} → {weights[-1][1]:.1f} kg ({weights[-1][1] - weights[0][1]:+.1f})")
+    in_brain = list(lines)  # 6.76: Siris gets health only; SirisGym's lifts and sets stay in SirisGym (and the feed below)
     g = gym.latest(siris)
     if g:
         for name, lift in list((g.get("lifts") or {}).items())[:4]:
@@ -527,11 +525,13 @@ def monthly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
         logger.debug("No SirisGym detail for the monthly report", exc_info=True)
     if not lines:
         return {"skipped": "no health data last month"}
-    content = f"**Health and training, {first:%B %Y}:**\n" + "\n".join(lines)
+    content = f"**Health, {first:%B %Y}:**\n" + "\n".join(in_brain)
     # 6.58: also in the attention feed, so SirisOS shows the month's report.
     siris.attention.raise_item(f"health:monthly:{first:%Y-%m}", "notice", f"Your {first:%B} in training and health",
                                source="health-monthly", severity="info", body="\n".join(lines))
     if siris.second_brain is None:
         return {"skipped": "no second brain connected", "month": first.strftime("%Y-%m"), "content": content}
+    if not in_brain:
+        return {"skipped": "nothing for Siris (only SirisGym detail, which stays in SirisGym)", "month": first.strftime("%Y-%m")}
     siris.second_brain.learn([{"title": "Health", "content": content, "tags": ["health-snapshot", "monthly"], "source": "SirisAI health data"}])
     return {"written": "Health", "month": first.strftime("%Y-%m"), "lines": len(lines)}

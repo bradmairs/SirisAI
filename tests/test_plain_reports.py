@@ -80,3 +80,25 @@ def test_momentary_readings_never_reach_siris() -> None:
     reply = json.dumps({"notes": [{"title": "Lounge Lamp Status", "content": "The lounge lamp is off."},
                                   {"title": "Mealie", "content": "Recipe manager on the Home Server."}]})
     assert [n["title"] for n in parse_notes(reply)] == ["Mealie"]
+
+
+def test_workout_logs_never_reach_siris() -> None:
+    """6.76: SirisGym and Apple Health keep the workouts; Siris keeps goals and plans."""
+    from app.second_brain.jobs import workout_log
+
+    for title, content in [
+        ("SirisGym Session (2026-11-10)", "Upper body routine: Bench Press, Barbell Row. Deadlift estimated 1RM 76 kg."),
+        ("Training", "last week 3 workouts, 36 working sets, 5 records"),
+        ("Gym Training", "walked 62 steps"),
+        ("Gym Training", "Bench 85 kg x 6, then 90 kg x 4."),
+    ]:
+        assert workout_log({"title": title, "content": content}), content
+    for title, content in [
+        ("Gym Training", "Focusing on hypertrophy and strength training."),
+        ("Gym Training", "Goal: bench 100 kg by June."),
+        ("Lunch and Learn Sessions", "Monthly lunch and learn sessions at work on water treatment."),
+    ]:
+        assert not workout_log({"title": title, "content": content}), content
+    reply = json.dumps({"notes": [{"title": "Training", "content": "last week 3 workouts, 36 working sets"},
+                                  {"title": "Gym Training", "content": "Goal: bench 100 kg by June."}]})
+    assert [n["title"] for n in parse_notes(reply)] == ["Gym Training"]

@@ -69,6 +69,8 @@ Never keep:
 - current status or readings: something being up, down, exited or unhealthy; CPU, memory or disk levels; \
 warnings, alerts or health-check results; weather or temperatures; whether a light, lamp, switch, room or \
 device is on or off; the time, date or day of the week; what's on or playing. These change by the hour.
+- workouts and their numbers: sets, reps, weights lifted, 1RMs, records, steps, a session's exercises. SirisGym and \
+Apple Health already keep all of that; a training goal or a plan is fine.
 - one-off requests, small talk, or questions the user asked without saying anything about themselves.
 - anything about SirisAI itself, how it answered, or these conversations.
 When unsure, leave it out. Most days produce a few notes or none.
@@ -184,6 +186,21 @@ _MOMENTARY_CONTENT = re.compile(
     r"(?!\s+(when|if|at|from|after|before|during|whenever|by))|\b(it's|it is|today is)\s+\w+day\b|\bat the moment\b|\bright now\b", re.I)
 
 
+# 6.76: workout logs (a session's sets and weights, "3 workouts, 36 working sets", steps walked). SirisGym and
+# Apple Health keep them; Brad doesn't want copies in Siris. Goals and plans ("bench 100 kg by June") still go in.
+_WORKOUT_TITLE = re.compile(r"\b(session|workout|training log|sets? and reps|personal records?|\bprs?\b)\b", re.I)
+_WORKOUT_CONTENT = re.compile(
+    r"\b\d+\s*(working\s+)?sets\b|\b\d+\s*reps\b|\b(e|estimated )?1\s?rm\b|\bkg lifted\b|\b\d[\d,]*\s*steps\b|"
+    r"\b\d+\s*workouts?\b|\b\d+(\.\d+)?\s*kg\s*[x×]\s*\d+|\bmost recent session\b", re.I)
+
+
+def workout_log(item: dict[str, Any]) -> bool:
+    content = item.get("content", "")
+    if _WORKOUT_TITLE.search(item.get("title", "")) and re.search(r"\b(gym|lift|workout|sets?|reps?|exercise)", content + item.get("title", ""), re.I):
+        return True
+    return len(content) < 800 and bool(_WORKOUT_CONTENT.search(content))
+
+
 def momentary(item: dict[str, Any]) -> bool:
     """A reading or a passing state rather than lasting knowledge: a short
     note whose title or content is about how something is right now."""
@@ -220,7 +237,7 @@ def parse_notes(text: str | None) -> list[dict[str, Any]]:
         links = [str(link).strip() for link in (n.get("links") or []) if str(link).strip()][:8]
         if links:
             item["links"] = links
-        if not momentary(item):
+        if not momentary(item) and not workout_log(item):
             items.append(item)
     return items[:_MAX_DREAM_NOTES]
 

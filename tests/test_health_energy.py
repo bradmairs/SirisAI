@@ -329,7 +329,8 @@ def test_why_readiness_was_low_and_the_monthly_report(client: TestClient) -> Non
     from datetime import timezone
     siris.second_brain = SimpleNamespace(learn=lambda items: learned.extend(items))  # type: ignore[assignment]
     r = insights.monthly(siris, datetime(2026, 11, 1, 19, tzinfo=timezone.utc))
-    assert r["month"] == "2026-10" and "Health and training, October 2026" in learned[0]["content"] and "Slept" in learned[0]["content"]
+    assert r["month"] == "2026-10" and "Health, October 2026" in learned[0]["content"] and "Slept" in learned[0]["content"]
+    assert "1RM" not in learned[0]["content"]  # 6.76: SirisGym detail stays in SirisGym
 
 
 def test_a_sirisgym_session_links_to_the_watch_and_each_set_gets_its_heart_rate(client: TestClient) -> None:
