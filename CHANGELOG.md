@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.28 — 2026-11-19
+
+- Doctor's summary: worth mentioning, month by month, one A4 page
+
 ## 7.27 — 2026-11-19
 
 - Learns from your corrections, hides tools you don't use, "me" follows whoever's speaking, an optional hosted model for hard questions, number checks, next seasons and a watchlist, music by voice, and a speed target for voice
