@@ -345,6 +345,39 @@ def done(request: DoneRequest, siris: SirisAI = Depends(get_siris)) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
+class DebriefRequest(BaseModel):
+    project: str = Field("", max_length=200)
+    decided: str = Field("", max_length=2000)
+    went_wrong: str = Field("", max_length=2000)
+    differently: str = Field("", max_length=2000)
+    cpeng: str = Field("", max_length=4000)
+
+
+@router.get("/debrief")
+def debrief(siris: SirisAI = Depends(get_siris)) -> dict:
+    """This week's Friday debrief for SirisOS's card: whether it's open, the projects, the CPEng question."""
+    from app.second_brain import jobs
+
+    _brain(siris)
+    return jobs.debrief_status(siris, clock.now_local(siris.settings.timezone).date())
+
+
+@router.post("/debrief")
+def answer_debrief(request: DebriefRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """File the debrief: on the project (or Work Debriefs), the decision in the Decision Log, the lesson
+    for Lessons Learned, and a CPEng example for the nightly evidence check."""
+    from app.second_brain import jobs
+
+    _brain(siris)
+    try:
+        return jobs.file_debrief(siris, clock.now_local(siris.settings.timezone).date(), request.project,
+                                 request.decided, request.went_wrong, request.differently, request.cpeng)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+
+
 @router.post("/autolink")
 def autolink(siris: SirisAI = Depends(get_siris)) -> dict:
     """Link the pairs the engine is confident about now, rather than waiting for the nightly upkeep."""

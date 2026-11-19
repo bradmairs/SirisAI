@@ -95,6 +95,7 @@ def weather(siris: "SirisAI") -> c.Weather:
             low_c=d.get("low_c"),
             rain_chance_percent=d.get("rain_chance_percent", d.get("precipitation_probability_percent")),
             precipitation_mm=d.get("rain_mm", d.get("precipitation_mm")),
+            uv_index_max=d.get("uv_index_max"), sun_protection_from=d.get("sun_protection_from"), sun_protection_to=d.get("sun_protection_to"),
         )
     return c.Weather(now=now, today=today)
 
@@ -107,6 +108,7 @@ def _day(d: dict[str, Any]) -> c.ForecastDay:
         low_c=d.get("low_c"),
         rain_chance_percent=d.get("rain_chance_percent", d.get("precipitation_probability_percent")),
         precipitation_mm=d.get("rain_mm", d.get("precipitation_mm")),
+        uv_index_max=d.get("uv_index_max"), sun_protection_from=d.get("sun_protection_from"), sun_protection_to=d.get("sun_protection_to"),
     )
 
 

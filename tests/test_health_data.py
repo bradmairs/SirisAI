@@ -76,3 +76,17 @@ def test_energy_is_shown_in_kilojoules() -> None:
     from app.health.service import _fmt
 
     assert _fmt("active_energy_kcal", 500) == "active energy 2,092 kJ"
+
+
+def test_steps_so_far_today_are_never_way_under_your_usual(client: TestClient) -> None:
+    """6.78: at 7am today's steps are a running total; the brief compares yesterday's whole day instead."""
+    store = HealthStore(SessionLocal)
+    user = "health-steps-user"
+    today = date(2026, 11, 18)
+    for i in range(10, 1, -1):
+        store.record({"steps": 9800}, (today - timedelta(days=i)).isoformat(), user_id=user)
+    store.record({"steps": 3100}, (today - timedelta(days=1)).isoformat(), user_id=user)
+    store.record({"steps": 79}, today.isoformat(), user_id=user)
+    notes = summary(store, today, user_id=user)["notes"]
+    assert notes == ["yesterday walked 3,100 steps -- 6,700 steps under your usual"]
+    assert not any("79" in n for n in notes)

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-05T20:14:40.844224+00:00",
+  "generated_at": "2026-11-19T09:16:42.945064+00:00",
   "guest_mode": false,
   "hidden": [],
   "weather": {
@@ -15,7 +15,10 @@
       "high_c": 19.0,
       "low_c": 9.0,
       "rain_chance_percent": 70.0,
-      "precipitation_mm": 4.2
+      "precipitation_mm": 4.2,
+      "uv_index_max": null,
+      "sun_protection_from": null,
+      "sun_protection_to": null
     }
   },
   "calendar": [
@@ -99,7 +102,7 @@
     "reasons": [],
     "solar_watts": null,
     "price": null,
-    "next_cheap_window": "2026-11-06T00:00:00+00:00",
+    "next_cheap_window": "2026-11-20T00:00:00+00:00",
     "waiting_jobs": 0
   },
   "brain": {

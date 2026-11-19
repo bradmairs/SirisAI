@@ -161,7 +161,7 @@ def test_brief_normalises_every_source(use) -> None:
     body = use(siris).get("/siris/hub/v1/brief").json()
     c.Brief.model_validate(body)
     assert body["weather"]["now"]["temperature_c"] == 17.4 and body["weather"]["now"]["wind_kmh"] == 11
-    assert body["weather"]["today"] == {"date": "2026-10-09", "conditions": "Slight rain", "high_c": 19.0, "low_c": 9.0, "rain_chance_percent": 70.0, "precipitation_mm": 4.2}
+    assert body["weather"]["today"] == {"date": "2026-10-09", "conditions": "Slight rain", "high_c": 19.0, "low_c": 9.0, "rain_chance_percent": 70.0, "precipitation_mm": 4.2, "uv_index_max": None, "sun_protection_from": None, "sun_protection_to": None}
     assert [e["title"] for e in body["calendar"]] == ["Bin night", "Site visit, Werribee"]  # all-day first
     assert [e["calendar"] for e in body["calendar"]] == ["Home", "Work"]  # which calendar, for the brief
     assert body["calendar"][0]["all_day"] is True
@@ -441,7 +441,7 @@ def test_forecast_gives_up_to_a_week_today_first(use) -> None:
     client = use(siris)
     body = client.get("/siris/hub/v1/forecast", params={"days": 7}).json()
     assert body["unavailable"] is False
-    assert body["days"][0] == {"date": "2026-10-09", "conditions": "Slight rain", "high_c": 19, "low_c": 9, "rain_chance_percent": 70, "precipitation_mm": 4.2}
+    assert body["days"][0] == {"date": "2026-10-09", "conditions": "Slight rain", "high_c": 19, "low_c": 9, "rain_chance_percent": 70, "precipitation_mm": 4.2, "uv_index_max": None, "sun_protection_from": None, "sun_protection_to": None}
     assert tool.calls[-1] == {"days": 7}
     assert client.get("/siris/hub/v1/forecast", params={"days": 9}).status_code == 422
     siris.tools._tools.pop("weather_forecast")
