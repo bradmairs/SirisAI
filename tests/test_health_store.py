@@ -331,3 +331,29 @@ def test_health_answers_never_reach_a_cloud_model() -> None:
     assert "slept 6.1 hours" in result.response
     history = siris.conversation.get_messages(result.conversation_id)
     assert all("6.1" not in (m["content"] or "") for m in history if m["role"] in ("tool", "assistant"))
+
+
+def test_more_insights_next_morning_recovery_and_monthly_trends() -> None:
+    """6.78: what a drink does to the next morning's HRV and resting heart rate, and the month against the one before."""
+    siris = _siris()
+    on = date(2026, 11, 18)
+    for i in range(1, 58):
+        day = on - timedelta(days=i)
+        drank = i % 4 == 0 and i < 41   # the evening before day i-1's morning
+        rhr = 52 if i < 29 else 56      # down 4 bpm on the month before
+        siris.health.record({"sleep_hours": 7.4, "alcohol_drinks": 2 if drank else 0, "steps": 8000}, day.isoformat(), source="shortcut")
+        siris.health.record({"hrv_overnight": 60, "resting_heart_rate": rhr}, day.isoformat(), source="health_auto_export")
+    for i in range(1, 41):
+        evening = on - timedelta(days=i)
+        if i % 4 == 0:
+            morning = (evening + timedelta(days=1)).isoformat()
+            siris.health.record({"hrv_overnight": 45, "resting_heart_rate": (52 if i < 29 else 56) + 5}, morning, source="health_auto_export")
+    found = insights.compute(siris, datetime(2026, 11, 18, 12, tzinfo=UTC))
+    texts = [f["text"] for f in found]
+    hrv = next(f for f in found if f["factor"] == "hrv:alcohol")
+    assert hrv["good"] is False and hrv["text"].startswith("After a drink your HRV is ") and "lower the next morning" in hrv["text"]
+    rhr = next(f for f in found if f["factor"] == "rhr:alcohol")
+    assert rhr["good"] is False and "bpm higher the next morning" in rhr["text"]
+    trend = next(f for f in found if f["factor"] == "trend:resting_heart_rate")
+    assert trend["good"] is True and trend["text"].startswith("Your resting heart rate is down") and "fitter" in trend["text"]
+    assert all("size" not in f for f in found) and len(texts) == len(set(texts))

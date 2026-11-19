@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 6.87 — 2026-11-19
+
+- Health insights: next-morning HRV and resting heart rate, active days, monthly trends; the brief compares yesterday's steps, not today's so far
+
 ## 6.77 — 2026-11-17
 
 - No workout logs in Siris: the nightly dream and health snapshots leave SirisGym's sessions to SirisGym
