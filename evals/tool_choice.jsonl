@@ -82,3 +82,8 @@
 {"prompt": "is the garage door open?", "expect": ["home_assistant_get_state", "home_assistant_resolve_entity", "home_assistant_list_entities"]}
 {"prompt": "what's the temperature in the lounge?", "expect": ["home_assistant_get_state", "home_assistant_resolve_entity"]}
 {"prompt": "What's the temperature outside right now?", "expect": ["weather_current", "home_assistant_get_state"]}
+{"prompt": "what have I watched recently?", "expect": ["tautulli_recent_history"]}
+{"prompt": "show just my own watch history, not everyone's", "expect": ["tautulli_recent_history"]}
+{"prompt": "open my SirisAI history note", "expect": ["brain_get_note", "brain_search"]}
+{"prompt": "what should I watch tonight?", "expect": ["plex_suggest"]}
+{"prompt": "what am I watching on plex right now?", "expect": ["tautulli_current_activity", "plex_now_playing"]}

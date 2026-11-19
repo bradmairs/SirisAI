@@ -32,6 +32,7 @@ class TautulliClient:
                 "session_id": s.get("session_id"),  # needed by terminate_session()
                 "title": s.get("full_title"),
                 "user": s.get("user"),
+                "user_id": s.get("user_id"),
                 "state": s.get("state"),
                 "progress_percent": s.get("progress_percent"),
             }
@@ -56,13 +57,14 @@ class TautulliClient:
             {"title": r.get("full_title"), "user": r.get("user"), "date": r.get("date")} for r in rows
         ]
 
-    def home_stats(self, days: int = 30, count: int = 5) -> list[dict]:
+    def home_stats(self, days: int = 30, count: int = 5, user_id: int | None = None) -> list[dict]:
         """Tautulli's own home-page stat cards (most watched movies/shows,
         most active users, ...) -- one entry per category, each with its
         own `rows`. `stat_title` is kept alongside the raw `stat_id`
         (e.g. "top_movies") since it's the human-readable label Tautulli
         itself uses for the same category."""
-        categories = self._call("get_home_stats", time_range=days, stats_count=count)
+        extra = {"user_id": user_id} if user_id is not None else {}  # 7.17: one person's stats
+        categories = self._call("get_home_stats", time_range=days, stats_count=count, **extra)
         return [
             {"stat_id": c.get("stat_id"), "title": c.get("stat_title"), "rows": c.get("rows", [])}
             for c in categories

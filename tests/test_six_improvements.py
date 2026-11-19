@@ -72,7 +72,7 @@ def _open(siris: SirisAI) -> list[dict[str, Any]]:
 def test_right_answers_pass_and_raise_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     siris = _siris({"temperature": "It's 15 degrees and cloudy.", "lounge": "The Lounge light is off.", "day": "It's Friday."}, monkeypatch)
     result = self_test.run(siris, NOW)
-    assert (result["passed"], result["failed"], result["skipped"]) == (3, 0, [])
+    assert (result["passed"], result["failed"], result["skipped"]) == (3, 0, ["plex"])  # no Tautulli here (7.17)
     assert siris._asked[1] == "Is the Lounge light on or off right now?"   # never the unavailable one
     assert _open(siris) == []
     assert siris.state.get(self_test.RESULTS_KEY)["passed"] == 3
@@ -101,7 +101,7 @@ def test_missing_services_are_skipped_and_a_failed_turn_is_wrong(monkeypatch: py
 
     monkeypatch.setattr(self_test, "_ask", broken)
     result = self_test.run(siris, NOW)
-    assert result["skipped"] == ["weather", "home"] and result["failed"] == 1
+    assert result["skipped"] == ["weather", "home", "plex"] and result["failed"] == 1
     assert "model unreachable" in result["results"][0]["answer"]
 
 

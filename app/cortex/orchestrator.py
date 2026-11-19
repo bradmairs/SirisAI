@@ -500,9 +500,10 @@ class Cortex:
             },
             {"role": "tool", "content": json.dumps(confirmed.tool_call.result)},
         ]
-        rest = await self._run_planned(
-            siris, conversation_id, continuation_messages, siris.available_tool_specs(), siris.llm, "general"
-        )
+        # 7.17: the tools for what was asked, not all ~250 (a small model loses its way in them).
+        asked = next((str(m.get("content") or "") for m in reversed(messages) if m.get("role") == "user"), "")
+        tools = siris.available_tool_specs(asked, [name]) if asked else siris.available_tool_specs()
+        rest = await self._run_planned(siris, conversation_id, continuation_messages, tools, siris.llm, "general")
         return CortexResult(
             conversation_id=conversation_id,
             response=rest.response,

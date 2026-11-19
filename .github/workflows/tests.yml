@@ -33,6 +33,21 @@ jobs:
       - name: Run tests
         run: pytest
 
+  # 7.17: two branches can't both ship the same version. Fails when this PR's
+  # version isn't above main's, and says how to renumber it.
+  version:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version is above main's
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          base=$(git show "origin/$BASE_REF:app/__init__.py" | sed -n 's/^__version__ = "\(.*\)"$/\1/p')
+          python scripts/bump_version.py check "$base"
+
   satellite:
     runs-on: ubuntu-latest
     defaults:

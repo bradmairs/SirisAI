@@ -137,3 +137,15 @@ def strip_wake(transcript: str) -> str | None:
         return None
     rest = transcript[match.end():].strip()
     return rest[:1].upper() + rest[1:] if rest else ""
+
+
+# 7.17: "stop", "never mind", "that's all" -- end the turn quietly, nothing sent to the model.
+_STOP = re.compile(
+    r"^\W*(?:(?:hey\s+)?siris\W+)?(?:stop|stop it|stop talking|be quiet|quiet|shush|hush|cancel|never ?mind|"
+    r"forget it|that'?s all|that'?s enough|enough|ok(?:ay)? stop|thanks,? that'?s all|thank you,? that'?s all)\W*$",
+    re.I,
+)
+
+
+def is_stop(transcript: str) -> bool:
+    return bool(_STOP.match(transcript or ""))

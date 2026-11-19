@@ -393,6 +393,15 @@ def run_tool_choice_eval(siris: "SirisAI") -> dict | None:
         return None
 
 
+def _eval_due_for_new_model(siris: "SirisAI") -> bool:
+    from app.evals import tool_choice
+
+    try:
+        return tool_choice.due_for_new_model(siris)
+    except Exception:
+        return False
+
+
 def maybe_run_daily_briefing(siris: "SirisAI", now: datetime | None = None) -> bool:
     """Runs daily_briefing once, the first scheduler tick at or past
     SIRISAI_BRIEFING_HOUR_LOCAL on a calendar day it hasn't already run on
@@ -534,6 +543,7 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("habits", lambda s: run_habit_check(s), _settings_every("habit_check_interval_days", 86400), at_boot=False),
         Job("parcels", lambda s: run_parcel_refresh(s), _settings_every("parcel_refresh_minutes", 60)),
         Job("tool_choice_eval", lambda s: run_tool_choice_eval(s), _settings_every("eval_interval_days", 86400), at_boot=False),
+        Job("tool_choice_eval_new_model", lambda s: run_tool_choice_eval(s) if _eval_due_for_new_model(s) else None, lambda _s: 600, at_boot=False),
         Job("attention", lambda s: (run_attention_sync(s), report_update(s)), _settings_every("attention_sync_minutes", 60), at_boot=False),
         Job("servers", lambda s: run_server_watch(s), _settings_every("server_watch_minutes", 60)),
         Job("power_follow_up", lambda s: run_power_follow_up(s), lambda _s: 30),

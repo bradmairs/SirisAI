@@ -39,12 +39,30 @@ class SpeakInCurrentRoomTool(Tool):
         tts_model: str,
         tts_voice: str,
         transport: httpx.BaseTransport | None = None,
+        settings: Any = None,
     ) -> None:
         self._satellites = satellites
         self._tts_base_url = tts_base_url
         self._tts_model = tts_model
         self._tts_voice = tts_voice
         self._transport = transport  # test-only seam, real requests otherwise
+        # 7.17: with settings, announcements use the current voice, pace and effect, like replies.
+        self._settings = settings
+
+    def _speech(self, message: str) -> bytes:
+        settings = self._settings
+        if settings is None:
+            return sync_tts.synthesize(
+                self._tts_base_url, self._tts_model, self._tts_voice, for_speech(message), transport=self._transport
+            )
+        from app.cortex import persona
+        from app.voice.effects import apply_audio_filter_sync
+
+        audio = sync_tts.synthesize(
+            self._tts_base_url, self._tts_model, settings.tts_voice, for_speech(message),
+            transport=self._transport, speed=persona.tts_speed(settings),
+        )
+        return apply_audio_filter_sync(audio, settings.tts_effect) if settings.tts_effect else audio
 
     def run(self, message: str = "", **kwargs: Any) -> Any:
         room = self._satellites.current_room()
@@ -54,9 +72,7 @@ class SpeakInCurrentRoomTool(Tool):
         if satellite is None:  # a race between current_room() and get_by_room() -- vanishingly rare, still handled
             return {"sent": False, "reason": "no satellite currently known"}
 
-        audio = sync_tts.synthesize(
-            self._tts_base_url, self._tts_model, self._tts_voice, for_speech(message), transport=self._transport
-        )
+        audio = self._speech(message)
 
         with httpx.Client(transport=self._transport) as client:
             response = client.post(

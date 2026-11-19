@@ -16,6 +16,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from app.cortex import persona
 from app.cortex.orchestrator import Cortex, CortexResult
 from app.protocols.service import voice_confirmable as protocol_voice_confirmable
 from app.voice.base import NullTextToSpeechClient
@@ -46,6 +47,7 @@ class VoiceTurn:
         self.transcript = transcript
         self.synthesize = synthesize and siris.tts is not None and not isinstance(siris.tts, NullTextToSpeechClient)
         self._chunker = SentenceChunker()
+        self._said = False  # 7.17: anything of the answer spoken yet (a filler isn't needed after "let me check")
 
     async def _sentence_event(self, sentence: str) -> dict[str, Any] | None:
         text = speakable(sentence)
@@ -64,6 +66,7 @@ class VoiceTurn:
         for sentence in sentences:
             event = await self._sentence_event(sentence)
             if event is not None:
+                self._said = True
                 yield event
 
     async def run(self) -> AsyncIterator[dict[str, Any]]:
@@ -109,11 +112,28 @@ class VoiceTurn:
         _running.add(task)
         task.add_done_callback(_running.discard)
 
+        tool_running = False
+        fillers = 0
         while True:
-            event = await queue.get()
+            if tool_running and not self._said and fillers < 2 and self.synthesize and siris.settings.voice_filler_seconds > 0:
+                # 7.17: a slow tool gets a short "One moment, sir." instead of silence.
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=siris.settings.voice_filler_seconds * (fillers + 1))
+                except TimeoutError:
+                    spoken = await self._sentence_event(persona.filler(siris.settings, fillers))
+                    fillers += 1
+                    if spoken is not None:
+                        yield {**spoken, "filler": True}
+                    continue
+            else:
+                event = await queue.get()
             if event is None:
                 return
             kind = event.get("type")
+            if kind in ("content", "final", "error"):
+                tool_running = False
+            if kind == "tool_start":
+                tool_running = True
             if kind == "content":
                 async for spoken in self._speak_all(self._chunker.feed(event.get("delta", ""))):
                     yield spoken
