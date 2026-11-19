@@ -18,6 +18,14 @@ goes with, tonight's bedtime, and goals tied to a health number.
     10pm to 6am, from Home Assistant);
   - a screen on late (SIRISAI_HEALTH_SCREEN_ENTITY on after 10pm).
   "After a meeting past 8pm you sleep 42 minutes less (6 nights vs 23)."
+- **The next morning** (6.78): the same things, plus a day of 10,000 steps
+  or 30 minutes' exercise, against the next morning's HRV (8% or more
+  different) and resting heart rate (2 bpm or more), four mornings each way:
+  "After a drink your HRV is 18% lower the next morning (9 mornings vs 30)."
+  Sleep also gets the two activity factors.
+- **The month's trends** (6.78): resting heart rate, HRV, sleep and steps,
+  the last four weeks against the four before (10 days of data each).
+- Each insight says whether it's good news (`good`), for the colour of its dot.
 - **Bedtime** (each evening): wake time is your usual (the median of the
   last two weeks' wake-ups) or earlier when tomorrow's first event needs it
   (SIRISAI_HEALTH_MORNING_BUFFER_MINUTES, 75, before it). Bedtime is wake
@@ -142,7 +150,12 @@ def _nightly(siris: "SirisAI", on: date, nights: int) -> dict[str, dict[str, Any
         hours = (data.get(woke) or {}).get("sleep_hours")
         if hours:
             day_m = data.get(evening.isoformat()) or {}
-            out[evening.isoformat()] = {"sleep": float(hours), "factors": set(), "caffeine": day_m.get("caffeine_mg"), "alcohol": day_m.get("alcohol_drinks")}
+            morning = data.get(woke) or {}
+            out[evening.isoformat()] = {"sleep": float(hours), "factors": set(), "caffeine": day_m.get("caffeine_mg"), "alcohol": day_m.get("alcohol_drinks"),
+                                        # 6.78: the next morning's recovery, and the day's activity
+                                        "hrv": morning.get("hrv_overnight") or morning.get("heart_rate_variability"),
+                                        "rhr": morning.get("resting_heart_rate"), "steps": day_m.get("steps"),
+                                        "exercise": day_m.get("exercise_minutes")}
     if not out:
         return out
     first = min(out)
@@ -151,6 +164,10 @@ def _nightly(siris: "SirisAI", on: date, nights: int) -> dict[str, dict[str, Any
             entry["factors"].add("caffeine")
         if (entry["alcohol"] or 0) >= 1:
             entry["factors"].add("alcohol")
+        if (entry.get("steps") or 0) >= 10000:
+            entry["factors"].add("active_day")
+        if (entry.get("exercise") or 0) >= 30:
+            entry["factors"].add("exercise_day")
     for w in siris.health.workouts(first):
         start = _parse(w.get("start"))
         if start and w["date"] in out and (start.astimezone(zone) if start.tzinfo else start).hour >= 19:
@@ -210,7 +227,75 @@ FACTOR_TEXT = {
     "alcohol": "a drink",
     "warm_bedroom": "a bedroom over 22 °C",
     "late_screen": "the TV on after 10pm",
+    "active_day": "a day of 10,000 steps or more",
+    "exercise_day": "30 minutes or more of exercise",
 }
+# 6.78: what each factor does to the next morning, as well as the night's sleep.
+MIN_HRV_SHARE = 0.08   # HRV 8% or more different
+MIN_RHR_BPM = 2.0      # resting heart rate 2 bpm or more different
+
+
+def _recovery(nightly: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    found = []
+    for factor, text in FACTOR_TEXT.items():
+        for metric, label in (("hrv", "HRV"), ("rhr", "resting heart rate")):
+            yes = [n[metric] for n in nightly.values() if factor in n["factors"] and n.get(metric)]
+            no = [n[metric] for n in nightly.values() if factor not in n["factors"] and n.get(metric)]
+            if len(yes) < MIN_NIGHTS or len(no) < MIN_NIGHTS:
+                continue
+            a, b = mean(yes), mean(no)
+            if metric == "hrv":
+                share = (a - b) / b if b else 0
+                if abs(share) < MIN_HRV_SHARE:
+                    continue
+                said, good = f"{abs(share) * 100:.0f}% {'higher' if share > 0 else 'lower'}", share > 0
+            else:
+                if abs(a - b) < MIN_RHR_BPM:
+                    continue
+                said, good = f"{abs(a - b):.0f} bpm {'higher' if a > b else 'lower'}", a < b
+            found.append({"factor": f"{metric}:{factor}", "kind": "recovery", "good": good, "size": abs(a - b) / (b or 1),
+                          "text": f"After {text} your {label} is {said} the next morning ({len(yes)} mornings vs {len(no)})."})
+    return found
+
+
+def _trends(siris: "SirisAI", on: date) -> list[dict[str, Any]]:
+    """The last four weeks against the four before: resting heart rate, HRV, sleep and steps."""
+    data = overview.days(siris, on, 57)
+    def avg(metric: str, start: int, end: int, *alts: str) -> tuple[float | None, int]:
+        vals = []
+        for i in range(start, end):
+            m = data.get((on - timedelta(days=i)).isoformat()) or {}
+            v = next((m.get(k) for k in (metric, *alts) if m.get(k)), None)
+            if v:
+                vals.append(float(v))
+        return (mean(vals) if len(vals) >= 10 else None), len(vals)
+    out = []
+    checks = [
+        ("resting_heart_rate", "Your resting heart rate", 2.0, "bpm", False, ()),
+        ("hrv_overnight", "Your HRV", 0.08, "%", True, ("heart_rate_variability",)),
+        ("sleep_hours", "Your sleep", 0.25, "h", True, ()),
+        ("steps", "Your daily steps", 0.15, "%", True, ()),
+    ]
+    for metric, label, threshold, unit, up_is_good, alts in checks:
+        now, _ = avg(metric, 1, 29, *alts)
+        before, _ = avg(metric, 29, 57, *alts)
+        if now is None or before is None or not before:
+            continue
+        change = now - before
+        if unit == "%":
+            share = change / before
+            if abs(share) < threshold:
+                continue
+            said = f"{abs(share) * 100:.0f}%"
+        else:
+            if abs(change) < threshold:
+                continue
+            said = f"{abs(change) * 60:.0f} minutes" if unit == "h" else f"{abs(change):.0f} {unit}"
+        good = (change > 0) == up_is_good
+        why = {"resting_heart_rate": " (fitter, or better rested)" if good else " (tired, ill or stressed shows here first)"}.get(metric, "")
+        out.append({"factor": f"trend:{metric}", "kind": "trend", "good": good, "size": abs(change) / before,
+                    "text": f"{label} is {'up' if change > 0 else 'down'} {said} on the month before{why}."})
+    return out
 
 
 def compute(siris: "SirisAI", now: datetime | None = None, nights: int = 60) -> list[dict[str, Any]]:
@@ -226,10 +311,15 @@ def compute(siris: "SirisAI", now: datetime | None = None, nights: int = 60) -> 
         if abs(diff) < MIN_MINUTES:
             continue
         found.append({
-            "factor": factor, "minutes": diff, "nights_with": len(yes), "nights_without": len(no),
+            "factor": factor, "minutes": diff, "nights_with": len(yes), "nights_without": len(no), "kind": "sleep", "good": diff > 0,
             "text": f"After {text} you sleep {abs(diff)} minutes {'less' if diff < 0 else 'more'} ({len(yes)} nights vs {len(no)}).",
         })
     found.sort(key=lambda f: f["minutes"])
+    # 6.78: the next morning's HRV and resting heart rate after each, and the month's trends.
+    found += sorted(_recovery(nightly), key=lambda f: -f["size"])[:4]
+    found += _trends(siris, on)
+    for f in found:
+        f.pop("size", None)
     siris.state.set(INSIGHTS_KEY, {"at": datetime.now(UTC).isoformat(), "insights": found})
     return found
 

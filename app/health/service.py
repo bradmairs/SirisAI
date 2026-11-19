@@ -64,6 +64,7 @@ _LABELS = {
 # How far from your own average counts as worth mentioning -- an absolute
 # amount or a fraction of the average -- and which direction is the
 # concerning one.
+_RUNNING_TOTALS = {"steps"}  # they build up through the day, so today's isn't comparable until it's over
 _NOTABLE = {
     "sleep_hours": ("absolute", 0.75, -1),
     "steps": ("fraction", 0.35, -1),
@@ -401,7 +402,19 @@ def summary(store: HealthStore, today: date, user_id: str | None = None) -> dict
         week = [v for d, v in series if d >= (today - timedelta(days=7)).isoformat()]
         entry: dict[str, Any] = {"latest": latest, "day": latest_day, "week_average": round(mean(week), 2) if week else None, "baseline": round(baseline, 2) if baseline is not None else None}
         metrics[metric] = entry
-        if baseline is None or metric not in _NOTABLE:
+        if metric not in _NOTABLE:
+            continue
+        when = ""
+        if metric in _RUNNING_TOTALS and latest_day == today.isoformat():
+            # 6.78: today's steps are a running total, so at 7am they're always "way under your usual".
+            # Compare yesterday's whole day instead, against the days before it.
+            if len(series) < 5:
+                continue
+            latest_day, latest = series[-2]
+            history = [v for d, v in series[:-2]]
+            baseline = mean(history)
+            when = "yesterday "
+        if baseline is None:
             continue
         kind, threshold, direction = _NOTABLE[metric]
         delta = latest - baseline
@@ -409,5 +422,5 @@ def summary(store: HealthStore, today: date, user_id: str | None = None) -> dict
         if abs(delta) >= limit and delta * direction > 0:
             unit = _LABELS[metric][1].strip() or ""
             amount = f"{abs(delta):,.0f}" if metric == "steps" else f"{abs(delta):.1f}"
-            notes.append(f"{_fmt(metric, latest)} -- {amount}{' ' + unit if unit and metric != 'sleep_hours' else unit} {'under' if delta < 0 else 'over'} your usual")
+            notes.append(f"{when}{_fmt(metric, latest)} -- {amount}{' ' + unit if unit and metric != 'sleep_hours' else unit} {'under' if delta < 0 else 'over'} your usual")
     return {"metrics": metrics, "notes": notes}
