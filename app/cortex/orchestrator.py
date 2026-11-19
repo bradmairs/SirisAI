@@ -69,7 +69,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.core import taint
-from app.cortex import persona, quick, timings, trial
+from app.cortex import numbers, persona, quick, timings, trial
+from app.llm import cloud
 from app.notify.confirmation import notify_confirmation_needed
 from app.llm.streaming import EventCallback, generate_with_events
 from app.planning.planner import Planner
@@ -209,6 +210,8 @@ class CortexResult:
     used_planner: bool = False
     # Milliseconds per stage of this turn (app/cortex/timings.py).
     timings: dict[str, float] = field(default_factory=dict)
+    # 7.27: set when the number check (app/cortex/numbers.py) added a correction.
+    number_check: dict[str, Any] | None = None
 
 
 # Phrases that claim a state change happened. Used by
@@ -283,6 +286,7 @@ class Cortex:
         # The answer is complete here -- tell a streaming client now, so it
         # doesn't sit waiting on memory extraction (a whole extra LLM pass)
         # to see it.
+        await numbers.check(siris, result, prompt)   # 7.27: the numbers must be in the data
         self._finalize(siris, result)
         self._learn_quick(siris, prompt, result)
         result.timings = timings.record(siris, self.timer)
@@ -405,6 +409,10 @@ class Cortex:
 
         tools = await tools_task if tools_task is not None else None
         resolved_role, llm_client = siris.model_router.pick(siris.llm, prompt, role=model_role)
+        if model_role is None and (hosted := cloud.choose(siris, prompt)) is not None:
+            # 7.27: a hard question, and a hosted model is allowed for it (app/llm/cloud.py)
+            resolved_role, llm_client = "cloud", hosted
+            cloud.count(siris)
 
         if use_planner:
             self.timer.path = "planner"
@@ -419,7 +427,17 @@ class Cortex:
                 result = await generate_with_events(llm_client, messages, self.on_event, tools=tools)
         except Exception:
             logger.exception("LLM generate() failed")
-            return CortexResult(conversation_id=conversation_id, model_role=resolved_role, error="LLM backend call failed.")
+            hosted = cloud.fallback(siris, prompt) if resolved_role != "cloud" else None
+            if hosted is None:
+                return CortexResult(conversation_id=conversation_id, model_role=resolved_role, error="LLM backend call failed.")
+            try:   # 7.27: the local model is down; the hosted one answers (SIRISAI_CLOUD_LLM_WHEN)
+                cloud.count(siris)
+                with self.timer.stage("model"):
+                    result = await generate_with_events(hosted, messages, self.on_event, tools=tools)
+                resolved_role, llm_client = "cloud", hosted
+            except Exception:
+                logger.exception("Hosted model fallback failed too")
+                return CortexResult(conversation_id=conversation_id, model_role=resolved_role, error="LLM backend call failed.")
 
         if result.tool_calls:
             call = result.tool_calls[0]

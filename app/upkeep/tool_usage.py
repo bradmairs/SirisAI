@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import func, select
 
 from app.db.models import ToolExecution
+from app.hub.attention import action, register_action
 
 if TYPE_CHECKING:
     from app.core.siris import SirisAI
@@ -47,3 +48,67 @@ def report(siris: "SirisAI", days: int = 60, now: datetime | None = None) -> dic
         "idle_families": {f: families[f] for f in idle_families},
         "most_used": [{"tool": n, "runs": c} for n, c in runs.most_common(15) if n in set(registered)],
     }
+
+
+FEED_KEY = "upkeep:tool_trim"
+SOURCE = "tool_trim"
+
+
+def audit_days(siris: "SirisAI", now: datetime | None = None) -> float:
+    """How many days the audit log covers (it starts empty on a new install)."""
+    with siris.audit._session_factory() as session:
+        first = session.scalar(select(func.min(ToolExecution.created_at)))
+    if first is None:
+        return 0.0
+    return ((now or datetime.now(UTC)).replace(tzinfo=None) - first).total_seconds() / 86400
+
+
+def candidates(siris: "SirisAI", now: datetime | None = None) -> list[str]:
+    """Unused tools worth hiding (7.27): never ones that ask first or are restricted
+    (rare but important), core ones, or ones already hidden."""
+    from app.plugins.base import ToolPermission
+    from app.plugins.selector import CORE_TOOLS
+
+    days = siris.settings.tool_trim_after_days
+    if days <= 0 or audit_days(siris, now) < days:
+        return []
+    keep = {
+        t.name for t in siris.tools.list()
+        if t.permission in (ToolPermission.CONFIRM_REQUIRED, ToolPermission.RESTRICTED)
+    } | set(CORE_TOOLS) | siris.hidden_tool_names()
+    return [n for n in report(siris, days, now)["unused"] if n not in keep]
+
+
+def propose(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | None:
+    """Monthly: put the unused tools in the feed, to hide with one tap."""
+    names = candidates(siris, now)
+    if not names:
+        return None
+    days = siris.settings.tool_trim_after_days
+    shown = ", ".join(names[:12]) + (f" and {len(names) - 12} more" if len(names) > 12 else "")
+    return siris.attention.raise_item(
+        FEED_KEY,
+        "suggestion",
+        f"{len(names)} tools you haven't used in {days} days",
+        source=SOURCE,
+        severity="info",
+        body=(
+            f"Hiding them means the model has fewer to choose from, so answers are faster and it picks the right one "
+            f"more often. They still work from routines and the feed, and you can bring any back on the Settings page "
+            f"(Tools the model isn't offered). {shown}."
+        ),
+        actions=[action("hide", "Hide them", "primary"), action("dismiss", "Keep them")],
+        payload={"tools": names},
+    )
+
+
+def _hide(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:
+    from app.core import settings_overrides
+
+    names = payload.get("tools") or []
+    hidden = sorted(siris.hidden_tool_names() | set(names))
+    result = settings_overrides.update(siris, {"hidden_tools": ", ".join(hidden)})
+    return result, f"Hid {len(names)} tools"
+
+
+register_action(SOURCE, "hide", _hide)

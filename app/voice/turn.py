@@ -13,6 +13,7 @@ That covers a trailing correction Cortex appends after streaming finished
 import asyncio
 import base64
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
@@ -41,13 +42,17 @@ _running: set["asyncio.Task[None]"] = set()
 
 
 class VoiceTurn:
-    def __init__(self, siris: "SirisAI", conversation_id: str, transcript: str, *, synthesize: bool = True) -> None:
+    def __init__(
+        self, siris: "SirisAI", conversation_id: str, transcript: str, *, synthesize: bool = True, started: float | None = None
+    ) -> None:
         self.siris = siris
         self.conversation_id = conversation_id
         self.transcript = transcript
         self.synthesize = synthesize and siris.tts is not None and not isinstance(siris.tts, NullTextToSpeechClient)
         self._chunker = SentenceChunker()
         self._said = False  # 7.17: anything of the answer spoken yet (a filler isn't needed after "let me check")
+        self._started = started if started is not None else time.monotonic()   # from when the recording arrived
+        self._heard_at: float | None = None   # 7.27: when the first audio (filler or answer) was ready
 
     async def _sentence_event(self, sentence: str) -> dict[str, Any] | None:
         text = speakable(sentence)
@@ -62,10 +67,28 @@ class VoiceTurn:
                 logger.exception("TTS failed for a voice sentence")
         return {"type": "sentence", "text": text, "audio": audio}
 
+    def _first_audio(self, answer_metric: str | None) -> None:
+        """7.27: how long until you heard something (voice_first_audio_ms, the speed target) and
+        until the answer itself started (voice_first_answer_ms)."""
+        now = time.monotonic()
+        samples: dict[str, float] = {}
+        if self._heard_at is None:
+            self._heard_at = now
+            samples["voice_first_audio_ms"] = round((now - self._started) * 1000)
+        if answer_metric:
+            samples[answer_metric] = round((now - self._started) * 1000)
+        if samples:
+            try:
+                self.siris.metrics.record_samples(samples)
+            except Exception:  # noqa: BLE001 - timing must never break a spoken turn
+                pass
+
     async def _speak_all(self, sentences: list[str]) -> AsyncIterator[dict[str, Any]]:
         for sentence in sentences:
             event = await self._sentence_event(sentence)
             if event is not None:
+                if not self._said:
+                    self._first_audio("voice_first_answer_ms")
                 self._said = True
                 yield event
 
@@ -121,6 +144,7 @@ class VoiceTurn:
                     event = await asyncio.wait_for(queue.get(), timeout=siris.settings.voice_filler_seconds * (fillers + 1))
                 except TimeoutError:
                     spoken = await self._sentence_event(persona.filler(siris.settings, fillers))
+                    self._first_audio(None)
                     fillers += 1
                     if spoken is not None:
                         yield {**spoken, "filler": True}

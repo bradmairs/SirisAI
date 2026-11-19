@@ -156,5 +156,39 @@ class SonarrClient:
         response.raise_for_status()
         return {"removed": True, "queue_id": queue_id, "blocklisted": blocklist}
 
+    def series_seasons(self) -> list[dict]:
+        """Every series with its seasons and what's on disk (7.27): for "you finished
+        season 4 and season 5 isn't here"."""
+        response = self._client.get("/api/v3/series")
+        response.raise_for_status()
+        out = []
+        for s in response.json():
+            seasons = []
+            for season in s.get("seasons") or []:
+                stats = season.get("statistics") or {}
+                seasons.append({
+                    "season": season.get("seasonNumber"),
+                    "monitored": bool(season.get("monitored")),
+                    "files": stats.get("episodeFileCount", 0),
+                    "episodes": stats.get("totalEpisodeCount", 0),
+                    "aired": bool(stats.get("previousAiring")),
+                })
+            out.append({"id": s["id"], "title": s.get("title"), "seasons": seasons})
+        return out
+
+    def get_season(self, series_id: int, season: int) -> dict:
+        """Monitor one season and search for it (7.27) -- the "get season 5" ask."""
+        response = self._client.get(f"/api/v3/series/{series_id}")
+        response.raise_for_status()
+        series = response.json()
+        series["monitored"] = True
+        for entry in series.get("seasons") or []:
+            if entry.get("seasonNumber") == season:
+                entry["monitored"] = True
+        self._client.put(f"/api/v3/series/{series_id}", json=series).raise_for_status()
+        command = self._client.post("/api/v3/command", json={"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season})
+        command.raise_for_status()
+        return {"series_id": series_id, "season": season, "searching": True}
+
     def close(self) -> None:
         self._client.close()

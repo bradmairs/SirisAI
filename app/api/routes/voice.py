@@ -11,6 +11,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -115,6 +116,8 @@ async def converse(
     filename = (file.filename if file is not None else None) or "audio.wav"
     content_type = (file.content_type if file is not None else None) or "audio/wav"
 
+    received = time.monotonic()   # 7.27: the voice speed target counts from here, transcription included
+
     async def events() -> AsyncIterator[dict[str, Any]]:
         transcript = typed
         heard: str | None = None
@@ -167,7 +170,7 @@ async def converse(
             return
 
         conv_id = _resolve_conversation(siris, ChatRequest(prompt=transcript, conversation_id=conversation_id, room=room))
-        async for event in VoiceTurn(siris, conv_id, transcript, synthesize=synthesize).run():
+        async for event in VoiceTurn(siris, conv_id, transcript, synthesize=synthesize, started=received).run():
             yield event
 
     async def ndjson() -> AsyncIterator[str]:

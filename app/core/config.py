@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     # 7.17: in a spoken turn, say "One moment, sir." when a tool has taken this long with
     # nothing said yet (a second one after twice as long). 0 = never.
     voice_filler_seconds: float = 1.5
+    # 7.27: move what's playing to the room you last spoke in (Music Assistant).
+    music_follow_me: bool = False
+    # 7.27: the voice speed target: something heard this soon after you stop speaking.
+    voice_target_ms: int = 1000
+    # 7.27: check the numbers in an answer against what the tools returned, and add a
+    # correction when one isn't there (app/cortex/numbers.py).
+    check_numbers: bool = True
     # Optional ffmpeg `-af` filter chain run over every spoken clip
     # (app/voice/effects.py), e.g. a light "electronic" sheen. Empty = off.
     tts_effect: str = ""
@@ -311,6 +318,16 @@ class Settings(BaseSettings):
     # The fast role can be the same model with thinking off (5.8): short
     # requests answer in a fraction of the time, long ones still think.
     fast_llm_think: str = "off"
+
+    # 7.27: an optional hosted model (any OpenAI-compatible API) for hard questions
+    # or when the local one fails -- app/llm/cloud.py has the rules. Off by default:
+    # cloud_llm_when "never" | "fallback" | "hard". Health, money and guest turns
+    # never go; health data is always answered locally.
+    cloud_llm_when: str = "never"
+    cloud_llm_base_url: str = ""
+    cloud_llm_model: str = ""
+    cloud_llm_api_key: str = ""
+    cloud_llm_monthly_calls: int = 200
 
     # Proactive notifications (app/notify/client.py,
     # app/plugins/builtin/notify.py, POST /siris/proactive/check) via
@@ -575,6 +592,11 @@ class Settings(BaseSettings):
     # and 20, 98.6% at 16, 84.5% at 12 and 56% at 10; 20 sends ~1,600 fewer
     # prompt tokens per model call than 32 (~1.5 s a tool turn on the 3060).
     tool_selection_max: int = 20
+    # 7.27: tools never offered to the model (comma-separated), usually from the monthly
+    # "tools you haven't used" proposal. They still run from the feed, routines and the API.
+    hidden_tools: str = ""
+    # Propose hiding tools unused this many days, once the audit log covers that long. 0 = never.
+    tool_trim_after_days: int = 60
     # Answer plain home commands ("turn off the kitchen lights", "dim the
     # lounge to 30%") without the model when there's exactly one match and
     # no confirmation is needed (app/cortex/quick.py). Anything else, or
@@ -724,6 +746,11 @@ class Settings(BaseSettings):
     # 7.17: your names on each service, so "my" means you everywhere (app/core/identity.py),
     # e.g. "plex=Brad,brad6491; calendar=Personal". plex_username is still read for Plex.
     my_accounts: str = ""
+    # 7.27: everyone else's accounts, per person (the user id voice recognition gives),
+    # "sam: plex=Sam; calendar=Family | jo: plex=Jo". owner_user_ids: your own user ids
+    # (comma-separated), which use my_accounts above.
+    people_accounts: str = ""
+    owner_user_ids: str = ""
 
     # Radarr (app/radarr/, app/plugins/builtin/radarr.py) -- movie
     # collection manager. Both must be set. Generate an API key under
