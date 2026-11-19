@@ -5,6 +5,18 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.27 — 2026-11-19
+
+- An honest weekly review, and a running status for apps that are built and in use
+- **Weekly review facts grouped by who did what** (`_weekly_facts`):
+  - **What you did:** tasks ticked, decisions, lessons dated this week, and whether you answered the Friday debrief.
+  - **Coming up:** deadlines, overdue tasks, and tasks due in the next two weeks.
+  - **Idle projects.**
+  - **Siris' own upkeep:** auto-links and notes waiting in the inbox.
+
+  The prompt says "you" only for what you did, and never infers time spent from links or note counts. Next week is planned only from what's coming up, idle projects and decisions, never note tidying. Last week's review had said "you linked 30 pairs of notes", called inbox notes "unread messages", and planned the week around merging notes.
+- **`running` status:** `brain_project_status` takes `running`, for apps that are built and in use. Vault 2.91 leaves them, and generated GVW project pages, out of the idle projects the weekly question asks about.
+
 ## 7.17 — 2026-11-19
 
 - Dependable answers: a "Not right" button that teaches it, nightly tool tests, a voice you can interrupt that never sits silent, "me" on every service, what to watch tonight, and a guard against version clashes
