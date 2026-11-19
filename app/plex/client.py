@@ -39,6 +39,8 @@ class PlexClient:
                     "title": session.get("title"),
                     "type": session.get("type"),
                     "user": session.get("User", {}).get("title"),
+                    # 7.17: the server owner's own session (Plex gives the owner account id 1)
+                    "owner": str(session.get("User", {}).get("id")) == "1",
                     "state": session.get("Player", {}).get("state"),
                     "progress_percent": progress_percent,
                 }
@@ -77,6 +79,39 @@ class PlexClient:
             for hub in hubs
             for item in hub.get("Metadata") or []
         ]
+
+    @staticmethod
+    def _item(m: dict) -> dict:
+        kind = m.get("type")
+        show = m.get("grandparentTitle") if kind == "episode" else m.get("parentTitle") if kind == "season" else None
+        label = m.get("title")
+        if kind == "episode" and m.get("parentIndex") is not None and m.get("index") is not None:
+            label = f"S{int(m['parentIndex']):02d}E{int(m['index']):02d} {m.get('title') or ''}".strip()
+        return {
+            "title": f"{show}: {label}" if show else label,
+            "type": kind,
+            "show": show,
+            "year": m.get("year"),
+            "genres": [g.get("tag") for g in m.get("Genre") or [] if g.get("tag")],
+            "rating": m.get("audienceRating") or m.get("rating"),
+            "watched": bool(m.get("viewCount")) or (kind == "season" and m.get("viewedLeafCount") == m.get("leafCount")),
+            "added_at": m.get("addedAt"),
+            "summary": (m.get("summary") or "")[:200],
+        }
+
+    def on_deck(self) -> list[dict]:
+        """What the owner is part-way through (Continue Watching), 7.17."""
+        response = self._client.get("/library/onDeck")
+        response.raise_for_status()
+        return [self._item(m) for m in response.json().get("MediaContainer", {}).get("Metadata", []) or []]
+
+    def recently_added(self, limit: int = 50) -> list[dict]:
+        """Newest additions across the libraries; `watched` is the owner's view count, 7.17."""
+        response = self._client.get(
+            "/library/recentlyAdded", params={"X-Plex-Container-Start": 0, "X-Plex-Container-Size": limit}
+        )
+        response.raise_for_status()
+        return [self._item(m) for m in response.json().get("MediaContainer", {}).get("Metadata", []) or []]
 
     def close(self) -> None:
         self._client.close()

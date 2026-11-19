@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     # 1.0 = the backend's natural pace (Kokoro accepts roughly 0.5-2.0). Unset (6.7): the
     # persona style's pace, 1.2 for "jarvis".
     tts_speed: float | None = None
+    # 7.17: in a spoken turn, say "One moment, sir." when a tool has taken this long with
+    # nothing said yet (a second one after twice as long). 0 = never.
+    voice_filler_seconds: float = 1.5
     # Optional ffmpeg `-af` filter chain run over every spoken clip
     # (app/voice/effects.py), e.g. a light "electronic" sheen. Empty = off.
     tts_effect: str = ""
@@ -582,8 +585,9 @@ class Settings(BaseSettings):
     tool_selection_semantic: bool = True
     # Run the tool-choice evals (evals/tool_choice.jsonl) against the real
     # model this often, and push a warning if accuracy drops 10+ points.
-    # 0 = only on request (POST /siris/evals/run).
-    eval_interval_days: float = 7.0
+    # 0 = only on request (POST /siris/evals/run). Nightly since 7.17, and
+    # also within 10 minutes of the chat model changing.
+    eval_interval_days: float = 1.0
 
     # The learning loop (app/learning/). Local hour of the nightly reflection
     # (outcomes, eval cases from corrections, memory proposals), and of the
@@ -717,6 +721,9 @@ class Settings(BaseSettings):
     tautulli_api_key: str = ""
     # 6.7: your own Plex username, for "my watch history" (blank: the Plex server's owner).
     plex_username: str = ""
+    # 7.17: your names on each service, so "my" means you everywhere (app/core/identity.py),
+    # e.g. "plex=Brad,brad6491; calendar=Personal". plex_username is still read for Plex.
+    my_accounts: str = ""
 
     # Radarr (app/radarr/, app/plugins/builtin/radarr.py) -- movie
     # collection manager. Both must be set. Generate an API key under

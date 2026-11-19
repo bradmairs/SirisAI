@@ -23,7 +23,8 @@ from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.voice.base import NullSpeechToTextClient, NullTextToSpeechClient
 from app.voice.pronunciation import for_speech
-from app.voice.sentences import strip_wake
+from app.voice.confirmations import pending_voice_confirmations
+from app.voice.sentences import is_stop, strip_wake
 from app.voice.turn import VoiceTurn
 from app.core.user_context import get_current_user_id, resolve_user_id, role_for, set_current_user_id, set_turn_role
 
@@ -158,6 +159,11 @@ async def converse(
         yield {"type": "transcript", "text": transcript}
         if not transcript:
             yield {"type": "final", "conversation_id": conversation_id, "response": None, "expects_reply": False}
+            return
+
+        if is_stop(transcript):  # 7.17: "stop" / "never mind" ends it, without asking the model
+            pending_voice_confirmations.pop(conversation_id or "")
+            yield {"type": "final", "conversation_id": conversation_id, "response": None, "stopped": True, "expects_reply": False}
             return
 
         conv_id = _resolve_conversation(siris, ChatRequest(prompt=transcript, conversation_id=conversation_id, room=room))

@@ -43,3 +43,23 @@ def tts_speed(settings: "Settings") -> float:
     if settings.tts_speed is not None:
         return float(settings.tts_speed)
     return STYLE_SPEED.get((settings.persona_style or "").strip().lower(), 1.0)
+
+
+# 7.17: said while a slow tool runs, so a spoken turn never sits in silence.
+FILLERS = {
+    "jarvis": ("One moment, sir.", "Checking now, sir.", "Just a moment, sir.", "Looking into it, sir."),
+    "plain": ("One moment.", "Checking now."),
+}
+
+
+def filler(settings: "Settings", turn: int = 0) -> str:
+    lines = FILLERS.get((settings.persona_style or "").strip().lower(), FILLERS["plain"])
+    return lines[turn % len(lines)]
+
+
+# 7.17: what's said when you cut a reply off with "stop".
+STOPPED = {"jarvis": "Of course, sir.", "plain": "Okay."}
+
+
+def stopped(settings: "Settings") -> str:
+    return STOPPED.get((settings.persona_style or "").strip().lower(), STOPPED["plain"])

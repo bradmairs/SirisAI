@@ -64,3 +64,23 @@ async def apply_audio_filter(mp3: bytes, audio_filter: str, *, ffmpeg: str = "ff
     if process.returncode != 0 or not out:
         raise RuntimeError(f"ffmpeg exited {process.returncode}: {err.decode(errors='replace').strip()}")
     return out
+
+
+def apply_audio_filter_sync(mp3: bytes, audio_filter: str, *, ffmpeg: str = "ffmpeg") -> bytes:
+    """apply_audio_filter() for synchronous callers (speak_in_current_room, 7.17): the same
+    effect on room announcements as on replies. Any failure gives the audio back unchanged."""
+    import shutil
+    import subprocess
+
+    if not audio_filter or not shutil.which(ffmpeg):
+        return mp3
+    try:
+        done = subprocess.run(
+            [ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "mp3", "-i", "pipe:0", "-af", audio_filter,
+             "-c:a", "libmp3lame", "-b:a", "64k", "-f", "mp3", "pipe:1"],
+            input=mp3, capture_output=True, timeout=_FFMPEG_TIMEOUT_SECONDS, check=False,
+        )
+    except Exception:
+        logger.warning("TTS effect failed; using the unprocessed audio", exc_info=True)
+        return mp3
+    return done.stdout if done.returncode == 0 and done.stdout else mp3

@@ -46,7 +46,7 @@ def all_cases(siris: "SirisAI") -> list[dict[str, Any]]:
 def applicable(siris: "SirisAI", cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     """Cases this configuration can serve at all -- a case whose tools aren't
     registered (e.g. email isn't set up here) is skipped, not failed."""
-    usable = [c for c in cases if any(siris.tools.get(name) is not None for name in c["expect"])]
+    usable = [c for c in cases if any(siris.tools.get(name) is not None for name in c.get("expect") or c.get("avoid") or [])]
     return usable, len(cases) - len(usable)
 
 
@@ -55,7 +55,7 @@ def selection_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None
     failures = []
     for case in cases:
         offered = {s["function"]["name"] for s in siris.available_tool_specs(case["prompt"])}
-        if not offered & set(case["expect"]):
+        if case.get("expect") and not offered & set(case["expect"]):
             failures.append({"prompt": case["prompt"], "expect": case["expect"]})
     passed = len(cases) - len(failures)
     return {"cases": len(cases), "skipped": skipped, "passed": passed, "accuracy": round(100 * passed / max(len(cases), 1), 1), "failures": failures}
@@ -70,7 +70,20 @@ async def _choose(siris: "SirisAI", prompt: str, llm: Any = None) -> str | None:
         {"role": "user", "content": prompt},
     ]
     response = await llm.generate(messages, tools=tools)
-    return response.tool_calls[0].name if response.tool_calls else None
+    if response.tool_calls:
+        return response.tool_calls[0].name
+    # 7.17: a call written out as text is run too (app/llm/streaming.py), so it counts.
+    from app.llm.streaming import written_call
+
+    found = written_call(response.text or "")
+    return found[1].name if found else None
+
+
+def _ok(case: dict[str, Any], chosen: str | None) -> bool:
+    """`expect`: one of these is right. `avoid` (7.17, from a "that was wrong"): anything but these."""
+    if case.get("expect"):
+        return chosen in case["expect"]
+    return chosen not in (case.get("avoid") or [])
 
 
 def choice_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None, llm: Any = None) -> dict[str, Any]:
@@ -84,7 +97,7 @@ def choice_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None, l
                 chosen = await _choose(siris, case["prompt"], llm)
             except Exception as exc:  # a backend error counts as a miss, with why
                 chosen = f"error: {type(exc).__name__}"
-            results.append({**case, "chosen": chosen, "ok": chosen in case["expect"]})
+            results.append({**case, "chosen": chosen, "ok": _ok(case, chosen)})
         return results
 
     results = asyncio.run(run_all())
@@ -94,8 +107,23 @@ def choice_report(siris: "SirisAI", cases: list[dict[str, Any]] | None = None, l
         "skipped": skipped,
         "passed": passed,
         "accuracy": round(100 * passed / max(len(results), 1), 1),
-        "failures": [{"prompt": r["prompt"], "expect": r["expect"], "chosen": r["chosen"]} for r in results if not r["ok"]],
+        "failures": [{"prompt": r["prompt"], "expect": r.get("expect") or [], "avoid": r.get("avoid") or [], "chosen": r["chosen"]} for r in results if not r["ok"]],
     }
+
+
+def model_id(siris: "SirisAI") -> str:
+    """Which model answers chat, so a change of model can trigger a run (7.17)."""
+    settings = siris.settings
+    return f"{settings.llm_provider}:{getattr(settings, 'ollama_model', '')}"
+
+
+def due_for_new_model(siris: "SirisAI") -> bool:
+    """True when the chat model changed since the last run: test it before you notice."""
+    history = siris.state.get(HISTORY_KEY) or []
+    if not history or siris.settings.llm_provider == "none":
+        return False
+    last = history[-1].get("model")
+    return last is not None and last != model_id(siris)
 
 
 def run_and_record(siris: "SirisAI", notify: bool = True) -> dict[str, Any]:
@@ -106,6 +134,7 @@ def run_and_record(siris: "SirisAI", notify: bool = True) -> dict[str, Any]:
     previous = history[-1] if history else None
     entry = {
         "at": datetime.now(UTC).isoformat(),
+        "model": model_id(siris),
         "selection_accuracy": selection["accuracy"],
         "choice_accuracy": choice["accuracy"],
         "choice_failures": choice["failures"][:20],

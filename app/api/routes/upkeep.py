@@ -103,3 +103,12 @@ def upkeep_dashboard(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     from app.upkeep import dashboard
 
     return dashboard.build(siris)
+
+
+@router.get("/tool-usage")
+def tool_usage(days: int = 60, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Tools that ran and tools that never did (7.17, app/upkeep/tool_usage.py)."""
+    from app.upkeep import tool_usage as usage
+
+    return usage.report(siris, days)
+

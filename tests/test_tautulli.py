@@ -52,6 +52,7 @@ def test_current_activity_maps_sessions_and_sends_apikey_and_cmd() -> None:
             "session_id": "abc123",
             "title": "The Matrix",
             "user": "brad",
+            "user_id": None,
             "state": "playing",
             "progress_percent": "42",
         }

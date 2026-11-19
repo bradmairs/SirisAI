@@ -6,13 +6,14 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse
 
 from app.core import daily_jobs
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
-from app.learning import feedback
+from app.learning import feedback, thumbs
 from app.learning.reflection import HISTORY_KEY, LEARNED_CASES_KEY, learned_cases, reflect
 
 router = APIRouter(prefix="/siris/learning", tags=["learning"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)])
@@ -51,7 +52,7 @@ def eval_cases(format: str = "json", siris: SirisAI = Depends(get_siris)) -> Any
     append to evals/tool_choice.jsonl."""
     cases = learned_cases(siris)
     if format == "jsonl":
-        return PlainTextResponse("".join(json.dumps({"prompt": c["prompt"], "expect": c["expect"]}) + "\n" for c in cases))
+        return PlainTextResponse("".join(json.dumps({"prompt": c["prompt"], **({"expect": c["expect"]} if c.get("expect") else {"avoid": c.get("avoid") or []})}) + "\n" for c in cases))
     return cases
 
 
@@ -82,3 +83,26 @@ async def run_job(name: str, siris: SirisAI = Depends(get_siris)) -> dict[str, A
         raise HTTPException(status_code=404, detail=f"No job '{name}'. Jobs: {', '.join(j.name for j in daily_jobs.JOBS)}")
     result = await asyncio.to_thread(daily_jobs.run_now, siris, job)
     return {"job": name, "result": result}
+
+
+class FeedbackRequest(BaseModel):
+    conversation_id: str
+    note: str = ""
+    right_tool: str | None = None
+
+
+@router.post("/feedback")
+def thumbs_down(request: FeedbackRequest, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """"That was wrong" on the last answer in a conversation (7.17): recorded,
+    and the request becomes a case the nightly tool-choice evals check."""
+    try:
+        return thumbs.record(siris, request.conversation_id, request.note, request.right_tool)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.get("/feedback")
+def feedback_list(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
+    return thumbs.recent(siris, min(limit, 200))

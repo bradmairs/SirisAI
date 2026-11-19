@@ -4,23 +4,39 @@ SIRISAI_PLEX_TOKEN are both set. Find your token at
 https://support.plex.tv/articles/204059436.
 """
 
+from collections.abc import Callable
 from typing import Any
 
+from app.core import identity
 from app.plex.client import PlexClient
 from app.plugins.base import Tool, ToolPermission
 
 
 class PlexNowPlayingTool(Tool):
     name = "plex_now_playing"
-    description = "List what's currently playing on Plex -- title, user, playback state, progress."
+    description = (
+        "List what's currently playing on Plex -- title, user, playback state, progress. "
+        "user='me' gives only the user's own ('what am I watching?')."
+    )
     permission = ToolPermission.READ
-    parameters = {"type": "object", "properties": {}, "required": []}
+    parameters = {
+        "type": "object",
+        "properties": {"user": {"type": "string", "description": "'me' for the user's own. Omit for everyone."}},
+        "required": [],
+    }
 
-    def __init__(self, client: PlexClient) -> None:
+    def __init__(self, client: PlexClient, my_names: Callable[[], list[str]] | None = None) -> None:
         self._client = client
+        self._my_names = my_names or (lambda: [])
 
-    def run(self, **kwargs: Any) -> Any:
-        return self._client.now_playing()
+    def run(self, user: str | None = None, **kwargs: Any) -> Any:
+        playing = self._client.now_playing()
+        if not identity.is_me(user):
+            return playing
+        names = self._my_names()  # 7.17: your Plex names (Your accounts), else the server owner's sessions
+        if names:
+            return [p for p in playing if identity.matches(p.get("user"), names)]
+        return [p for p in playing if p.get("owner")]
 
 
 class PlexLibrarySectionsTool(Tool):
@@ -60,3 +76,70 @@ class PlexSearchTool(Tool):
 
     def run(self, query: str = "", **kwargs: Any) -> Any:
         return self._client.search(query)
+
+
+class PlexSuggestTool(Tool):
+    """What to watch tonight, from your own viewing (7.17): carry on with what you're
+    part-way through, new episodes of shows you watch, then unwatched films that were
+    added lately, closest to the genres you've watched first."""
+
+    name = "plex_suggest"
+    description = (
+        "Suggest something to watch on Plex from the user's own viewing: shows they're part-way through, new "
+        "episodes of shows they watch, and recently added films they haven't seen that suit their taste. Use for "
+        "'what should I watch tonight?', 'anything new to watch?', 'suggest a film'."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["any", "movie", "show"], "description": "Films, shows or either. Defaults to any."},
+            "count": {"type": "integer", "description": "How many suggestions. Defaults to 5."},
+        },
+        "required": [],
+    }
+
+    def __init__(self, client: PlexClient, my_history: Callable[[], list[str]] | None = None) -> None:
+        self._client = client
+        self._my_history = my_history or (lambda: [])
+
+    def run(self, kind: str = "any", count: int = 5, **kwargs: Any) -> Any:
+        count = max(1, min(int(count or 5), 15))
+        on_deck = self._client.on_deck()
+        added = self._client.recently_added(limit=60)
+        try:
+            history = self._my_history()
+        except Exception:  # Tautulli down: suggest from Plex alone
+            history = []
+        shows_i_watch = {t.split(" - ")[0].strip().lower() for t in history if t} | {
+            (i.get("show") or "").lower() for i in on_deck if i.get("show")
+        }
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add(item: dict[str, Any], why: str) -> None:
+            key = (item.get("show") or item.get("title") or "").lower()
+            if key and key not in seen and len(out) < count:
+                seen.add(key)
+                out.append({**item, "why": why})
+
+        if kind in ("any", "show"):
+            for item in on_deck:
+                add(item, "you're part-way through it")
+            for item in added:
+                if item["type"] in ("episode", "season") and not item["watched"] and (item.get("show") or "").lower() in shows_i_watch:
+                    add(item, "a new episode of a show you watch")
+        if kind in ("any", "movie"):
+            if kind == "movie":
+                out = [o for o in out if o.get("type") == "movie"]
+            liked: dict[str, int] = {}
+            for item in added:
+                if item["type"] == "movie" and item["watched"]:
+                    for genre in item["genres"]:
+                        liked[genre] = liked.get(genre, 0) + 1
+            films = [i for i in added if i["type"] == "movie" and not i["watched"]]
+            films.sort(key=lambda i: (-sum(liked.get(g, 0) for g in i["genres"]), -(i.get("rating") or 0), -(i.get("added_at") or 0)))
+            for item in films:
+                shared = [g for g in item["genres"] if g in liked]
+                add(item, f"new, and you like {shared[0].lower()}" if shared else "new to the server")
+        return {"suggestions": out} if out else {"suggestions": [], "note": "Nothing new or part-watched on the server."}

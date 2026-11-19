@@ -7,7 +7,8 @@ it should get right, and checks each answer against the service itself:
 
 - **weather**: "what's the temperature outside?" against the weather service (within 2 °C);
 - **home**: whether a light is on or off, against Home Assistant (a different light each night);
-- **date**: what day it is, against the clock.
+- **date**: what day it is, against the clock;
+- **plex** (7.17): what you've watched, against your own Tautulli history (and not someone else's).
 
 A wrong answer goes into the attention feed with the question, the answer and what the source
 says; a later right answer closes it. The questions run as a "self_test" turn, which may only
@@ -87,7 +88,34 @@ def _date_check(siris: "SirisAI", now: datetime) -> dict[str, Any]:
     return {"name": "date", "question": "What day of the week is it today?", "judge": judge}
 
 
-CHECKS = (_weather_check, _home_check, _date_check)
+def _plex_check(siris: "SirisAI", now: datetime) -> dict[str, Any] | None:
+    """7.17: "what have I watched?" must name something you watched, not someone else's viewing."""
+    tool = siris.tools.get("tautulli_recent_history")
+    if tool is None:
+        return None
+    mine = tool.run(user="me", length=5)
+    rows = mine["history"] if isinstance(mine, dict) else mine
+    titles = [str(r.get("title") or "") for r in rows if r.get("title")]
+    if not titles:
+        return None
+    shows = {t.split(" - ")[0].strip().lower() for t in titles} | {t.lower() for t in titles}
+    everyone = tool.run(length=25)
+    others = {
+        str(r.get("title") or "").split(" - ")[0].strip().lower()
+        for r in (everyone if isinstance(everyone, list) else [])
+        if r.get("title")
+    } - shows
+
+    def judge(answer: str) -> tuple[bool, str]:
+        said = answer.lower()
+        right = any(s and s in said for s in shows)
+        wrong = [o for o in others if o and len(o) > 3 and o in said]
+        return right and not wrong, f"Tautulli says you watched {', '.join(titles[:3])}" + (f"; {wrong[0]} was someone else" if wrong else "")
+
+    return {"name": "plex", "question": "What have I watched on Plex recently?", "judge": judge}
+
+
+CHECKS = (_weather_check, _home_check, _date_check, _plex_check)
 
 
 async def _ask(siris: "SirisAI", conversation_id: str, question: str) -> str:

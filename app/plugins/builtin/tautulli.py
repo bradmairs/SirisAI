@@ -12,24 +12,58 @@ not just a query.
 from collections.abc import Callable
 from typing import Any
 
+from app.core import identity
 from app.plugins.base import Tool, ToolPermission, ToolVerification
 from app.tautulli.client import TautulliClient
 
 
-class TautulliCurrentActivityTool(Tool):
-    name = "tautulli_current_activity"
-    description = "List what's currently streaming on Plex right now, per Tautulli -- title, user, state, progress."
-    permission = ToolPermission.READ
-    parameters = {"type": "object", "properties": {}, "required": []}
+class _Mine:
+    """Resolves user="me" to your Tautulli accounts (app/core/identity.py)."""
 
-    def __init__(self, client: TautulliClient) -> None:
+    _client: TautulliClient
+
+    def _init_me(self, client: TautulliClient, my_username: "str | Callable[[], str]") -> None:
         self._client = client
+        # 6.76: read when asked, so a change on the Settings page applies at once.
+        self._my_username = my_username if callable(my_username) else (lambda: my_username)
 
-    def run(self, **kwargs: Any) -> Any:
-        return self._client.current_activity()
+    def _mine(self) -> tuple[str, list[int]]:
+        """Your Plex accounts: the configured names (usernames, display names or emails), else the server's owner."""
+        names = [n.strip() for n in (self._my_username() or "").split(",") if n.strip()]
+        if names:
+            return ", ".join(names), self._client.find_user_ids(names)
+        owner = self._client.owner_user_id()
+        if owner is None:
+            raise ValueError("I don't know your Plex username: set it under Your accounts (plex=...).")
+        return self._client.owner_username() or "you", [owner]
 
 
-class TautulliRecentHistoryTool(Tool):
+class TautulliCurrentActivityTool(_Mine, Tool):
+    name = "tautulli_current_activity"
+    description = (
+        "List what's currently streaming on Plex right now, per Tautulli -- title, user, state, progress. "
+        "user='me' gives only the user's own streams ('what am I watching?')."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {"user": {"type": "string", "description": "'me' for the user's own streams. Omit for everyone."}},
+        "required": [],
+    }
+
+    def __init__(self, client: TautulliClient, my_username: "str | Callable[[], str]" = "") -> None:
+        self._init_me(client, my_username)
+
+    def run(self, user: str | None = None, **kwargs: Any) -> Any:
+        sessions = self._client.current_activity()
+        if not identity.is_me(user):
+            return sessions
+        who, ids = self._mine()
+        names = [n.strip() for n in who.split(",")]
+        return [s for s in sessions if (s.get("user_id") is not None and int(s["user_id"]) in ids) or identity.matches(s.get("user"), names)]
+
+
+class TautulliRecentHistoryTool(_Mine, Tool):
     name = "tautulli_recent_history"
     description = (
         "List recent Plex playback history (who watched what, and when) from Tautulli. user='me' gives only "
@@ -50,26 +84,13 @@ class TautulliRecentHistoryTool(Tool):
     }
 
     def __init__(self, client: TautulliClient, my_username: str | Callable[[], str] = "") -> None:
-        self._client = client
-        # 6.76: read when asked, so a change on the Settings page applies at once.
-        self._my_username = my_username if callable(my_username) else (lambda: my_username)
-
-    def _mine(self) -> tuple[str, list[int]]:
-        """Your Plex accounts: SIRISAI_PLEX_USERNAME (one name or several, comma-separated,
-        each a username, display name or email), else the server's owner."""
-        names = [n.strip() for n in (self._my_username() or "").split(",") if n.strip()]
-        if names:
-            return ", ".join(names), self._client.find_user_ids(names)
-        owner = self._client.owner_user_id()
-        if owner is None:
-            raise ValueError("I don't know your Plex username: set SIRISAI_PLEX_USERNAME.")
-        return self._client.owner_username() or "you", [owner]
+        self._init_me(client, my_username)
 
     def run(self, length: int = 10, user: str | None = None, **kwargs: Any) -> Any:
         who = (user or "").strip()
         if who.lower() in ("", "all", "everyone", "anyone"):
             return self._client.recent_history(length=length)
-        if who.lower() in ("me", "mine", "my", "myself", "i"):  # 6.7: the user's own, not the whole household's
+        if identity.is_me(who):  # 6.7: the user's own, not the whole household's
             who, ids = self._mine()
             if ids:
                 return {"user": who, "history": self._client.recent_history(length=length, user_ids=ids)}
@@ -78,7 +99,7 @@ class TautulliRecentHistoryTool(Tool):
         return {"user": who, "history": rows}
 
 
-class TautulliHomeStatsTool(Tool):
+class TautulliHomeStatsTool(_Mine, Tool):
     name = "tautulli_home_stats"
     description = (
         "Get Tautulli's home-page stats: most-watched movies/shows, most active users, and similar "
@@ -96,6 +117,7 @@ class TautulliHomeStatsTool(Tool):
                 "type": "integer",
                 "description": "How many rows per category. Defaults to 5.",
             },
+            "user": {"type": "string", "description": "'me' for the user's own stats ('my most watched'). Omit for the whole server."},
         },
         "required": [],
     }
@@ -103,7 +125,14 @@ class TautulliHomeStatsTool(Tool):
     def __init__(self, client: TautulliClient) -> None:
         self._client = client
 
-    def run(self, days: int = 30, count: int = 5, **kwargs: Any) -> Any:
+    def __init__(self, client: TautulliClient, my_username: "str | Callable[[], str]" = "") -> None:
+        self._init_me(client, my_username)
+
+    def run(self, days: int = 30, count: int = 5, user: str | None = None, **kwargs: Any) -> Any:
+        if identity.is_me(user):  # 7.17: "my most watched"
+            who, ids = self._mine()
+            if ids:
+                return {"user": who, "stats": self._client.home_stats(days=days, count=count, user_id=ids[0])}
         return self._client.home_stats(days=days, count=count)
 
 

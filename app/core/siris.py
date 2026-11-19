@@ -167,6 +167,7 @@ from app.plugins.builtin.plex import (
     PlexLibrarySectionsTool,
     PlexNowPlayingTool,
     PlexSearchTool,
+    PlexSuggestTool,
 )
 from app.plugins.builtin.radarr import (
     RadarrAddMovieTool,
@@ -292,6 +293,7 @@ from app.skills.builtin.server_health import ServerHealthSkill
 from app.sonarr.client import SonarrClient
 from app.speedtest.client import SpeedTestClient
 from app.synology.client import SynologyClient
+from app.core import identity
 from app.tautulli.client import TautulliClient
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
@@ -802,9 +804,10 @@ class SirisAI:
             self._plex_client = PlexClient(
                 base_url=self.settings.plex_base_url, token=self.settings.plex_token
             )
-            self.tools.register(PlexNowPlayingTool(self._plex_client))
+            self.tools.register(PlexNowPlayingTool(self._plex_client, lambda: identity.names(self.settings, "plex")))
             self.tools.register(PlexLibrarySectionsTool(self._plex_client))
             self.tools.register(PlexSearchTool(self._plex_client))
+            self.tools.register(PlexSuggestTool(self._plex_client, self._my_plex_titles))
 
         docker_url = self.settings.docker_base_url
         if docker_url.startswith("unix://") and not os.path.exists(docker_url.removeprefix("unix://")):
@@ -939,9 +942,10 @@ class SirisAI:
                 base_url=self.settings.tautulli_base_url,
                 api_key=self.settings.tautulli_api_key,
             )
-            self.tools.register(TautulliCurrentActivityTool(self._tautulli_client))
-            self.tools.register(TautulliRecentHistoryTool(self._tautulli_client, lambda: self.settings.plex_username))
-            self.tools.register(TautulliHomeStatsTool(self._tautulli_client))
+            my_plex = lambda: ", ".join(identity.names(self.settings, "plex"))  # noqa: E731 -- 7.17: "me" on Plex
+            self.tools.register(TautulliCurrentActivityTool(self._tautulli_client, my_plex))
+            self.tools.register(TautulliRecentHistoryTool(self._tautulli_client, my_plex))
+            self.tools.register(TautulliHomeStatsTool(self._tautulli_client, my_plex))
             self.tools.register(TautulliTerminateSessionTool(self._tautulli_client))
             self.tools.register(TautulliGetUsersTool(self._tautulli_client))
             self.tools.register(TautulliGetLibrariesTool(self._tautulli_client))
@@ -1147,6 +1151,7 @@ class SirisAI:
                     self.settings.tts_base_url,
                     self.settings.tts_model,
                     self.settings.tts_voice,
+                    settings=self.settings,
                 )
             )
 
@@ -1282,6 +1287,14 @@ class SirisAI:
             for tool in self.tools.list()
             if tool.permission is ToolPermission.RESTRICTED and tool.name not in allowed
         }
+
+    def _my_plex_titles(self) -> list[str]:
+        """What you've watched lately, for plex_suggest (7.17): empty without Tautulli."""
+        if self.tools.get("tautulli_recent_history") is None:
+            return []
+        found = self.tools.get("tautulli_recent_history").run(user="me", length=50)  # type: ignore[union-attr]
+        rows = found["history"] if isinstance(found, dict) else found
+        return [r.get("title") or "" for r in rows]
 
     def available_tool_specs(
         self, prompt: str | None = None, recent_tool_names: Iterable[str] = ()

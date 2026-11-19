@@ -45,6 +45,7 @@ def test_now_playing_maps_sessions() -> None:
             "title": "The Matrix",
             "type": "movie",
             "user": "brad",
+            "owner": False,
             "state": "playing",
             "progress_percent": 25.0,
         }

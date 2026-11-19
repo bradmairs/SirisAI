@@ -5,6 +5,21 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.17 — 2026-11-19
+
+- Dependable answers: a "Not right" button that teaches it, nightly tool tests, a voice you can interrupt that never sits silent, "me" on every service, what to watch tonight, and a guard against version clashes
+- **"Not right"**: a 👎 under each answer on the HUD (and in SirisOS) saves the request. If a tool ran, it becomes a test that it isn't picked again for that request; with the right tool given (`right_tool`), a test that it is. Both are checked by the tool tests every night. `POST /siris/learning/feedback`, listed at `GET /siris/learning/feedback`.
+- **Tool tests every night**: the tool-choice tests now run nightly (`SIRISAI_EVAL_INTERVAL_DAYS`, was weekly) and within 10 minutes of the chat model changing. A tool call written as text counts as the choice. New cases for your watch history, notes and what to watch.
+- **Fewer tools**: SirisAI already offered only the ~20 tools that fit each request. The one place that still sent all of them, carrying on after you confirm something, now does the same.
+- **Never silent**: when a tool is slow and nothing's been said yet, it says "One moment, sir." after 1.5 s (`SIRISAI_VOICE_FILLER_SECONDS`, on the Settings page).
+- **Interrupt it**: tap the orb while it's talking to cut it off and speak straight away. Saying "stop", "never mind" or "that's all" ends a spoken turn without asking the model.
+- **One voice**: room announcements (`speak_in_current_room`) now use the current voice, pace and effect, like replies, instead of the voice set at start-up at normal speed.
+- **"Me" everywhere**: `SIRISAI_MY_ACCOUNTS` (Settings, "Your accounts"), e.g. `plex=Brad,brad6491`. What's playing (Tautulli and Plex), your history and your stats ("my most watched") all take `user: "me"`. `SIRISAI_PLEX_USERNAME` still works.
+- **What to watch tonight** (`plex_suggest`): what you're part-way through, new episodes of shows you watch, then unwatched new films closest to the genres you've watched.
+- **Checked against your setup**: the nightly self-test also asks "What have I watched on Plex recently?" and checks the answer names something you watched, not someone else's viewing.
+- **Unused tools**: `GET /siris/upkeep/tool-usage` lists which tools ran over the last 60 days, which never did, and whole families nobody used: candidates to trim. Nothing is removed automatically.
+- **No more version clashes**: CI fails a PR whose version isn't above main's and says to run `python scripts/bump_version.py rebase <main's version>`, which renumbers the branch's version, changelog heading and README milestone, keeping its size.
+
 ## 7.07 — 2026-11-19
 
 - Friday debrief card routes, calendar birthdays onto people notes, family questions, and no more fragment notes from the digest

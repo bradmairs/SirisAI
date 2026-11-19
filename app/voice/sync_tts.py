@@ -36,9 +36,11 @@ def synthesize(
     text: str,
     timeout: float = 60.0,
     transport: httpx.BaseTransport | None = None,
+    speed: float = 1.0,
 ) -> bytes:
-    response = _client(base_url, timeout, transport).post(
-        "/v1/audio/speech", json={"model": model, "voice": voice, "input": text, "response_format": "mp3"}
-    )
+    body: dict = {"model": model, "voice": voice, "input": text, "response_format": "mp3"}
+    if speed != 1.0:  # 7.17: the same pace as every other spoken reply
+        body["speed"] = speed
+    response = _client(base_url, timeout, transport).post("/v1/audio/speech", json=body)
     response.raise_for_status()
     return response.content
