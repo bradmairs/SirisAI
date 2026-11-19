@@ -392,6 +392,13 @@ class SecondBrainClient:
         self._maybe_pull()
         return self._engine_call(["people", "--days", str(days), "--stale", str(stale)])
 
+    def set_birthday(self, name: str, when: str) -> dict:
+        """Put `birthday:` (MM-DD or YYYY-MM-DD) on a person's note, found by name, alias or
+        relation ("Mum"); an existing one is kept. `action` is set, kept, unchanged or unknown.
+        Needs the vault engine 2.81."""
+        return self._write(["set-birthday", "--", name, when],
+                           message=lambda r: f"siris: birthday for {r.get('title', name)}")
+
     def decide(self, text: str, why: str = "", project: str = "", source: str = "") -> dict:
         """Record a decision in the Decision Log (and the project's ## Decisions)."""
         args = ["decide", text] + (["--why", why] if why else []) + (["--project", project] if project else []) \
