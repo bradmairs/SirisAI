@@ -6,6 +6,9 @@
     "info": {
       "$ref": "#/$defs/HubInfo"
     },
+    "lists": {
+      "$ref": "#/$defs/HomeLists"
+    },
     "brief": {
       "$ref": "#/$defs/Brief"
     },
@@ -1577,6 +1580,45 @@
           ],
           "default": null,
           "title": "Precipitation Mm"
+        },
+        "uv_index_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "6.88: the day's peak UV index",
+          "title": "Uv Index Max"
+        },
+        "sun_protection_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "6.88: first hour (HH:MM, local) at UV 3 or more",
+          "title": "Sun Protection From"
+        },
+        "sun_protection_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "6.88: end of the last hour at UV 3 or more",
+          "title": "Sun Protection To"
         }
       },
       "title": "ForecastDay",
@@ -2003,6 +2045,71 @@
       "title": "HealthWorkouts",
       "type": "object"
     },
+    "HomeList": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "description": "Home Assistant's todo entity, e.g. todo.shopping_list",
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "items": {
+          "description": "What's still to do, then what was done recently",
+          "items": {
+            "$ref": "#/$defs/ListItem"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entity_id",
+        "name"
+      ],
+      "title": "HomeList",
+      "type": "object"
+    },
+    "HomeLists": {
+      "additionalProperties": false,
+      "description": "6.88: Home Assistant's to-do lists (a shopping list, chores), for SirisOS's Tasks.",
+      "properties": {
+        "guest_mode": {
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "available": {
+          "default": true,
+          "description": "False when Home Assistant isn't connected or can't be reached",
+          "title": "Available",
+          "type": "boolean"
+        },
+        "lists": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HomeList"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null in guest mode",
+          "title": "Lists"
+        }
+      },
+      "required": [
+        "guest_mode"
+      ],
+      "title": "HomeLists",
+      "type": "object"
+    },
     "HubInfo": {
       "additionalProperties": false,
       "properties": {
@@ -2210,6 +2317,41 @@
         }
       },
       "title": "LastProtocolRun",
+      "type": "object"
+    },
+    "ListItem": {
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "status": {
+          "default": "needs_action",
+          "enum": [
+            "needs_action",
+            "completed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "due": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Due"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "title": "ListItem",
       "type": "object"
     },
     "Network": {

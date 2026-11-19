@@ -521,6 +521,67 @@ async def hub_reminder_done(reminder_id: int, siris: SirisAI = Depends(get_siris
     return c.ReminderDone(id=reminder_id, status="cancelled")
 
 
+# -- Home Assistant to-do lists (6.88) ---------------------------------------------------------
+
+def _ha(siris: SirisAI):
+    return getattr(siris, "_home_assistant_client", None)
+
+
+def _home_lists(siris: SirisAI) -> c.HomeLists:
+    if compose._guest(siris)[0]:
+        return c.HomeLists(guest_mode=True, lists=None)
+    ha = _ha(siris)
+    if ha is None:
+        return c.HomeLists(guest_mode=False, available=False, lists=[])
+    try:
+        entities = ha.list_states("todo")
+    except Exception:  # noqa: BLE001 - Home Assistant down: say so, never a 500
+        return c.HomeLists(guest_mode=False, available=False, lists=[])
+    out = []
+    for e in entities:
+        eid = e.get("entity_id", "")
+        if not eid.startswith("todo."):
+            continue
+        name = (e.get("attributes") or {}).get("friendly_name") or eid.split(".", 1)[1].replace("_", " ").capitalize()
+        try:
+            items = ha.get_todo_items(eid, status=None)
+        except Exception:  # noqa: BLE001 - one unreadable list doesn't hide the others
+            continue
+        todo = [i for i in items if i.get("status") != "completed"]
+        done = [i for i in items if i.get("status") == "completed"][:10]
+        out.append(c.HomeList(entity_id=eid, name=name, items=[
+            c.ListItem(summary=str(i.get("summary") or ""), status="completed" if i.get("status") == "completed" else "needs_action", due=i.get("due"))
+            for i in [*todo, *done] if i.get("summary")]))
+    return c.HomeLists(guest_mode=False, lists=out)
+
+
+@router.get("/lists", response_model=c.HomeLists)
+async def hub_lists(siris: SirisAI = Depends(get_siris)) -> c.HomeLists:
+    """Home Assistant's to-do lists with their items (6.88)."""
+    return await asyncio.to_thread(_home_lists, siris)
+
+
+@router.post("/lists/{entity_id}/items", response_model=c.HomeLists)
+async def hub_list_add(entity_id: str, body: c.ListItemChange, siris: SirisAI = Depends(get_siris)) -> c.HomeLists:
+    """Add an item to a Home Assistant list."""
+    ha = _ha(siris)
+    if ha is None or not entity_id.startswith("todo."):
+        raise HTTPException(status_code=404, detail="No such list.")
+    await asyncio.to_thread(ha.add_todo_item, entity_id, body.item.strip())
+    return await asyncio.to_thread(_home_lists, siris)
+
+
+@router.post("/lists/{entity_id}/items/done", response_model=c.HomeLists)
+async def hub_list_done(entity_id: str, body: c.ListItemChange, siris: SirisAI = Depends(get_siris)) -> c.HomeLists:
+    """Tick an item off (done: true) or put it back (done: false)."""
+    ha = _ha(siris)
+    if ha is None or not entity_id.startswith("todo."):
+        raise HTTPException(status_code=404, detail="No such list.")
+    status = "completed" if body.done else "needs_action"
+    await asyncio.to_thread(ha.call_service, "todo", "update_item", entity_id=entity_id, item=body.item, status=status)
+    return await asyncio.to_thread(_home_lists, siris)
+
+
 @router.get("/email/with", response_model=c.EmailWith)
 async def hub_email_with(
     address: list[str] = Query(min_length=1, max_length=8),
