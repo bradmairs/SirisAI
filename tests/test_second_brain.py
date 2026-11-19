@@ -203,7 +203,12 @@ FAKE_ENGINE = textwrap.dedent(
         print(json.dumps([{"title": "Box Culverts", "date": "2025-11-12", "when": "1 year ago", "text": "Box culverts can take zero cover."}]))
     elif cmd == "people":
         print(json.dumps({"birthdays": [{"title": "Dom Mairs", "date": "2026-11-14", "days": 2, "turning": 28}],
-                          "quiet": [{"title": "Aaron Cheong", "last": "2026-07-01", "days": 134}]}))
+                          "quiet": [{"title": "Aaron Cheong", "last": "2026-07-01", "days": 134}],
+                          "thin": [{"title": "Ryan Mairs", "relation": "brother", "words": 6, "missing": ["birthday", "lives"]}]}))
+    elif cmd == "set-birthday":
+        name, when = args[-2], args[-1]
+        print(json.dumps({"action": "set" if name == "Mum" else "unknown", "title": "Vanessa Mairs" if name == "Mum" else None,
+                          "birthday": when}))
     elif cmd == "decide":
         print(json.dumps({"action": "recorded", "title": "Decision Log", "project": args[args.index("--project") + 1] if "--project" in args else None, "line": args[1]}))
     elif cmd == "project-status":
@@ -1055,10 +1060,21 @@ def test_weekly_asks_about_stalled_projects_and_people(tmp_path: Path) -> None:
         assert jobs.ask_about_stalled_projects(siris, date(2026, 11, 15)) == {"asked": ["SirisHydro"]}
         assert jobs.ask_about_stalled_projects(siris, date(2026, 11, 22)) == {"asked": []}   # not again for 4 weeks
         assert jobs.ask_about_stalled_projects(siris, date(2026, 12, 13))["asked"] == ["SirisHydro"]
-        out = jobs.ask_about_people(siris, date(2026, 11, 12))
-        assert out == {"birthdays": ["Dom Mairs"], "quiet": ["Aaron Cheong"]}
+        from app.people import service as people_service
+        everyone = people_service.everyone
+        people_service.everyone = lambda s: [{"name": "Mum", "birthday": "03-14"}, {"name": "Greg", "birthday": "07-01"},
+                                             {"name": "Nobody", "birthday": None}]  # type: ignore[assignment]
+        try:
+            out = jobs.ask_about_people(siris, date(2026, 11, 12))
+        finally:
+            people_service.everyone = everyone  # type: ignore[assignment]
+        assert out == {"birthdays": ["Dom Mairs"], "quiet": ["Aaron Cheong"], "asked": "Ryan Mairs", "copied": ["Vanessa Mairs"]}
         assert sent[0][0] == "Siris: stalled projects" and "carry on, pause, or archive" in sent[0][1]
         assert "Dom Mairs on Sat 14 Nov, turning 28" in sent[-1][1]
+        assert "❓ When's Ryan's birthday?" in sent[-1][1]
+        assert [c["args"][-2:] for c in _calls(vault)
+                if c["args"][0] == "set-birthday"] == [["Mum", "03-14"], ["Greg", "07-01"]]
+        assert jobs.ask_about_people(siris, date(2026, 11, 19))["asked"] is None   # Ryan isn't asked again for 4 weeks
     finally:
         jobs._push = original  # type: ignore[assignment]
         siris.second_brain = previous
@@ -1110,3 +1126,17 @@ def test_watch_alerts_once_then_clears(tmp_path: Path) -> None:
     finally:
         jobs._push = original  # type: ignore[assignment]
         siris.second_brain = previous
+
+
+def test_debrief_routes(brain_api) -> None:
+    from app.second_brain import jobs
+
+    client, vault = brain_api
+    get_siris().state.set(jobs.DEBRIEF_KEY, {})
+    r = client.get("/siris/brain/debrief")
+    assert r.status_code == 200 and set(r.json()) == {"asked", "answered", "open", "projects", "cpeng_question"}
+    r = client.post("/siris/brain/debrief", json={"went_wrong": "The survey was late", "differently": "Order it earlier"})
+    assert r.status_code == 200 and r.json() == {"filed": "Work Debriefs", "decision": False, "lesson": True}
+    learned = [c for c in _calls(vault) if c["args"][0] == "learn"][-1]
+    assert "**Lesson:** Order it earlier" in learned["stdin"] and "Work Debriefs" in learned["stdin"]
+    assert client.post("/siris/brain/debrief", json={}).status_code == 422

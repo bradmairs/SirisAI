@@ -157,6 +157,18 @@ def _local_day(iso: str, tz: str) -> str:
     return when.astimezone(clock.get_zone(tz)).date().isoformat()
 
 
+SELF_TEST_PREFIX = "self-test-"   # app/upkeep/self_test.py names its conversations self-test-<date>
+_MIN_NEW_NOTE_WORDS = 6
+
+
+def too_thin(item: dict[str, Any], existing: set[str]) -> bool:
+    """A new note that says next to nothing ("Monday", "Dom as payee", "6.6 kilometers per hour"):
+    6.97 drops it. Adding a short line to a note that already exists is fine."""
+    if item["title"].lower() in existing:
+        return False
+    return len(re.findall(r"[A-Za-z]\w*", item.get("content", ""))) < _MIN_NEW_NOTE_WORDS
+
+
 def day_material(siris: "SirisAI", day: date) -> str:
     """Today's conversations (user and assistant turns only, never raw tool
     output), capped in size. Memory-inbox entries aren't included: the
@@ -166,6 +178,8 @@ def day_material(siris: "SirisAI", day: date) -> str:
     for convo in siris.conversation.recent_conversations(limit=40):
         if _local_day(convo["last_at"], tz) != iso:
             continue
+        if str(convo.get("conversation_id", "")).startswith(SELF_TEST_PREFIX):
+            continue   # the nightly self-test's own questions ("what day is it?") aren't Brad's
         turns = [
             f"{'User' if m['role'] == 'user' else 'SirisAI'}: {(m['content'] or '').strip()[:600]}"
             for m in siris.conversation.get_messages(convo["conversation_id"])
@@ -180,10 +194,12 @@ def day_material(siris: "SirisAI", day: date) -> str:
 # Outside", "Lounge Lamp Status", "Day of the Week"), so they're dropped here too.
 _MOMENTARY_TITLE = re.compile(
     r"\b(status|state|temperature|weather|forecast|humidity|right now|currently|today|tonight|"
-    r"day of the week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.I)
+    r"day of (?:the )?week|wind(?: speed)?|rain(?:fall)?|uv index|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.I)
 _MOMENTARY_CONTENT = re.compile(
     r"-?\d+(\.\d+)?\s*°|\b(is|are|was)\s+(currently\s+|now\s+|still\s+)?(on|off|open|closed|locked|unlocked|playing|idle)\b"
-    r"(?!\s+(when|if|at|from|after|before|during|whenever|by))|\b(it's|it is|today is)\s+\w+day\b|\bat the moment\b|\bright now\b", re.I)
+    r"(?!\s+(when|if|at|from|after|before|during|whenever|by))|\b(it's|it is|today is)\s+\w+day\b|\bat the moment\b|\bright now\b"
+    r"|\b\d+(\.\d+)?\s*(km/h|kph|mph|kilomet(?:er|re)s? per hour|mm of rain|hpa)\b", re.I)
 
 
 # 6.76: workout logs (a session's sets and weights, "3 workouts, 36 working sets", steps walked). SirisGym and
@@ -256,7 +272,8 @@ async def dream(siris: "SirisAI", day: date) -> dict[str, Any]:
         {"role": "user", "content": "Existing note titles: " + "; ".join(t["title"] for t in titles[:400])
             + f"\n\nToday ({day.isoformat()}):\n{material}"},
     ])
-    items = parse_notes(response.text)
+    known = {t["title"].lower() for t in titles} | {a.lower() for t in titles for a in t.get("aliases") or []}
+    items = [i for i in parse_notes(response.text) if not too_thin(i, known)]
     for item in items:
         item["tags"] = sorted({*item["tags"], "siris-dream"})
         item["source"] = f"SirisAI conversations, {day.isoformat()}"
@@ -331,8 +348,61 @@ def work_debrief(siris: "SirisAI", day: date) -> dict[str, Any]:
     if question:
         lines += ["", question]
     _push(siris, "\n".join(lines), "Siris: work debrief")
-    siris.state.set(DEBRIEF_KEY, {"date": day.isoformat()})
+    siris.state.set(DEBRIEF_KEY, {"date": day.isoformat(), "cpeng": question})
     return {"asked": True, "cpeng": bool(question)}
+
+
+DEBRIEF_NOTE = "Work Debriefs"   # where an answer goes when it names no project
+
+
+def debrief_status(siris: "SirisAI", day: date) -> dict[str, Any]:
+    """For SirisOS's debrief card: when the last debrief was asked and answered, whether this week's is
+    still open (asked, or it's Friday or later, and not answered since), the GVW projects to pick from,
+    and the CPEng question that went with it."""
+    asked = dict(siris.state.get(DEBRIEF_KEY) or {})
+    answered = str(asked.get("answered") or "")
+    week_start = (day - timedelta(days=day.weekday())).isoformat()
+    friday = (day - timedelta(days=day.weekday()) + timedelta(days=siris.settings.brain_debrief_day)).isoformat()
+    open_now = day.isoformat() >= friday and answered < week_start
+    projects = sorted(n["title"] for n in siris.second_brain.list_notes()
+                      if n.get("path", "").startswith("Work/GVW/Projects/"))
+    return {"asked": asked.get("date"), "answered": answered or None, "open": open_now,
+            "projects": projects, "cpeng_question": asked.get("cpeng")}
+
+
+def file_debrief(siris: "SirisAI", day: date, project: str = "", decided: str = "", went_wrong: str = "",
+                 differently: str = "", cpeng: str = "") -> dict[str, Any]:
+    """A debrief answered in SirisOS: one dated entry on the project's note (or Work Debriefs), the
+    decision also in the Decision Log, what you'd do differently written as a **Lesson:** so Lessons
+    Learned picks it up, and a CPEng example kept with the project for the nightly evidence check."""
+    brain = siris.second_brain
+    parts = {k: v.strip() for k, v in (("decided", decided), ("went_wrong", went_wrong),
+                                        ("differently", differently), ("cpeng", cpeng)) if v and v.strip()}
+    if not parts:
+        raise ValueError("Write at least one answer.")
+    title = project.strip() or DEBRIEF_NOTE
+    if project.strip() and brain.get_note(title) is None:
+        raise ValueError(f"No note called {title!r}")
+    lines = [f"**Friday debrief, week of {(day - timedelta(days=day.weekday())):%d %B %Y}:**"]
+    if "decided" in parts:
+        lines.append(f"- Decided: {parts['decided']}")
+    if "went_wrong" in parts:
+        lines.append(f"- What went wrong or surprised me: {parts['went_wrong']}")
+    if "differently" in parts:
+        lines.append(f"- **Lesson:** {parts['differently']}")
+    if "cpeng" in parts:
+        question = (siris.state.get(DEBRIEF_KEY) or {}).get("cpeng") or ""
+        element = re.search(r"evidence yet for (\d{1,2} [^.]+)\.", question)
+        lines.append(f"- CPEng example{' (' + element.group(1) + ')' if element else ''}: {parts['cpeng']}")
+    brain.learn([{"title": title, "content": "\n".join(lines), "tags": ["debrief"], "source": "SirisOS Friday debrief",
+                  **({} if project.strip() else {"folder": "Work"})}])
+    decision = None
+    if "decided" in parts:
+        decision = brain.decide(parts["decided"], project=project.strip(), source="Friday debrief")
+    asked = dict(siris.state.get(DEBRIEF_KEY) or {})
+    asked["answered"] = day.isoformat()
+    siris.state.set(DEBRIEF_KEY, asked)
+    return {"filed": title, "decision": bool(decision), "lesson": "differently" in parts}
 
 
 def run_weekly(siris: "SirisAI", day: date, now: datetime) -> dict[str, Any]:
@@ -469,23 +539,62 @@ def ask_about_old_tasks(siris: "SirisAI", day: date) -> dict[str, Any]:
     return {"asked": [t["task"] for _, _, t in pick]}
 
 
+_PERSON_QUESTIONS = {
+    "birthday": "When's {first}'s birthday?",
+    "lives": "Where does {first} live these days?",
+    "work": "What does {first} do for work?",
+}
+
+
+def birthdays_to_notes(siris: "SirisAI") -> list[str]:
+    """Birthdays SirisAI's People list knows (from "X's birthday" events in the calendar, or said in
+    chat) copied onto the matching People notes in Siris, so the brain's reminders and answers have
+    them. A birthday already on a note is kept. Needs vault engine 2.81 (`set-birthday`)."""
+    from app.people import service as people
+
+    try:
+        known = [p for p in people.everyone(siris) if p.get("birthday")]
+    except Exception:  # noqa: BLE001 - no People table yet: nothing to copy
+        return []
+    done = []
+    for person in known:
+        try:
+            result = siris.second_brain.set_birthday(person["name"], str(person["birthday"]))
+        except Exception:  # noqa: BLE001 - an older engine, or a name it can't place
+            continue
+        if result.get("action") == "set":
+            done.append(result["title"])
+    return done
+
+
 def ask_about_people(siris: "SirisAI", day: date) -> dict[str, Any]:
-    """Birthdays in the next three weeks, and up to three people the brain hasn't heard about in a
-    while, as a gentle nudge to catch up (each person at most every four weeks)."""
+    """Birthdays in the next three weeks, up to three people the brain hasn't heard about in a while
+    (a gentle nudge to catch up), and one question that fills in a close person's thin note: their
+    birthday, where they live or their work (each person at most every four weeks). Calendar
+    birthdays are copied onto the notes first."""
+    copied = birthdays_to_notes(siris)
     found = siris.second_brain.people(days=21, stale=90)
     asked = dict(siris.state.get(PEOPLE_KEY) or {})
     quiet = [q for q in found["quiet"] if _due_again(asked, q["title"], day)][:3]
     lines = [f"🎂 {b['title']} on {date.fromisoformat(b['date']):%a %d %b}"
              + (f", turning {b['turning']}" if b.get("turning") else "") for b in found["birthdays"]]
     lines += [f"👋 {q['title']}: nothing new in {q['days']} days" for q in quiet]
+    detail = next((p for p in found.get("thin") or [] if p.get("missing") and p["missing"][0] in _PERSON_QUESTIONS
+                   and _due_again(asked, "detail:" + p["title"], day)), None)
+    if detail:
+        lines.append("❓ " + _PERSON_QUESTIONS[detail["missing"][0]].format(first=detail["title"].split()[0]))
     if not lines:
-        return {"birthdays": [], "quiet": []}
+        return {"birthdays": [], "quiet": [], "copied": copied}
     _push(siris, "People this week:\n" + "\n".join(lines)
-          + ("\nTell me in chat when you catch up and I'll note it." if quiet else ""), "Siris: people")
+          + ("\nTell me in chat when you catch up and I'll note it." if quiet else "")
+          + ("\nAnswer in chat and I'll add it to their note." if detail else ""), "Siris: people")
     for q in quiet:
         asked[q["title"]] = day.isoformat()
+    if detail:
+        asked["detail:" + detail["title"]] = day.isoformat()
     siris.state.set(PEOPLE_KEY, asked)
-    return {"birthdays": [b["title"] for b in found["birthdays"]], "quiet": [q["title"] for q in quiet]}
+    return {"birthdays": [b["title"] for b in found["birthdays"]], "quiet": [q["title"] for q in quiet],
+            "asked": detail["title"] if detail else None, "copied": copied}
 
 
 CURRENT_STATE_PROMPT = """Below is a note from the user's second brain about one of their apps or projects, with \

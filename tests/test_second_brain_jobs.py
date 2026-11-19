@@ -1052,3 +1052,85 @@ def test_monthly_review_runs_on_the_first() -> None:
     siris.llm = None
     assert "monthly" not in asyncio.run(jobs.run_due(siris, _at(18, date(2026, 10, 31))))
     assert asyncio.run(jobs.run_due(siris, _at(18, date(2026, 11, 1))))["monthly"] == {"written": "2026-10 review"}
+
+
+def test_the_digest_leaves_out_readings_fragments_and_the_self_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    known = {"tv and movies"}
+    assert jobs.too_thin({"title": "Day of Week", "content": "Monday"}, known)
+    assert jobs.too_thin({"title": "Payday", "content": "Dom as payee"}, known)
+    assert not jobs.too_thin({"title": "TV and Movies", "content": "Watched Breaking Bad."}, known)   # adds to a note
+    assert not jobs.too_thin({"title": "Getting a Puppy", "content": "We hope to get a puppy from Glenbrook in March."}, known)
+    assert jobs.momentary({"title": "Wind Speed", "content": "6.6 kilometers per hour"})
+    assert jobs.momentary({"title": "Day of Week", "content": "Monday"})
+    assert not jobs.momentary({"title": "Windows Laptop", "content": "Brad's work laptop runs Windows 11 Pro."})
+
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain({"Home Server": "i5"})
+    monkeypatch.setattr(jobs, "day_material", lambda s, d: "Brad: hi")
+    siris.llm = FakeLLM('{"notes": [{"title": "Payday", "content": "Dom as payee"},'
+                        ' {"title": "Home Server", "content": "32 GB."}]}')
+    assert asyncio.run(jobs.dream(siris, DAY)) == {"learned": ["Home Server"]}
+
+
+def test_self_test_conversations_are_not_the_owners() -> None:
+    siris = _siris()
+    siris.second_brain = FakeBrain()
+    at = "2026-10-06T02:00:00+00:00"
+
+    class Convos:
+        def recent_conversations(self, limit=40):
+            return [{"conversation_id": "self-test-2026-10-06", "last_at": at}, {"conversation_id": "abc", "last_at": at}]
+
+        def get_messages(self, cid):
+            text = "What day is it?" if cid.startswith("self-test") else "I moved the NAS to the garage."
+            return [{"role": "user", "content": text, "created_at": at}]
+    siris.conversation = Convos()
+    material = jobs.day_material(siris, DAY)
+    assert "garage" in material and "What day" not in material
+
+
+class DebriefBrain(FakeBrain):
+    def __init__(self) -> None:
+        super().__init__({"Melrose East Pump Station": "x", "Work Overview": "y"})
+        self.decisions: list[tuple[str, str]] = []
+
+    def list_notes(self) -> list[dict]:
+        return [{"title": "Melrose East Pump Station", "path": "Work/GVW/Projects/Melrose East Pump Station.md"},
+                {"title": "Gym Training", "path": "Notes/Gym Training.md"}]
+
+    def decide(self, text: str, why: str = "", project: str = "", source: str = "") -> dict:
+        self.decisions.append((text, project))
+        return {"action": "recorded"}
+
+
+def test_the_debrief_card_files_each_answer_where_it_belongs() -> None:
+    siris = _siris()
+    brain = siris.second_brain = DebriefBrain()
+    siris.state.set(jobs.DEBRIEF_KEY, {"date": "2026-10-09", "cpeng": "CPEng: you have no evidence yet for 10 Taking action. Tell me about ..."})
+    friday, monday = date(2026, 10, 9), date(2026, 10, 12)
+    status = jobs.debrief_status(siris, friday)
+    assert status["open"] and status["projects"] == ["Melrose East Pump Station"] and status["cpeng_question"].startswith("CPEng")
+    assert not jobs.debrief_status(siris, date(2026, 10, 8))["open"]   # not before Friday
+    out = jobs.file_debrief(siris, friday, "Melrose East Pump Station", decided="Go with ductile iron for the rising main",
+                            went_wrong="The survey was late", differently="Order the survey a month earlier",
+                            cpeng="I pushed the survey forward myself when it stalled.")
+    assert out == {"filed": "Melrose East Pump Station", "decision": True, "lesson": True}
+    entry = brain.learned[-1]
+    assert entry["title"] == "Melrose East Pump Station" and entry["source"] == "SirisOS Friday debrief"
+    assert "- **Lesson:** Order the survey a month earlier" in entry["content"]
+    assert "- CPEng example (10 Taking action): I pushed" in entry["content"]
+    assert brain.decisions == [("Go with ductile iron for the rising main", "Melrose East Pump Station")]
+    assert not jobs.debrief_status(siris, friday)["open"]          # answered this week
+    assert jobs.debrief_status(siris, date(2026, 10, 16))["open"]  # open again next Friday
+    assert not jobs.debrief_status(siris, monday)["open"]
+
+
+def test_a_debrief_without_a_project_or_answers() -> None:
+    siris = _siris()
+    brain = siris.second_brain = DebriefBrain()
+    assert jobs.file_debrief(siris, DAY, went_wrong="Too many meetings")["filed"] == "Work Debriefs"
+    assert brain.learned[-1]["folder"] == "Work" and brain.decisions == []
+    with pytest.raises(ValueError):
+        jobs.file_debrief(siris, DAY, "  ", "", " ")
+    with pytest.raises(ValueError):
+        jobs.file_debrief(siris, DAY, "No Such Project", decided="x")

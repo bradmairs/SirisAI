@@ -5,6 +5,23 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.07 — 2026-11-19
+
+- Friday debrief card routes, calendar birthdays onto people notes, family questions, and no more fragment notes from the digest
+- **Friday debrief card** (for SirisOS):
+  - `GET /siris/brain/debrief` says whether this week's debrief is open (from Friday until it's answered), lists the GVW projects to pick from, and gives the CPEng question that went with the push.
+  - `POST /siris/brain/debrief {project, decided, went_wrong, differently, cpeng}` files it:
+    - one dated entry on the project's note, or "Work Debriefs" when no project is picked
+    - the decision into the Decision Log
+    - what you'd do differently as a **Lesson:**, so Lessons Learned picks it up
+    - the CPEng example, labelled with its element, for the nightly evidence check
+- **Calendar birthdays onto people notes:** each week, the birthdays SirisAI's People list knows from "X's birthday" calendar events are copied onto the matching Siris notes (`set-birthday`, vault engine 2.81). Siris' reminders and answers then have them. A birthday already on a note is kept.
+- **Filling in family notes:** the weekly people push now asks one thing about a close person whose note is thin, the first missing of birthday, where they live, and work (each person at most every four weeks). The answer in chat goes onto their note.
+- **No more fragment notes from the nightly digest:**
+  - The self-test's own conversations (`self-test-<date>`) are left out.
+  - Readings like "Day of Week" and wind speeds are dropped.
+  - A new note needs at least 6 words. On 16 and 19 November the digest had made "Day of Week" ("Monday"), "Payday" ("Dom as payee", filed as a person) and "Wind Speed" ("6.6 kilometers per hour").
+
 ## 6.97 — 2026-11-19
 
 - Home Assistant to-do lists through the hub, and UV in the forecast
