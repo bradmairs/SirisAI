@@ -85,7 +85,18 @@ def build(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
         problems.append(f"Background jobs whose last run failed: {', '.join(job_errors[:5])}.")
     if history and history[-1].get("failed"):
         problems.append(f"The last self-test got {history[-1]['failed']} wrong.")
+    from app.upkeep import reliability
+
+    voice = reliability.voice_speed(siris, now - timedelta(days=7), now)   # 7.27: the speed target
+    if voice["turns"] >= 5 and voice["p50_ms"] and voice["p50_ms"] > voice["target_ms"]:
+        problems.append(f"Spoken replies start after {voice['p50_ms'] / 1000:.1f} s typically (target {voice['target_ms'] / 1000:.1f} s).")
+    from app.llm import cloud
+
+    hosted = {"when": siris.settings.cloud_llm_when, "used_this_month": cloud.used_this_month(siris),
+              "monthly_cap": siris.settings.cloud_llm_monthly_calls} if cloud.configured(siris) else None
     return {
+        "voice": voice,
+        "hosted_model": hosted,
         "version": __version__, "up_hours": round((time.time() - _STARTED) / 3600, 1), "at": now.isoformat(),
         "replies": {**replies, "trend": trend}, "tools": tools, "fallbacks": fallbacks[-20:], "jobs": jobs, "checks": checks,
         "problems": problems, "text": " ".join(problems) if problems else "All well: replies steady, no failing tools or jobs.",

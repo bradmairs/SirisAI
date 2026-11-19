@@ -106,3 +106,20 @@ def thumbs_down(request: FeedbackRequest, siris: SirisAI = Depends(get_siris)) -
 @router.get("/feedback")
 def feedback_list(limit: int = 50, siris: SirisAI = Depends(get_siris)) -> list[dict[str, Any]]:
     return thumbs.recent(siris, min(limit, 200))
+
+
+@router.get("/fixes")
+def learned_fixes_list(siris: SirisAI = Depends(get_siris)) -> dict[str, list[str]]:
+    """Examples added to tools' descriptions from your corrections (7.27, app/learning/fixes.py)."""
+    from app.learning import fixes
+
+    return fixes.approved(siris)
+
+
+@router.delete("/fixes/{tool}")
+def forget_fix(tool: str, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.learning import fixes
+
+    if not fixes.forget(siris, tool):
+        raise HTTPException(status_code=404, detail="Nothing learned for that tool.")
+    return {"tool": tool, "forgotten": True}

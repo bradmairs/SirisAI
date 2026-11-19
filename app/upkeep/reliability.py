@@ -138,8 +138,27 @@ def build(siris: "SirisAI", days: int = 7, now: datetime | None = None) -> dict[
     if out["speed"]["p50_ms"] and out["speed"]["previous_p50_ms"] and out["speed"]["p50_ms"] > 1.3 * out["speed"]["previous_p50_ms"]:
         out["problems"].append(f"Replies got slower: typically {out['speed']['p50_ms'] / 1000:.1f} s, up from "
                                f"{out['speed']['previous_p50_ms'] / 1000:.1f} s.")
+    # 7.27: the voice speed target -- something heard within SIRISAI_VOICE_TARGET_MS of finishing speaking.
+    out["voice"] = voice_speed(siris, since, now)
+    if out["voice"]["turns"] >= 5 and out["voice"]["p50_ms"] > out["voice"]["target_ms"]:
+        out["problems"].append(
+            f"Spoken replies typically start after {out['voice']['p50_ms'] / 1000:.1f} s (target "
+            f"{out['voice']['target_ms'] / 1000:.1f} s); {out['voice']['within_target_percent']}% were on time."
+        )
     out["ok"] = not out["problems"]
     return out
+
+
+def voice_speed(siris: "SirisAI", since: datetime, now: datetime) -> dict[str, Any]:
+    first = _metric(siris, "voice_first_audio_ms", since, now)
+    answer = _metric(siris, "voice_first_answer_ms", since, now)
+    target = siris.settings.voice_target_ms
+    return {
+        "turns": len(first), "target_ms": target,
+        "p50_ms": _percentile(first, 50), "p90_ms": _percentile(first, 90),
+        "answer_p50_ms": _percentile(answer, 50),
+        "within_target_percent": round(100 * sum(v <= target for v in first) / len(first)) if first else None,
+    }
 
 
 def text(report: dict[str, Any]) -> str:
@@ -148,6 +167,10 @@ def text(report: dict[str, Any]) -> str:
     speed = report["speed"]
     if speed["replies"]:
         lines.append(f"{speed['replies']} replies, typically {speed['p50_ms'] / 1000:.1f} s.")
+    voice = report.get("voice") or {}
+    if voice.get("turns"):
+        lines.append(f"{voice['turns']} spoken replies: first words after {voice['p50_ms'] / 1000:.1f} s typically, "
+                     f"{voice['within_target_percent']}% within {voice['target_ms'] / 1000:.1f} s.")
     if report.get("tool_choice"):
         lines.append(f"Picked the right tool {report['tool_choice']['accuracy']}% of the time.")
     return "\n".join(lines)

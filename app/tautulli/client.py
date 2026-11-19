@@ -53,9 +53,13 @@ class TautulliClient:
             if user:
                 params["user"] = user
             rows = self._call("get_history", **params).get("data", [])
-        return [
-            {"title": r.get("full_title"), "user": r.get("user"), "date": r.get("date")} for r in rows
-        ]
+        out = []
+        for r in rows:
+            row = {"title": r.get("full_title"), "user": r.get("user"), "date": r.get("date")}
+            if r.get("media_type") == "episode":  # 7.27: which show, season and episode
+                row.update({"show": r.get("grandparent_title"), "season": r.get("parent_media_index"), "episode": r.get("media_index")})
+            out.append(row)
+        return out
 
     def home_stats(self, days: int = 30, count: int = 5, user_id: int | None = None) -> list[dict]:
         """Tautulli's own home-page stat cards (most watched movies/shows,

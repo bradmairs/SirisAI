@@ -52,6 +52,18 @@ def _people(siris: "SirisAI", now: datetime) -> Any:
     return len(service.check(siris, now))
 
 
+def _watching(siris: "SirisAI", now: datetime) -> Any:
+    from app.media import watching
+
+    return watching.check(siris, now)
+
+
+def _tool_trim(siris: "SirisAI", now: datetime) -> Any:
+    from app.upkeep import tool_usage
+
+    return tool_usage.propose(siris, now)
+
+
 def _house_health(siris: "SirisAI", now: datetime) -> Any:
     from app.household import watch
 
@@ -241,6 +253,8 @@ JOBS: list[DailyJob] = [
     DailyJob("things_warranties", lambda s: 9, _things),
     DailyJob("people", lambda s: 8, _people),
     DailyJob("house_health", lambda s: 9 if getattr(s, "_home_assistant_client", None) is not None else None, _house_health, monthday=1),
+    DailyJob("watching", lambda s: 17 if s.tools.get("tautulli_recent_history") is not None or getattr(s, "_plex_client", None) is not None else None, _watching),
+    DailyJob("tool_trim", lambda s: 11 if s.settings.tool_trim_after_days > 0 else None, _tool_trim, monthday=1),
     DailyJob("house_batteries", lambda s: 10 if getattr(s, "_home_assistant_client", None) is not None else None, _house_batteries, weekday=lambda s: 5),
     DailyJob("reliability_weekly", lambda s: s.settings.reliability_hour_local, _reliability, weekday=lambda s: 6),
     DailyJob("bills", lambda s: s.settings.bills_hour_local if getattr(s, "email_client", None) is not None else None, _bills),

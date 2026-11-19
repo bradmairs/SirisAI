@@ -87,3 +87,7 @@
 {"prompt": "open my SirisAI history note", "expect": ["brain_get_note", "brain_search"]}
 {"prompt": "what should I watch tonight?", "expect": ["plex_suggest"]}
 {"prompt": "what am I watching on plex right now?", "expect": ["tautulli_current_activity", "plex_now_playing"]}
+{"prompt": "play some jazz in the lounge", "expect": ["music_play"]}
+{"prompt": "what's this song?", "expect": ["music_now_playing"]}
+{"prompt": "pause everything", "expect": ["music_pause_all", "home_assistant_media_control"]}
+{"prompt": "remind me to watch Dune", "expect": ["watchlist_add"]}
