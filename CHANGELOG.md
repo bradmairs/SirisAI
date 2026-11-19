@@ -5,6 +5,19 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.27 — 2026-11-19
+
+- Learns from your corrections, hides tools you don't use, "me" follows whoever's speaking, an optional hosted model for hard questions, number checks, next seasons and a watchlist, music by voice, and a speed target for voice
+- **Learns from corrections**: when the same tool was the right answer to two or more requests it missed (from 👎 with the right tool, or a correction in chat), SirisAI tries adding those requests to the tool's description as examples. If that fixes them (on the tool selector, and on the real model when there is one) and nothing else gets worse, it asks in the feed: "Learn this". Approved fixes are listed at `GET /siris/learning/fixes` and can be forgotten.
+- **Hides tools you don't use**: on the 1st of each month, once the audit log covers 60 days (`SIRISAI_TOOL_TRIM_AFTER_DAYS`), the feed lists tools that never ran, to hide with one tap. Hidden tools (`SIRISAI_HIDDEN_TOOLS`, on the Settings page) aren't offered to the model but still work from routines and the feed. Tools that ask first, restricted ones and the core ones are never suggested.
+- **"Me" is whoever's speaking**: `SIRISAI_PEOPLE_ACCOUNTS` (e.g. `sam: plex=Sam | jo: plex=Jo`) and `SIRISAI_OWNER_USER_IDS`. When voice recognition knows it's Sam, "my history" is Sam's. Until anyone else is listed, every turn is yours, as before.
+- **A hosted model, if you want one** (off by default): `SIRISAI_CLOUD_LLM_WHEN` = `fallback` (only when the local model fails) or `hard` (also long questions and ones asking to plan, write, explain why, compare, summarise...). Any OpenAI-compatible API (`SIRISAI_CLOUD_LLM_BASE_URL`, `_MODEL`, `_API_KEY`). Questions about health, sleep, training, money or passwords, guest and child turns, and the self-test always stay local, and health data is always answered locally. Capped at `SIRISAI_CLOUD_LLM_MONTHLY_CALLS` (200) a month, shown on the health page.
+- **Numbers are checked**: every number in an answer must be in what the tools returned (allowing for rounding, counts and units). If one isn't, the local model is asked once for a correction, added as "Correction: ...", so a spoken reply hears it straight after. `SIRISAI_CHECK_NUMBERS`.
+- **Next seasons**: daily, when you've watched the last episode of a season and Sonarr has the next one aired but missing, the feed asks "Get season 5 of Slow Horses?"; Get it monitors and searches for that season.
+- **Watchlist**: "remind me to watch Dune" (`watchlist_add`, `watchlist`). `plex_suggest` puts watchlist titles on Plex first, the feed says when one arrives, and it's crossed off once you've watched it.
+- **Music by voice**: `music_play` ("play some jazz in the lounge", via Music Assistant), `music_now_playing` ("what's this song?"), `music_pause_all` and `music_move`. With `SIRISAI_MUSIC_FOLLOW_ME`, music moves to the room you last spoke in.
+- **Speed target**: the time from your recording arriving to the first thing heard is measured on every spoken reply (`voice_first_audio_ms`, and `voice_first_answer_ms` for the answer itself). The health page and weekly report show it against `SIRISAI_VOICE_TARGET_MS` (1000) and flag it when replies are typically slower.
+
 ## 7.17 — 2026-11-19
 
 - Dependable answers: a "Not right" button that teaches it, nightly tool tests, a voice you can interrupt that never sits silent, "me" on every service, what to watch tonight, and a guard against version clashes
