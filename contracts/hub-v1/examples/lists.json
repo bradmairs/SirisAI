@@ -1,0 +1,27 @@
+{
+  "guest_mode": false,
+  "available": true,
+  "lists": [
+    {
+      "entity_id": "todo.shopping_list",
+      "name": "Shopping List",
+      "items": [
+        {
+          "summary": "Milk",
+          "status": "needs_action",
+          "due": null
+        },
+        {
+          "summary": "Bread",
+          "status": "needs_action",
+          "due": null
+        },
+        {
+          "summary": "Eggs",
+          "status": "completed",
+          "due": null
+        }
+      ]
+    }
+  ]
+}

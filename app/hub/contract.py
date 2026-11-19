@@ -65,6 +65,9 @@ class ForecastDay(_Model):
     low_c: float | None = None
     rain_chance_percent: float | None = None
     precipitation_mm: float | None = None
+    uv_index_max: float | None = Field(None, description="6.88: the day's peak UV index")
+    sun_protection_from: str | None = Field(None, description="6.88: first hour (HH:MM, local) at UV 3 or more")
+    sun_protection_to: str | None = Field(None, description="6.88: end of the last hour at UV 3 or more")
 
 
 class Weather(_Model):
@@ -314,6 +317,30 @@ class Reminder(_Model):
 class ReminderList(_Model):
     guest_mode: bool
     reminders: list[Reminder] | None = Field(None, description="Pending and recently sent reminders; null in guest mode.")
+
+
+class ListItem(_Model):
+    summary: str
+    status: Literal["needs_action", "completed"] = "needs_action"
+    due: str | None = None
+
+
+class HomeList(_Model):
+    entity_id: str = Field(description="Home Assistant's todo entity, e.g. todo.shopping_list")
+    name: str
+    items: list[ListItem] = Field(default_factory=list, description="What's still to do, then what was done recently")
+
+
+class HomeLists(_Model):
+    """6.88: Home Assistant's to-do lists (a shopping list, chores), for SirisOS's Tasks."""
+    guest_mode: bool
+    available: bool = Field(True, description="False when Home Assistant isn't connected or can't be reached")
+    lists: list[HomeList] | None = Field(None, description="null in guest mode")
+
+
+class ListItemChange(_Model):
+    item: str = Field(min_length=1, max_length=200)
+    done: bool = True
 
 
 class ReminderDone(_Model):
@@ -661,6 +688,7 @@ class Network(_Model):
 
 ENDPOINTS: dict[str, type[BaseModel]] = {
     "info": HubInfo,
+    "lists": HomeLists,
     "brief": Brief,
     "widgets": Widgets,
     "search": SearchResults,

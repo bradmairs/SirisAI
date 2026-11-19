@@ -161,6 +161,12 @@ class DailyBriefingSkill(Skill):
                 f"Forecast: {forecast['conditions']}, {forecast['low_c']}-{forecast['high_c']}°C, "
                 f"{forecast['rain_chance_percent']}% chance of rain."
             )
+            # 6.88: high UV, with when to cover up (UV 3+ is the Cancer Council's line; it's worth saying from 6).
+            uv = forecast.get("uv_index_max")
+            if uv is not None and uv >= 6:
+                when = (f" from {forecast['sun_protection_from']} to {forecast['sun_protection_to']}"
+                        if forecast.get("sun_protection_from") else "")
+                lines.append(f"UV {uv:.0f}{when}: sunscreen, hat and shade.")
 
         calendar = briefing.get("calendar")
         if calendar is not None:

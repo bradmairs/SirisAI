@@ -118,6 +118,8 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["network"] = client.get("/siris/hub/v1/network", headers=h).json()
         out["network"]["checked_at"] = "2026-10-24T10:00:00+00:00"
         out["network_block_request"] = {"blocked": True}
+        out["lists"] = c.HomeLists(guest_mode=False, lists=[c.HomeList(entity_id="todo.shopping_list", name="Shopping List", items=[
+            c.ListItem(summary="Milk"), c.ListItem(summary="Bread"), c.ListItem(summary="Eggs", status="completed")])]).model_dump(mode="json")
         out["network_block"] = c.NetworkBlockResult(id="aa:bb:cc:dd:ee:01", blocked=True).model_dump(mode="json")
         from tests.test_hub_energy_usage import FakeHA as EnergyHA
 

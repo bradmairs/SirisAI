@@ -74,14 +74,18 @@ class WeatherClient:
             params={
                 "latitude": self._latitude,
                 "longitude": self._longitude,
-                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max",
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,uv_index_max",
+                # 6.88: hourly UV, for when sun protection is needed (UV 3 or more)
+                "hourly": "uv_index",
                 "temperature_unit": "celsius",
                 "timezone": timezone,
                 "forecast_days": days,
             },
         )
         response.raise_for_status()
-        daily = response.json().get("daily", {})
+        body = response.json()
+        daily = body.get("daily", {})
+        windows = _uv_windows(body.get("hourly") or {})
         out = []
         for i, day in enumerate(daily.get("time", [])):
             code = (daily.get("weather_code") or [None] * (i + 1))[i]
@@ -94,9 +98,26 @@ class WeatherClient:
                     "low_c": (daily.get("temperature_2m_min") or [None] * (i + 1))[i],
                     "rain_chance_percent": (daily.get("precipitation_probability_max") or [None] * (i + 1))[i],
                     "rain_mm": (daily.get("precipitation_sum") or [None] * (i + 1))[i],
+                    "uv_index_max": (daily.get("uv_index_max") or [None] * (i + 1))[i],
+                    **windows.get(day, {}),
                 }
             )
         return out
 
     def close(self) -> None:
         self._client.close()
+
+
+SUN_PROTECTION_UV = 3  # the Cancer Council's line: sun protection needed at UV 3 and above
+
+
+def _uv_windows(hourly: dict) -> dict[str, dict[str, str]]:
+    """Each day's first and last hour at UV 3 or more: {"2026-11-19": {"sun_protection_from": "09:00", "sun_protection_to": "16:00"}}."""
+    out: dict[str, dict[str, str]] = {}
+    for stamp, uv in zip(hourly.get("time") or [], hourly.get("uv_index") or []):
+        if uv is None or uv < SUN_PROTECTION_UV:
+            continue
+        day, hour = stamp[:10], stamp[11:16]
+        span = out.setdefault(day, {"sun_protection_from": hour, "sun_protection_to": hour})
+        span["sun_protection_to"] = f"{int(hour[:2]) + 1:02d}:00" if int(hour[:2]) < 23 else "23:59"
+    return out
