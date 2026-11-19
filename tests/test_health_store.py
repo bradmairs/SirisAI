@@ -211,7 +211,12 @@ def _local_noon_plus(siris, hours: float) -> datetime:
     from app.core import clock
 
     tz = clock.get_zone(siris.settings.timezone)
-    noon = (datetime.now(tz) + timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
+    # The first local noon at least `hours` from now (a fixed "noon in two days" is only 36 hours away just before
+    # midnight, which made the 36-hour check flaky at that time of day).
+    earliest = datetime.now(tz) + timedelta(hours=hours)
+    noon = earliest.replace(hour=12, minute=0, second=0, microsecond=0)
+    if noon < earliest:
+        noon += timedelta(days=1)
     return noon.astimezone(UTC)
 
 
