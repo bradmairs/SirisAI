@@ -357,17 +357,28 @@ DEBRIEF_NOTE = "Work Debriefs"   # where an answer goes when it names no project
 
 def debrief_status(siris: "SirisAI", day: date) -> dict[str, Any]:
     """For SirisOS's debrief card: when the last debrief was asked and answered, whether this week's is
-    still open (asked, or it's Friday or later, and not answered since), the GVW projects to pick from,
-    and the CPEng question that went with it."""
+    open, the GVW projects to pick from, and the CPEng question that went with it.
+
+    7.29: it's open on the debrief day itself (Friday) only, until it's answered or dismissed ("nothing
+    this week"); not on the weekend after. Another can still be added the same day after saving one
+    (SirisOS's "Add another")."""
     asked = dict(siris.state.get(DEBRIEF_KEY) or {})
     answered = str(asked.get("answered") or "")
+    dismissed = str(asked.get("dismissed") or "")
     week_start = (day - timedelta(days=day.weekday())).isoformat()
-    friday = (day - timedelta(days=day.weekday()) + timedelta(days=siris.settings.brain_debrief_day)).isoformat()
-    open_now = day.isoformat() >= friday and answered < week_start
+    open_now = day.weekday() == siris.settings.brain_debrief_day and answered < week_start and dismissed < week_start
     projects = sorted(n["title"] for n in siris.second_brain.list_notes()
                       if n.get("path", "").startswith("Work/GVW/Projects/"))
-    return {"asked": asked.get("date"), "answered": answered or None, "open": open_now,
+    return {"asked": asked.get("date"), "answered": answered or None, "dismissed": dismissed or None, "open": open_now,
             "projects": projects, "cpeng_question": asked.get("cpeng")}
+
+
+def dismiss_debrief(siris: "SirisAI", day: date) -> dict[str, Any]:
+    """Nothing to add this week: the card goes until next Friday. Nothing is filed."""
+    asked = dict(siris.state.get(DEBRIEF_KEY) or {})
+    asked["dismissed"] = day.isoformat()
+    siris.state.set(DEBRIEF_KEY, asked)
+    return debrief_status(siris, day)
 
 
 def file_debrief(siris: "SirisAI", day: date, project: str = "", decided: str = "", went_wrong: str = "",
