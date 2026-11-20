@@ -362,6 +362,15 @@ def debrief(siris: SirisAI = Depends(get_siris)) -> dict:
     return jobs.debrief_status(siris, clock.now_local(siris.settings.timezone).date())
 
 
+@router.post("/debrief/dismiss")
+def dismiss_debrief(siris: SirisAI = Depends(get_siris)) -> dict:
+    """7.29: nothing to add this week; the card stays away until next Friday."""
+    from app.second_brain import jobs
+
+    _brain(siris)
+    return jobs.dismiss_debrief(siris, clock.now_local(siris.settings.timezone).date())
+
+
 @router.post("/debrief")
 def answer_debrief(request: DebriefRequest, siris: SirisAI = Depends(get_siris)) -> dict:
     """File the debrief: on the project (or Work Debriefs), the decision in the Decision Log, the lesson

@@ -1125,6 +1125,22 @@ def test_the_debrief_card_files_each_answer_where_it_belongs() -> None:
     assert not jobs.debrief_status(siris, monday)["open"]
 
 
+def test_the_debrief_is_only_open_on_friday_and_can_be_dismissed() -> None:
+    """7.29: not on the weekend after, even unanswered; "nothing this week" puts it away until next Friday;
+    another can be filed the same Friday after one is saved."""
+    siris = _siris()
+    siris.second_brain = DebriefBrain()
+    siris.state.set(jobs.DEBRIEF_KEY, {"date": "2026-11-20"})
+    friday, saturday = date(2026, 11, 20), date(2026, 11, 21)
+    assert jobs.debrief_status(siris, friday)["open"]
+    assert not jobs.debrief_status(siris, saturday)["open"]   # unanswered, but it's the weekend
+    status = jobs.dismiss_debrief(siris, friday)
+    assert not status["open"] and status["dismissed"] == "2026-11-20"
+    assert jobs.debrief_status(siris, date(2026, 11, 27))["open"]   # back next Friday
+    jobs.file_debrief(siris, date(2026, 11, 27), went_wrong="Too many meetings")
+    assert jobs.file_debrief(siris, date(2026, 11, 27), differently="Book focus time")["lesson"]   # "Add another"
+
+
 def test_a_debrief_without_a_project_or_answers() -> None:
     siris = _siris()
     brain = siris.second_brain = DebriefBrain()

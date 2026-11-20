@@ -1134,7 +1134,9 @@ def test_debrief_routes(brain_api) -> None:
     client, vault = brain_api
     get_siris().state.set(jobs.DEBRIEF_KEY, {})
     r = client.get("/siris/brain/debrief")
-    assert r.status_code == 200 and set(r.json()) == {"asked", "answered", "open", "projects", "cpeng_question"}
+    assert r.status_code == 200 and set(r.json()) == {"asked", "answered", "dismissed", "open", "projects", "cpeng_question"}
+    r = client.post("/siris/brain/debrief/dismiss")
+    assert r.status_code == 200 and r.json()["open"] is False and r.json()["dismissed"]
     r = client.post("/siris/brain/debrief", json={"went_wrong": "The survey was late", "differently": "Order it earlier"})
     assert r.status_code == 200 and r.json() == {"filed": "Work Debriefs", "decision": False, "lesson": True}
     learned = [c for c in _calls(vault) if c["args"][0] == "learn"][-1]
