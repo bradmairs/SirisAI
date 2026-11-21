@@ -104,6 +104,38 @@ class WeatherClient:
             )
         return out
 
+    def hourly(self, days: int = 4, past_days: int = 0, timezone: str = "auto") -> dict:
+        """7.3: hour by hour for the next `days` (and `past_days` back, for the rain that's fallen), with sunrise and sunset."""
+        response = self._client.get(
+            "/v1/forecast",
+            params={
+                "latitude": self._latitude,
+                "longitude": self._longitude,
+                "hourly": "temperature_2m,precipitation_probability,precipitation,weather_code,uv_index,wind_speed_10m",
+                "daily": "sunrise,sunset",
+                "temperature_unit": "celsius",
+                "wind_speed_unit": "kmh",
+                "timezone": timezone,
+                "forecast_days": max(1, min(int(days), 7)),
+                "past_days": max(0, min(int(past_days), 7)),
+            },
+        )
+        response.raise_for_status()
+        body = response.json()
+        h = body.get("hourly") or {}
+
+        def at(key: str, i: int):
+            vals = h.get(key) or []
+            return vals[i] if i < len(vals) else None
+
+        hours = [{"time": t, "temperature_c": at("temperature_2m", i), "rain_chance_percent": at("precipitation_probability", i),
+                  "rain_mm": at("precipitation", i), "conditions": _WMO_WEATHER_CODES.get(at("weather_code", i)),
+                  "uv_index": at("uv_index", i), "wind_kmh": at("wind_speed_10m", i)} for i, t in enumerate(h.get("time") or [])]
+        d = body.get("daily") or {}
+        sun = [{"date": day, "sunrise": (d.get("sunrise") or [None] * (i + 1))[i], "sunset": (d.get("sunset") or [None] * (i + 1))[i]}
+               for i, day in enumerate(d.get("time") or [])]
+        return {"latitude": self._latitude, "longitude": self._longitude, "hours": hours, "sun": sun}
+
     def close(self) -> None:
         self._client.close()
 

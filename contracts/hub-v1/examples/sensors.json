@@ -1,0 +1,14 @@
+{
+  "guest_mode": false,
+  "available": true,
+  "sensors": [
+    {
+      "entity_id": "sensor.bedroom_temperature",
+      "name": "Bedroom temperature",
+      "state": "24.5",
+      "unit": "\u00b0C",
+      "device_class": "temperature",
+      "updated": "2026-11-21T21:00:00+00:00"
+    }
+  ]
+}

@@ -387,10 +387,17 @@ def run_tool_choice_eval(siris: "SirisAI") -> dict | None:
     from app.evals import tool_choice
 
     try:
-        return tool_choice.run_and_record(siris)
+        result = tool_choice.run_and_record(siris)
     except Exception:
         logger.exception("Scheduled tool-choice eval failed")
         return None
+    try:  # 7.27: fixes learned from corrections, to approve in the feed
+        from app.learning import fixes
+
+        result["proposed_fixes"] = fixes.propose(siris)
+    except Exception:
+        logger.exception("Proposing learned fixes failed")
+    return result
 
 
 def _eval_due_for_new_model(siris: "SirisAI") -> bool:
@@ -553,6 +560,7 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("rest_timer", lambda s: _quiet(s, "app.health.rest_timer", "check"), lambda _s: 5),
         Job("state_reminders", lambda s: _quiet(s, "app.reminders.conditions", "check") if getattr(s, "_home_assistant_client", None) else None, lambda _s: 60),
         Job("prefetch", lambda s: _quiet(s, "app.core.prefetch", "run"), lambda _s: 60),
+        Job("music_follow", lambda s: _quiet(s, "app.plugins.builtin.music", "follow") if s.settings.music_follow_me else None, lambda _s: 20),
         Job("devices", lambda s: run_device_watch(s), _settings_every("network_device_watch_minutes", 60)),
         Job("camera_digest", lambda s: run_camera_digest(s), every_tick),
         Job("health_checks", lambda s: run_health_checks(s), lambda _s: 300),

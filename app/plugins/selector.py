@@ -62,8 +62,8 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     ),
     (
         frozenset("movie movies film films tv series show shows episode episodes season radarr sonarr download downloads downloading queue "
-                  "subtitle subtitles bazarr plex watch watched watching tautulli library libraries stream streaming audiobook".split()),
-        ("plex_", "tautulli_", "radarr_", "sonarr_", "bazarr_", "cleanuparr_", "listenarr_"),
+                  "subtitle subtitles bazarr plex watch watched watching watchlist tautulli library libraries stream streaming audiobook".split()),
+        ("plex_", "tautulli_", "radarr_", "sonarr_", "bazarr_", "cleanuparr_", "listenarr_", "watchlist", "watchlist_"),
     ),
     (
         frozenset("network wifi wi-fi unifi client clients device devices router gateway internet speed bandwidth ping latency online offline reachable endpoint".split()),
@@ -139,6 +139,9 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     (frozenset("habit habits automate automatically routine suggestion suggestions".split()), ("habit_suggestions", "accept_habit_suggestion")),
     (frozenset("yourself own autonomously today fixed".split()), ("what_did_you_do", "remediation_status")),
     (frozenset("voice voices recognise recognize".split()), ("list_voiceprints", "delete_voiceprint")),
+    # 7.27: music by voice (app/plugins/builtin/music.py)
+    (frozenset("music song songs playing play album artist playlist radio jazz rock pause speaker speakers tune tunes sings singing".split()),
+     ("music_", "home_assistant_media_control")),
     (frozenset("look see outside snooping intruder somebody someone door doorbell front porch driveway yard".split()), ("frigate_look_at_camera", "frigate_recent_events")),
     (frozenset("crash crashing falling down keeps restarting".split()), ("docker_", "remediation_status")),
     (
@@ -216,7 +219,9 @@ class ToolSelector:
         return {name: _SEMANTIC_WEIGHT * (1 - rank / _SEMANTIC_TOP) for rank, name in enumerate(ranked)}
 
     def _prepare(self, specs: list[dict[str, Any]]) -> None:
-        if self._idf_for == len(specs):
+        # 7.27: keyed on the descriptions too, since a learned fix (app/learning/fixes.py) adds examples to one.
+        key = hash(tuple((s["function"]["name"], s["function"].get("description") or "") for s in specs))
+        if self._idf_for == key:
             return
         self._doc_cache = {}
         df: dict[str, int] = {}
@@ -228,7 +233,7 @@ class ToolSelector:
                 df[w] = df.get(w, 0) + 1
         n = max(len(specs), 1)
         self._idf = {w: math.log(1 + n / c) for w, c in df.items()}
-        self._idf_for = len(specs)
+        self._idf_for = key
 
     def select(
         self,

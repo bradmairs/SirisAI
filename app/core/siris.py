@@ -168,6 +168,8 @@ from app.plugins.builtin.plex import (
     PlexNowPlayingTool,
     PlexSearchTool,
     PlexSuggestTool,
+    WatchlistAddTool,
+    WatchlistTool,
 )
 from app.plugins.builtin.radarr import (
     RadarrAddMovieTool,
@@ -337,6 +339,9 @@ from app.plugins.builtin.health_data import HEALTH_TOOLS, HealthSummaryTool
 from app.plugins.builtin.autonomy import WhatDidYouDoTool
 from app.plugins.builtin.learning import WhatHaveYouLearnedTool
 from app.goals import review as _goal_review  # noqa: F401 - registers its attention actions
+from app.upkeep import tool_usage as _tool_usage  # noqa: F401 - registers its attention actions (7.27)
+from app.learning import fixes as learned_fixes  # 7.27: also registers its attention actions
+from app.media import watching  # 7.27: watchlist and next seasons (registers its attention actions)
 from app.plugins.builtin.upkeep import UpkeepStatusTool
 from app.upkeep import issues as _issues, updates as _updates  # noqa: F401 - register their attention actions
 from app.upkeep import models as upkeep_models
@@ -504,6 +509,7 @@ class SirisAI:
     llm: LLMClient | None = None
     stt: SpeechToTextClient | None = None
     tts: TextToSpeechClient | None = None
+    cloud_llm: "LLMClient | None" = None   # 7.27: optional hosted model (app/llm/cloud.py)
     model_router: ModelRouter | None = None
     tools: ToolRegistry = field(default_factory=ToolRegistry)
     context: ContextEngine = field(default_factory=ContextEngine)
@@ -582,6 +588,13 @@ class SirisAI:
                         fallback_base_urls=[u for u in [self.settings.ollama_base_url, *self.settings.ollama_fallback_url_list()]
                                             if u != self.settings.fast_llm_ollama_base_url],
                     ),
+                    self.metrics,
+                )
+            if self.cloud_llm is None and self.settings.cloud_llm_base_url and self.settings.cloud_llm_model:
+                from app.llm.openai_compat import OpenAICompatibleLLMClient
+
+                self.cloud_llm = MeteredLLMClient(   # 7.27: only used under app/llm/cloud.py's rules
+                    OpenAICompatibleLLMClient(self.settings.cloud_llm_base_url, self.settings.cloud_llm_api_key, self.settings.cloud_llm_model),
                     self.metrics,
                 )
             self.model_router = ModelRouter(
@@ -777,6 +790,11 @@ class SirisAI:
             )
             self.tools.register(HomeAssistantListMediaPlayersTool(self._home_assistant_client))
             self.tools.register(HomeAssistantMediaControlTool(self._home_assistant_client))
+            # 7.27: music by name, what's playing, pause everything, move rooms (app/plugins/builtin/music.py)
+            from app.plugins.builtin.music import MusicMoveTool, MusicNowPlayingTool, MusicPauseAllTool, MusicPlayTool
+
+            for tool in (MusicPlayTool, MusicNowPlayingTool, MusicPauseAllTool, MusicMoveTool):
+                self.tools.register(tool(self))
             self.tools.register(
                 SkillTool(
                     GeofenceReminderCheckSkill(), self, permission=ToolPermission.SAFE_ACTION
@@ -807,7 +825,9 @@ class SirisAI:
             self.tools.register(PlexNowPlayingTool(self._plex_client, lambda: identity.names(self.settings, "plex")))
             self.tools.register(PlexLibrarySectionsTool(self._plex_client))
             self.tools.register(PlexSearchTool(self._plex_client))
-            self.tools.register(PlexSuggestTool(self._plex_client, self._my_plex_titles))
+            self.tools.register(PlexSuggestTool(self._plex_client, self._my_plex_titles, lambda: watching.watchlist(self)))
+            self.tools.register(WatchlistAddTool(self))
+            self.tools.register(WatchlistTool(self))
 
         docker_url = self.settings.docker_base_url
         if docker_url.startswith("unix://") and not os.path.exists(docker_url.removeprefix("unix://")):
@@ -1288,6 +1308,10 @@ class SirisAI:
             if tool.permission is ToolPermission.RESTRICTED and tool.name not in allowed
         }
 
+    def hidden_tool_names(self) -> set[str]:
+        """Tools you chose not to offer the model (7.27, SIRISAI_HIDDEN_TOOLS)."""
+        return {n.strip() for n in (self.settings.hidden_tools or "").split(",") if n.strip()}
+
     def _my_plex_titles(self) -> list[str]:
         """What you've watched lately, for plex_suggest (7.17): empty without Tautulli."""
         if self.tools.get("tautulli_recent_history") is None:
@@ -1303,12 +1327,13 @@ class SirisAI:
         disabled RESTRICTED tools. With a `prompt`, narrowed to the tools
         relevant to it (SIRISAI_TOOL_SELECTION_MAX, app/plugins/selector.py)
         plus any in `recent_tool_names`."""
-        exclude = self.restricted_tool_names_to_exclude()
+        exclude = self.restricted_tool_names_to_exclude() | self.hidden_tool_names()
         if prompt is None:
             return self.tools.specs(exclude=exclude)
         # Tools whose backing service is down are left out for a while so
         # they stop steering the model into a wall (app/core/health.py).
         specs = self.tools.specs(exclude=exclude | self._paused_tools() | self._guest_hidden_tools())
+        specs = learned_fixes.apply(self, specs)  # 7.27: examples learned from your corrections
         return self.tool_selector.select(prompt, specs, recent_tool_names)
 
     def _guest_hidden_tools(self) -> set[str]:

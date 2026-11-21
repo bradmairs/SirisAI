@@ -38,6 +38,12 @@ screen, daily brief, search, inbox and controls on.
     GET  /siris/hub/v1/tracking                 what SirisAI watches, and what you've stopped it tracking (5.51)
     PUT  /siris/hub/v1/tracking                 {kind, name, tracked, why?}
     GET  /siris/hub/v1/health/days?days=7       health metrics per day, oldest first (up to 400 days)
+    GET  /siris/hub/v1/forecast/hourly          (7.3) hour by hour, sunrise and sunset, rain already fallen (past_days)
+    GET  /siris/hub/v1/watch                    Plex on deck and new unwatched, Sonarr episodes and Radarr films coming up
+    GET  /siris/hub/v1/containers               the last container update check; POST .../check runs one now
+    POST /siris/hub/v1/containers/update        {containers?}: update in the background (with roll-back), as the feed's button
+    GET  /siris/hub/v1/internet?days=30         speed tests and drops
+    GET  /siris/hub/v1/sensors?ids=a,b          Home Assistant sensor readings (SirisOS's bedroom check)
 
 Every response is validated against its contract model before it leaves.
 Requests act as X-Siris-User like the rest of the API, so per-user health,
@@ -56,6 +62,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from app.core import approvals
 from app.core.auth import require_api_key
@@ -626,3 +633,61 @@ async def hub_health_workouts(days: int = Query(42, ge=1, le=400), siris: SirisA
 @router.get("/health/days", response_model=c.HealthDays)
 async def hub_health_days(days: int = Query(7, ge=1, le=400), siris: SirisAI = Depends(get_siris)) -> c.HealthDays:
     return await asyncio.to_thread(compose.health_days, siris, days)
+
+
+# -- 7.3: SirisOS's weekend planner, garden, watch tonight, container updates, internet history, bedroom ----------------
+
+@router.get("/forecast/hourly", response_model=c.HourlyForecast)
+async def hub_forecast_hourly(days: int = Query(4, ge=1, le=7), past_days: int = Query(0, ge=0, le=7),
+                              siris: SirisAI = Depends(get_siris)) -> c.HourlyForecast:
+    from app.hub import extras
+
+    return await asyncio.to_thread(extras.forecast_hourly, siris, days, past_days)
+
+
+@router.get("/watch", response_model=c.Watch)
+async def hub_watch(days: int = Query(7, ge=1, le=14), siris: SirisAI = Depends(get_siris)) -> c.Watch:
+    from app.hub import extras
+
+    return await asyncio.to_thread(extras.watch, siris, days)
+
+
+@router.get("/containers", response_model=c.ContainerUpdates)
+async def hub_containers(siris: SirisAI = Depends(get_siris)) -> c.ContainerUpdates:
+    from app.hub import extras
+
+    return await asyncio.to_thread(extras.containers, siris)
+
+
+@router.post("/containers/check", response_model=c.ContainerUpdates)
+async def hub_containers_check(siris: SirisAI = Depends(get_siris)) -> c.ContainerUpdates:
+    from app.hub import extras
+
+    return await asyncio.to_thread(extras.check_containers, siris)
+
+
+class ContainerUpdateRequest(BaseModel):
+    containers: list[str] | None = Field(None, max_length=100)
+
+
+@router.post("/containers/update", response_model=c.ContainerUpdateStarted)
+async def hub_containers_update(body: ContainerUpdateRequest, siris: SirisAI = Depends(get_siris)) -> c.ContainerUpdateStarted:
+    from app.hub import extras
+
+    if compose._guest(siris)[0]:  # noqa: SLF001
+        raise HTTPException(status_code=403, detail="Not in guest mode.")
+    return await asyncio.to_thread(extras.update_containers, siris, body.containers)
+
+
+@router.get("/internet", response_model=c.Internet)
+async def hub_internet(days: float = Query(30, ge=1, le=90), siris: SirisAI = Depends(get_siris)) -> c.Internet:
+    from app.hub import extras
+
+    return await asyncio.to_thread(extras.internet, siris, days)
+
+
+@router.get("/sensors", response_model=c.SensorStates)
+async def hub_sensors(ids: str = Query("", max_length=1200), siris: SirisAI = Depends(get_siris)) -> c.SensorStates:
+    from app.hub import extras
+
+    return await asyncio.to_thread(extras.sensors, siris, [i.strip() for i in ids.split(",") if i.strip()])

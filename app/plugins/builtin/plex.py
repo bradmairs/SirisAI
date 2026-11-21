@@ -99,9 +99,12 @@ class PlexSuggestTool(Tool):
         "required": [],
     }
 
-    def __init__(self, client: PlexClient, my_history: Callable[[], list[str]] | None = None) -> None:
+    def __init__(
+        self, client: PlexClient, my_history: Callable[[], list[str]] | None = None, my_watchlist: Callable[[], list[dict]] | None = None
+    ) -> None:
         self._client = client
         self._my_history = my_history or (lambda: [])
+        self._my_watchlist = my_watchlist or (lambda: [])
 
     def run(self, kind: str = "any", count: int = 5, **kwargs: Any) -> Any:
         count = max(1, min(int(count or 5), 15))
@@ -123,6 +126,13 @@ class PlexSuggestTool(Tool):
                 seen.add(key)
                 out.append({**item, "why": why})
 
+        for wanted in self._my_watchlist():   # 7.27: your watchlist first, when it's on the server
+            try:
+                hits = [h for h in self._client.search(wanted["title"]) if (h.get("title") or "").lower() == wanted["title"].lower()]
+            except Exception:
+                hits = []
+            if hits and (kind == "any" or (kind == "movie") == (hits[0].get("type") == "movie")):
+                add({"title": hits[0]["title"], "type": hits[0].get("type"), "year": hits[0].get("year")}, "on your watchlist")
         if kind in ("any", "show"):
             for item in on_deck:
                 add(item, "you're part-way through it")
@@ -143,3 +153,46 @@ class PlexSuggestTool(Tool):
                 shared = [g for g in item["genres"] if g in liked]
                 add(item, f"new, and you like {shared[0].lower()}" if shared else "new to the server")
         return {"suggestions": out} if out else {"suggestions": [], "note": "Nothing new or part-watched on the server."}
+
+
+class WatchlistAddTool(Tool):
+    name = "watchlist_add"
+    description = "Add a film or show to the user's watchlist ('remind me to watch Dune', 'add Severance to my watchlist')."
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "The film or show."},
+            "note": {"type": "string", "description": "Optional: why, or who recommended it."},
+        },
+        "required": ["title"],
+    }
+
+    def __init__(self, siris: Any) -> None:
+        self._siris = siris
+
+    def run(self, title: str = "", note: str = "", **kwargs: Any) -> Any:
+        from app.media import watching
+
+        return watching.add(self._siris, title, note)
+
+
+class WatchlistTool(Tool):
+    name = "watchlist"
+    description = "Show the user's watchlist, or remove something from it (remove='Dune')."
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {"remove": {"type": "string", "description": "A title to take off the list."}},
+        "required": [],
+    }
+
+    def __init__(self, siris: Any) -> None:
+        self._siris = siris
+
+    def run(self, remove: str = "", **kwargs: Any) -> Any:
+        from app.media import watching
+
+        if remove.strip():
+            return {"removed": watching.remove(self._siris, remove), "watchlist": watching.watchlist(self._siris)}
+        return {"watchlist": watching.watchlist(self._siris)}

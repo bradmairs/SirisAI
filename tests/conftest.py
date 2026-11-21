@@ -46,6 +46,7 @@ os.environ.setdefault("SIRISAI_CONTAINER_RELEASE_NOTES", "false")
 os.environ.setdefault("SIRISAI_PREFETCH_FRESH_SECONDS", "0")
 # The tests check exactly what reaches the model; the Jarvis style (on by default) is tested on its own.
 os.environ.setdefault("SIRISAI_PERSONA_STYLE", "plain")
+os.environ.setdefault("SIRISAI_CHECK_NUMBERS", "false")   # 7.27: tested on its own (tests/test_next_level.py)
 
 # No real internet probes or speed tests from the scheduler loop in tests.
 os.environ.setdefault("SIRISAI_INTERNET_PROBE_SECONDS", "0")
