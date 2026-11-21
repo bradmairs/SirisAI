@@ -1183,3 +1183,19 @@ def test_weekly_review_keeps_your_week_and_siris_upkeep_apart() -> None:
     assert "linked 30 pairs" in json.dumps(facts["siris_upkeep"]) and "linked 30 pairs" not in json.dumps(you)
     prompt = siris.llm.messages[0]["content"]
     assert "Never say the user did these" in prompt and "Never Siris upkeep" in prompt
+
+
+def test_a_debrief_with_no_project_goes_on_the_project_it_names() -> None:
+    projects = ["SPS02 and SPS07 Wet Well to Dry Well Conversion", "SPS02 Dunrobin Street Stairs Replacement",
+                "Melrose East Pump Station", "Cobram RWPS Building Remediation"]
+    said = "Decided to only do short-term ground water investigations for the SPS02 & SPS07 Dry to Wet Well conversion"
+    assert jobs.named_project(said, projects) == "SPS02 and SPS07 Wet Well to Dry Well Conversion"
+    assert jobs.named_project("The SPS02 survey was late", projects) is None   # SPS02 alone fits two projects
+    assert jobs.named_project("Melrose pump wiring is done", projects) == "Melrose East Pump Station"
+    assert jobs.named_project("A good week at the pump station", projects) is None   # only filler words
+
+    siris = _siris()
+    brain = siris.second_brain = DebriefBrain()
+    assert jobs.file_debrief(siris, DAY, decided="Melrose pumps go to tender in March")["filed"] == "Melrose East Pump Station"
+    assert brain.decisions == [("Melrose pumps go to tender in March", "Melrose East Pump Station")]
+    assert jobs.file_debrief(siris, DAY, went_wrong="Too many meetings")["filed"] == "Work Debriefs"

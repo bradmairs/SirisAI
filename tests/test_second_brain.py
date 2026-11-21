@@ -548,6 +548,23 @@ def test_reads_pull_in_the_background(tmp_path: Path) -> None:
     assert client.last_sync_error is None
 
 
+def test_the_first_call_pulls_even_just_after_the_machine_boots(tmp_path: Path, monkeypatch) -> None:
+    # 7.50: the last pull started at 0.0, and time.monotonic() counts from boot, so within the first
+    # minute of a fresh machine nothing pulled (the cause of test_reads_pull_in_the_background failing
+    # now and then on new CI runners and containers).
+    import time as _time
+
+    client = SecondBrainClient(str(tmp_path), git_sync=True)
+    started: list[int] = []
+    monkeypatch.setattr(_time, "monotonic", lambda: 10.0)
+    monkeypatch.setattr(client, "_locked_pull", lambda: started.append(1))
+    client._maybe_pull()
+    client.flush()
+    client._maybe_pull()   # and not again within the interval
+    client.flush()
+    assert started == [1]
+
+
 # ---------- chat context ----------
 
 
