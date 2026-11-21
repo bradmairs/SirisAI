@@ -1,4 +1,4 @@
-"""Turn "I can't do that" into suggestions (7.49).
+"""Turn "I can't do that" into suggestions (7.6).
 
 When SirisAI has no tool for a request it records a capability gap
 (report_capability_gap). They used to sit in a list. On the 3rd of each
@@ -81,7 +81,7 @@ def review(siris: "SirisAI", now: datetime | None = None) -> list[dict[str, Any]
         ids = [x["id"] for x in g]
         if step["kind"] == "works_now":
             for i in ids:
-                siris.capability_gaps.mark_resolved(i, f"Covered by {step['tool']} (7.49 monthly review)")
+                siris.capability_gaps.mark_resolved(i, f"Covered by {step['tool']} (7.6 monthly review)")
         times = f"{len(g)} times" if len(g) > 1 else "once"
         title = f"You asked {times} for something I couldn't do: {g[0]['requested_capability'][:90]}"
         siris.attention.raise_item(

@@ -1,4 +1,4 @@
-"""7.49: long conversations, "tell me when", memory tidy-up, the door, the setup check,
+"""7.6: long conversations, "tell me when", memory tidy-up, the door, the setup check,
 can't-do suggestions, and meals."""
 
 import asyncio

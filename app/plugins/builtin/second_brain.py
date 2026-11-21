@@ -347,7 +347,7 @@ class BrainRecordDecisionTool(Tool):
 class BrainProjectStatusTool(Tool):
     name = "brain_project_status"
     description = (
-        "Set a project in Siris to active, on-hold or done, e.g. when Brad answers the weekly question about "
+        "Set a project in Siris to active, running (an app that's built and in use), on-hold or done, e.g. when Brad answers the weekly question about "
         "stalled projects (\"pause SirisHydro\", \"carry on with it\", \"archive the SirisHome business\"). "
         "Done moves it to the archive; on-hold stops it being flagged as stalled."
     )
@@ -356,7 +356,7 @@ class BrainProjectStatusTool(Tool):
         "type": "object",
         "properties": {
             "project": {"type": "string", "description": "The project's title."},
-            "status": {"type": "string", "enum": ["active", "on-hold", "done"]},
+            "status": {"type": "string", "enum": ["active", "running", "on-hold", "done"]},
         },
         "required": ["project", "status"],
     }

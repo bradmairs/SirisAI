@@ -1,4 +1,4 @@
-""""Tell me when..." (7.49): watch anything SirisAI can look up.
+""""Tell me when..." (7.6): watch anything SirisAI can look up.
 
 State reminders (app/reminders/conditions.py) watch one Home Assistant
 device. A watch runs any read-only tool on a schedule and tells you once a

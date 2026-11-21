@@ -1,4 +1,4 @@
-"""Memory tidy-up (7.49): a monthly look at what SirisAI remembers.
+"""Memory tidy-up (7.6): a monthly look at what SirisAI remembers.
 
 Memories were never reviewed: they piled up, went stale ("Brad's car is in
 for service") and could contradict each other. On the 2nd of each month

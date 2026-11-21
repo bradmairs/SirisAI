@@ -5,7 +5,7 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
-## 7.49 — 2026-11-21
+## 7.6 — 2026-11-21
 
 - Long conversations stay sharp, "tell me when...", a memory tidy-up, who's at the door, what's not set up, can't-do requests turned into suggestions, and shopping and meals
 - **Long conversations stay sharp**: every turn used to replay the whole conversation and every tool result, and Ollama's small default window dropped the oldest part first: the personality and instructions. Now the last 12 messages are replayed word for word (`SIRISAI_HISTORY_KEEP_MESSAGES`), older tool results are cut to 1,500 characters, the rest is one short summary (written by the model in the background after a reply, or a plain digest until then), and the model's window is set to 8,192 tokens (`SIRISAI_OLLAMA_NUM_CTX`; 0 for Ollama's default).
@@ -15,6 +15,23 @@ numbered milestones hold the detailed history.
 - **What's not set up** (`setup_check`, "what am I missing?", `GET /siris/upkeep/setup`): every optional part, whether it's set up, what it unlocks and the settings to change, plus settings that look wrong (a Plex name Tautulli doesn't know, a door camera Frigate doesn't have, a hosted model without its address, a model window too small for tool turns).
 - **Can't-do requests become suggestions**: on the 3rd of each month, requests SirisAI had no tool for (last 60 days) are grouped and put in the feed with a next step: a setting to turn on, "this works now" (and the requests are marked resolved), or something to build.
 - **Shopping and meals** (`meal_context`, `meal_plan_save`, `meal_plan`): "what can I cook with what's in the fridge?" and "plan dinners for the week" use what's in (a pantry or fridge to-do list), the shopping list, busy evenings and `SIRISAI_MEAL_PREFERENCES`. Saving a plan adds what you don't have to the shopping list, and the brief says what's for dinner.
+## 7.5 — 2026-11-21
+
+- Debriefs go on the project they name, and the first pull after a boot is no longer skipped
+- **Debrief with no project picked:** it now goes on the GVW project its answers name, matched on distinctive title words (SPS02, SPS07, Melrose, Cobram…, not "pump" or "station"). A tie or no match still goes to Work Debriefs. The first debrief named "SPS02 & SPS07" but had been filed on Work Debriefs, and its CPEng evidence pointed there too.
+- **First pull after a boot:** the client's "last pull" started at 0.0, and `time.monotonic()` counts from boot, so for the first 60 seconds after a machine started nothing was pulled. This was the cause of `test_reads_pull_in_the_background` failing now and then on freshly started runners and containers. It also affected the server's first minute after a reboot. It now starts as "never pulled", with a regression test.
+
+## 7.49 — 2026-11-21
+
+- An honest weekly review, and a running status for apps that are built and in use
+- **Weekly review facts grouped by who did what** (`_weekly_facts`):
+  - **What you did:** tasks ticked, decisions, lessons dated this week, and whether you answered the Friday debrief.
+  - **Coming up:** deadlines, overdue tasks, and tasks due in the next two weeks.
+  - **Idle projects.**
+  - **Siris' own upkeep:** auto-links and notes waiting in the inbox.
+
+  The prompt says "you" only for what you did, and never infers time spent from links or note counts. Next week is planned only from what's coming up, idle projects and decisions, never note tidying. Last week's review had said "you linked 30 pairs of notes", called inbox notes "unread messages", and planned the week around merging notes.
+- **`running` status:** `brain_project_status` takes `running`, for apps that are built and in use. Vault 2.91 leaves them, and generated GVW project pages, out of the idle projects the weekly question asks about.
 
 ## 7.39 — 2026-11-21
 

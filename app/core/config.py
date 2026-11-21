@@ -54,10 +54,10 @@ class Settings(BaseSettings):
     # default is 5m, after which the next question waits while the model
     # loads again. "-1" keeps it loaded for good; "" leaves Ollama's default.
     ollama_keep_alive: str = "30m"
-    # 7.49: the model's context window in tokens. Ollama's default (2-4k) is smaller than a
+    # 7.6: the model's context window in tokens. Ollama's default (2-4k) is smaller than a
     # tool turn, and it silently drops the oldest part (the instructions). 0 = Ollama's default.
     ollama_num_ctx: int = 8192
-    # 7.49: how much of a conversation is replayed to the model (app/cortex/history.py):
+    # 7.6: how much of a conversation is replayed to the model (app/cortex/history.py):
     # the last this-many messages word for word, older ones summarised, and each older
     # tool result cut to history_tool_chars.
     history_keep_messages: int = 12
@@ -732,11 +732,11 @@ class Settings(BaseSettings):
     intruder_check_interval_minutes: float = 1.0
     intruder_alert_when: str = "away_or_night"
     intruder_cameras: str = ""
-    # 7.49: say who's at the door in the day (app/household/door.py). door_cameras: the
+    # 7.6: say who's at the door in the day (app/household/door.py). door_cameras: the
     # Frigate cameras that count (blank: any named door, porch, front or doorbell).
     door_announce: bool = True
     door_cameras: str = ""
-    # 7.49: meals (app/household/meals.py). The Home Assistant to-do lists for what's in and
+    # 7.6: meals (app/household/meals.py). The Home Assistant to-do lists for what's in and
     # what to buy (blank: found by name), and dietary notes, e.g. "no mushrooms, high protein".
     pantry_list: str = ""
     shopping_list: str = ""

@@ -1150,3 +1150,52 @@ def test_a_debrief_without_a_project_or_answers() -> None:
         jobs.file_debrief(siris, DAY, "  ", "", " ")
     with pytest.raises(ValueError):
         jobs.file_debrief(siris, DAY, "No Such Project", decided="x")
+
+
+def test_weekly_review_keeps_your_week_and_siris_upkeep_apart() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain({
+        "Lessons Learned": "## Work\n- order the survey earlier ([[Melrose East]], 2026-10-02)\n- old ([[X]], 2026-09-01)\n"})
+    brain.activity_entries = [
+        {"date": "2026-10-05", "line": "✅ Done in [[Car Servicing]]: Book the Subaru in"},
+        {"date": "2026-10-04", "line": "⚖️ Decided: Ductile iron for the rising main ([[Decision Log]])"},
+        {"date": "2026-10-04", "line": "🔗 Auto-linked [[A]] ↔ [[B]]"},
+        {"date": "2026-09-20", "line": "✅ Done in [[Old]]: last month"},
+    ]
+    brain.open_tasks = [{"task": "Renew rego", "note": "Car Servicing", "due": "2026-10-15"},
+                        {"task": "Later", "note": "X", "due": "2026-12-01"}]
+    brain.insights = lambda days=30: {"highlights": ["Siris linked 30 pairs of notes it was sure about."],  # type: ignore[method-assign]
+                                      "stale_projects": [{"title": "SirisHome Business", "days_idle": 43}],
+                                      "deadlines": [], "overdue_tasks": [], "inbox": {"count": 3, "oldest": "2026-10-01"}}
+    siris.state.set(jobs.DEBRIEF_KEY, {"date": "2026-10-02", "answered": "2026-10-02"})
+    siris.llm = FakeLLM("## This week\n- You booked the Subaru in.")
+    assert asyncio.run(jobs.weekly_review(siris, DAY)) == {"written": "2026-W41-review"}
+    import json
+
+    facts = json.loads(siris.llm.messages[1]["content"])
+    you = facts["you_this_week"]
+    assert you["tasks_done"] == ["Done in Car Servicing: Book the Subaru in"]
+    assert you["decisions"] == ["Decided: Ductile iron for the rising main (Decision Log)"]
+    assert you["lessons"] == ["order the survey earlier"] and you["friday_debrief"] == "answered"
+    assert facts["coming_up"]["tasks_due_in_the_next_two_weeks"] == ["Renew rego (Car Servicing, due 2026-10-15)"]
+    assert facts["idle_projects"][0]["title"] == "SirisHome Business"
+    assert facts["siris_upkeep"]["notes_waiting_in_the_inbox_to_be_filed"] == 3
+    assert "linked 30 pairs" in json.dumps(facts["siris_upkeep"]) and "linked 30 pairs" not in json.dumps(you)
+    prompt = siris.llm.messages[0]["content"]
+    assert "Never say the user did these" in prompt and "Never Siris upkeep" in prompt
+
+
+def test_a_debrief_with_no_project_goes_on_the_project_it_names() -> None:
+    projects = ["SPS02 and SPS07 Wet Well to Dry Well Conversion", "SPS02 Dunrobin Street Stairs Replacement",
+                "Melrose East Pump Station", "Cobram RWPS Building Remediation"]
+    said = "Decided to only do short-term ground water investigations for the SPS02 & SPS07 Dry to Wet Well conversion"
+    assert jobs.named_project(said, projects) == "SPS02 and SPS07 Wet Well to Dry Well Conversion"
+    assert jobs.named_project("The SPS02 survey was late", projects) is None   # SPS02 alone fits two projects
+    assert jobs.named_project("Melrose pump wiring is done", projects) == "Melrose East Pump Station"
+    assert jobs.named_project("A good week at the pump station", projects) is None   # only filler words
+
+    siris = _siris()
+    brain = siris.second_brain = DebriefBrain()
+    assert jobs.file_debrief(siris, DAY, decided="Melrose pumps go to tender in March")["filed"] == "Melrose East Pump Station"
+    assert brain.decisions == [("Melrose pumps go to tender in March", "Melrose East Pump Station")]
+    assert jobs.file_debrief(siris, DAY, went_wrong="Too many meetings")["filed"] == "Work Debriefs"

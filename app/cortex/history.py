@@ -1,4 +1,4 @@
-"""Keep a long conversation within what the model can read (7.49).
+"""Keep a long conversation within what the model can read (7.6).
 
 Every turn used to replay the whole conversation, every tool result
 included. A small local model has a few thousand tokens to work with, and

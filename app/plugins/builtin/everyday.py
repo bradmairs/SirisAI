@@ -107,7 +107,7 @@ EVERYDAY_TOOLS = (BriefingPreferencesTool, CreateStateReminderTool, StateReminde
 
 
 class WatchForTool(Tool):
-    """7.49: "tell me when..." for anything a read-only tool can look up (app/reminders/watches.py)."""
+    """7.6: "tell me when..." for anything a read-only tool can look up (app/reminders/watches.py)."""
 
     name = "watch_for"
     description = (
@@ -181,4 +181,4 @@ class SetupCheckTool(Tool):
         return {"summary": found["summary"], "not_set_up": found["not_set_up"], "problems": found["problems"]}
 
 
-EVERYDAY_TOOLS = (*EVERYDAY_TOOLS, WatchForTool, WatchesTool, SetupCheckTool)   # 7.49
+EVERYDAY_TOOLS = (*EVERYDAY_TOOLS, WatchForTool, WatchesTool, SetupCheckTool)   # 7.6
