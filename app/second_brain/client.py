@@ -75,7 +75,9 @@ class SecondBrainClient:
         # e.g. BRAIN_EMBED_URL / BRAIN_EMBED_MODEL, so the engine links by meaning with the same Ollama.
         self._engine_env = dict(engine_env or {})
         self._lock = threading.Lock()  # one engine write or git operation at a time
-        self._last_pull = 0.0
+        # None until the first pull: 0.0 read as "pulled at boot", so for the first minute after the
+        # machine started (time.monotonic() < pull_interval) nothing was pulled at all (7.50).
+        self._last_pull: float | None = None
         self._push_pending = threading.Event()
         self._push_thread: threading.Thread | None = None
         self._pull_thread: threading.Thread | None = None
@@ -516,7 +518,7 @@ class SecondBrainClient:
 
     def _maybe_pull(self) -> None:
         """Start a background pull if one is due and none is running."""
-        if not self.git_sync or time.monotonic() - self._last_pull < self._pull_interval:
+        if not self.git_sync or (self._last_pull is not None and time.monotonic() - self._last_pull < self._pull_interval):
             return
         if self._pull_thread is not None and self._pull_thread.is_alive():
             return

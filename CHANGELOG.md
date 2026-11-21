@@ -5,6 +5,12 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.5 — 2026-11-21
+
+- Debriefs go on the project they name, and the first pull after a boot is no longer skipped
+- **Debrief with no project picked:** it now goes on the GVW project its answers name, matched on distinctive title words (SPS02, SPS07, Melrose, Cobram…, not "pump" or "station"). A tie or no match still goes to Work Debriefs. The first debrief named "SPS02 & SPS07" but had been filed on Work Debriefs, and its CPEng evidence pointed there too.
+- **First pull after a boot:** the client's "last pull" started at 0.0, and `time.monotonic()` counts from boot, so for the first 60 seconds after a machine started nothing was pulled. This was the cause of `test_reads_pull_in_the_background` failing now and then on freshly started runners and containers. It also affected the server's first minute after a reboot. It now starts as "never pulled", with a regression test.
+
 ## 7.49 — 2026-11-21
 
 - An honest weekly review, and a running status for apps that are built and in use

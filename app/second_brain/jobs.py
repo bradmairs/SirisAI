@@ -381,6 +381,28 @@ def dismiss_debrief(siris: "SirisAI", day: date) -> dict[str, Any]:
     return debrief_status(siris, day)
 
 
+_PROJECT_FILLER = {"and", "the", "of", "to", "for", "at", "in", "on", "street", "station", "pump", "building",
+                   "remediation", "conversion", "replacement", "rehabilitation", "well", "wet", "dry", "stairs",
+                   "reservoir", "dam", "outlet", "valve", "tower", "project", "works", "upgrade"}
+
+
+def named_project(text: str, projects: list[str]) -> str | None:
+    """The GVW project an answer is about when none was picked: the one whose distinctive title words
+    (SPS02, SPS07, Melrose, Cobram, Sunday Creek…, not "pump" or "station") it names most. A tie means
+    no guess. 7.50: the first debrief named "SPS02 & SPS07" but went to Work Debriefs."""
+    said = {w.lower() for w in re.findall(r"[A-Za-z0-9]+", text)}
+    scored = []
+    for title in projects:
+        keys = {w.lower() for w in re.findall(r"[A-Za-z0-9]+", title)} - _PROJECT_FILLER
+        hits = len({k for k in keys if len(k) >= 3} & said)
+        if hits:
+            scored.append((hits, title))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    return scored[0][1] if len(scored) == 1 or scored[0][0] > scored[1][0] else None
+
+
 def file_debrief(siris: "SirisAI", day: date, project: str = "", decided: str = "", went_wrong: str = "",
                  differently: str = "", cpeng: str = "") -> dict[str, Any]:
     """A debrief answered in SirisOS: one dated entry on the project's note (or Work Debriefs), the
@@ -391,6 +413,9 @@ def file_debrief(siris: "SirisAI", day: date, project: str = "", decided: str = 
                                         ("differently", differently), ("cpeng", cpeng)) if v and v.strip()}
     if not parts:
         raise ValueError("Write at least one answer.")
+    if not project.strip():   # nothing picked: the project the answers name, if one stands out
+        gvw = [n["title"] for n in brain.list_notes() if n.get("path", "").startswith("Work/GVW/Projects/")]
+        project = named_project(" ".join(parts.values()), gvw) or ""
     title = project.strip() or DEBRIEF_NOTE
     if project.strip() and brain.get_note(title) is None:
         raise ValueError(f"No note called {title!r}")
