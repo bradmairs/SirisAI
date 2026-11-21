@@ -1,0 +1,47 @@
+{
+  "guest_mode": false,
+  "on_deck": [
+    {
+      "title": "Slow Horses: S04E03",
+      "type": "episode",
+      "show": "Slow Horses",
+      "year": null,
+      "genres": [
+        "Drama"
+      ],
+      "rating": null,
+      "summary": "",
+      "added_at": null
+    }
+  ],
+  "new_unwatched": [
+    {
+      "title": "Dune: Part Two",
+      "type": "movie",
+      "show": null,
+      "year": 2024,
+      "genres": [
+        "Sci-Fi"
+      ],
+      "rating": 8.5,
+      "summary": "",
+      "added_at": null
+    }
+  ],
+  "episodes": [
+    {
+      "series": "Severance",
+      "episode": "Hello",
+      "season": 2,
+      "number": 3,
+      "air_date": "2026-11-24"
+    }
+  ],
+  "movies": [
+    {
+      "title": "A Film",
+      "release": "2026-11-25",
+      "kind": "digital"
+    }
+  ]
+}
