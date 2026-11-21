@@ -91,3 +91,8 @@
 {"prompt": "what's this song?", "expect": ["music_now_playing"]}
 {"prompt": "pause everything", "expect": ["music_pause_all", "home_assistant_media_control"]}
 {"prompt": "remind me to watch Dune", "expect": ["watchlist_add"]}
+{"prompt": "tell me when Dune is on Plex", "expect": ["watch_for"]}
+{"prompt": "let me know when the NAS has less than 100 GB free", "expect": ["watch_for"]}
+{"prompt": "what am I missing in my setup?", "expect": ["setup_check"]}
+{"prompt": "what can I cook with what's in the fridge?", "expect": ["meal_context"]}
+{"prompt": "plan my dinners for the week", "expect": ["meal_context", "meal_plan_save"]}

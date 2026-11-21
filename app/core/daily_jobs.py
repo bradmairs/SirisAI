@@ -58,6 +58,18 @@ def _watching(siris: "SirisAI", now: datetime) -> Any:
     return watching.check(siris, now)
 
 
+def _capability_review(siris: "SirisAI", now: datetime) -> Any:
+    from app.capabilities import review
+
+    return review.review(siris, now)
+
+
+def _memory_tidy(siris: "SirisAI", now: datetime) -> Any:
+    from app.memory import tidy
+
+    return tidy.review(siris, now)
+
+
 def _tool_trim(siris: "SirisAI", now: datetime) -> Any:
     from app.upkeep import tool_usage
 
@@ -254,6 +266,8 @@ JOBS: list[DailyJob] = [
     DailyJob("people", lambda s: 8, _people),
     DailyJob("house_health", lambda s: 9 if getattr(s, "_home_assistant_client", None) is not None else None, _house_health, monthday=1),
     DailyJob("watching", lambda s: 17 if s.tools.get("tautulli_recent_history") is not None or getattr(s, "_plex_client", None) is not None else None, _watching),
+    DailyJob("capability_review", lambda s: 10, _capability_review, monthday=3),
+    DailyJob("memory_tidy", lambda s: 10, _memory_tidy, monthday=2),
     DailyJob("tool_trim", lambda s: 11 if s.settings.tool_trim_after_days > 0 else None, _tool_trim, monthday=1),
     DailyJob("house_batteries", lambda s: 10 if getattr(s, "_home_assistant_client", None) is not None else None, _house_batteries, weekday=lambda s: 5),
     DailyJob("reliability_weekly", lambda s: s.settings.reliability_hour_local, _reliability, weekday=lambda s: 6),

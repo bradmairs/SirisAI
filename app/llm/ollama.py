@@ -66,8 +66,13 @@ class OllamaClient(LLMClient):
         keep_alive: str | None = None,
         think: bool | None = None,
         fallback_base_urls: list[str] | None = None,
+        num_ctx: int | None = None,
     ) -> None:
         self.model = model
+        # 7.37: the context window. Ollama's default (2-4k tokens) is smaller than ~20 tool
+        # specs plus the personality and context, and it drops the *oldest* tokens first --
+        # the instructions. None/0 leaves Ollama's default.
+        self.num_ctx = num_ctx or None
         # How long Ollama keeps the model in memory after a call (4.6).
         # Ollama's own default is 5 minutes, after which the next question
         # waits seconds while the model loads again.
@@ -211,12 +216,16 @@ class OllamaClient(LLMClient):
         out: dict[str, Any] = {"keep_alive": self.keep_alive} if self.keep_alive else {}
         if self.think is not None:
             out["think"] = self.think
+        if self.num_ctx:
+            out["options"] = {"num_ctx": self.num_ctx}
         return out
 
     async def warm(self) -> None:
         """Load the model (or keep it loaded) without generating anything:
         Ollama treats a /api/generate with no prompt as a preload."""
-        keep = {"keep_alive": self.keep_alive} if self.keep_alive else {}
+        keep: dict[str, Any] = {"keep_alive": self.keep_alive} if self.keep_alive else {}
+        if self.num_ctx:   # the same window as real calls, or Ollama reloads the model for each
+            keep["options"] = {"num_ctx": self.num_ctx}
         response = await self._client.post("/api/generate", json={"model": self.model, **keep})
         response.raise_for_status()
 
