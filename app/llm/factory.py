@@ -16,11 +16,11 @@ from app.llm.ollama import OllamaClient
 
 def build_llm_client(
     provider: str, ollama_base_url: str, ollama_model: str, keep_alive: str | None = None,
-    think: bool | None = None, fallback_base_urls: list[str] | None = None,
+    think: bool | None = None, fallback_base_urls: list[str] | None = None, num_ctx: int | None = None,
 ) -> LLMClient:
     if provider == "ollama":
         return OllamaClient(base_url=ollama_base_url, model=ollama_model, keep_alive=keep_alive,
-                            think=think, fallback_base_urls=fallback_base_urls)
+                            think=think, fallback_base_urls=fallback_base_urls, num_ctx=num_ctx)
     return NullLLMClient()
 
 

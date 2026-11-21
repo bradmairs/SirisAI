@@ -112,3 +112,10 @@ def tool_usage(days: int = 60, siris: SirisAI = Depends(get_siris)) -> dict[str,
 
     return usage.report(siris, days)
 
+
+@router.get("/setup")
+def setup_check(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """What's set up, what isn't and what it would unlock, and settings that look wrong (7.6)."""
+    from app.upkeep import setup_check as check
+
+    return check.report(siris)

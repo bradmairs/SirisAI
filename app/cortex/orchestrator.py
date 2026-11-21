@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.core import taint
+from app.cortex import history as conversation_history
 from app.cortex import numbers, persona, quick, timings, trial
 from app.llm import cloud
 from app.notify.confirmation import notify_confirmation_needed
@@ -292,6 +293,10 @@ class Cortex:
         result.timings = timings.record(siris, self.timer)
         await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, prompt, result)
+        try:   # 7.6: after the reply, so it never slows one
+            await conversation_history.refresh_summary(siris, conversation_id, self._raw_messages(siris, conversation_id))
+        except Exception:
+            logger.info("History summary failed", exc_info=True)
         return result
 
     async def _quick(self, siris: "SirisAI", conversation_id: str, prompt: str) -> CortexResult | None:
@@ -554,6 +559,18 @@ class Cortex:
         return f"the user attached {count}; a vision model described it as: {description}"
 
     @staticmethod
+    def _raw_messages(siris: "SirisAI", conversation_id: str) -> list[dict[str, Any]]:
+        """The whole conversation, uncompacted (for the background summary)."""
+        out: list[dict[str, Any]] = []
+        for m in siris.conversation.get_messages(conversation_id):
+            if m["role"] == "tool":
+                out.append({"role": "assistant", "content": "", "tool_calls": [{"function": {"name": m["tool_name"], "arguments": m["tool_arguments"] or {}}}]})
+                out.append({"role": "tool", "content": m["content"]})
+            elif m["role"] in ("user", "assistant"):
+                out.append({"role": m["role"], "content": m["content"]})
+        return out
+
+    @staticmethod
     def _load_messages(siris: "SirisAI", conversation_id: str) -> list[dict[str, Any]]:
         """Replay persisted history as real chat messages -- user/assistant
         text verbatim, and a persisted "tool" row expanded back into the
@@ -578,7 +595,7 @@ class Cortex:
                 messages.append({"role": "tool", "content": m["content"]})
             elif m["role"] in ("user", "assistant"):
                 messages.append({"role": m["role"], "content": m["content"]})
-        return messages
+        return conversation_history.compact(siris, conversation_id, messages)   # 7.6: within what the model can read
 
     async def _run_single_tool(
         self,

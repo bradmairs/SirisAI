@@ -342,6 +342,8 @@ from app.goals import review as _goal_review  # noqa: F401 - registers its atten
 from app.upkeep import tool_usage as _tool_usage  # noqa: F401 - registers its attention actions (7.27)
 from app.learning import fixes as learned_fixes  # 7.27: also registers its attention actions
 from app.media import watching  # 7.27: watchlist and next seasons (registers its attention actions)
+from app.memory import tidy as _memory_tidy  # noqa: F401 - 7.6: registers its attention actions
+from app.capabilities import review as _capability_review  # noqa: F401 - 7.6: registers its attention actions
 from app.plugins.builtin.upkeep import UpkeepStatusTool
 from app.upkeep import issues as _issues, updates as _updates  # noqa: F401 - register their attention actions
 from app.upkeep import models as upkeep_models
@@ -572,6 +574,7 @@ class SirisAI:
                     self.settings.ollama_keep_alive,
                     think=think_setting(self.settings.ollama_think),
                     fallback_base_urls=self.settings.ollama_fallback_url_list(),
+                    num_ctx=self.settings.ollama_num_ctx,
                 ),
                 self.metrics,
             )
@@ -585,6 +588,7 @@ class SirisAI:
                         self.settings.fast_llm_ollama_model,
                         self.settings.ollama_keep_alive,
                         think=think_setting(self.settings.fast_llm_think),
+                        num_ctx=self.settings.ollama_num_ctx,
                         fallback_base_urls=[u for u in [self.settings.ollama_base_url, *self.settings.ollama_fallback_url_list()]
                                             if u != self.settings.fast_llm_ollama_base_url],
                     ),
@@ -1139,6 +1143,10 @@ class SirisAI:
         from app.plugins.builtin.everyday import EVERYDAY_TOOLS
         from app.plugins.builtin.undo import UndoHistoryTool
 
+        from app.plugins.builtin.meals import MEAL_TOOLS
+
+        for meal_tool in MEAL_TOOLS:   # 7.6: shopping and meals
+            self.tools.register(meal_tool(self))
         for everyday_tool in EVERYDAY_TOOLS:
             if everyday_tool.name in ("create_state_reminder", "state_reminders") and getattr(self, "_home_assistant_client", None) is None:
                 continue

@@ -104,3 +104,81 @@ class SirisHealthTool(_SirisTool):
 
 
 EVERYDAY_TOOLS = (BriefingPreferencesTool, CreateStateReminderTool, StateRemindersTool, WeeklyReviewTool, SirisHealthTool)
+
+
+class WatchForTool(Tool):
+    """7.6: "tell me when..." for anything a read-only tool can look up (app/reminders/watches.py)."""
+
+    name = "watch_for"
+    description = (
+        "Tell the user when something becomes true, by re-checking a read-only tool every few minutes: 'tell me when "
+        "Dune is on Plex' (tool plex_search, arguments {query: Dune}, text_contains 'dune'); 'when the download "
+        "finishes' (sonarr_queue, text_missing the show's name); 'when the NAS has under 100 GB free' (a disk tool, "
+        "number_at the field, below 100); 'when it stops raining' (weather_current, text_missing 'rain'). "
+        "For a Home Assistant device changing state use create_state_reminder instead."
+    )
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {
+        "type": "object",
+        "properties": {
+            "what": {"type": "string", "description": "What you'll tell them, e.g. 'Dune is on Plex'."},
+            "tool": {"type": "string", "description": "A read-only tool to re-run."},
+            "arguments": {"type": "object", "description": "That tool's arguments."},
+            "text_contains": {"type": "string", "description": "Fire when the result contains this text."},
+            "text_missing": {"type": "string", "description": "Fire when the result no longer contains this text."},
+            "number_at": {"type": "string", "description": "Dotted path to a number in the result, e.g. '0.free_gb'."},
+            "below": {"type": "number"},
+            "above": {"type": "number"},
+            "every_minutes": {"type": "integer", "description": "How often to check (at least 5). Defaults to 15."},
+            "days": {"type": "integer", "description": "Give up after this many days. Defaults to 7."},
+        },
+        "required": ["what", "tool"],
+    }
+
+    def __init__(self, siris: Any) -> None:
+        self._siris = siris
+
+    def run(self, what: str = "", tool: str = "", arguments: dict | None = None, **kwargs: Any) -> Any:
+        from app.reminders import watches
+
+        allowed = {k: kwargs[k] for k in ("text_contains", "text_missing", "number_at", "below", "above", "every_minutes", "days") if kwargs.get(k) not in (None, "")}
+        return watches.create(self._siris, what, tool, arguments or {}, **allowed)
+
+
+class WatchesTool(Tool):
+    name = "watches"
+    description = "List the 'tell me when...' watches, or cancel one (cancel_id)."
+    permission = ToolPermission.SAFE_ACTION
+    parameters = {"type": "object", "properties": {"cancel_id": {"type": "integer"}}, "required": []}
+
+    def __init__(self, siris: Any) -> None:
+        self._siris = siris
+
+    def run(self, cancel_id: int | None = None, **kwargs: Any) -> Any:
+        from app.reminders import watches
+
+        if cancel_id is not None:
+            return {"cancelled": watches.cancel(self._siris, int(cancel_id))}
+        return [{k: w[k] for k in ("id", "what", "tool", "every_minutes", "until")} for w in self._siris.state.get(watches.STATE_KEY) or []]
+
+
+class SetupCheckTool(Tool):
+    name = "setup_check"
+    description = (
+        "What parts of SirisAI aren't set up yet, what each would unlock, and settings that look wrong "
+        "('what am I missing?', 'what else can you do if I set it up?', 'is anything misconfigured?')."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, siris: Any) -> None:
+        self._siris = siris
+
+    def run(self, **kwargs: Any) -> Any:
+        from app.upkeep import setup_check
+
+        found = setup_check.report(self._siris)
+        return {"summary": found["summary"], "not_set_up": found["not_set_up"], "problems": found["problems"]}
+
+
+EVERYDAY_TOOLS = (*EVERYDAY_TOOLS, WatchForTool, WatchesTool, SetupCheckTool)   # 7.6

@@ -5,6 +5,16 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.6 — 2026-11-21
+
+- Long conversations stay sharp, "tell me when...", a memory tidy-up, who's at the door, what's not set up, can't-do requests turned into suggestions, and shopping and meals
+- **Long conversations stay sharp**: every turn used to replay the whole conversation and every tool result, and Ollama's small default window dropped the oldest part first: the personality and instructions. Now the last 12 messages are replayed word for word (`SIRISAI_HISTORY_KEEP_MESSAGES`), older tool results are cut to 1,500 characters, the rest is one short summary (written by the model in the background after a reply, or a plain digest until then), and the model's window is set to 8,192 tokens (`SIRISAI_OLLAMA_NUM_CTX`; 0 for Ollama's default).
+- **"Tell me when..."** (`watch_for`, `watches`): re-runs any read-only tool every 15 minutes (at least 5) and tells you once when a condition holds: text appears ("Dune is on Plex"), text goes ("the download finished"), or a number goes below or above a value ("under 100 GB free"). Told straight away if it's already true; gives up after 7 days.
+- **Memory tidy-up**: on the 2nd of each month, up to 8 feed cards: memories that sound out of date or haven't come up in six months (Still true / Forget it), ones saved twice (Keep the newest), and ones that contradict each other (Keep the newer / Both are right). Kept ones aren't asked about for a year.
+- **Who's at the door**: in the day, with someone home, a person on a door camera (`SIRISAI_DOOR_CAMERAS`, or any named door, porch, front or doorbell) is described and announced on the HUD and the speaker in your room, with the snapshot in the feed. A courier while a parcel is out for delivery: "Probably your new headphones from DHL". Away and night stay with the intruder alert. `SIRISAI_DOOR_ANNOUNCE`.
+- **What's not set up** (`setup_check`, "what am I missing?", `GET /siris/upkeep/setup`): every optional part, whether it's set up, what it unlocks and the settings to change, plus settings that look wrong (a Plex name Tautulli doesn't know, a door camera Frigate doesn't have, a hosted model without its address, a model window too small for tool turns).
+- **Can't-do requests become suggestions**: on the 3rd of each month, requests SirisAI had no tool for (last 60 days) are grouped and put in the feed with a next step: a setting to turn on, "this works now" (and the requests are marked resolved), or something to build.
+- **Shopping and meals** (`meal_context`, `meal_plan_save`, `meal_plan`): "what can I cook with what's in the fridge?" and "plan dinners for the week" use what's in (a pantry or fridge to-do list), the shopping list, busy evenings and `SIRISAI_MEAL_PREFERENCES`. Saving a plan adds what you don't have to the shopping list, and the brief says what's for dinner.
 ## 7.5 — 2026-11-21
 
 - Debriefs go on the project they name, and the first pull after a boot is no longer skipped

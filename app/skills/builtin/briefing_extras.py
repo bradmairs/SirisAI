@@ -100,7 +100,13 @@ def _training(siris: "SirisAI") -> str | None:
     return gym_week.briefing_line(siris)
 
 
-EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _training, _car, _parcels, _sirisos_apps, _on_this_day, _birthdays]
+def _dinner(siris: "SirisAI") -> str | None:
+    from app.household import meals
+
+    return meals.tonight(siris)
+
+
+EXTRAS: list[Callable[["SirisAI"], str | None]] = [_email, _health, _training, _car, _parcels, _sirisos_apps, _on_this_day, _birthdays, _dinner]
 
 
 def briefing_lines(siris: "SirisAI") -> list[str]:
