@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.39 — 2026-11-21
+
+- Hub: hourly forecast, watch tonight, container updates, internet history and sensor readings for SirisOS
+
 ## 7.29 — 2026-11-20
 
 - Friday debrief: open on Friday only, and can be dismissed for the week

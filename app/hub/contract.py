@@ -686,9 +686,138 @@ class Network(_Model):
     nodes: list[NetworkNode] = []
 
 
+
+# -- 7.3: for SirisOS's weekend planner, garden, watch tonight, container updates, internet history, bedroom ---------
+
+class HourlyWeather(_Model):
+    time: str = Field(description="Local time, YYYY-MM-DDTHH:MM")
+    temperature_c: float | None = None
+    rain_chance_percent: float | None = None
+    rain_mm: float | None = None
+    conditions: str | None = None
+    uv_index: float | None = None
+    wind_kmh: float | None = None
+
+
+class SunTimes(_Model):
+    date: str
+    sunrise: str | None = None
+    sunset: str | None = None
+
+
+class HourlyForecast(_Model):
+    unavailable: bool = False
+    latitude: float | None = Field(None, description="Where the forecast is for (SirisAI's weather location); null in guest mode")
+    longitude: float | None = None
+    hours: list[HourlyWeather] | None = None
+    sun: list[SunTimes] | None = None
+    past_rain_mm: float | None = Field(None, description="Rain over the past_days asked for (0 when none were)")
+
+
+class WatchItem(_Model):
+    title: str
+    type: str | None = None
+    show: str | None = None
+    year: int | None = None
+    genres: list[str] = []
+    rating: float | None = None
+    summary: str = ""
+    added_at: int | None = None
+
+
+class UpcomingEpisode(_Model):
+    series: str | None = None
+    episode: str | None = None
+    season: int | None = None
+    number: int | None = None
+    air_date: str | None = None
+
+
+class UpcomingMovie(_Model):
+    title: str | None = None
+    release: str | None = None
+    kind: str | None = Field(None, description="digital, physical or cinema")
+
+
+class Watch(_Model):
+    guest_mode: bool = False
+    on_deck: list[WatchItem] | None = Field(None, description="Continue watching; null when Plex isn't set up")
+    new_unwatched: list[WatchItem] | None = Field(None, description="Recently added and not watched yet")
+    episodes: list[UpcomingEpisode] | None = Field(None, description="Sonarr: airing in the next days; null when not set up")
+    movies: list[UpcomingMovie] | None = Field(None, description="Radarr: released in the next days; null when not set up")
+
+
+class ContainerUpdate(_Model):
+    container: str
+    image: str | None = None
+    current: str | None = None
+    available: str | None = None
+    notes: str | None = None
+
+
+class ContainerUpdates(_Model):
+    available: bool = Field(description="Docker is set up")
+    checked_at: str | None = None
+    updates: list[ContainerUpdate] = []
+    up_to_date: list[str] = []
+    skipped: dict[str, str] = {}
+    running: bool = Field(False, description="An update run is going now")
+
+
+class ContainerUpdateStarted(_Model):
+    started: int
+    order: list[str] = []
+    message: str = ""
+
+
+class SpeedSample(_Model):
+    at: str
+    down: float | None = None
+    up: float | None = None
+    ping: float | None = None
+
+
+class Outage(_Model):
+    start: str
+    end: str
+    seconds: float
+
+
+class Internet(_Model):
+    available: bool = True
+    days: float
+    speeds: list[SpeedSample] = []
+    outages: list[Outage] = []
+    average_down_mbps: float | None = None
+    average_up_mbps: float | None = None
+    minutes_down: float = 0
+    down_now_since: str | None = None
+    text: str = ""
+
+
+class SensorState(_Model):
+    entity_id: str
+    name: str | None = None
+    state: str | None = None
+    unit: str | None = None
+    device_class: str | None = None
+    updated: str | None = None
+
+
+class SensorStates(_Model):
+    guest_mode: bool = False
+    available: bool = True
+    sensors: list[SensorState] = []
+
 ENDPOINTS: dict[str, type[BaseModel]] = {
     "info": HubInfo,
     "lists": HomeLists,
+    "forecast_hourly": HourlyForecast,
+    "watch": Watch,
+    "containers": ContainerUpdates,
+    "containers_update": ContainerUpdateStarted,
+    "internet": Internet,
+    "sensors": SensorStates,
     "brief": Brief,
     "widgets": Widgets,
     "search": SearchResults,
