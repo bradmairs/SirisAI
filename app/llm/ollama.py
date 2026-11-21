@@ -69,7 +69,7 @@ class OllamaClient(LLMClient):
         num_ctx: int | None = None,
     ) -> None:
         self.model = model
-        # 7.37: the context window. Ollama's default (2-4k tokens) is smaller than ~20 tool
+        # 7.49: the context window. Ollama's default (2-4k tokens) is smaller than ~20 tool
         # specs plus the personality and context, and it drops the *oldest* tokens first --
         # the instructions. None/0 leaves Ollama's default.
         self.num_ctx = num_ctx or None

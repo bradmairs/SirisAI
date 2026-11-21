@@ -293,7 +293,7 @@ class Cortex:
         result.timings = timings.record(siris, self.timer)
         await self._emit({"type": "final", "result": result})
         await self._maybe_extract_memory(siris, conversation_id, prompt, result)
-        try:   # 7.37: after the reply, so it never slows one
+        try:   # 7.49: after the reply, so it never slows one
             await conversation_history.refresh_summary(siris, conversation_id, self._raw_messages(siris, conversation_id))
         except Exception:
             logger.info("History summary failed", exc_info=True)
@@ -595,7 +595,7 @@ class Cortex:
                 messages.append({"role": "tool", "content": m["content"]})
             elif m["role"] in ("user", "assistant"):
                 messages.append({"role": m["role"], "content": m["content"]})
-        return conversation_history.compact(siris, conversation_id, messages)   # 7.37: within what the model can read
+        return conversation_history.compact(siris, conversation_id, messages)   # 7.49: within what the model can read
 
     async def _run_single_tool(
         self,

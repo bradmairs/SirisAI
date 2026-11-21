@@ -1,0 +1,20 @@
+{
+  "available": true,
+  "checked_at": "2026-11-21T05:00:00+00:00",
+  "updates": [
+    {
+      "container": "sonarr",
+      "image": "lscr.io/linuxserver/sonarr:latest",
+      "current": "sha256:aaaaaaaaaaaa",
+      "available": "sha256:bbbbbbbbbbbb",
+      "notes": "Bug fixes"
+    }
+  ],
+  "up_to_date": [
+    "plex"
+  ],
+  "skipped": {
+    "sirisai": "SirisAI itself"
+  },
+  "running": false
+}

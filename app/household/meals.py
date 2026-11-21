@@ -1,4 +1,4 @@
-"""Shopping and meals (7.37).
+"""Shopping and meals (7.49).
 
 The model writes the recipes and plans itself; these tools give it what it
 needs and act on the result:

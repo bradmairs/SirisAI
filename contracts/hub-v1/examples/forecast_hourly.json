@@ -1,0 +1,24 @@
+{
+  "unavailable": false,
+  "latitude": -37.81,
+  "longitude": 144.96,
+  "hours": [
+    {
+      "time": "2026-11-21T07:00",
+      "temperature_c": 15.2,
+      "rain_chance_percent": 10.0,
+      "rain_mm": 0.0,
+      "conditions": "mainly clear",
+      "uv_index": 2.1,
+      "wind_kmh": 9.0
+    }
+  ],
+  "sun": [
+    {
+      "date": "2026-11-21",
+      "sunrise": "2026-11-21T05:57",
+      "sunset": "2026-11-21T20:22"
+    }
+  ],
+  "past_rain_mm": 1.2
+}

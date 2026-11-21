@@ -1,4 +1,4 @@
-"""Someone's at the door (7.37).
+"""Someone's at the door (7.49).
 
 The intruder check (app/skills/builtin/intruder.py) only raises the alarm
 for a person seen while nobody's home or at night. In the day, with someone

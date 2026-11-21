@@ -120,6 +120,23 @@ def produced(client: TestClient) -> dict[str, Any]:
         out["network_block_request"] = {"blocked": True}
         out["lists"] = c.HomeLists(guest_mode=False, lists=[c.HomeList(entity_id="todo.shopping_list", name="Shopping List", items=[
             c.ListItem(summary="Milk"), c.ListItem(summary="Bread"), c.ListItem(summary="Eggs", status="completed")])]).model_dump(mode="json")
+        # 7.3
+        out["forecast_hourly"] = c.HourlyForecast(latitude=-37.81, longitude=144.96, past_rain_mm=1.2,
+            hours=[c.HourlyWeather(time="2026-11-21T07:00", temperature_c=15.2, rain_chance_percent=10, rain_mm=0, conditions="mainly clear", uv_index=2.1, wind_kmh=9)],
+            sun=[c.SunTimes(date="2026-11-21", sunrise="2026-11-21T05:57", sunset="2026-11-21T20:22")]).model_dump(mode="json")
+        out["watch"] = c.Watch(on_deck=[c.WatchItem(title="Slow Horses: S04E03", type="episode", show="Slow Horses", genres=["Drama"])],
+            new_unwatched=[c.WatchItem(title="Dune: Part Two", type="movie", year=2024, genres=["Sci-Fi"], rating=8.5)],
+            episodes=[c.UpcomingEpisode(series="Severance", episode="Hello", season=2, number=3, air_date="2026-11-24")],
+            movies=[c.UpcomingMovie(title="A Film", release="2026-11-25", kind="digital")]).model_dump(mode="json")
+        out["containers"] = c.ContainerUpdates(available=True, checked_at="2026-11-21T05:00:00+00:00", up_to_date=["plex"],
+            skipped={"sirisai": "SirisAI itself"}, updates=[c.ContainerUpdate(container="sonarr", image="lscr.io/linuxserver/sonarr:latest",
+            current="sha256:aaaaaaaaaaaa", available="sha256:bbbbbbbbbbbb", notes="Bug fixes")]).model_dump(mode="json")
+        out["containers_update"] = c.ContainerUpdateStarted(started=1, order=["sonarr"], message="Updating 1 in the background").model_dump(mode="json")
+        out["internet"] = c.Internet(days=30, speeds=[c.SpeedSample(at="2026-11-20T06:00:00+00:00", down=95.2, up=19.8, ping=12)],
+            outages=[c.Outage(start="2026-11-19T02:00:00+00:00", end="2026-11-19T02:03:00+00:00", seconds=180)], average_down_mbps=95.2,
+            average_up_mbps=19.8, minutes_down=3.0, text="Internet over the last 30 days: 1 drop, 3 minutes in total.").model_dump(mode="json")
+        out["sensors"] = c.SensorStates(sensors=[c.SensorState(entity_id="sensor.bedroom_temperature", name="Bedroom temperature", state="24.5",
+            unit="°C", device_class="temperature", updated="2026-11-21T21:00:00+00:00")]).model_dump(mode="json")
         out["network_block"] = c.NetworkBlockResult(id="aa:bb:cc:dd:ee:01", blocked=True).model_dump(mode="json")
         from tests.test_hub_energy_usage import FakeHA as EnergyHA
 

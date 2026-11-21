@@ -9,6 +9,24 @@
     "lists": {
       "$ref": "#/$defs/HomeLists"
     },
+    "forecast_hourly": {
+      "$ref": "#/$defs/HourlyForecast"
+    },
+    "watch": {
+      "$ref": "#/$defs/Watch"
+    },
+    "containers": {
+      "$ref": "#/$defs/ContainerUpdates"
+    },
+    "containers_update": {
+      "$ref": "#/$defs/ContainerUpdateStarted"
+    },
+    "internet": {
+      "$ref": "#/$defs/Internet"
+    },
+    "sensors": {
+      "$ref": "#/$defs/SensorStates"
+    },
     "brief": {
       "$ref": "#/$defs/Brief"
     },
@@ -1039,6 +1057,152 @@
         "summary"
       ],
       "title": "CarSummary",
+      "type": "object"
+    },
+    "ContainerUpdate": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "title": "Container",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current"
+        },
+        "available": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Available"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        }
+      },
+      "required": [
+        "container"
+      ],
+      "title": "ContainerUpdate",
+      "type": "object"
+    },
+    "ContainerUpdateStarted": {
+      "additionalProperties": false,
+      "properties": {
+        "started": {
+          "title": "Started",
+          "type": "integer"
+        },
+        "order": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Order",
+          "type": "array"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "started"
+      ],
+      "title": "ContainerUpdateStarted",
+      "type": "object"
+    },
+    "ContainerUpdates": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "description": "Docker is set up",
+          "title": "Available",
+          "type": "boolean"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        },
+        "updates": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ContainerUpdate"
+          },
+          "title": "Updates",
+          "type": "array"
+        },
+        "up_to_date": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Up To Date",
+          "type": "array"
+        },
+        "skipped": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "title": "Skipped",
+          "type": "object"
+        },
+        "running": {
+          "default": false,
+          "description": "An update run is going now",
+          "title": "Running",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "available"
+      ],
+      "title": "ContainerUpdates",
       "type": "object"
     },
     "Control": {
@@ -2110,6 +2274,173 @@
       "title": "HomeLists",
       "type": "object"
     },
+    "HourlyForecast": {
+      "additionalProperties": false,
+      "properties": {
+        "unavailable": {
+          "default": false,
+          "title": "Unavailable",
+          "type": "boolean"
+        },
+        "latitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where the forecast is for (SirisAI's weather location); null in guest mode",
+          "title": "Latitude"
+        },
+        "longitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Longitude"
+        },
+        "hours": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HourlyWeather"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hours"
+        },
+        "sun": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SunTimes"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sun"
+        },
+        "past_rain_mm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rain over the past_days asked for (0 when none were)",
+          "title": "Past Rain Mm"
+        }
+      },
+      "title": "HourlyForecast",
+      "type": "object"
+    },
+    "HourlyWeather": {
+      "additionalProperties": false,
+      "properties": {
+        "time": {
+          "description": "Local time, YYYY-MM-DDTHH:MM",
+          "title": "Time",
+          "type": "string"
+        },
+        "temperature_c": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature C"
+        },
+        "rain_chance_percent": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rain Chance Percent"
+        },
+        "rain_mm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rain Mm"
+        },
+        "conditions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conditions"
+        },
+        "uv_index": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uv Index"
+        },
+        "wind_kmh": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wind Kmh"
+        }
+      },
+      "required": [
+        "time"
+      ],
+      "title": "HourlyWeather",
+      "type": "object"
+    },
     "HubInfo": {
       "additionalProperties": false,
       "properties": {
@@ -2199,6 +2530,87 @@
         "subject"
       ],
       "title": "ImportantEmail",
+      "type": "object"
+    },
+    "Internet": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "default": true,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "days": {
+          "title": "Days",
+          "type": "number"
+        },
+        "speeds": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SpeedSample"
+          },
+          "title": "Speeds",
+          "type": "array"
+        },
+        "outages": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Outage"
+          },
+          "title": "Outages",
+          "type": "array"
+        },
+        "average_down_mbps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Average Down Mbps"
+        },
+        "average_up_mbps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Average Up Mbps"
+        },
+        "minutes_down": {
+          "default": 0,
+          "title": "Minutes Down",
+          "type": "number"
+        },
+        "down_now_since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Down Now Since"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "days"
+      ],
+      "title": "Internet",
       "type": "object"
     },
     "LLMCompleteRequest": {
@@ -2562,6 +2974,30 @@
         "kind"
       ],
       "title": "NetworkNode",
+      "type": "object"
+    },
+    "Outage": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        },
+        "seconds": {
+          "title": "Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "seconds"
+      ],
+      "title": "Outage",
       "type": "object"
     },
     "OverdueTask": {
@@ -3413,6 +3849,193 @@
       "title": "SearchResults",
       "type": "object"
     },
+    "SensorState": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "device_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device Class"
+        },
+        "updated": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated"
+        }
+      },
+      "required": [
+        "entity_id"
+      ],
+      "title": "SensorState",
+      "type": "object"
+    },
+    "SensorStates": {
+      "additionalProperties": false,
+      "properties": {
+        "guest_mode": {
+          "default": false,
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "available": {
+          "default": true,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "sensors": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SensorState"
+          },
+          "title": "Sensors",
+          "type": "array"
+        }
+      },
+      "title": "SensorStates",
+      "type": "object"
+    },
+    "SpeedSample": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "title": "At",
+          "type": "string"
+        },
+        "down": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Down"
+        },
+        "up": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Up"
+        },
+        "ping": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ping"
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "title": "SpeedSample",
+      "type": "object"
+    },
+    "SunTimes": {
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "title": "Date",
+          "type": "string"
+        },
+        "sunrise": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sunrise"
+        },
+        "sunset": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sunset"
+        }
+      },
+      "required": [
+        "date"
+      ],
+      "title": "SunTimes",
+      "type": "object"
+    },
     "TodoItem": {
       "additionalProperties": false,
       "properties": {
@@ -3449,6 +4072,117 @@
         "summary"
       ],
       "title": "TodoItem",
+      "type": "object"
+    },
+    "UpcomingEpisode": {
+      "additionalProperties": false,
+      "properties": {
+        "series": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Series"
+        },
+        "episode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Episode"
+        },
+        "season": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Season"
+        },
+        "number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Number"
+        },
+        "air_date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Air Date"
+        }
+      },
+      "title": "UpcomingEpisode",
+      "type": "object"
+    },
+    "UpcomingMovie": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "release": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Release"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "digital, physical or cinema",
+          "title": "Kind"
+        }
+      },
+      "title": "UpcomingMovie",
       "type": "object"
     },
     "UpdateStatus": {
@@ -3569,6 +4303,169 @@
         "update"
       ],
       "title": "Upkeep",
+      "type": "object"
+    },
+    "Watch": {
+      "additionalProperties": false,
+      "properties": {
+        "guest_mode": {
+          "default": false,
+          "title": "Guest Mode",
+          "type": "boolean"
+        },
+        "on_deck": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/WatchItem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Continue watching; null when Plex isn't set up",
+          "title": "On Deck"
+        },
+        "new_unwatched": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/WatchItem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Recently added and not watched yet",
+          "title": "New Unwatched"
+        },
+        "episodes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/UpcomingEpisode"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sonarr: airing in the next days; null when not set up",
+          "title": "Episodes"
+        },
+        "movies": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/UpcomingMovie"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Radarr: released in the next days; null when not set up",
+          "title": "Movies"
+        }
+      },
+      "title": "Watch",
+      "type": "object"
+    },
+    "WatchItem": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        },
+        "show": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Show"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        },
+        "genres": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Genres",
+          "type": "array"
+        },
+        "rating": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rating"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "added_at": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Added At"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "WatchItem",
       "type": "object"
     },
     "Weather": {

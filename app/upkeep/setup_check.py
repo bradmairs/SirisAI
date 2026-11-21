@@ -1,4 +1,4 @@
-"""What's not set up (7.37): "what am I missing?", GET /siris/upkeep/setup.
+"""What's not set up (7.49): "what am I missing?", GET /siris/upkeep/setup.
 
 SirisAI has many optional parts. This lists, for each, whether it's set up,
 what it would unlock, and the setting to change; then settings that are

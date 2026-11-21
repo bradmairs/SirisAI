@@ -1,4 +1,4 @@
-"""Shopping and meals tools (7.37) -- see app/household/meals.py."""
+"""Shopping and meals tools (7.49) -- see app/household/meals.py."""
 
 from __future__ import annotations
 

@@ -160,7 +160,7 @@ def test_search_by_date(client) -> None:  # type: ignore[no-untyped-def]
     tag = uuid.uuid4().hex[:8]
     old = _old_conversation(siris, [("user", f"tell me about {tag} last week"), ("assistant", "ok")], hours_ago=24 * 6)
     new = _old_conversation(siris, [("user", f"tell me about {tag} today"), ("assistant", "ok")], hours_ago=1)
-    # The day the newer one happened (an hour ago is yesterday just after midnight UTC).
+    # The day the "new" one fell on (an hour ago): just after midnight UTC that's yesterday, not today.
     today = (datetime.now(UTC) - timedelta(hours=1)).date().isoformat()
     ids = [c["conversation_id"] for c in summaries.search(siris, tag, since=today)]
     assert new in ids and old not in ids

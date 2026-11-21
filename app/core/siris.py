@@ -342,8 +342,8 @@ from app.goals import review as _goal_review  # noqa: F401 - registers its atten
 from app.upkeep import tool_usage as _tool_usage  # noqa: F401 - registers its attention actions (7.27)
 from app.learning import fixes as learned_fixes  # 7.27: also registers its attention actions
 from app.media import watching  # 7.27: watchlist and next seasons (registers its attention actions)
-from app.memory import tidy as _memory_tidy  # noqa: F401 - 7.37: registers its attention actions
-from app.capabilities import review as _capability_review  # noqa: F401 - 7.37: registers its attention actions
+from app.memory import tidy as _memory_tidy  # noqa: F401 - 7.49: registers its attention actions
+from app.capabilities import review as _capability_review  # noqa: F401 - 7.49: registers its attention actions
 from app.plugins.builtin.upkeep import UpkeepStatusTool
 from app.upkeep import issues as _issues, updates as _updates  # noqa: F401 - register their attention actions
 from app.upkeep import models as upkeep_models
@@ -1145,7 +1145,7 @@ class SirisAI:
 
         from app.plugins.builtin.meals import MEAL_TOOLS
 
-        for meal_tool in MEAL_TOOLS:   # 7.37: shopping and meals
+        for meal_tool in MEAL_TOOLS:   # 7.49: shopping and meals
             self.tools.register(meal_tool(self))
         for everyday_tool in EVERYDAY_TOOLS:
             if everyday_tool.name in ("create_state_reminder", "state_reminders") and getattr(self, "_home_assistant_client", None) is None:

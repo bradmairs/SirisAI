@@ -139,10 +139,10 @@ _HINTS: list[tuple[frozenset[str], tuple[str, ...]]] = [
     (frozenset("habit habits automate automatically routine suggestion suggestions".split()), ("habit_suggestions", "accept_habit_suggestion")),
     (frozenset("yourself own autonomously today fixed".split()), ("what_did_you_do", "remediation_status")),
     (frozenset("voice voices recognise recognize".split()), ("list_voiceprints", "delete_voiceprint")),
-    # 7.37: meals (app/household/meals.py)
+    # 7.49: meals (app/household/meals.py)
     (frozenset("cook cooking dinner lunch breakfast meal meals recipe recipes fridge pantry eat eating ingredients".split()),
      ("meal_", "meal_context", "home_assistant_get_todo_items")),
-    # 7.37: "tell me when..." (app/reminders/watches.py)
+    # 7.49: "tell me when..." (app/reminders/watches.py)
     (frozenset("tell let know alert notify ping when once until".split()), ("watch_for", "watches", "create_state_reminder")),
     # 7.27: music by voice (app/plugins/builtin/music.py)
     (frozenset("music song songs playing play album artist playlist radio jazz rock pause speaker speakers tune tunes sings singing".split()),
