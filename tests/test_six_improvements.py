@@ -72,7 +72,7 @@ def _open(siris: SirisAI) -> list[dict[str, Any]]:
 def test_right_answers_pass_and_raise_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     siris = _siris({"temperature": "It's 15 degrees and cloudy.", "lounge": "The Lounge light is off.", "day": "It's Friday."}, monkeypatch)
     result = self_test.run(siris, NOW)
-    assert (result["passed"], result["failed"], result["skipped"]) == (3, 0, ["plex"])  # no Tautulli here (7.17)
+    assert (result["passed"], result["failed"], result["skipped"]) == (3, 0, ["plex", "brain1", "brain2", "brain3"])  # no Tautulli or Siris here
     assert siris._asked[1] == "Is the Lounge light on or off right now?"   # never the unavailable one
     assert _open(siris) == []
     assert siris.state.get(self_test.RESULTS_KEY)["passed"] == 3
@@ -101,7 +101,7 @@ def test_missing_services_are_skipped_and_a_failed_turn_is_wrong(monkeypatch: py
 
     monkeypatch.setattr(self_test, "_ask", broken)
     result = self_test.run(siris, NOW)
-    assert result["skipped"] == ["weather", "home", "plex"] and result["failed"] == 1
+    assert result["skipped"] == ["weather", "home", "plex", "brain1", "brain2", "brain3"] and result["failed"] == 1
     assert "model unreachable" in result["results"][0]["answer"]
 
 
@@ -218,3 +218,28 @@ def test_a_tool_call_written_as_text_is_taken_as_the_call() -> None:
                  "It's 14 degrees.", None):
         assert text_tool_call(text, tools) is None
     assert text_tool_call('{"name": "weather_current", "parameters": {}}', None) is None
+
+
+def test_questions_about_brad_are_checked_against_his_notes(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import json
+
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "eval_questions.json").write_text(json.dumps([
+        {"q": "what's my brother's name?", "expect": ["Ryan Mairs"], "answer": ["Ryan"]},
+        {"q": "when are we getting a puppy?", "expect": ["Getting a Puppy"], "answer": ["March"]},
+        {"q": "where did I grow up?", "expect": ["Brad Mairs"], "answer": ["Moutere"]},
+        {"q": "no answer recorded", "expect": ["X"]},
+    ]))
+
+    class Brain:
+        path = str(tmp_path)
+
+    siris = _siris({"temperature": "15 degrees", "lounge": "Off.", "day": "Friday", "brother": "Your brother is Ryan.",
+                    "puppy": "Around March 2027.", "grow up": "Auckland, I think."}, monkeypatch)
+    siris.second_brain = Brain()
+    result = self_test.run(siris, NOW)
+    brain = {r["question"]: r["right"] for r in result["results"] if r["name"].startswith("brain")}
+    assert brain == {"What's my brother's name?": True, "When are we getting a puppy?": True, "Where did I grow up?": False}
+    items = {i["key"]: i for i in _open(siris)}
+    wrong = next(i for k, i in items.items() if k.startswith("self_test:brain"))
+    assert "your notes say Moutere" in wrong["body"]

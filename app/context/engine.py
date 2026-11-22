@@ -12,6 +12,7 @@ nothing here should ever be the reason a chat call fails.
 """
 
 import contextvars
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
@@ -27,6 +28,36 @@ _MAX_EVENTS = 3
 _MAX_MEMORIES = 3
 # Below this, a second-brain search hit is one weak word in a long question.
 _MIN_BRAIN_SCORE = 3
+_TOP_CARD_CHARS = 800
+_CARD_CHARS = 300
+_PERSONAL = re.compile(r"\b(my|i|me|our|we|i'm|i've|mine)\b", re.I)
+_QUESTION = re.compile(r"^\s*(what|when|where|who|whom|which|how|why|do|does|did|is|are|was|were|have|has|can)\b|\?\s*$", re.I)
+_NOT_KNOWLEDGE = re.compile(r"\b(weather|temperature|forecast|light|lights|turn|switch|play|pause|set|timer|remind|alarm|music|"
+                            r"song|tv|plex|watch|news|traffic|today|tonight|tomorrow|now|calendar|meeting|schedule|spent|budget)\b", re.I)
+UNKNOWN_KEY = "second_brain_unknown_questions"   # app/second_brain/jobs.py asks about these each week
+
+
+def _remember_unknown(siris: "SirisAI", prompt: str) -> None:
+    """A question about the user's own world that Siris had no note on (4.27.0): kept, so the weekly
+    gap questions can ask for the answer and the next time it's known. Live data (weather, lights,
+    calendar, spending) and the nightly self-test's own questions aren't knowledge gaps."""
+    from app.core.user_context import get_turn_role
+
+    text = " ".join(prompt.split())
+    if get_turn_role() == "self_test" or len(text.split()) < 4 or len(text) > 200:
+        return
+    if not (_PERSONAL.search(text) and _QUESTION.search(text)) or _NOT_KNOWLEDGE.search(text):
+        return
+    try:
+        from app.core import clock
+
+        known = list(siris.state.get(UNKNOWN_KEY) or [])
+        if any(u["question"].lower() == text.lower() for u in known):
+            return
+        day = clock.now_local(siris.settings.timezone).date().isoformat()
+        siris.state.set(UNKNOWN_KEY, (known + [{"date": day, "question": sanitize_untrusted(text, 200)}])[-30:])
+    except Exception:  # noqa: BLE001 - best-effort
+        pass
 STATUS_SECONDS = 30
 _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="siris-context")
 
@@ -140,10 +171,17 @@ class ContextEngine:
             hits = brain.search(prompt, limit=limit)
         except Exception:
             return []
+        strong = [h for h in hits if h.get("score", 0) >= _MIN_BRAIN_SCORE]
+        if not strong:
+            _remember_unknown(siris, prompt)
         # "as of" says when the note was last added to: facts change, so answers can say how current they are.
-        return [
-            f"[{sanitize_untrusted(h['title'], 80)}{', as of ' + h['as_of'] if h.get('as_of') else ''}] "
-            + sanitize_untrusted(" ".join(h.get("excerpts", [])[:1]), 300)
-            for h in hits
-            if h.get("score", 0) >= _MIN_BRAIN_SCORE
-        ]
+        # 4.27.0: each note comes as its card (status and due date, what's true now, newest update) from the
+        # vault engine 3.02, the best match at full size, instead of one 300-character keyword snippet.
+        out = []
+        for i, h in enumerate(strong):
+            size = _TOP_CARD_CHARS if i == 0 else _CARD_CHARS
+            text = h.get("card") or " ".join(h.get("excerpts", [])[:1])
+            checked = ", checked by the user" if h.get("checked") else ""
+            out.append(f"[{sanitize_untrusted(h['title'], 80)}{', as of ' + h['as_of'] if h.get('as_of') else ''}{checked}] "
+                       + sanitize_untrusted(text, size))
+        return out
