@@ -417,8 +417,16 @@ def wind_down_check(siris: "SirisAI", now: datetime | None = None) -> dict[str, 
 
 
 def _wind_down(siris: "SirisAI", item: dict[str, Any], payload: dict[str, Any], trigger: str) -> tuple[Any, str]:
+    from app.protocols.service import summary
+
     result = siris.run_tool("run_protocol", {"name": "wind_down"}, confirmed=True, trigger=trigger)
-    return result, "Winding down"
+    steps = (result or {}).get("steps") if isinstance(result, dict) else None
+    if steps and all(s.get("status") == "error" for s in steps):
+        why = summary(result).removeprefix("That didn't work: ").rstrip(".")
+        raise RuntimeError(why[:1].upper() + why[1:])
+    note = summary(result) if isinstance(result, dict) else ""
+    # "Done, except dim the lights that are on: Home Assistant couldn't be reached." Still counts as winding down.
+    return result, f"Winding down. {note}".strip() if note else "Winding down"
 
 
 # -- goals ---------------------------------------------------------------------------------
