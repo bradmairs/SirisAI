@@ -8,7 +8,7 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
-## 4.26.0 — 2026-11-22
+## 4.27.0 — 2026-11-22
 
 - Smarter answers from Siris: note cards, questions it couldn't answer come back, answer checks about you, and short summaries on busy notes
 - **Note cards in chat** (`context/engine.py`):
@@ -24,6 +24,11 @@ numbered milestones hold the detailed history.
 - **Short summaries on busy notes:**
   - Each night, up to three notes with 4 or more dated updates whose summary is missing or out of date get an "In short" block, written by the local model from the note (`write_summaries`, engine `summaries`).
   - Search snippets and cards read it first.
+
+## 4.26.0 — 2026-11-22
+
+- The README no longer says the old GitHub tags and releases were recreated: they keep their old numbers for now.
+- Siris link suggestions end: Skip and Looks right, and the links card only asks about this week's batch and unsure auto links
 
 ## 4.25.0 — 2026-11-22
 

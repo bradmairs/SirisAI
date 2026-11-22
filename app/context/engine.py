@@ -38,7 +38,7 @@ UNKNOWN_KEY = "second_brain_unknown_questions"   # app/second_brain/jobs.py asks
 
 
 def _remember_unknown(siris: "SirisAI", prompt: str) -> None:
-    """A question about the user's own world that Siris had no note on (4.26.0): kept, so the weekly
+    """A question about the user's own world that Siris had no note on (4.27.0): kept, so the weekly
     gap questions can ask for the answer and the next time it's known. Live data (weather, lights,
     calendar, spending) and the nightly self-test's own questions aren't knowledge gaps."""
     from app.core.user_context import get_turn_role
@@ -175,7 +175,7 @@ class ContextEngine:
         if not strong:
             _remember_unknown(siris, prompt)
         # "as of" says when the note was last added to: facts change, so answers can say how current they are.
-        # 4.26.0: each note comes as its card (status and due date, what's true now, newest update) from the
+        # 4.27.0: each note comes as its card (status and due date, what's true now, newest update) from the
         # vault engine 3.02, the best match at full size, instead of one 300-character keyword snippet.
         out = []
         for i, h in enumerate(strong):

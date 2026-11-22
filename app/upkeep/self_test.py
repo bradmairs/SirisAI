@@ -133,7 +133,7 @@ def _brain_questions(siris: "SirisAI") -> list[dict[str, Any]]:
 
 
 def _brain_check_for(slot: int):
-    """4.26.0: three questions about Brad's own world each night, rotating, checked against the answer the
+    """4.27.0: three questions about Brad's own world each night, rotating, checked against the answer the
     vault records, so a wrong answer from his notes shows up the next morning (the search check only
     asks whether the right note is found)."""
     def build(siris: "SirisAI", now: datetime) -> dict[str, Any] | None:

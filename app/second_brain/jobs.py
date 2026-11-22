@@ -1594,7 +1594,7 @@ SUMMARIES_PER_NIGHT = 3
 
 
 async def write_summaries(siris: "SirisAI") -> dict[str, Any]:
-    """A short "In short" block at the top of busy notes (4.26.0): notes with 4 or more dated updates read
+    """A short "In short" block at the top of busy notes (4.27.0): notes with 4 or more dated updates read
     like a log, so search snippets and answers caught random lines. The vault engine (3.02) lists the
     notes whose summary is missing or older than their newest update; a few are written each night."""
     brain = siris.second_brain

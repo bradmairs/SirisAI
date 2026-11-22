@@ -415,14 +415,18 @@ def _sync_pending(siris: "SirisAI") -> None:
 def _sync_brain(siris: "SirisAI") -> None:
     insights = siris.second_brain.insights(days=7)
     wanted = []
-    pending = int(insights.get("pending_auto_links") or 0)
-    unsure = len(insights.get("suggested_links") or [])
-    if pending or unsure:
+    # 4.26: only what's yours to decide: this week's batch (it ends) and unsure auto links to look over.
+    # Links about to be made automatically need nothing from you, so they don't ask.
+    batch = insights.get("link_batch") or {}
+    unsure = int(batch["left"]) if "left" in batch else len(insights.get("suggested_links") or [])
+    review = len(insights.get("auto_linked") or [])
+    if unsure or review:
         parts = []
-        if pending:
-            parts.append(f"{pending} link{'s' if pending != 1 else ''} about to be made automatically")
         if unsure:
-            parts.append(f"{unsure} pair{'s' if unsure != 1 else ''} that could be linked")
+            of = f" of {batch['total']}" if batch.get("total") else ""
+            parts.append(f"{unsure}{of} suggested link{'s' if (batch.get('total') or unsure) != 1 else ''} left this week")
+        if review:
+            parts.append(f"{review} automatic link{'s' if review != 1 else ''} to look over")
         wanted.append(
             {
                 "key": "brain:links",
