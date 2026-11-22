@@ -342,3 +342,38 @@ class EngineeringCalcNoteTool(Tool):
             result = self._brain.learn([{"title": title.strip() or calculator, "content": markdown, "tags": tags, "source": "sirisos", "links": [match["name"]] if match else []}])
             saved = result[0] if result else None
         return {"markdown": markdown, "results": calc.get("results"), "project": match, "standards": standards, "saved_to_brain": saved}
+
+
+class SirisOSFactsTool(Tool):
+    """SirisOS's own data (SirisOS 11.3): what Brad spent, his budget, subscriptions, dinners, goals and today's plan."""
+
+    name = "sirisos_facts"
+    description = (
+        "Read Brad's own data kept in SirisOS. topic: 'spending' (what he spent, total and by shop and budget line, "
+        "for a period, optionally only what matches q, e.g. q='fuel'), 'budget' (this month's lines: plan, spent, "
+        "left, and the cash flow to the next pay day), 'subscriptions' (repeating charges from the bank, price rises), "
+        "'meals' (dinners planned lately; q finds when a dish was last on the plan), 'goals' (this year's goals, pace "
+        "and a step for any behind) or 'plan' (today's plan). Use for 'what did I spend on fuel last month', "
+        "'when did we last have spag bol', 'how far behind am I on my CPD goal', 'what's left in the groceries "
+        "budget', 'what subscriptions do I have', 'what's my plan today'."
+    )
+    permission = ToolPermission.READ
+    parameters = {
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string", "enum": ["spending", "budget", "subscriptions", "meals", "goals", "plan"]},
+            "q": {"type": "string", "description": "Words to match: a shop or budget line for spending, a dish for meals."},
+            "period": {"type": "string", "enum": ["this-week", "last-week", "this-month", "last-month", "last-30-days", "this-year"],
+                       "description": "For spending; default this-month."},
+            "start": {"type": "string", "description": "YYYY-MM-DD, instead of period."},
+            "end": {"type": "string", "description": "YYYY-MM-DD, instead of period."},
+        },
+        "required": ["topic"],
+    }
+
+    def __init__(self, client: SirisOSClient) -> None:
+        self._client = client
+
+    def run(self, topic: str = "spending", q: str | None = None, period: str | None = None, start: str | None = None,
+            end: str | None = None, **kwargs: Any) -> Any:
+        return self._client.facts(topic, q=q or None, period=period or None, start=start or None, end=end or None)

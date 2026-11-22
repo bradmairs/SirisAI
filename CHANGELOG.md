@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.25.0 — 2026-11-22
+
+- SirisAI answers from SirisOS's own data: what you spent, the budget, subscriptions, dinners, goals and today's plan (sirisos_facts)
+
 ## 4.24.2 — 2026-11-22
 
 - Versions are now Section.Feature.Fix, and the whole history renumbered that way (7.61 became 4.24.1)
