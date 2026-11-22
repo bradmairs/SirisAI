@@ -115,7 +115,46 @@ def _plex_check(siris: "SirisAI", now: datetime) -> dict[str, Any] | None:
     return {"name": "plex", "question": "What have I watched on Plex recently?", "judge": judge}
 
 
-CHECKS = (_weather_check, _home_check, _date_check, _plex_check)
+def _brain_questions(siris: "SirisAI") -> list[dict[str, Any]]:
+    """Questions about Brad with a known answer, from the vault's search check (tools/eval_questions.json,
+    entries with an "answer": words a right answer contains)."""
+    import json
+    from pathlib import Path
+
+    brain = getattr(siris, "second_brain", None)
+    if brain is None:
+        return []
+    path = Path(str(brain.path)) / "tools" / "eval_questions.json"
+    try:
+        cases = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [c for c in cases if isinstance(c, dict) and c.get("q") and c.get("answer")]
+
+
+def _brain_check_for(slot: int):
+    """4.26.0: three questions about Brad's own world each night, rotating, checked against the answer the
+    vault records, so a wrong answer from his notes shows up the next morning (the search check only
+    asks whether the right note is found)."""
+    def build(siris: "SirisAI", now: datetime) -> dict[str, Any] | None:
+        cases = _brain_questions(siris)
+        if len(cases) <= slot:
+            return None
+        case = cases[(now.toordinal() * BRAIN_QUESTIONS_PER_NIGHT + slot) % len(cases)]
+        expected = [str(a) for a in case["answer"]] if isinstance(case["answer"], list) else [str(case["answer"])]
+
+        def judge(answer: str) -> tuple[bool, str]:
+            return any(e.lower() in answer.lower() for e in expected), f"your notes say {' / '.join(expected)}"
+
+        return {"name": f"brain{slot + 1}", "question": case["q"][:1].upper() + case["q"][1:], "judge": judge}
+
+    build.__name__ = f"_brain{slot + 1}_check"
+    return build
+
+
+BRAIN_QUESTIONS_PER_NIGHT = 3
+CHECKS = (_weather_check, _home_check, _date_check, _plex_check,
+          *(_brain_check_for(i) for i in range(BRAIN_QUESTIONS_PER_NIGHT)))
 
 
 async def _ask(siris: "SirisAI", conversation_id: str, question: str) -> str:

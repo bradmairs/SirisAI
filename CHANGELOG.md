@@ -8,6 +8,23 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.26.0 — 2026-11-22
+
+- Smarter answers from Siris: note cards, questions it couldn't answer come back, answer checks about you, and short summaries on busy notes
+- **Note cards in chat** (`context/engine.py`):
+  - Each matching note now comes to the model as its card from vault engine 3.02: its status and due date, what's true now, and its newest update. The best match gets up to 800 characters, the rest 300, and notes you've checked are marked so.
+  - Before, each note was one 300-character keyword snippet. "What's the status of SirisHydro?" had the SirisHydro note third, with nothing saying it's on hold.
+- **Questions Siris couldn't answer come back:**
+  - A question about your own world ("my", "I", "we" plus a question) that found no good note is kept, up to 30.
+  - The weekly gap questions now start with up to two of them: `On 2026-11-20 you asked "…" and Siris had nothing on it. What's the answer?`
+  - Live data (weather, lights, calendar, spending, Plex) and the self-test's own questions are left out.
+- **Answer checks about you:**
+  - The nightly self-test now also asks three rotating questions from the vault's search check that have an expected `answer`: "What's my brother's name?" should say Ryan, "When are we getting a puppy?" should say March.
+  - A wrong answer goes to the feed like the other self-test checks.
+- **Short summaries on busy notes:**
+  - Each night, up to three notes with 4 or more dated updates whose summary is missing or out of date get an "In short" block, written by the local model from the note (`write_summaries`, engine `summaries`).
+  - Search snippets and cards read it first.
+
 ## 4.25.0 — 2026-11-22
 
 - SirisAI answers from SirisOS's own data: what you spent, the budget, subscriptions, dinners, goals and today's plan (sirisos_facts)

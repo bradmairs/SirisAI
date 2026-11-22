@@ -104,3 +104,31 @@ def test_chat_skips_context_when_use_context_false(client: TestClient) -> None:
 
     sent_messages = fake_llm.calls[0]
     assert all(m["role"] != "system" for m in sent_messages)
+
+
+def test_notes_come_as_cards_and_unknown_questions_are_kept() -> None:
+    from app.context import engine as ctx
+    from app.core.config import Settings
+    from app.core.siris import SirisAI
+
+    class Brain:
+        def __init__(self, hits):
+            self.hits = hits
+
+        def search(self, q, limit=10):
+            return self.hits
+
+    siris = SirisAI(settings=Settings())
+    siris.state.set(ctx.UNKNOWN_KEY, [])
+    card = "SirisHydro (status: on hold) — An AI tool idea. " + "x" * 2000
+    siris.second_brain = Brain([{"title": "SirisHydro", "score": 15, "card": card, "excerpts": ["status words"], "as_of": "2026-11-19", "checked": "2026-11-20"},
+                                {"title": "SirisOS", "score": 3, "card": "SirisOS (status: active) — " + "y" * 900, "excerpts": []}])
+    notes = ctx.ContextEngine._brain_notes(siris, "what's the status of SirisHydro?")
+    assert notes[0].startswith("[SirisHydro, as of 2026-11-19, checked by the user] SirisHydro (status: on hold)")
+    assert len(notes[0]) < 900 and len(notes[1]) < 400
+
+    siris.second_brain = Brain([])
+    ctx.ContextEngine._brain_notes(siris, "what car does my brother drive?")
+    ctx.ContextEngine._brain_notes(siris, "what's the weather like for my run?")   # live data, not a gap
+    ctx.ContextEngine._brain_notes(siris, "turn on the lights")                    # not a question
+    assert [u["question"] for u in siris.state.get(ctx.UNKNOWN_KEY)] == ["what car does my brother drive?"]

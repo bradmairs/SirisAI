@@ -1199,3 +1199,26 @@ def test_a_debrief_with_no_project_goes_on_the_project_it_names() -> None:
     assert jobs.file_debrief(siris, DAY, decided="Melrose pumps go to tender in March")["filed"] == "Melrose East Pump Station"
     assert brain.decisions == [("Melrose pumps go to tender in March", "Melrose East Pump Station")]
     assert jobs.file_debrief(siris, DAY, went_wrong="Too many meetings")["filed"] == "Work Debriefs"
+
+
+def test_busy_notes_get_a_short_summary() -> None:
+    siris = _siris()
+    brain = siris.second_brain = FakeBrain({"Gym Training": "Lifting.\n\n## Updates\n\n### 2026-11-01\nBench 100.\n"})
+    brain.summaries = lambda limit=10: [{"title": "Gym Training", "updates": 5, "newest": "2026-11-17", "summary_as_of": None}]  # type: ignore[attr-defined]
+    blocks: list[tuple[str, str, str]] = []
+    brain.set_block = lambda title, name, text: blocks.append((title, name, text)) or {"action": "set"}  # type: ignore[attr-defined]
+    siris.llm = FakeLLM("Here you go:\n- Training three days a week.\n- Bench best 115 kg.")
+    assert asyncio.run(jobs.write_summaries(siris)) == {"written": ["Gym Training"]}
+    title, name, text = blocks[0]
+    assert (title, name) == ("Gym Training", "summary")
+    assert text.startswith("## In short\n*Summary as of 2026-11-17") and "- Bench best 115 kg." in text and "Here you go" not in text
+
+
+def test_unanswered_questions_come_back_as_gap_questions() -> None:
+    siris = _siris(brain_gap_questions=3)
+    siris.second_brain = FakeBrain(gaps=[{"title": "Arr Suite", "kind": "fill_in", "detail": "how they connect"}])
+    siris.state.set(jobs.UNKNOWN_KEY, [{"date": "2026-10-03", "question": "what car does Dom drive?"}])
+    siris._notify_client = FakeNotify()
+    assert jobs.ask_gap_questions(siris, DAY)["asked"] == ["what car does Dom drive?", "Arr Suite"]
+    assert 'On 2026-10-03 you asked "what car does Dom drive?" and Siris had nothing on it.' in siris._notify_client.sent[0][1]
+    assert siris.state.get(jobs.UNKNOWN_KEY) == []

@@ -194,7 +194,7 @@ class SecondBrainClient:
 
     def review_queue(self, count: int = 3) -> list[dict]:
         """Notes Siris wrote that Brad hasn't checked, most connected first:
-        `title`, `path`, `links`, `as_of` and an `excerpt`."""
+        `title`, `path`, `links`, `as_of`, an `excerpt` and (vault engine 3.02) a `card`."""
         self._maybe_pull()
         return self._engine_call(["review", "--count", str(count), "--output", "json"])
 
@@ -393,6 +393,12 @@ class SecondBrainClient:
         """{birthdays: upcoming within `days`, quiet: people not heard about in `stale` days}."""
         self._maybe_pull()
         return self._engine_call(["people", "--days", str(days), "--stale", str(stale)])
+
+    def summaries(self, limit: int = 10) -> list[dict]:
+        """Busy notes whose short summary is missing or older than their newest update:
+        {title, updates, newest, summary_as_of}. Needs the vault engine 3.02."""
+        self._maybe_pull()
+        return self._engine_call(["summaries", "--limit", str(limit)])
 
     def set_birthday(self, name: str, when: str) -> dict:
         """Put `birthday:` (MM-DD or YYYY-MM-DD) on a person's note, found by name, alias or
