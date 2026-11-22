@@ -26,7 +26,6 @@ SirisAI runs in a container, so it can't rebuild itself. The work is split:
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -50,15 +49,20 @@ def update_dir(siris: "SirisAI") -> Path:
     return Path(siris.settings.update_dir) if siris.settings.update_dir else backups.data_dir(siris.settings) / "update"
 
 
-def as_decimal(version: str) -> Decimal | None:
+def as_version(version: str) -> tuple[int, int, int] | None:
+    """Section.Feature.Fix (4.24.1) as a tuple to compare (since 2026-11-22). The old decimal numbers (7.61) come
+    back as None: their releases were renumbered, so nothing compares against them any more."""
     try:
-        return Decimal(version.strip().lstrip("v"))
-    except (InvalidOperation, AttributeError):
+        parts = version.strip().lstrip("v").split(".")
+    except AttributeError:
         return None
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    return int(parts[0]), int(parts[1]), int(parts[2])
 
 
 def is_newer(candidate: str, current: str = __version__) -> bool:
-    a, b = as_decimal(candidate), as_decimal(current)
+    a, b = as_version(candidate), as_version(current)
     return a is not None and b is not None and a > b
 
 

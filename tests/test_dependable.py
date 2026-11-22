@@ -1,7 +1,6 @@
 """7.17: dependable answers, the voice, "me" everywhere, Plex suggestions and upkeep."""
 
 import asyncio
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -242,20 +241,23 @@ def test_version_guard_and_rebase(tmp_path: Path, monkeypatch: Any) -> None:
     bump = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(bump)  # type: ignore[union-attr]
     version, log, readme = tmp_path / "v.py", tmp_path / "CHANGELOG.md", tmp_path / "README.md"
-    version.write_text('__version__ = "6.88"\n')
-    log.write_text("# Changelog\n\n## 6.88 — 2026-11-19\n\n- Mine\n\n## 6.78 — 2026-11-18\n\n- Before\n")
-    readme.write_text("1. **Done** -- Old (6.78).\n2. **Done** -- Mine (6.88). Detail.\n")
+    version.write_text('__version__ = "4.12.0"\n')
+    log.write_text("# Changelog\n\n## 4.12.0 — 2026-11-19\n\n- Mine\n\n## 4.11.3 — 2026-11-18\n\n- Before\n")
+    readme.write_text("1. **Done** -- Old (4.11.3).\n2. **Done** -- Mine (4.12.0). Detail.\n")
     monkeypatch.setattr(bump, "VERSION_FILE", version)
     monkeypatch.setattr(bump, "CHANGELOG", log)
-    assert bump.check("6.79") == "6.88 follows main's 6.79"
+    assert bump.check("4.11.4") == "4.12.0 follows main's 4.11.4"
+    assert bump.check("7.61").startswith("4.12.0 is the first Section.Feature.Fix version")
     try:
-        bump.check("6.88")
+        bump.check("4.12.0")
         raise AssertionError("should fail")
     except SystemExit as exc:
-        assert "rebase 6.88" in str(exc)
-    assert bump.rebase("6.9", readme) == "7.0"   # significant stays significant
-    assert bump.current() == Decimal("7.0") and "## 7.0 — " in log.read_text() and "## 6.78 — " in log.read_text()
-    assert "Mine (7.0)" in readme.read_text() and "Old (6.78)" in readme.read_text()
+        assert "rebase 4.12.0" in str(exc)
+    assert bump.rebase("4.12.1", readme) == "4.13.0"   # a feature stays a feature
+    assert bump.current() == (4, 13, 0) and "## 4.13.0 — " in log.read_text() and "## 4.11.3 — " in log.read_text()
+    assert "Mine (4.13.0)" in readme.read_text() and "Old (4.11.3)" in readme.read_text()
+    assert bump.step((4, 9, 3), "feature") == (4, 10, 0) and bump.step((4, 9, 3), "section") == (5, 0, 0)
+    assert bump.step((4, 9, 9), "small") == (4, 9, 10)  # never rolls over
 
 
 def test_tool_usage_report(client: TestClient) -> None:

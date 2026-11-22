@@ -2,18 +2,24 @@
 
 ## Versions: bump with every change
 
-SirisAI was released as **1.0**. Every change merged to `main` bumps the
+SirisAI was released as **1.0.0**. Versions are **Section.Feature.Fix**
+(Brad's rule since 2026-11-22). Every change merged to `main` bumps the
 version in the same PR:
 
-- **+0.01**: small changes, such as a fix, a tweak, a setting, a small
-  tool, docs, or tests. `python scripts/bump_version.py small "<one line>"`
-- **+0.1**: significant changes, such as a new feature, a new integration,
-  or behaviour people will notice. `python scripts/bump_version.py significant "<one line>"`
+- **Fix** (+0.0.1): a fix or a minor change, such as a tweak, a setting,
+  a small tool, docs, or tests. `python scripts/bump_version.py fix "<one line>"`
+- **Feature** (+0.1.0): a new feature or a bigger upgrade, such as a new
+  integration or behaviour people will notice. `python scripts/bump_version.py feature "<one line>"`
+- **Section** (+1.0.0): only for a significant new area, like Health was.
+  `python scripts/bump_version.py section "<one line>"`
 
 The script updates `app/__init__.py` and adds a dated section at the top of
-`CHANGELOG.md`; add bullets there if one line isn't enough. Versions are
-decimals shown with at least one place: 1.0, 1.01, 1.1, 1.13. When a PR
-holds several changes, bump once, by the size of the largest. Once a new
+`CHANGELOG.md`; add bullets there if one line isn't enough. Each part counts
+on its own and never rolls over (4.9.0 plus a feature is 4.10.0), so a
+whole-number change always means a new section. When a PR holds several
+changes, bump once, by the size of the largest. The history before
+2026-11-22 was renumbered this way (7.61 became 4.24.1; each CHANGELOG
+section notes its old number). Once a new
 version reaches `main`, `.github/workflows/release.yml` tags it
 `v<version>` and publishes a GitHub release from its changelog section.
 The Docker image is tagged with the version too. Never tag by hand.
