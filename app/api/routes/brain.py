@@ -297,6 +297,24 @@ def link(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
+@router.post("/skip-link")
+def skip_link(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Skip a "could be linked" suggestion: it leaves this week's list and isn't suggested again."""
+    try:
+        return _brain(siris).skip(request.a, request.b)
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.post("/looks-right")
+def looks_right(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
+    """Keep a link Siris made itself: it leaves the auto-link review list for good."""
+    try:
+        return _brain(siris).looks_right(request.a, request.b)
+    except SecondBrainError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 @router.post("/unlink")
 def unlink(request: PairRequest, siris: SirisAI = Depends(get_siris)) -> dict:
     """Disconnect two linked notes; they're never linked automatically again."""

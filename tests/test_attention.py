@@ -179,7 +179,8 @@ def test_waiting_jobs_and_queued_notices_come_and_go() -> None:
 
 class FakeBrain:
     def insights(self, days: int = 30) -> dict[str, Any]:
-        return {"summary": {"inbox": 2}, "pending_auto_links": 3, "suggested_links": [{"a": "x", "b": "y"}]}
+        return {"summary": {"inbox": 2}, "pending_auto_links": 3, "suggested_links": [{"a": "x", "b": "y"}],
+                "link_batch": {"total": 8, "left": 1}, "auto_linked": [{"a": "p", "b": "q"}, {"a": "r", "b": "s"}]}
 
 
 def test_second_brain_reviews() -> None:
@@ -188,9 +189,22 @@ def test_second_brain_reviews() -> None:
     siris.attention._last_brain_sync = None
     attention.sync_all(siris)
     items = {i["key"]: i for i in siris.attention.list()}
-    assert items["brain:links"]["body"] == "3 links about to be made automatically; 1 pair that could be linked."
+    assert items["brain:links"]["body"] == "1 of 8 suggested links left this week; 2 automatic links to look over."
     assert items["brain:links"]["link"] == "brain:links" and items["brain:links"]["actions"] == []
     assert items["brain:inbox"]["title"] == "2 notes in Siris' inbox"
+
+
+class DoneBrain:
+    def insights(self, days: int = 30) -> dict[str, Any]:
+        return {"summary": {"inbox": 0}, "pending_auto_links": 5, "suggested_links": [], "link_batch": {"total": 8, "left": 0}}
+
+
+def test_a_finished_link_batch_asks_nothing() -> None:
+    siris = SirisAI(settings=Settings(timezone="UTC"))
+    siris.second_brain = DoneBrain()  # type: ignore[assignment]
+    siris.attention._last_brain_sync = None
+    attention.sync_all(siris)
+    assert "brain:links" not in {i["key"] for i in siris.attention.list()}
 
 
 def test_open_items_sort_urgent_first_and_counts() -> None:
