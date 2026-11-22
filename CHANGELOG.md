@@ -5,6 +5,10 @@ Every change merged to `main` bumps the version (`scripts/bump_version.py`):
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 7.61 — 2026-11-22
+
+- Wind down (and any protocol) carries on when Home Assistant can't be reached, and says so plainly instead of '[Errno 113] No route to host'
+
 ## 7.6 — 2026-11-21
 
 - Long conversations stay sharp, "tell me when...", a memory tidy-up, who's at the door, what's not set up, can't-do requests turned into suggestions, and shopping and meals

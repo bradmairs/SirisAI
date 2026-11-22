@@ -313,3 +313,33 @@ def test_entity_id_all_is_never_fuzzy_resolved_to_one_entity() -> None:
     siris.run_tool("home_assistant_call_service", {"domain": "light", "service": "turn_off", "entity_id": "all"})
     assert ("light", "turn_off", "all") in ha.calls
     assert ha.states["light.kitchen"]["state"] == "off" and ha.states["light.hall"]["state"] == "off"
+
+
+def test_wind_down_when_home_assistant_cant_be_reached_says_so_plainly_and_still_runs_the_rest() -> None:
+    """Brad pressed Wind down and got "SirisAI: That didn't work: [Errno 113] No route to host": looking up which
+    lights were on asked Home Assistant outside the step's own error handling, so the whole action failed."""
+    from app.health import insights
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("[Errno 113] No route to host", request=request)
+
+    siris = _siris(FakeHA())
+    siris._home_assistant_client = HomeAssistantClient(base_url="http://ha", token="t", transport=httpx.MockTransport(down))
+    protocol = {"name": "wind_down", "description": "test", "builtin": True, "steps": [
+        {"tool": service.HA, "arguments": {"domain": "light", "service": "turn_on", "entity_id": {"select": {"domain": "light", "state": "on"}}, "brightness_pct": 30},
+         "label": "Dim the lights that are on"},
+        {"tool": "set_guest_mode", "arguments": {"on": False}, "label": "Guest mode off"}]}
+    with patch.object(service, "get_protocol", return_value=protocol):
+        result = service.run(siris, "wind_down", "test")
+        assert [s["status"] for s in result["steps"]] == ["error", "ok"]  # the next step still ran
+        assert result["steps"][0]["error"] == "Home Assistant couldn't be reached"
+        assert service.summary(result) == "Done, except dim the lights that are on: Home Assistant couldn't be reached."
+        _, message = insights._wind_down(siris, {}, {}, "test")
+        assert message == "Winding down. Done, except dim the lights that are on: Home Assistant couldn't be reached."
+    # Nothing worked at all: one plain sentence, no errno.
+    protocol["steps"] = protocol["steps"][:1]
+    with patch.object(service, "get_protocol", return_value=protocol):
+        with pytest.raises(RuntimeError, match=r"^Dim the lights that are on: Home Assistant couldn't be reached$"):
+            insights._wind_down(siris, {}, {}, "test")
+    assert service.plain_error(OSError(113, "No route to host")) == "a device or service it needed couldn't be reached"
+    assert service.plain_error(ValueError("No such light")) == "No such light"

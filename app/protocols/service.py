@@ -297,6 +297,29 @@ def _undo_for(siris: "SirisAI", step: dict[str, Any], arguments: dict[str, Any],
     return undo
 
 
+_UNREACHABLE = ("no route to host", "errno 113", "connection refused", "errno 111", "name or service not known",
+                "temporary failure in name resolution", "network is unreachable", "timed out", "connecterror", "connecttimeout")
+
+
+def plain_error(exc: Exception, tool: str = "") -> str:
+    """A step's failure in words: "Home Assistant couldn't be reached" rather than "[Errno 113] No route to host"."""
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if any(k in text for k in _UNREACHABLE):
+        return "Home Assistant couldn't be reached" if tool == HA else "a device or service it needed couldn't be reached"
+    return str(exc)[:200]
+
+
+def summary(result: dict[str, Any]) -> str:
+    """What a run did, in a line: which steps worked and which didn't, and why."""
+    steps = result.get("steps") or []
+    ok = [s["step"] for s in steps if s.get("status") == "ok"]
+    bad = [s for s in steps if s.get("status") == "error"]
+    if not bad:
+        return ""
+    why = "; ".join(f"{s['step'].lower()}: {s['error']}" for s in bad)
+    return f"Done, except {why}." if ok else f"That didn't work: {why}."
+
+
 def run(siris: "SirisAI", name: str, trigger: str) -> dict[str, Any]:
     from app.core import guest
 
@@ -321,15 +344,17 @@ def run(siris: "SirisAI", name: str, trigger: str) -> dict[str, Any]:
             continue
         arguments = dict(step.get("arguments") or {})
         prior: dict[str, Any] = {}
-        if step["tool"] == HA:
-            arguments["entity_id"] = _expand_entities(siris, arguments.get("entity_id"))
-            if arguments["entity_id"] == []:
-                results.append({"step": label, "status": "skipped", "reason": "no matching entities"})
-                continue
-            prior["states"] = _prior_states(siris, arguments.get("domain", ""), arguments["entity_id"])
-        elif step["tool"] == "set_guest_mode":
-            prior["guest_on"] = guest.is_on(siris)
+        # Looking up which lights are on (and how things were, for undo) asks Home Assistant too: if it can't be
+        # reached, that step fails on its own and the rest still run (7.4x: wind down's reminder after "No route to host").
         try:
+            if step["tool"] == HA:
+                arguments["entity_id"] = _expand_entities(siris, arguments.get("entity_id"))
+                if arguments["entity_id"] == []:
+                    results.append({"step": label, "status": "skipped", "reason": "no matching entities"})
+                    continue
+                prior["states"] = _prior_states(siris, arguments.get("domain", ""), arguments["entity_id"])
+            elif step["tool"] == "set_guest_mode":
+                prior["guest_on"] = guest.is_on(siris)
             output = siris.run_tool(
                 step["tool"],
                 arguments,
@@ -339,7 +364,7 @@ def run(siris: "SirisAI", name: str, trigger: str) -> dict[str, Any]:
                 trigger=f"{trigger}: protocol '{proto['name']}' step {index} ({label})",
             )
         except Exception as exc:  # one failed step doesn't abandon the rest (a lockdown should still lock the doors)
-            results.append({"step": label, "status": "error", "error": str(exc)[:200]})
+            results.append({"step": label, "status": "error", "error": plain_error(exc, step["tool"])})
             continue
         results.append({"step": label, "status": "ok", "result": output})
         undo.extend(_undo_for(siris, step, arguments, prior))

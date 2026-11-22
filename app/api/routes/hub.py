@@ -211,7 +211,9 @@ async def attention_act(item_id: int, body: c.AttentionActRequest, request: Requ
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Attention action failed")
-        raise HTTPException(status_code=502, detail=f"That didn't work: {str(exc)[:300]}") from exc
+        from app.protocols.service import plain_error
+
+        raise HTTPException(status_code=502, detail=f"That didn't work: {plain_error(exc)[:300]}") from exc
     return c.AttentionActResult(item=item, result=json.loads(json.dumps(result, default=str)))
 
 
