@@ -332,6 +332,7 @@ from app.plugins.builtin.sirisos import (
     EngineeringStandardsSearchTool,
     SirisHydroAskTool,
     SirisOSAppsStatusTool,
+    SirisOSFactsTool,
 )
 from app.sirisos.client import SirisOSClient
 from app.plugins.builtin.car_parcels import CarPreconditionTool, CarStatusTool, ParcelAddTool, ParcelDoneTool, ParcelListTool
@@ -1070,6 +1071,7 @@ class SirisAI:
             self.tools.register(CareerCpdStatusTool(self._sirisos_client))
             self.tools.register(CareerChartershipStatusTool(self._sirisos_client))
             self.tools.register(EngineeringCalcNoteTool(self._sirisos_client, brain=self.second_brain))
+            self.tools.register(SirisOSFactsTool(self._sirisos_client))
 
         if self.settings.frigate_base_url:
             self._frigate_client = FrigateClient(

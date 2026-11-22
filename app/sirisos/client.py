@@ -66,6 +66,10 @@ class SirisOSClient:
         # Synthesis can take a while: SirisOS asks a model (SirisAI's, via the hub).
         return self._get("/api/v1/engineering/sirishydro/evidence", timeout=120.0, question=question, limit=limit)
 
+    def facts(self, topic: str, q: str | None = None, period: str | None = None, start: str | None = None, end: str | None = None) -> dict[str, Any]:
+        """SirisOS's own data (SirisOS 11.3): spending, budget, subscriptions, meals, goals or today's plan."""
+        return self._get("/api/v1/facts", topic=topic, q=q, period=period, start=start, end=end)
+
     def gym_sessions(self, month: str | None = None) -> list[dict[str, Any]]:
         """SirisGym's workouts for one month (YYYY-MM), newest first: summaries."""
         return self._get("/api/v1/gym/sessions", month=month).get("sessions") or []

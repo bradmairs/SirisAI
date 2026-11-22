@@ -145,3 +145,25 @@ def test_guest_mode_hides_project_names() -> None:
 
     assert is_personal_tool("engineering_projects", "")
     assert not is_personal_tool("engineering_calculate", "")
+
+
+def test_sirisos_facts_reads_spending_and_meals_with_the_key() -> None:
+    """SirisOS 11.3: SirisAI answers from SirisOS's own data (read only, through the service key)."""
+    from app.plugins.builtin.sirisos import SirisOSFactsTool
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        assert request.headers["authorization"] == f"Bearer {KEY}" and request.url.path == "/api/v1/facts"
+        p = request.url.params
+        if p["topic"] == "spending":
+            return httpx.Response(200, json={"topic": "spending", "period": "October 2026", "matching": p.get("q"), "spent": 135.5, "count": 2})
+        return httpx.Response(200, json={"topic": "meals", "last_time": {"date": "2026-11-12", "title": "Spag bol"}})
+
+    tool = SirisOSFactsTool(SirisOSClient("http://sirisos", KEY, transport=httpx.MockTransport(handler)))
+    out = tool.run(topic="spending", q="fuel", period="last-month")
+    assert out["spent"] == 135.5 and seen[-1].url.params["q"] == "fuel" and seen[-1].url.params["period"] == "last-month"
+    assert "start" not in seen[-1].url.params  # blanks aren't sent
+    assert tool.run(topic="meals", q="spag bol")["last_time"]["title"] == "Spag bol"
+    assert "sirisos_facts" in {t.name for t in SirisAI(settings=Settings(sirisos_url="http://sirisos", sirisos_service_key=KEY)).tools.list()}
