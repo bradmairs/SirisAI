@@ -120,12 +120,9 @@ latest_tag() {
   local out="$UPDATE_DIR/latest.json" tag
   [ -f "$out" ] && [ -z "$(find "$out" -mmin +55 2>/dev/null)" ] && return 0
   tag=$(git -C "$AI_SRC" ls-remote --tags --refs origin 'v*' 2>/dev/null | awk -F/ '{print $3}' | sed 's/^v//' \
-        | python3 -c 'import sys; from decimal import Decimal as D
+        | python3 -c 'import sys, re
 vs = [v.strip() for v in sys.stdin if v.strip()]
-ok = []
-for v in vs:
-    try: ok.append((D(v), v))
-    except Exception: pass
+ok = [(tuple(int(p) for p in v.split(".")), v) for v in vs if re.fullmatch(r"\d+\.\d+\.\d+", v)]
 print(max(ok)[1] if ok else "")' 2>/dev/null)
   [ -n "$tag" ] && printf '{"version": "%s", "checked_at": "%s", "via": "git"}\n' "$tag" "$(date -u +%FT%TZ)" >"$out"
 }

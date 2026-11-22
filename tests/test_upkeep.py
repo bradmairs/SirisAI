@@ -158,7 +158,7 @@ class FakeGitHub:
         if request.method == "POST" and request.url.path.endswith("/comments"):
             return httpx.Response(201, json={})
         if request.url.path.endswith("/releases/latest"):
-            return httpx.Response(200, json={"tag_name": "v9.9", "body": "- Big things", "html_url": "https://x/rel"})
+            return httpx.Response(200, json={"tag_name": "v9.9.0", "body": "- Big things", "html_url": "https://x/rel"})
         return httpx.Response(404)
 
 
@@ -214,21 +214,22 @@ def test_auto_mode_files_straight_away(tmp_path: Path, github: FakeGitHub) -> No
 # -- self-update, SirisAI's side ---------------------------------------------------------
 
 
-def test_versions_compare_as_decimals() -> None:
-    assert updates.is_newer("1.1", "1.09") and updates.is_newer("v2.0", "1.99")
-    assert not updates.is_newer("1.1", "1.1") and not updates.is_newer("junk", "1.0")
+def test_versions_compare_as_section_feature_fix() -> None:
+    assert updates.is_newer("4.10.0", "4.9.3") and updates.is_newer("v5.0.0", "4.24.1") and updates.is_newer("4.24.2", "4.24.1")
+    assert not updates.is_newer("4.24.1", "4.24.1") and not updates.is_newer("junk", "1.0.0")
+    assert not updates.is_newer("7.61", "4.24.1")  # the old decimal numbers were renumbered: never "newer"
 
 
 def test_a_new_release_is_offered_and_update_now_asks_the_updater(tmp_path: Path, github: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
     siris = _siris(tmp_path)
     assert updates.check(siris)["asked"]
     item = _items(siris, "updates")[0]
-    assert item["title"] == "SirisAI 9.9 is out" and "Big things" in item["body"]
+    assert item["title"] == "SirisAI 9.9.0 is out" and "Big things" in item["body"]
     attention.act(siris, item["id"], "apply")
     request = json.loads((tmp_path / "update" / "request.json").read_text())
-    assert request["version"] == "9.9" and request["from_version"] == __version__
+    assert request["version"] == "9.9.0" and request["from_version"] == __version__
     assert request["baseline_selection_accuracy"] == tool_choice.selection_report(siris)["accuracy"]
-    assert updates.request(siris, "9.9")["requested"] is False  # one at a time
+    assert updates.request(siris, "9.9.0")["requested"] is False  # one at a time
     assert updates.status(siris)["updater_missing"] is False
     assert updates.status(siris, datetime.now(UTC) + timedelta(minutes=16))["updater_missing"] is True
     updates.report(siris, datetime.now(UTC) + timedelta(minutes=16))
@@ -245,7 +246,7 @@ def test_auto_mode_requests_the_update_itself_and_off_never_checks(tmp_path: Pat
 def _status(tmp_path: Path, **fields: Any) -> None:
     folder = tmp_path / "update"
     folder.mkdir(exist_ok=True)
-    (folder / "status.json").write_text(json.dumps({"version": "9.9", "from_version": __version__, "finished_at": datetime.now(UTC).isoformat(), **fields}))
+    (folder / "status.json").write_text(json.dumps({"version": "9.9.0", "from_version": __version__, "finished_at": datetime.now(UTC).isoformat(), **fields}))
 
 
 def test_a_successful_update_is_reported_once(tmp_path: Path) -> None:
@@ -254,7 +255,7 @@ def test_a_successful_update_is_reported_once(tmp_path: Path) -> None:
     assert updates.report(siris)["state"] == "updated"
     assert updates.report(siris) is None
     item = _items(siris, "upkeep")[0]
-    assert item["title"] == "Updated to 9.9" and item["severity"] == "info"
+    assert item["title"] == "Updated to 9.9.0" and item["severity"] == "info"
 
 
 class FakeNotifyClient:
@@ -271,13 +272,13 @@ def test_a_rolled_back_update_is_pushed_with_its_log(tmp_path: Path) -> None:
     siris = _siris(tmp_path)
     phone = FakeNotifyClient()
     siris.tools._tools["notify"] = NotifyTool(phone)  # type: ignore[arg-type]
-    _status(tmp_path, state="rolled_back", detail="SirisAI 9.9 didn't come up healthy within 180s; rolled back to 1.2", log_tail="Traceback: boom")
+    _status(tmp_path, state="rolled_back", detail="SirisAI 9.9.0 didn't come up healthy within 180s; rolled back to 1.2", log_tail="Traceback: boom")
     updates.report(siris)
     item = _items(siris, "upkeep")[0]
-    assert item["title"] == "Update to 9.9 rolled back" and "Traceback: boom" in item["body"]
-    assert phone.sent[0]["title"] == "SirisAI: Update to 9.9 rolled back" and phone.sent[0]["priority"] == "high"
+    assert item["title"] == "Update to 9.9.0 rolled back" and "Traceback: boom" in item["body"]
+    assert phone.sent[0]["title"] == "SirisAI: Update to 9.9.0 rolled back" and phone.sent[0]["priority"] == "high"
     assert len(_items(siris, "upkeep")) == 1  # the push didn't add a second copy
-    assert siris.outcomes.counts(key="update:9.9")["undone"] >= 1
+    assert siris.outcomes.counts(key="update:9.9.0")["undone"] >= 1
 
 
 # -- eval-gated model trials -------------------------------------------------------------
@@ -372,9 +373,9 @@ def test_a_private_repo_is_checked_through_the_updaters_git_tag(tmp_path: Path, 
     with pytest.raises(RuntimeError, match="private.*make update"):
         updates.latest_release(siris)
     (tmp_path / "update").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "update" / "latest.json").write_text(json.dumps({"version": "9.9", "checked_at": datetime.now(UTC).isoformat(), "via": "git"}))
+    (tmp_path / "update" / "latest.json").write_text(json.dumps({"version": "9.9.0", "checked_at": datetime.now(UTC).isoformat(), "via": "git"}))
     got = updates.latest_release(siris)
-    assert got["version"] == "9.9" and got["via"] == "git" and got["url"].endswith("/releases/tag/v9.9")
+    assert got["version"] == "9.9.0" and got["via"] == "git" and got["url"].endswith("/releases/tag/v9.9.0")
     stale = datetime.now(UTC) - timedelta(days=3)
-    (tmp_path / "update" / "latest.json").write_text(json.dumps({"version": "9.9", "checked_at": stale.isoformat()}))
+    (tmp_path / "update" / "latest.json").write_text(json.dumps({"version": "9.9.0", "checked_at": stale.isoformat()}))
     assert updates.from_updater(siris) is None
