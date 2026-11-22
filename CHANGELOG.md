@@ -8,6 +8,11 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.26.0 — 2026-11-22
+
+- The README no longer says the old GitHub tags and releases were recreated: they keep their old numbers for now.
+- Siris link suggestions end: Skip and Looks right, and the links card only asks about this week's batch and unsure auto links
+
 ## 4.25.0 — 2026-11-22
 
 - SirisAI answers from SirisOS's own data: what you spent, the budget, subscriptions, dinners, goals and today's plan (sirisos_facts)

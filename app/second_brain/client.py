@@ -247,6 +247,19 @@ class SecondBrainClient:
         return self._write(["unrelate", "--output", "json", "--", a, b],
                            message=lambda r: f"siris: {r.get('a', a)} and {r.get('b', b)} aren't related")
 
+    def skip(self, a: str, b: str) -> dict:
+        """Skip a "could be linked" suggestion: not now and not again, without saying
+        they aren't related (vault engine 3.02 or later). `action` is skipped or
+        already-skipped."""
+        return self._write(["skip", "--output", "json", "--", a, b],
+                           message=lambda r: f"siris: skipped linking {r.get('a', a)} and {r.get('b', b)}")
+
+    def looks_right(self, a: str, b: str) -> dict:
+        """Keep a link the engine made itself and take it off the review list for good
+        (vault engine 3.02 or later). `action` is kept or not-auto-linked."""
+        return self._write(["looks-right", "--output", "json", "--", a, b],
+                           message=lambda r: f"siris: kept the link between {r.get('a', a)} and {r.get('b', b)}")
+
     def remove_line(self, note: str, heading: str, starts: str) -> dict:
         """Take the lines starting with `starts` out from under a heading of a note."""
         return self._write(["remove-line", "--output", "json", "--", note, heading, starts],
