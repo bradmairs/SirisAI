@@ -48,7 +48,7 @@ class DockerClient:
         }
 
     def addresses(self) -> list[dict]:
-        """Every container's name, image, state, addresses on its Docker networks and ports (4.28.0, for
+        """Every container's name, image, state, addresses on its Docker networks and ports (4.29.0, for
         finding a service that moved)."""
         response = self._client.get("/containers/json", params={"all": "true"})
         response.raise_for_status()

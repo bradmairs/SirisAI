@@ -1,4 +1,4 @@
-"""What broke this week, and what fixed itself (4.28.0).
+"""What broke this week, and what fixed itself (4.29.0).
 
 A few lines for the Sunday reliability report, so a slow-burning problem
 (the self-test failing four nights running, 22-25 Nov 2026) shows up in one

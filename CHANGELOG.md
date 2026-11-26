@@ -8,6 +8,16 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.29.0 — 2026-11-26
+
+- Failures that repeat get louder, secrets scrubbed everywhere, services that moved are found, real failures kept as tests, every tool call checked, and the week's what-broke note
+- **Failures that repeat get louder.** The nightly self-test's Plex question failed four nights running (22-25 Nov) with only a feed card to show for it. Now a question that fails with a real error (the turn failing, the check failing, or a tool erroring) two nights running is pushed to your phone with the error, and on the third it's proposed as a GitHub issue (filed straight away with `SIRISAI_GITHUB_ISSUES_MODE=auto`). A wrong answer without an error stays a feed card.
+- **Secrets scrubbed everywhere** (`app/core/secrets.py`): every configured key, token and password, and anything that looks like a credential in a URL (`?apikey=`, `user:pass@`) or a header (`Bearer ...`), is replaced with `<secret>` in tool errors (before the model sees them), the audit log, feed items and GitHub issues. 4.27.1 fixed Tautulli on its own; this covers every integration.
+- **Services that moved are found** (`app/upkeep/rediscover.py`, every 15 minutes): an integration that doesn't answer is looked for at its container's current Docker address, by container name, and on the server's LAN address (`SIRISAI_SERVER_LAN_HOST`) on its published ports. The first that answers goes in the feed ("Hermes seems to have moved"); **Use it** saves the address as a Settings override and switches over without a restart. A stopped companion container (`SIRISAI_INTEGRATION_COMPANIONS`, e.g. `Obsidian=obsidian-relay`, or one named after the service) is offered as a restart to approve. The integration addresses are now on the Settings page under Connections.
+- **Real failures kept** (`app/learning/tool_failures.py`): every tool failure in real use is grouped by tool and error shape. A code bug (TypeError, KeyError, IndexError...) that happens twice is raised and proposed as an issue. `GET /siris/learning/tool-failures?format=replay` exports the calls for `tests/replays/`, which `tests/test_replays.py` checks still get through argument checking; the first two are this week's.
+- **Every tool call checked** (`app/core/tool_args.py`): before a tool runs, required arguments must be there, numbers and yes/no values must be numbers and yes/no, enum values must be listed ("Movie" is taken as "movie"), and numbers must be in range. A bad call gets "Can't run X: 'what' is required. Correct the arguments and call it again." instead of an error from inside the tool. `SIRISAI_CHECK_TOOL_ARGUMENTS`.
+- **What broke this week** (`app/upkeep/week_review.py`): the Sunday report now says how many self-test nights were all right, what broke and came back (and for how long), what's still broken, services found at a new address, code bugs real use turned up, and the versions it ran.
+
 ## 4.28.1 — 2026-11-26
 
 - Notes on the 4.28.0 effort change carry its released version

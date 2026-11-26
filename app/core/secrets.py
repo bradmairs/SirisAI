@@ -1,4 +1,4 @@
-"""Keep secrets out of everything SirisAI writes down (4.28.0).
+"""Keep secrets out of everything SirisAI writes down (4.29.0).
 
 4.27.1 found Tautulli's API key in error messages: httpx puts the whole
 request URL in its errors, and Tautulli takes its key in the URL. That

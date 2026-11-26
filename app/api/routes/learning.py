@@ -127,7 +127,7 @@ def forget_fix(tool: str, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]
 
 @router.get("/tool-failures", response_model=None)
 def tool_failures_list(format: str = "json", siris: SirisAI = Depends(get_siris)) -> Any:
-    """Tool failures from real use (4.28.0). ?format=replay gives lines for tests/replays/."""
+    """Tool failures from real use (4.29.0). ?format=replay gives lines for tests/replays/."""
     from app.learning import tool_failures
 
     if format == "replay":

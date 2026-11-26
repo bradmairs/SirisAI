@@ -164,7 +164,7 @@ def voice_speed(siris: "SirisAI", since: datetime, now: datetime) -> dict[str, A
 def text(report: dict[str, Any]) -> str:
     """The feed item's body: what went wrong, one line each, then the speed."""
     lines = list(report["problems"]) or ["Nothing failed."]
-    lines += report.get("week") or []   # 4.28.0: what broke and what fixed itself
+    lines += report.get("week") or []   # 4.29.0: what broke and what fixed itself
     speed = report["speed"]
     if speed["replies"]:
         lines.append(f"{speed['replies']} replies, typically {speed['p50_ms'] / 1000:.1f} s.")

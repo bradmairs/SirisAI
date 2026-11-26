@@ -1,4 +1,4 @@
-"""Bugs found by real use, kept as tests (4.28.0).
+"""Bugs found by real use, kept as tests (4.29.0).
 
 This week's live bugs came from what real services and the real model sent,
 which the fake services in the test suite never did: a number as text, a

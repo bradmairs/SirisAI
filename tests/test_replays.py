@@ -1,4 +1,4 @@
-"""Replays of tool calls that failed in real use (4.28.0, app/learning/tool_failures.py).
+"""Replays of tool calls that failed in real use (4.29.0, app/learning/tool_failures.py).
 
 Each line of tests/replays/*.jsonl is a real call: the tool and the exact
 arguments the model gave it (secrets already masked). Export more with

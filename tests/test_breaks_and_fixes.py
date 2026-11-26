@@ -1,4 +1,4 @@
-"""4.28.0: secrets scrubbed everywhere, escalation, services that moved, real failures kept,
+"""4.29.0: secrets scrubbed everywhere, escalation, services that moved, real failures kept,
 arguments checked, and the week's "what broke and what fixed itself"."""
 
 from datetime import UTC, datetime, timedelta

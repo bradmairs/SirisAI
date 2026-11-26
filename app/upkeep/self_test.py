@@ -271,7 +271,7 @@ def _errors(siris: "SirisAI", conversation_id: str, result: dict[str, Any]) -> l
 
 
 def _escalate(siris: "SirisAI", results: list[dict[str, Any]], conversation_id: str, now: datetime) -> None:
-    """4.28.0: the Plex question failed four nights in a row (22-25 Nov 2026) with only a feed card to show for it.
+    """4.29.0: the Plex question failed four nights in a row (22-25 Nov 2026) with only a feed card to show for it.
     The same question failing with a real error two nights running is pushed to the phone with the error; a third
     night it's proposed as a GitHub issue (filed straight away with SIRISAI_GITHUB_ISSUES_MODE=auto)."""
     from app.upkeep.alerts import raise_alert

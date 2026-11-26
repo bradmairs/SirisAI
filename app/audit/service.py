@@ -64,7 +64,7 @@ class AuditLogStore:
         verified: bool | None = None,
         verification_detail: str | None = None,
     ) -> None:
-        from app.core.secrets import scrub   # 4.28.0: no secrets in the audit log
+        from app.core.secrets import scrub   # 4.29.0: no secrets in the audit log
 
         arguments, result, error = scrub(arguments), scrub(result), scrub(error)
         with self._session_factory() as session:

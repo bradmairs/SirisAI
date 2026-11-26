@@ -180,7 +180,7 @@ def check(siris: "SirisAI", now: datetime | None = None) -> dict[str, list[str]]
             continue   # no longer failing, but nothing has proved it works yet (a tool nobody has called)
         gone = known.pop(key)
         title = gone["title"]
-        if verdict:   # 4.28.0: for the week's "broke and came back"
+        if verdict:   # 4.29.0: for the week's "broke and came back"
             try:
                 from app.upkeep import week_review
 

@@ -46,7 +46,7 @@ def coerce(arguments: dict[str, Any], schema: Any) -> dict[str, Any]:
     return {k: _one(v, (props.get(k) or {}).get("type")) if isinstance(props.get(k), dict) else v for k, v in arguments.items()}
 
 
-# 4.28.0: every call checked against the tool's own argument list before it runs, so a bad call gets a clear
+# 4.29.0: every call checked against the tool's own argument list before it runs, so a bad call gets a clear
 # message the model can correct, instead of an error from deep inside the tool.
 
 _JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "object": dict, "array": list}
