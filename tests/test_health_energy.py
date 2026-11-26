@@ -27,7 +27,7 @@ def _clean(client: TestClient):
             session.query(model).filter(model.user_id == USER).delete(synchronize_session=False)
         session.commit()
     s = SirisAI(settings=Settings())
-    for key in (f"health_readiness:{USER}", f"health_intraday:{USER}", overview.IMPORTS_KEY):
+    for key in (f"health_readiness:{USER}", f"health_intraday:{USER}", overview.IMPORTS_KEY, f"gym_hr_history:{USER}"):
         s.state.delete(key)
     set_current_user_id(USER)
     yield
@@ -365,6 +365,35 @@ def test_a_sirisgym_session_links_to_the_watch_and_each_set_gets_its_heart_rate(
     nolink = client.post("/siris/health/gym/session", json={"id": "s2", "title": "Pull", "started_at": utc("23:00:00"), "sets": []}, headers=H)
     assert nolink.status_code == 200 and not client.get("/siris/health/gym/session/s2/analysis", headers=H).json()["linked"]
     assert gym_effort._e1rm(100, 5) == 116.7
+
+
+def test_effort_is_against_each_exercises_own_heart_rate_range(client: TestClient) -> None:
+    """4.28: a lift that never raises heart rate much isn't always 'easy': effort is where this session's peaks sit
+    between the lowest and highest seen for that exercise, and the range moves with new highs and lows."""
+    from app.health import gym_effort
+
+    assert gym_effort.personal_effort([120, 125], 130) is None                 # too few sessions yet
+    assert gym_effort.personal_effort([120, 121, 122], 123) is None            # a range of 3 bpm says nothing
+    assert gym_effort.personal_effort([120, 125, 130], 125) == (6.0, 120, 130)
+    assert gym_effort.personal_effort([120, 125, 130], 140) == (10.0, 120, 140)  # a new high is the top of the range
+    assert gym_effort.personal_effort([120, 125, 130], 110) == (2.0, 110, 130)   # and a new low the bottom
+
+    test_a_sirisgym_session_links_to_the_watch_and_each_set_gets_its_heart_rate(client)  # the Watch workout and session s1
+    s = SirisAI(settings=Settings())
+    set_current_user_id(USER)
+    # Bench Press has peaked at 120-128 bpm before; the squat has no history.
+    s.state.set(f"gym_hr_history:{USER}", {"built": True, "exercises": {"bench-press": {
+        "old1": ["2026-10-01T07:00:00+00:00", 120.0], "old2": ["2026-10-08T07:00:00+00:00", 125.0], "old3": ["2026-10-15T07:00:00+00:00", 128.0]}}})
+    a = client.get("/siris/health/gym/session/s1/analysis", headers=H).json()
+    by = {e["id"]: e for e in a["exercises"]}
+    bench = by["bench-press"]
+    # 150 bpm is Bench Press's highest yet: 10 from heart rate, blended with RPE 7.
+    assert bench["effort_basis"] == "personal" and (bench["hr_low"], bench["hr_high"]) == (120, 150) and bench["effort"] == 8.5
+    assert by["back-squat"]["effort_basis"] == "max"
+    # This session is now part of Bench Press's range; analysing it again doesn't add it twice.
+    client.get("/siris/health/gym/session/s1/analysis", headers=H)
+    rows = s.state.get(f"gym_hr_history:{USER}")["exercises"]["bench-press"]
+    assert len(rows) == 4 and rows["s1"][1] == 150.0
 
 
 def test_each_heart_rate_reading_lines_sets_up_finely_and_finds_the_settle_time(client: TestClient) -> None:

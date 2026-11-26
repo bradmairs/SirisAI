@@ -18,8 +18,9 @@ then aligned with the heart rate around it:
 
 Per set: average and peak heart rate and the peak as a share of your maximum
 heart rate (the one strain uses). Per exercise: those across its working
-sets, an **effort** score 0-10 (from the peaks against your maximum, blended
-with your RPE where you gave one), the best estimated 1RM that session
+sets, an **effort** score 0-10 (4.28: from where the peaks sit in that
+exercise's own range of peaks over your past workouts, or against your maximum
+until it has three; blended with your RPE where you gave one), the best estimated 1RM that session
 (**strength**), and recovery. Per session: average and peak heart rate,
 energy, time in each zone, work against rest, the hardest exercise and the
 slowest recovery, in words. Health Auto Export's workout heart rate is
@@ -40,6 +41,13 @@ if TYPE_CHECKING:
 
 KEEP_SERIES = 150
 KEEP_SESSIONS = 300
+# 4.28: effort against each exercise's own heart-rate range. Not every lift raises heart rate much (a curl never will),
+# so against your maximum some always read easy. Each exercise's peak heart rate per session is kept, and effort is
+# where this session sits between the lowest and highest seen for it, moving as new highs and lows come in.
+HR_HISTORY = 40          # sessions per exercise the range is taken from (the newest)
+HR_MIN_SESSIONS = 3      # earlier sessions needed before the range is trusted
+HR_MIN_SPREAD = 8.0      # bpm between its lowest and highest; less, and the range says nothing
+HR_BACKFILL = 60         # sessions looked back over once, to start the ranges
 
 
 def _aware(text: Any) -> datetime | None:
@@ -116,6 +124,54 @@ def _step(points: list[Any]) -> float:
     return gaps[len(gaps) // 2] if gaps else 60.0
 
 
+def _history(siris: "SirisAI") -> dict[str, Any]:
+    return dict(siris.state.get(_key("gym_hr_history")) or {})
+
+
+def _record(siris: "SirisAI", session_id: str, started: str | None, peaks: dict[str, float]) -> None:
+    """Keep this session's average set peak for each exercise (once per session, so analysing again changes nothing)."""
+    if not peaks:
+        return
+    doc = _history(siris)
+    ex = dict(doc.get("exercises") or {})
+    for key, peak in peaks.items():
+        rows = dict(ex.get(key) or {})
+        rows[session_id] = [started or "", round(peak, 1)]
+        ex[key] = dict(sorted(rows.items(), key=lambda kv: kv[1][0])[-HR_HISTORY * 2:])
+    doc["exercises"] = ex
+    siris.state.set(_key("gym_hr_history"), doc)
+
+
+def _backfill(siris: "SirisAI") -> None:
+    """Once: the ranges start from the workouts already here, not from nothing."""
+    doc = _history(siris)
+    if doc.get("built"):
+        return
+    doc["built"] = True
+    siris.state.set(_key("gym_hr_history"), doc)
+    kept = siris.state.get(_key("gym_sessions")) or {}
+    for sid in sorted(kept, key=lambda k: str(kept[k].get("started_at")))[-HR_BACKFILL:]:
+        try:
+            a = analyse(siris, str(sid), personal=False)
+        except Exception:  # noqa: BLE001 - one odd workout doesn't stop the rest
+            continue
+        if a.get("linked"):
+            _record(siris, str(sid), kept[sid].get("started_at"),
+                    {e["id"]: e["peak_mean"] for e in a.get("exercises") or [] if e.get("id") and e.get("peak_mean")})
+
+
+def personal_effort(earlier: list[float], peak: float) -> tuple[float, float, float] | None:
+    """(effort 0-10, lowest, highest) from where `peak` sits in this exercise's own range, the range including it.
+    None until there are HR_MIN_SESSIONS earlier sessions spread over HR_MIN_SPREAD bpm or more. The lowest it's seen
+    reads 2 (it's still work), the highest 10."""
+    if len(earlier) < HR_MIN_SESSIONS:
+        return None
+    low, high = min([*earlier, peak]), max([*earlier, peak])
+    if high - low < HR_MIN_SPREAD:
+        return None
+    return round(2 + 8 * (peak - low) / (high - low), 1), low, high
+
+
 def keep_session(siris: "SirisAI", session: dict[str, Any]) -> None:
     kept = dict(siris.state.get(_key("gym_sessions")) or {})
     kept[str(session["id"])] = session
@@ -156,7 +212,7 @@ def link(siris: "SirisAI", session: dict[str, Any]) -> dict[str, Any] | None:
     return best
 
 
-def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
+def analyse(siris: "SirisAI", session_id: str, personal: bool = True) -> dict[str, Any]:
     from app.health import gym_coach, strain
 
     session = (siris.state.get(_key("gym_sessions")) or {}).get(session_id)
@@ -239,16 +295,32 @@ def analyse(siris: "SirisAI", session_id: str) -> dict[str, Any]:
         if (v := _e1rm(x["weight"], x["reps"])) and (e["e1rm"] is None or v > e["e1rm"]):
             e["e1rm"] = v
     ex_out = []
+    ranges: dict[str, Any] = {}
+    if personal:
+        _backfill(siris)
+        ranges = _history(siris).get("exercises") or {}
     for e in exercises.values():
         peak = mean(e["peaks"]) if e["peaks"] else None
         hr_effort = min(10.0, max(0.0, (peak / hr_max - 0.45) / 0.5 * 10)) if peak else None
+        basis, low, high, seen = "max", None, None, 0
+        if personal and peak and e["id"]:
+            earlier = [v[1] for sid, v in sorted((ranges.get(e["id"]) or {}).items(), key=lambda kv: kv[1][0]) if sid != session_id][-HR_HISTORY:]
+            seen = len(earlier)
+            mine = personal_effort(earlier, peak)
+            if mine:
+                hr_effort, low, high = mine
+                basis = "personal"
         rpe = mean(e["rpes"]) if e["rpes"] else None
         effort = round(mean([v for v in (hr_effort, rpe) if v is not None]), 1) if (hr_effort is not None or rpe is not None) else None
-        ex_out.append({"id": e["id"], "exercise": e["exercise"], "sets": e["sets"],
+        ex_out.append({"id": e["id"], "exercise": e["exercise"], "sets": e["sets"], "peak_mean": round(peak, 1) if peak else None,
+                       "effort_basis": basis, "hr_low": round(low) if low is not None else None, "hr_high": round(high) if high is not None else None,
+                       "hr_sessions": seen,
                        "settle_s": round(sorted(e["settle"])[len(e["settle"]) // 2]) if e["settle"] else None, "avg_hr": round(mean(e["avgs"])) if e["avgs"] else None,
                        "peak_hr": round(max(e["peaks"])) if e["peaks"] else None, "peak_share": round(peak / hr_max, 2) if peak else None,
                        "effort": effort, "rpe": round(rpe, 1) if rpe else None, "recovery_bpm": round(mean(e["rec"])) if e["rec"] else None,
                        "e1rm": e["e1rm"]})
+    if personal:
+        _record(siris, session_id, session.get("started_at"), {e["id"]: e["peak_mean"] for e in ex_out if e["id"] and e["peak_mean"]})
     in_session = [p for p in hr if start is None or p[0] >= start - timedelta(minutes=2)]
     zones = [0] * 6
     for p in in_session:
