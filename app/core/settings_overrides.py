@@ -69,6 +69,7 @@ EDITABLE: dict[str, tuple[str, str, str, bool]] = {
     "cloud_llm_monthly_calls": ("Speed", "Hosted model: questions a month", "Stops after this many", False),
     "server_lan_host": ("Connections", "This server's LAN address", "Where to look for a service that moved, e.g. 192.168.1.20", False),
     "integration_companions": ("Connections", "Companion containers", "Containers a service needs, e.g. Obsidian=obsidian-relay", False),
+    "auto_fix_known": ("Connections", "Apply known fixes by themselves", "Restart a stopped companion, switch to a moved service on this server, reload a model onto the GPU; off: ask first", False),
     "ollama_base_url": ("Connections", "Ollama address", "Set when a service moves (the feed offers it); keys stay in .env", True),
     "home_assistant_base_url": ("Connections", "Home Assistant address", "Set when a service moves (the feed offers it); keys stay in .env", True),
     "plex_base_url": ("Connections", "Plex address", "Set when a service moves (the feed offers it); keys stay in .env", True),

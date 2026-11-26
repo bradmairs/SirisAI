@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 FEED_PREFIX = "self_test:"
 RESULTS_KEY = "self_test_last"
+WRONG_KEY = "self_test_wrong_nights"  # 4.30.0: {question name: nights wrong in a row}
+WRONG_CARD_AFTER = 3
 HISTORY_KEY = "self_test_history"
 TEMPERATURE_TOLERANCE_C = 2.0
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -211,15 +213,26 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
             right, truth = False, f"the check itself failed ({exc})"
         results.append({"name": check["name"], "question": check["question"], "answer": answer[:300], "right": right, "truth": truth})
         key = FEED_PREFIX + check["name"]
+        wrong_nights = dict(siris.state.get(WRONG_KEY) or {})
         if right:
             siris.attention.resolve_key(key, "Answered right in the next self-test")
+            wrong_nights.pop(check["name"], None)
         else:
-            raise_alert(
-                siris, key, f"SirisAI answered a {check['name']} question wrong",
-                f"Asked: {check['question']}\nIt said: {answer[:300]}\nBut {truth}.\n"
-                "Check the tool it used and its wording (the conversation is " + conversation_id + ").",
-                severity="attention",
-            )
+            # 4.30.0: one wrong answer is a line in Sunday's report, not a card on Home every morning (three of them
+            # filled "Needs you" on 22-23 Nov). Wrong WRONG_CARD_AFTER nights running, it's a card; a real error
+            # (the turn or a tool failing) is _escalate's, below, as before.
+            from app.upkeep import week_review
+
+            wrong_nights[check["name"]] = wrong_nights.get(check["name"], 0) + 1
+            week_review.log(siris, "wrong", f"{check['name']} ({answer[:80]!r}, but {truth[:80]})", now)
+            if wrong_nights[check["name"]] >= WRONG_CARD_AFTER:
+                raise_alert(
+                    siris, key, f"SirisAI has answered a {check['name']} question wrong {wrong_nights[check['name']]} nights running",
+                    f"Asked: {check['question']}\nIt said: {answer[:300]}\nBut {truth}.\n"
+                    "Check the tool it used and its wording (the conversation is " + conversation_id + ").",
+                    severity="attention",
+                )
+        siris.state.set(WRONG_KEY, wrong_nights)
     _escalate(siris, results, conversation_id, now)
     summary = {
         "at": now.isoformat(),

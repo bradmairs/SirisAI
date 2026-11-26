@@ -78,13 +78,22 @@ def test_right_answers_pass_and_raise_nothing(monkeypatch: pytest.MonkeyPatch) -
     assert siris.state.get(self_test.RESULTS_KEY)["passed"] == 3
 
 
-def test_a_wrong_answer_goes_to_the_feed_and_a_right_one_closes_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    siris = _siris({"temperature": "It's 21°C outside.", "lounge": "It's on.", "day": "Today is Thursday."}, monkeypatch, light="off")
+def test_a_wrong_answer_goes_to_sundays_report_and_three_nights_running_to_the_feed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """4.30.0: one wrong answer is a line in the week's report, not a card on Home; three nights running, it's a card."""
+    from app.upkeep import week_review
+
+    wrong = {"temperature": "It's 21°C outside.", "lounge": "It's on.", "day": "Today is Thursday."}
+    siris = _siris(wrong, monkeypatch, light="off")
     result = self_test.run(siris, NOW)
     assert result["failed"] == 3
+    assert _open(siris) == []
+    logged = [i["text"] for i in siris.state.get(week_review.LOG_KEY) or [] if i["kind"] == "wrong"]
+    assert len(logged) == 3 and any("14.2 °C" in t for t in logged)
+    for _ in range(2):
+        self_test.run(siris, NOW)
     items = {i["key"]: i for i in _open(siris)}
     assert set(items) == {"self_test:weather", "self_test:home", "self_test:date"}
-    assert "14.2 °C" in items["self_test:weather"]["body"] and "light.lounge is off" in items["self_test:home"]["body"]
+    assert "3 nights running" in items["self_test:home"]["title"] and "light.lounge is off" in items["self_test:home"]["body"]
 
     siris = _siris({"temperature": "13.5 degrees", "lounge": "Off.", "day": "Friday"}, monkeypatch, light="off")
     assert self_test.run(siris, NOW)["passed"] == 3
@@ -240,6 +249,7 @@ def test_questions_about_brad_are_checked_against_his_notes(monkeypatch: pytest.
     result = self_test.run(siris, NOW)
     brain = {r["question"]: r["right"] for r in result["results"] if r["name"].startswith("brain")}
     assert brain == {"What's my brother's name?": True, "When are we getting a puppy?": True, "Where did I grow up?": False}
-    items = {i["key"]: i for i in _open(siris)}
-    wrong = next(i for k, i in items.items() if k.startswith("self_test:brain"))
-    assert "your notes say Moutere" in wrong["body"]
+    from app.upkeep import week_review
+
+    logged = [i["text"] for i in siris.state.get(week_review.LOG_KEY) or [] if i["kind"] == "wrong"]  # 4.30.0: the report
+    assert any("your notes say Moutere" in t for t in logged)
