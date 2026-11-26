@@ -561,6 +561,7 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("state_reminders", lambda s: _quiet(s, "app.reminders.conditions", "check") if getattr(s, "_home_assistant_client", None) else None, lambda _s: 60),
         Job("prefetch", lambda s: _quiet(s, "app.core.prefetch", "run"), lambda _s: 60),
         Job("rediscover", lambda s: _quiet(s, "app.upkeep.rediscover", "check"), lambda _s: 900, at_boot=False),
+        Job("gpu_fit", lambda s: _quiet(s, "app.upkeep.known_fixes", "gpu_fit"), lambda _s: 900, at_boot=False),  # 4.30.0
         Job("door", lambda s: _quiet(s, "app.household.door", "check") if getattr(s, "_frigate_client", None) is not None and s.settings.door_announce else None, lambda _s: 30),
         Job("watches", lambda s: _quiet(s, "app.reminders.watches", "check") if s.state.get("reminders:watches") else None, lambda _s: 60),
         Job("music_follow", lambda s: _quiet(s, "app.plugins.builtin.music", "follow") if s.settings.music_follow_me else None, lambda _s: 20),

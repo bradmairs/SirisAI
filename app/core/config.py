@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     # needs, "Obsidian=obsidian-relay; Hermes=hermes-gateway".
     server_lan_host: str = ""
     integration_companions: str = ""
+    # 4.30.0: apply the known fixes without asking (app/upkeep/known_fixes.py): restart a stopped companion, switch to
+    # a service's new address on this server, reload an Ollama model that spilled into system RAM. False: ask first.
+    auto_fix_known: bool = True
     # Optional ffmpeg `-af` filter chain run over every spoken clip
     # (app/voice/effects.py), e.g. a light "electronic" sheen. Empty = off.
     tts_effect: str = ""

@@ -133,6 +133,7 @@ def test_a_moved_service_is_offered_and_switched(client: TestClient, monkeypatch
     from app.upkeep import rediscover, week_review
 
     siris = get_siris()
+    monkeypatch.setattr(siris.settings, "auto_fix_known", False)  # 4.30.0: asking first is still there, turned on
     monkeypatch.setattr(siris.settings, "hermes_base_url", "http://172.18.0.5:8642")
     monkeypatch.setattr("app.core.health.check_integrations", lambda settings, **kw: [{"name": "Hermes", "ok": False}])
 
@@ -158,6 +159,7 @@ def test_a_stopped_companion_is_offered_as_a_restart(client: TestClient, monkeyp
     from app.upkeep import rediscover
 
     siris = get_siris()
+    monkeypatch.setattr(siris.settings, "auto_fix_known", False)
     monkeypatch.setattr(siris.settings, "obsidian_base_url", "https://127.0.0.1:27124")
     monkeypatch.setattr(siris.settings, "integration_companions", "Obsidian=obsidian-relay")
     monkeypatch.setattr("app.core.health.check_integrations", lambda settings, **kw: [{"name": "Obsidian", "ok": False}])
@@ -186,8 +188,8 @@ def test_the_week_in_review(client: TestClient) -> None:
     week_review.log(siris, "fixed", "Sonarr (3 h)", now)
     week_review.log(siris, "moved", "Hermes at http://172.20.0.5:8642", now)
     found = week_review.lines(siris, now)
-    assert found[0] == "Self-test: 3 of 7 nights all right. See the feed for which question."
-    assert "Broke and came back: Sonarr (3 h)." in found and "Found at a new address: Hermes at http://172.20.0.5:8642." in found
+    assert found[0] == "Self-test: 3 of 7 nights all right."
+    assert "Broke and came back (fixed by itself or by SirisAI): Sonarr (3 h)." in found and "Found at a new address: Hermes at http://172.20.0.5:8642." in found
     assert "Sonarr (3 h)" in text({"problems": [], "speed": {"replies": 0}, "week": found})
     siris.state.delete(week_review.LOG_KEY)
     siris.state.delete(self_test.HISTORY_KEY)

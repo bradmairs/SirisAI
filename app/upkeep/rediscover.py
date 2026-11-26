@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -135,6 +136,17 @@ def check(siris: "SirisAI") -> dict[str, Any]:
         field, words = FIELDS[name]
         url = getattr(siris.settings, field, "") or ""
         found = next((c for c in candidates(url, words, containers, hosts) if _answers(c)), None)
+        if found and _on_this_server(found, containers, hosts) and siris.settings.auto_fix_known:
+            # 4.30.0: a known fix: the same service, on this server, at a new address. Switched, and said.
+            from app.upkeep import known_fixes
+
+            if known_fixes.allowed(siris, f"move:{field}"):
+                known_fixes._record(siris, f"move:{field}", datetime.now(UTC))
+                _use(siris, {}, {"name": name, "field": field, "old": url, "new": found}, "self-healing: known fix")
+                known_fixes._tell(siris, f"move:{field}", f"{name} moved to {found}: switched over",
+                                  f"{name} stopped answering at {url} and answers at {found} on this server, so SirisAI uses that now.", fixed=True)
+                moved.append({"name": name, "old": url, "new": found, "switched": True})
+                continue
         if found:
             siris.attention.raise_item(
                 f"{SOURCE}:{field}:{found}", "suggestion", f"{name} seems to have moved",
@@ -148,9 +160,22 @@ def check(siris: "SirisAI") -> dict[str, Any]:
         stopped = [c["name"] for c in containers if c.get("state") != "running" and (
             c["name"] in companions.get(name.lower(), []) or c in _matching(containers, words))]
         for container in stopped[:2]:
-            raise_confirmation(siris, f"rediscover: {name} isn't answering and {container} is stopped", "docker_restart_container", {"container": container})
+            # 4.30.0: restarting a stopped companion is a known fix: done, checked and said, within a daily budget
+            from app.upkeep import known_fixes
+
+            if known_fixes.restart_companion(siris, name, container, lambda u=url: _answers(u)):
+                restarts.append(container)
+                break
+            if not siris.settings.auto_fix_known or not known_fixes.allowed(siris, f"restart:{container}"):
+                raise_confirmation(siris, f"rediscover: {name} isn't answering and {container} is stopped", "docker_restart_container", {"container": container})
             restarts.append(container)
     return {"down": sorted(down), "moved": moved, "restarts": restarts}
+
+
+def _on_this_server(url: str, containers: list[dict[str, Any]], hosts: list[str]) -> bool:
+    """An address of a container on this server, or the server's own LAN address (4.30.0): never anywhere else."""
+    host = urlsplit(url).hostname or ""
+    return bool(host) and (host in hosts or any(host == c.get("name") or host in (c.get("ips") or []) for c in containers))
 
 
 def switch(siris: "SirisAI", old: str, new: str) -> int:

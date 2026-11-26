@@ -8,6 +8,17 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.30.0 — 2026-11-27
+
+- **Known fixes, applied** (`app/upkeep/known_fixes.py`, `SIRISAI_AUTO_FIX_KNOWN`, on by default and on the Settings page). Three fixes that always work waited on Brad this week; now:
+  - a stopped companion container (the Obsidian relay, after the Obsidian container is recreated) is restarted, and the service is checked to answer again;
+  - a service that moved to another address on this server (Hermes, after SirisAI's Docker network moved) is switched over. Only an address on this server: the service's own container, or `SIRISAI_SERVER_LAN_HOST`. Anywhere else still asks first;
+  - an Ollama model partly in system RAM (31 of 33 layers on the GPU on 13 Nov) is unloaded and loaded again, at most once every six hours, and checked.
+  Each fix is tried at most three times a day per thing, then asks with what was tried. A fix that works is a quiet note in the feed and a line in Sunday's report; one that doesn't is pushed.
+- **One wrong self-test answer goes to Sunday's report**, not a card on Home: three of them filled "Needs you" on 22-23 Nov. Wrong three nights running, it's a card; a real error (the turn or a tool failing) is pushed after two nights, as before. The report lists the wrong answers, and fixes that didn't work.
+
+- Known fixes applied by themselves (a stopped companion restarted, a moved service switched on this server, a model reloaded onto the GPU), and one wrong self-test answer goes to Sunday's report
+
 ## 4.29.0 — 2026-11-26
 
 - Failures that repeat get louder, secrets scrubbed everywhere, services that moved are found, real failures kept as tests, every tool call checked, and the week's what-broke note

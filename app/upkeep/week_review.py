@@ -54,11 +54,17 @@ def lines(siris: "SirisAI", now: datetime | None = None, days: int = 7) -> list[
     nights = [h for h in siris.state.get(self_test.HISTORY_KEY) or [] if h["at"] >= since]
     if nights:
         good = sum(1 for h in nights if not h["failed"])
-        out.append(f"Self-test: {good} of {len(nights)} nights all right." + ("" if good == len(nights) else " See the feed for which question."))
+        out.append(f"Self-test: {good} of {len(nights)} nights all right.")
     events = [i for i in siris.state.get(LOG_KEY) or [] if i["at"] >= since]
+    wrong = [i["text"] for i in events if i["kind"] == "wrong"]  # 4.30.0: here, not a card each morning
+    if wrong:
+        out.append("Answered wrong: " + "; ".join(wrong[:6]) + ("." if len(wrong) <= 6 else f"; and {len(wrong) - 6} more."))
+    unfixed = [i["text"] for i in events if i["kind"] == "unfixed"]
+    if unfixed:
+        out.append("Known fixes that didn't work: " + "; ".join(unfixed[:4]) + ".")
     fixed = [i["text"] for i in events if i["kind"] == "fixed"]
     if fixed:
-        out.append("Broke and came back: " + "; ".join(fixed[:6]) + ".")
+        out.append("Broke and came back (fixed by itself or by SirisAI): " + "; ".join(fixed[:6]) + ".")
     still = [f"{v['title'].replace(' keeps failing', '')} (since {v['since'][:10]})" for v in (siris.state.get(breakage.STATE_KEY) or {}).values()]
     if still:
         out.append("Still broken: " + "; ".join(still[:6]) + ".")
