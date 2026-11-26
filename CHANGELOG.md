@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.28.0 — 2026-11-26
+
+- SirisGym effort is rated against each exercise's own heart-rate range (lowest to highest peaks seen for it), not your maximum
+
 ## 4.27.1 — 2026-11-26
 
 - **Tool numbers written as text.** Arguments a tool types as integer, number or boolean are converted when the model writes them as "5", 5.0 or "true" (`app/core/tool_args.py`). The nightly self-test's Plex question failed every night from 22 Nov ("slice indices must be integers") because `length` came as "5".

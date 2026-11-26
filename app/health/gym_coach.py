@@ -54,8 +54,12 @@ def session_advice(sets: list[dict[str, Any]], exercises: list[dict[str, Any]]) 
                 break
     for e in exercises:
         if e.get("effort") is not None and e["effort"] <= EASY_EFFORT and (e.get("sets") or 0) >= 2 and not e.get("rpe"):
-            out.append(f"{e['exercise']} barely raised your heart rate (effort {e['effort']:g}/10). If the reps felt easy too, there's room to add weight. "
-                       f"Small lifts often read low, so go by feel.")
+            if e.get("effort_basis") == "personal":  # 4.27: against its own range, so "low" means low for this lift
+                out.append(f"{e['exercise']} raised your heart rate less than it usually does (effort {e['effort']:g}/10, "
+                           f"{e.get('hr_low')}-{e.get('hr_high')} bpm is its range). If the reps felt easy too, there's room to add weight.")
+            else:
+                out.append(f"{e['exercise']} barely raised your heart rate (effort {e['effort']:g}/10). If the reps felt easy too, there's room to add weight. "
+                           f"Small lifts often read low, so go by feel.")
     return out[:SESSION_ADVICE]
 
 
