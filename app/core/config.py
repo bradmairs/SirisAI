@@ -119,6 +119,13 @@ class Settings(BaseSettings):
     # 7.27: check the numbers in an answer against what the tools returned, and add a
     # correction when one isn't there (app/cortex/numbers.py).
     check_numbers: bool = True
+    # 4.28.0: check every tool call against the tool's argument list before it runs (app/core/tool_args.py).
+    check_tool_arguments: bool = True
+    # 4.28.0: finding a service that moved (app/upkeep/rediscover.py). server_lan_host: this
+    # server's LAN address(es), comma-separated; integration_companions: containers a service
+    # needs, "Obsidian=obsidian-relay; Hermes=hermes-gateway".
+    server_lan_host: str = ""
+    integration_companions: str = ""
     # Optional ffmpeg `-af` filter chain run over every spoken clip
     # (app/voice/effects.py), e.g. a light "electronic" sheen. Empty = off.
     tts_effect: str = ""

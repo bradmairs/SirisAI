@@ -123,3 +123,13 @@ def forget_fix(tool: str, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]
     if not fixes.forget(siris, tool):
         raise HTTPException(status_code=404, detail="Nothing learned for that tool.")
     return {"tool": tool, "forgotten": True}
+
+
+@router.get("/tool-failures", response_model=None)
+def tool_failures_list(format: str = "json", siris: SirisAI = Depends(get_siris)) -> Any:
+    """Tool failures from real use (4.28.0). ?format=replay gives lines for tests/replays/."""
+    from app.learning import tool_failures
+
+    if format == "replay":
+        return PlainTextResponse("".join(json.dumps(c, default=str) + "\n" for c in tool_failures.replay_cases(siris)))
+    return tool_failures.recent(siris)

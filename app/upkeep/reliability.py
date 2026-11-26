@@ -164,6 +164,7 @@ def voice_speed(siris: "SirisAI", since: datetime, now: datetime) -> dict[str, A
 def text(report: dict[str, Any]) -> str:
     """The feed item's body: what went wrong, one line each, then the speed."""
     lines = list(report["problems"]) or ["Nothing failed."]
+    lines += report.get("week") or []   # 4.28.0: what broke and what fixed itself
     speed = report["speed"]
     if speed["replies"]:
         lines.append(f"{speed['replies']} replies, typically {speed['p50_ms'] / 1000:.1f} s.")
@@ -179,6 +180,12 @@ def text(report: dict[str, Any]) -> str:
 def weekly(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now(UTC)
     report = build(siris, 7, now)
+    try:
+        from app.upkeep import week_review
+
+        report["week"] = week_review.lines(siris, now)
+    except Exception:  # noqa: BLE001
+        report["week"] = []
     count = len(report["problems"])
     title = "SirisAI this week: all fine" if report["ok"] else f"SirisAI this week: {count} thing{'s' if count != 1 else ''} to fix"
     # One card a week (6.73): keyed by the week, and last week's goes when this one arrives.

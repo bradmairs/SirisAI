@@ -44,12 +44,14 @@ def configured(siris: "SirisAI") -> bool:
 
 
 def redact(value: Any) -> Any:
+    from app.core.secrets import scrub   # 4.28.0: configured secrets and credentials in URLs too
+
     if isinstance(value, dict):
         return {k: "[redacted]" if _SECRET_NAME.search(str(k)) else redact(v) for k, v in value.items()}
     if isinstance(value, list):
         return [redact(v) for v in value]
     if isinstance(value, str):
-        return _SECRET_VALUE.sub(lambda m: (m.group(1) or "") + "[redacted]", value)
+        return scrub(_SECRET_VALUE.sub(lambda m: (m.group(1) or "") + "[redacted]", value))
     return value
 
 

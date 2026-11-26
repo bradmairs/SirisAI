@@ -178,7 +178,15 @@ def check(siris: "SirisAI", now: datetime | None = None) -> dict[str, list[str]]
         verdict = _recovered(siris, key, datetime.fromisoformat(known[key]["since"]), now)
         if verdict is None:
             continue   # no longer failing, but nothing has proved it works yet (a tool nobody has called)
-        title = known.pop(key)["title"]
+        gone = known.pop(key)
+        title = gone["title"]
+        if verdict:   # 4.28.0: for the week's "broke and came back"
+            try:
+                from app.upkeep import week_review
+
+                week_review.log(siris, "fixed", f"{title.replace(' keeps failing', '')} ({week_review._hours(gone['since'], now.isoformat())})", now)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             siris.attention.resolve_key(FEED_PREFIX + key, "Working again" if verdict else "Not seen for a day")
         except Exception:  # noqa: BLE001

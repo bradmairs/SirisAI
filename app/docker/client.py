@@ -47,6 +47,24 @@ class DockerClient:
             for c in response.json()
         }
 
+    def addresses(self) -> list[dict]:
+        """Every container's name, image, state, addresses on its Docker networks and ports (4.28.0, for
+        finding a service that moved)."""
+        response = self._client.get("/containers/json", params={"all": "true"})
+        response.raise_for_status()
+        out = []
+        for c in response.json():
+            networks = ((c.get("NetworkSettings") or {}).get("Networks") or {}).values()
+            out.append({
+                "name": (c.get("Names") or ["/" + c["Id"][:12]])[0].lstrip("/"),
+                "image": c.get("Image") or "",
+                "state": c.get("State"),
+                "ips": [n.get("IPAddress") for n in networks if n.get("IPAddress")],
+                "ports": sorted({p["PrivatePort"] for p in c.get("Ports") or [] if p.get("PrivatePort")}),
+                "published": sorted({p["PublicPort"] for p in c.get("Ports") or [] if p.get("PublicPort")}),
+            })
+        return out
+
     def restart_container(self, container: str, timeout_seconds: int = 10) -> dict:
         response = self._client.post(f"/containers/{container}/restart", params={"t": timeout_seconds})
         response.raise_for_status()
