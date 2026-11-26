@@ -1487,6 +1487,10 @@ class SirisAI:
         start = time.monotonic()
 
         tool = self.tools.get(name)
+        if tool is not None:  # 4.27.1: "5" or 5.0 for an integer, "true" for a boolean
+            from app.core import tool_args
+
+            arguments = tool_args.coerce(arguments, getattr(tool, "parameters", None))
         if tool is None:
             duration_ms = (time.monotonic() - start) * 1000
             self.audit.record(

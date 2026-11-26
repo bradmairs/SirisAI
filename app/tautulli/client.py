@@ -21,8 +21,13 @@ class TautulliClient:
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout, transport=transport)
 
     def _call(self, cmd: str, **params: Any) -> Any:
-        response = self._client.get("/api/v2", params={"apikey": self._api_key, "cmd": cmd, **params})
-        response.raise_for_status()
+        try:
+            response = self._client.get("/api/v2", params={"apikey": self._api_key, "cmd": cmd, **params})
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            # 4.27.1: httpx puts the whole URL in its message, and Tautulli's key is in the URL. The message can reach
+            # the model, the audit log and the inbox, so the key is taken out of it.
+            raise RuntimeError(str(exc).replace(self._api_key, "<key>") if self._api_key else str(exc)) from None
         return response.json()["response"]["data"]
 
     def current_activity(self) -> list[dict]:
@@ -47,7 +52,7 @@ class TautulliClient:
             for uid in user_ids:
                 rows += self._call("get_history", length=length, user_id=uid).get("data", [])
             rows.sort(key=lambda r: r.get("date") or 0, reverse=True)
-            rows = rows[:length]
+            rows = rows[: int(length)]
         else:
             params: dict[str, Any] = {"length": length}
             if user:

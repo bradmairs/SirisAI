@@ -6,6 +6,7 @@ shape -- that's the point of the interface in `app/llm/base.py`.
 """
 
 import json
+import re
 import logging
 from collections import deque
 from collections.abc import AsyncIterator
@@ -31,6 +32,27 @@ def _retryable(exc: Exception) -> bool:
 
 
 
+_BROKEN_CALL = re.compile(r'^\{\s*"name"\s*:\s*"([a-z][a-z0-9_]{1,63})"\s*(?:,\s*"(?:parameters|arguments)"\s*:\s*(.*))?\}$', re.S)
+
+
+def repaired_call(body: str) -> dict[str, Any] | None:
+    """A written tool call with broken JSON (4.27.1): on 23 Nov 2026 the day-of-the-week question came back as
+    `{"name": "get_current_time", "parameters": {"}}`, which isn't JSON, so it became the answer. The name is
+    kept; arguments that still parse are kept, and garbled ones of a few characters are taken as none. Longer
+    garbled arguments aren't guessed at."""
+    m = _BROKEN_CALL.match(body.strip())
+    if not m:
+        return None
+    raw = (m.group(2) or "").strip()
+    if not raw:
+        return {"name": m.group(1), "parameters": {}}
+    try:
+        args = json.loads(raw)
+    except ValueError:
+        args = {} if len(raw) <= 6 else None
+    return {"name": m.group(1), "parameters": args} if isinstance(args, dict) else None
+
+
 def text_tool_call(text: str | None, tools: list[dict[str, Any]] | None) -> ToolCall | None:
     """A tool call the model wrote as its answer instead of making it (6.05).
     llama3.1 sometimes replies with just `{"name": "weather_current",
@@ -45,11 +67,13 @@ def text_tool_call(text: str | None, tools: list[dict[str, Any]] | None) -> Tool
         body = body.strip("`").removeprefix("json").strip()
     if not (body.startswith("{") and body.endswith("}")):
         return None
+    offered = {(t.get("function") or {}).get("name") for t in tools}
     try:
         data = json.loads(body)
     except ValueError:
-        return None
-    offered = {(t.get("function") or {}).get("name") for t in tools}
+        data = repaired_call(body)
+        if data is None:
+            return None
     arguments = data.get("parameters", data.get("arguments", {})) if isinstance(data, dict) else None
     if not isinstance(data, dict) or data.get("name") not in offered or not isinstance(arguments, dict) \
             or set(data) - {"name", "parameters", "arguments", "type"}:

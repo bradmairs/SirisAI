@@ -8,6 +8,16 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.27.1 — 2026-11-26
+
+- **Tool numbers written as text.** Arguments a tool types as integer, number or boolean are converted when the model writes them as "5", 5.0 or "true" (`app/core/tool_args.py`). The nightly self-test's Plex question failed every night from 22 Nov ("slice indices must be integers") because `length` came as "5".
+- **A tool call written with broken JSON** (`{"name": "get_current_time", "parameters": {"}}`, the 23 Nov day-of-the-week answer) is made as a call with no arguments, when it names a tool offered that turn; longer garbled arguments aren't guessed at.
+- **Tautulli's key is kept out of error messages**, which carried the whole request URL into the model, the audit log and the inbox.
+- **The after-update check** names only what broke with the update in its title (things already down before are listed after), and its alert closes by itself once a self-test is all right and every integration answers.
+- Live (not code): Hermes is reached at the server's LAN address (SirisAI's Docker network had moved to a new subnet), and the Obsidian relay was started again after the Obsidian container was recreated on 25 Nov.
+
+- Live fixes: tool numbers written as text, broken written tool calls, Tautulli key kept out of errors, a quieter update check
+
 ## 4.27.0 — 2026-11-22
 
 - Smarter answers from Siris: note cards, questions it couldn't answer come back, answer checks about you, and short summaries on busy notes

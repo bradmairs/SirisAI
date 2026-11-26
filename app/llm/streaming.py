@@ -54,6 +54,12 @@ def written_call(text: str | None) -> tuple[str, ToolCall] | None:
             continue  # more answer after it: it's an example, not a call
         before = re.sub(r"```(?:json)?\s*$", "", text[:i]).rstrip()
         return before, ToolCall(name=data["name"], arguments=arguments)
+    # 4.27.1: the whole reply is a call with broken JSON ({"name": "get_current_time", "parameters": {"}})
+    from app.llm.ollama import repaired_call
+
+    body = text.strip().strip("`").removeprefix("json").strip()
+    if (fixed := repaired_call(body)) is not None:
+        return "", ToolCall(name=fixed["name"], arguments=fixed["parameters"])
     return None
 
 
