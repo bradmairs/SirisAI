@@ -64,16 +64,20 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any] | None:
     was_down = set(before.get("down") or [])
     newly = [d for d in down if d not in was_down] if before.get("version") else down
     wrong = [r for r in (test or {}).get("results") or [] if not r.get("right")]
-    problems = [f"{name} isn't reachable" + ("" if name in newly else " (it wasn't before either)") for name in down]
+    # 4.27.1: what broke with this version first, and in the title; what was already down before, after it.
+    problems = [f"{name} isn't reachable" for name in down if name in newly]
     problems += [f"the self-test got the {r['name']} wrong (said: {r['answer'][:120]})" for r in wrong]
     if test and test.get("error"):
         problems.append(f"the self-test didn't run ({test['error'][:120]})")
+    already = [name for name in down if name not in newly]
     record = {"version": __version__, "previous": before.get("version"), "at": now.isoformat(), "down": down,
-              "self_test": {"passed": (test or {}).get("passed"), "failed": (test or {}).get("failed")}, "problems": problems}
+              "self_test": {"passed": (test or {}).get("passed"), "failed": (test or {}).get("failed")}, "problems": problems + [f"{n} isn't reachable (it wasn't before either)" for n in already]}
     siris.state.set(STATE_KEY, record)
     if newly or wrong or (test and test.get("error")):
         raise_alert(siris, FEED_KEY, f"After updating to {__version__}: " + "; ".join(problems[:2]) + ("..." if len(problems) > 2 else ""),
-                    "\n".join(f"- {p}" for p in problems) + (f"\nThe last version was {before['version']}." if before.get("version") else ""),
+                    "\n".join(f"- {p}" for p in problems)
+                    + (f"\nStill down from before the update: {', '.join(already)}." if already else "")
+                    + (f"\nThe last version was {before['version']}." if before.get("version") else ""),
                     severity="attention", push=True)
     else:
         siris.attention.resolve_key(FEED_KEY, f"{__version__} checked out")

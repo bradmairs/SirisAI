@@ -231,4 +231,20 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
     history = list(siris.state.get(HISTORY_KEY) or [])  # 6.58: for the health page
     history.append({"at": summary["at"], "passed": summary["passed"], "failed": summary["failed"]})
     siris.state.set(HISTORY_KEY, history[-30:])
+    if results and not summary["failed"]:
+        _clear_release_alert(siris)
     return summary
+
+
+def _clear_release_alert(siris: "SirisAI") -> None:
+    """4.27.1: an "After updating to ..." alert stayed until tapped, days after it was fixed (22-26 Nov 2026). Once a
+    self-test gets everything right and every integration answers, it's closed."""
+    from app.upkeep import release_check
+
+    tool = siris.tools.get("integration_health")
+    try:
+        down = list(tool.run().get("down") or []) if tool is not None else []
+    except Exception:  # noqa: BLE001
+        return
+    if not down:
+        siris.attention.resolve_key(release_check.FEED_KEY, "Everything answers and the self-test is right again")
