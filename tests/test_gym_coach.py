@@ -34,7 +34,7 @@ def test_session_advice_notes_an_easy_lift_unless_rpe_says_otherwise() -> None:
     easy = {"exercise": "Curl", "effort": 3.0, "sets": 3, "rpe": None}
     assert "barely raised your heart rate" in gym_coach.session_advice([], [easy])[0]
     assert gym_coach.session_advice([], [{**easy, "rpe": 9.0}]) == []
-    # 4.27: against its own range, it says so: low for this lift, not low for any lift.
+    # 4.28: against its own range, it says so: low for this lift, not low for any lift.
     own = gym_coach.session_advice([], [{**easy, "effort_basis": "personal", "hr_low": 105, "hr_high": 128}])[0]
     assert "less than it usually does" in own and "105-128 bpm" in own
     many = [_set(f"E{i}", 10, 90) for i in range(5) for _ in range(2)]
