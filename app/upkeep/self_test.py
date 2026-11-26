@@ -220,6 +220,7 @@ def run(siris: "SirisAI", now: datetime | None = None) -> dict[str, Any]:
                 "Check the tool it used and its wording (the conversation is " + conversation_id + ").",
                 severity="attention",
             )
+    _escalate(siris, results, conversation_id, now)
     summary = {
         "at": now.isoformat(),
         "passed": sum(r["right"] for r in results),
@@ -248,3 +249,49 @@ def _clear_release_alert(siris: "SirisAI") -> None:
         return
     if not down:
         siris.attention.resolve_key(release_check.FEED_KEY, "Everything answers and the self-test is right again")
+
+
+STREAK_KEY = "self_test_streak"
+PUSH_AFTER, ISSUE_AFTER = 2, 3
+
+
+def _errors(siris: "SirisAI", conversation_id: str, result: dict[str, Any]) -> list[str]:
+    """Actual errors behind a wrong answer: the turn failing, the check failing, or a tool erroring in that conversation."""
+    found = []
+    if result["answer"].startswith("(no answer"):
+        found.append(result["answer"])
+    if result["truth"].startswith("the check itself failed"):
+        found.append(result["truth"])
+    try:
+        found += [f"{e['tool_name']}: {e['error']}" for e in siris.audit.list_recent(limit=200)
+                  if e.get("conversation_id") == conversation_id and e.get("error")]
+    except Exception:  # noqa: BLE001
+        pass
+    return list(dict.fromkeys(found))[:4]
+
+
+def _escalate(siris: "SirisAI", results: list[dict[str, Any]], conversation_id: str, now: datetime) -> None:
+    """4.29.0: the Plex question failed four nights in a row (22-25 Nov 2026) with only a feed card to show for it.
+    The same question failing with a real error two nights running is pushed to the phone with the error; a third
+    night it's proposed as a GitHub issue (filed straight away with SIRISAI_GITHUB_ISSUES_MODE=auto)."""
+    from app.upkeep.alerts import raise_alert
+
+    streak: dict[str, int] = dict(siris.state.get(STREAK_KEY) or {})
+    for r in results:
+        errors = [] if r["right"] else _errors(siris, conversation_id, r)
+        if not errors:
+            if streak.pop(r["name"], None) and r["right"]:
+                siris.attention.resolve_key(f"{FEED_PREFIX}{r['name']}:error", "Answered right again")
+            continue
+        streak[r["name"]] = streak.get(r["name"], 0) + 1
+        nights = streak[r["name"]]
+        if nights < PUSH_AFTER:
+            continue
+        raise_alert(
+            siris, f"{FEED_PREFIX}{r['name']}:error",
+            f"The {r['name']} self-test has failed {nights} nights running",
+            f"Asked: {r['question']}\nError: {'; '.join(errors)[:600]}\n(conversation {conversation_id})",
+            severity="urgent" if nights >= ISSUE_AFTER else "attention",
+            push=True, issue=nights >= ISSUE_AFTER,
+        )
+    siris.state.set(STREAK_KEY, streak)

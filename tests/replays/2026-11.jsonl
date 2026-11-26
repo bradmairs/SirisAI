@@ -1,0 +1,2 @@
+{"tool": "tautulli_recent_history", "arguments": {"user": "me", "length": "5"}, "error": "slice indices must be integers or None or have an __index__ method", "kind": "TypeError"}
+{"tool": "get_current_time", "arguments": {}, "error": "a tool call written with broken JSON (23 Nov 2026), made with no arguments", "kind": "JSONDecodeError"}

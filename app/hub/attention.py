@@ -130,6 +130,9 @@ class AttentionFeed:
             if current is None and rows and not reopen:
                 return None
             row = current or AttentionItem(key=key, created_at=_now())
+            from app.core.secrets import scrub   # 4.29.0: no secrets in the feed
+
+            title, body = scrub(title), scrub(body)
             row.kind, row.severity, row.title, row.body = kind, severity, title[:300], body[:2000]
             row.source, row.link = source, link
             row.actions = json.dumps(actions if actions is not None else [ACKNOWLEDGE])

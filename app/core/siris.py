@@ -295,7 +295,8 @@ from app.skills.builtin.server_health import ServerHealthSkill
 from app.sonarr.client import SonarrClient
 from app.speedtest.client import SpeedTestClient
 from app.synology.client import SynologyClient
-from app.core import identity
+from app.core import identity, secrets
+from app.learning import tool_failures
 from app.tautulli.client import TautulliClient
 from app.unifi.client import UniFiClient
 from app.voice.base import SpeechToTextClient, TextToSpeechClient
@@ -345,6 +346,7 @@ from app.learning import fixes as learned_fixes  # 7.27: also registers its atte
 from app.media import watching  # 7.27: watchlist and next seasons (registers its attention actions)
 from app.memory import tidy as _memory_tidy  # noqa: F401 - 7.6: registers its attention actions
 from app.capabilities import review as _capability_review  # noqa: F401 - 7.6: registers its attention actions
+from app.upkeep import rediscover as _rediscover  # noqa: F401 - 4.29.0: registers its attention actions
 from app.plugins.builtin.upkeep import UpkeepStatusTool
 from app.upkeep import issues as _issues, updates as _updates  # noqa: F401 - register their attention actions
 from app.upkeep import models as upkeep_models
@@ -561,6 +563,13 @@ class SirisAI:
     outcomes: OutcomeStore = field(default_factory=lambda: OutcomeStore(SessionLocal))
 
     def __post_init__(self) -> None:
+        secrets.register(self.settings)   # 4.29.0: masked wherever they'd be written down
+        try:
+            from app.upkeep import week_review
+
+            week_review.note_version(self)   # the week's "updated to ..."
+        except Exception:  # noqa: BLE001 - before the database exists (tests), it's noted next time
+            pass
         self.health.priority = [p.strip() for p in self.settings.health_source_priority.split(",") if p.strip()]
         if self.llm is None:
             # Wrapped in MeteredLLMClient (milestone 47) so every call's
@@ -1490,7 +1499,13 @@ class SirisAI:
         if tool is not None:  # 4.27.1: "5" or 5.0 for an integer, "true" for a boolean
             from app.core import tool_args
 
-            arguments = tool_args.coerce(arguments, getattr(tool, "parameters", None))
+            arguments = tool_args.fit_enums(tool_args.coerce(arguments, getattr(tool, "parameters", None)), getattr(tool, "parameters", None))
+            wrong = tool_args.problems(arguments, getattr(tool, "parameters", None))   # 4.29.0: checked before it runs
+            if wrong and self.settings.check_tool_arguments:
+                message = f"Can't run {name}: " + "; ".join(wrong) + ". Correct the arguments and call it again."
+                self.audit.record(name, arguments, error=message, duration_ms=(time.monotonic() - start) * 1000,
+                                  conversation_id=conversation_id, trigger=trigger, evidence=evidence)
+                raise ValueError(message)
         if tool is None:
             duration_ms = (time.monotonic() - start) * 1000
             self.audit.record(
@@ -1590,16 +1605,23 @@ class SirisAI:
             result = kept if ready else tool.run(**arguments)
         except Exception as exc:
             duration_ms = (time.monotonic() - start) * 1000
+            message = secrets.scrub(str(exc))   # 4.29.0: no key in what the model, the audit log or the feed sees
             self.audit.record(
                 name,
                 arguments,
-                error=str(exc),
+                error=message,
                 duration_ms=duration_ms,
                 conversation_id=conversation_id,
                 trigger=trigger,
                 evidence=evidence,
                 policy=policy,
             )
+            try:
+                tool_failures.record(self, name, arguments, message, type(exc).__name__)   # 4.29.0: bugs from real failures
+            except Exception:  # noqa: BLE001 - never in the way of the error itself
+                logger.debug("Recording a tool failure failed", exc_info=True)
+            if message != str(exc):
+                raise secrets.ScrubbedError(message) from None
             raise
 
         if name in taint.EXTERNAL_CONTENT_TOOLS:
