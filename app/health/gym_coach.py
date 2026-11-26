@@ -54,7 +54,7 @@ def session_advice(sets: list[dict[str, Any]], exercises: list[dict[str, Any]]) 
                 break
     for e in exercises:
         if e.get("effort") is not None and e["effort"] <= EASY_EFFORT and (e.get("sets") or 0) >= 2 and not e.get("rpe"):
-            if e.get("effort_basis") == "personal":  # 4.27: against its own range, so "low" means low for this lift
+            if e.get("effort_basis") == "personal":  # 4.28: against its own range, so "low" means low for this lift
                 out.append(f"{e['exercise']} raised your heart rate less than it usually does (effort {e['effort']:g}/10, "
                            f"{e.get('hr_low')}-{e.get('hr_high')} bpm is its range). If the reps felt easy too, there's room to add weight.")
             else:

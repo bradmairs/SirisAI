@@ -18,7 +18,7 @@ then aligned with the heart rate around it:
 
 Per set: average and peak heart rate and the peak as a share of your maximum
 heart rate (the one strain uses). Per exercise: those across its working
-sets, an **effort** score 0-10 (4.27: from where the peaks sit in that
+sets, an **effort** score 0-10 (4.28: from where the peaks sit in that
 exercise's own range of peaks over your past workouts, or against your maximum
 until it has three; blended with your RPE where you gave one), the best estimated 1RM that session
 (**strength**), and recovery. Per session: average and peak heart rate,
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 KEEP_SERIES = 150
 KEEP_SESSIONS = 300
-# 4.27: effort against each exercise's own heart-rate range. Not every lift raises heart rate much (a curl never will),
+# 4.28: effort against each exercise's own heart-rate range. Not every lift raises heart rate much (a curl never will),
 # so against your maximum some always read easy. Each exercise's peak heart rate per session is kept, and effort is
 # where this session sits between the lowest and highest seen for it, moving as new highs and lows come in.
 HR_HISTORY = 40          # sessions per exercise the range is taken from (the newest)

@@ -368,7 +368,7 @@ def test_a_sirisgym_session_links_to_the_watch_and_each_set_gets_its_heart_rate(
 
 
 def test_effort_is_against_each_exercises_own_heart_rate_range(client: TestClient) -> None:
-    """4.27: a lift that never raises heart rate much isn't always 'easy': effort is where this session's peaks sit
+    """4.28: a lift that never raises heart rate much isn't always 'easy': effort is where this session's peaks sit
     between the lowest and highest seen for that exercise, and the range moves with new highs and lows."""
     from app.health import gym_effort
 

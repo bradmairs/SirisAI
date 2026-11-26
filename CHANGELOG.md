@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.28.1 — 2026-11-26
+
+- Notes on the 4.28.0 effort change carry its released version
+
 ## 4.28.0 — 2026-11-26
 
 - SirisGym effort is rated against each exercise's own heart-rate range (lowest to highest peaks seen for it), not your maximum
