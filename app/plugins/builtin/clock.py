@@ -26,3 +26,24 @@ class GetCurrentTimeTool(Tool):
             "weekday": now.strftime("%A"),
             "timezone": self._timezone,
         }
+
+
+class BriefMeTool(Tool):
+    """4.31.0: the short spoken brief, kept ready (app/voice/brief_cache.py)."""
+
+    name = "brief_me"
+    description = (
+        "A short spoken brief for right now: the weather, what's on today, readiness and strain, news and how "
+        "many things need you. Ready in advance, so it answers at once. For the full briefing (goals, Plex, "
+        "email), use daily_briefing."
+    )
+    permission = ToolPermission.READ
+    parameters = {"type": "object", "properties": {}, "required": []}
+
+    def __init__(self, siris: Any) -> None:
+        self._siris = siris
+
+    def run(self, **kwargs: Any) -> Any:
+        from app.voice import brief_cache
+
+        return {"message": brief_cache.get(self._siris)}

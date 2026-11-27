@@ -279,6 +279,18 @@ def _gym_last(siris: "SirisAI", text: str) -> QuickPlan | None:
     return QuickPlan("gym_sessions", {"exercise": exercise, "last_time": True}, None)
 
 
+_BRIEF = re.compile(
+    rf"^{_POLITE}(?:brief me|(?:give me |read me |what'?s |what is )?(?:a |my |the |today'?s )?(?:daily |morning |quick )?"
+    rf"(?:brief|briefing|rundown)|what'?s my day(?: look(?:ing)? like)?|how'?s my day looking){_TAIL}$", re.I)
+
+
+def _brief(siris: "SirisAI", text: str) -> QuickPlan | None:
+    """4.31.0: "brief me" reads the brief kept ready (app/voice/brief_cache.py), no model."""
+    if not _BRIEF.match(text.rstrip("?")) or siris.tools.get("brief_me") is None:
+        return None
+    return QuickPlan("brief_me", {}, None)
+
+
 def plan(siris: "SirisAI", text: str) -> QuickPlan | None:
     """The tool call for a quick command, and what to say once done, or None
     to leave the message to the model."""
@@ -291,7 +303,7 @@ def plan(siris: "SirisAI", text: str) -> QuickPlan | None:
         return QuickPlan("undo_last", {}, None) if siris.tools.get("undo_last") is not None else None
     excluded = siris.restricted_tool_names_to_exclude()
     found: QuickPlan | None = None
-    for attempt in (_learned, _rest, _gym_last, _device, _scene, _media, _climate):
+    for attempt in (_learned, _brief, _rest, _gym_last, _device, _scene, _media, _climate):
         if attempt is not _learned and _NOT_SIMPLE.search(text):
             break
         try:

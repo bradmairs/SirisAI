@@ -541,6 +541,7 @@ def _jobs(interval_seconds: float) -> list[Job]:
         Job("reminders", lambda s: tick(s, datetime.now(UTC)), every_tick),
         Job("tool_alerts", lambda s: alert_on_broken_tools(s, datetime.now(UTC)), lambda _s: _HEALTH_EVERY_SECONDS),
         Job("spoken_brief", _spoken_brief, every_tick),
+        Job("brief_ready", lambda s: _brief_ready(s), lambda _s: 600),
         Job("proactive", lambda s: run_proactive_check(s, datetime.now(UTC)), _settings_every("proactive_check_interval_minutes", 60)),
         Job("presence", lambda s: run_presence_and_geofence_checks(s), _settings_every("presence_check_interval_minutes", 60)),
         Job("intruder", lambda s: run_intruder_check(s), _settings_every("intruder_check_interval_minutes", 60)),
@@ -591,6 +592,12 @@ def _breakage_watch(siris: "SirisAI") -> None:
     from app.upkeep import breakage
 
     breakage.check(siris)
+
+
+def _brief_ready(siris: "SirisAI") -> None:
+    from app.voice import brief_cache
+
+    brief_cache.refresh(siris)
 
 
 def _spoken_brief(siris: "SirisAI") -> None:

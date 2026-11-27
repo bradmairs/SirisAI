@@ -8,6 +8,13 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.31.0 — 2026-11-27
+
+- "Brief me" answers at once, one card per thing, and Home Assistant calls retried when the Pi is slow to answer
+- **"Brief me" at once** (`app/voice/brief_cache.py`, tool `brief_me`, job `brief_ready`): it was the request said most (4 of 7 spoken, 13-22 Nov) and took 12-19 s to the first word (the full briefing skill gathered everything in 6-11 s, then the model summarised it). The short spoken brief (weather, today's events, readiness and strain, news, the inbox) is now rebuilt every 10 minutes from 5 am to 11 pm, and "brief me", "give me my briefing", "what's my day look like?" are quick commands that read it with no model call. "Good afternoon/evening" by the hour; built on the spot if it's stale or overnight. Anything more ("brief me for tomorrow", "the full briefing") still goes to the model. Personal, so not in guest mode.
+- **One card per thing:** a push is no longer copied into the feed as an alert when the same source already has an open card with that title ("Time to wind down" was on Home twice).
+- **Home Assistant retries a connection it couldn't make** (3 times, short backoff): 13 of 18 Home Assistant failures in a fortnight were "[Errno 113] No route to host" on the first call after a quiet spell (the 7 am briefing's to-do lists, wind down), while calls a moment later worked.
+
 ## 4.30.0 — 2026-11-27
 
 - **Known fixes, applied** (`app/upkeep/known_fixes.py`, `SIRISAI_AUTO_FIX_KNOWN`, on by default and on the Settings page). Three fixes that always work waited on Brad this week; now:

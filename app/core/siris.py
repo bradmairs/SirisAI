@@ -76,7 +76,7 @@ from app.plugins.builtin.bazarr import (
 )
 from app.plugins.builtin.cleanuparr import CleanuparrStatusTool
 from app.plugins.builtin.cron import CRON_TOOLS
-from app.plugins.builtin.clock import GetCurrentTimeTool
+from app.plugins.builtin.clock import BriefMeTool, GetCurrentTimeTool
 from app.plugins.selector import ToolSelector
 from app.plugins.builtin.docker import (
     DockerGetContainerLogsTool,
@@ -718,6 +718,7 @@ class SirisAI:
         self.tools.register(DeleteEntityRelationshipTool(self.entities))
         self.tools.register(DeleteEventTool(self.events))
         self.tools.register(GetCurrentTimeTool(self.settings.timezone))
+        self.tools.register(BriefMeTool(self))
         self.tools.register(SetReminderTool(self.reminders, self.settings.timezone))
         self.tools.register(ListRemindersTool(self.reminders, self.settings.timezone))
         self.tools.register(CancelReminderTool(self.reminders))
