@@ -173,17 +173,22 @@ def overnight(siris: "SirisAI", now: datetime | None = None) -> list[str]:
 
 def spoken(siris: "SirisAI", now: datetime | None = None) -> str:
     """The news, podcasts and overnight lines for the spoken morning brief."""
-    import asyncio
+    from app.core import clock
+    from app.core.scheduler import run_on_main_loop
 
     parts = []
-    came = overnight(siris, now)
+    came = list(dict.fromkeys(overnight(siris, now)))   # 4.31.1: each title once ("Time to wind down" was said twice)
     if came:
-        parts.append(f"Overnight: {'; '.join(came[:3])}" + (f", and {len(came) - 3} more" if len(came) > 3 else "") + ".")
+        # 4.31.1: "brief me" is asked all day (app/voice/brief_cache.py); "Overnight" only fits the morning.
+        hour = (now or datetime.now(UTC)).astimezone(clock.get_zone(siris.settings.timezone)).hour
+        label = "Overnight" if hour < 12 else "Since last night"
+        parts.append(f"{label}: {'; '.join(came[:3])}" + (f", and {len(came) - 3} more" if len(came) > 3 else "") + ".")
     items = stories(siris, now)
     if items:
         try:
-            parts.append(asyncio.run(roundup(siris, items)))
-        except RuntimeError:  # already inside an event loop: the headlines
+            # On the app's loop, where the model client's connections live (a loop of its own failed from the second call).
+            parts.append(run_on_main_loop(roundup(siris, items), timeout=60))
+        except Exception:  # noqa: BLE001 - inside an event loop, or the model slow: the headlines
             parts.append("In the news: " + "; ".join(i["title"] for i in items[:5]) + ".")
     new = episodes(siris, now)
     if new:

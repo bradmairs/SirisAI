@@ -106,3 +106,16 @@ def test_a_push_for_a_card_already_raised_isnt_a_second_card(client: TestClient)
 def test_home_assistant_retries_a_connection_it_couldnt_make() -> None:
     client = ha_client.HomeAssistantClient("http://ha.local:8123", "t")
     assert client._client._transport._pool._retries == ha_client.CONNECT_RETRIES == 3
+
+
+def test_the_brief_says_since_last_night_after_noon_and_each_title_once(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC
+
+    from app.news import service as news
+
+    s = SirisAI(settings=Settings(timezone="UTC"))
+    monkeypatch.setattr(news, "overnight", lambda *_a: ["Time to wind down", "SirisAI: heading out", "Time to wind down"])
+    monkeypatch.setattr(news, "stories", lambda *_a: [])
+    monkeypatch.setattr(news, "episodes", lambda *_a: [])
+    assert news.spoken(s, datetime(2026, 11, 27, 7, 0, tzinfo=UTC)) == "Overnight: Time to wind down; SirisAI: heading out."
+    assert news.spoken(s, datetime(2026, 11, 27, 21, 0, tzinfo=UTC)) == "Since last night: Time to wind down; SirisAI: heading out."
