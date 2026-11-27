@@ -30,7 +30,7 @@ def _clean(client: TestClient):
         session.query(KnownNetworkDevice).filter(KnownNetworkDevice.entity_id.like("unifi:%")).delete(synchronize_session=False)
         session.commit()
     s = SirisAI(settings=Settings())
-    for key in (containers.STATE_KEY, backups.STATE_KEY, internet.STATE_KEY, devices.NAMES_KEY):
+    for key in (containers.STATE_KEY, containers.HISTORY_KEY, backups.STATE_KEY, internet.STATE_KEY, devices.NAMES_KEY):
         s.state.delete(key)
     yield
 
@@ -546,3 +546,67 @@ def test_the_jobs_are_scheduled() -> None:
     assert {"container_updates", "server_backups", "server_backup_test", "internet_weekly", "expiry_check"} <= set(names)
     assert names["server_backup_test"].monthday == 1 and names["internet_weekly"].weekday(SirisAI(settings=Settings())) == 0
     assert time.monotonic() > 0
+
+
+def test_updates_are_kept_and_one_can_go_back_later_and_stay_there(docker) -> None:
+    siris, fake = docker
+    _setup_containers(fake)
+    [result] = containers.update_many(siris, ["plex"])
+    assert result["status"] == "updated"
+    [h] = containers.history(siris)
+    assert h["container"] == "plex" and h["before"] == "sha256:old" and h["after"] == "sha256:new"
+    back = containers.roll_back_to(siris, "plex", poll=0.01)
+    assert back["status"] == "put back", back
+    plex = _named(fake, "plex")
+    assert plex["Image"] == "sha256:old" and plex["Config"]["Labels"][containers.REF_LABEL] == "lscr.io/linuxserver/plex:latest"
+    assert containers.history(siris)[0]["trigger"] == "roll back"
+    # Held there: the morning's check and Update all leave it alone...
+    assert containers.check(siris, NOW, raise_feed=False)["skipped"]["plex"] == containers.HELD
+    assert containers.update(siris, "plex")["status"] == "skipped"
+    assert containers.overview(siris)["held"] == ["plex"]
+    # ...until you update it yourself, which follows its tag again.
+    fake.pullable["lscr.io/linuxserver/plex:latest"] = {"Id": "sha256:newer", "RepoDigests": ["lscr.io/linuxserver/plex@sha256:ccc"], "Config": {"Env": [], "Cmd": ["run3"], "Labels": {"maker": "x"}}}
+    again = containers.update(siris, "plex", poll=0.01, release=True)
+    assert again["status"] == "updated" and _named(fake, "plex")["Image"] == "sha256:newer"
+    assert containers.REF_LABEL not in _named(fake, "plex")["Config"]["Labels"]
+    assert _named(fake, "plex")["Config"]["Image"] == "lscr.io/linuxserver/plex:latest"
+
+
+def test_a_port_that_answered_before_has_to_answer_after(docker, monkeypatch) -> None:
+    siris, fake = docker
+    _setup_containers(fake)
+    [cid] = [c for c in fake.containers if fake.containers[c]["Name"] == "/plex"]
+    fake.containers[cid]["HostConfig"]["PortBindings"] = {"32400/tcp": [{"HostPort": "32400"}], "1900/udp": [{"HostPort": "1900"}]}
+    siris.settings.container_probe_host = "10.0.0.1"
+    up = {"now": True}
+    monkeypatch.setattr(containers, "_answers", lambda host, port, timeout=1.5: up["now"])
+    real_start = fake.handler
+
+    def start_then_silent(request):
+        if request.url.path.endswith("/start") and request.url.path.split("/")[2].endswith("e" * 52):
+            up["now"] = False  # the new one comes up "healthy" but its web page is gone
+        return real_start(request)
+
+    siris._docker_client = DockerClient("http://docker", transport=httpx.MockTransport(start_then_silent))
+    result = containers.update(siris, "plex", poll=0.01)
+    assert result["status"] == "rolled back" and "port 32400 answered before the update and doesn't now" in result["why"]
+    assert _named(fake, "plex")["Image"] == "sha256:old"
+    assert containers.history(siris)[0]["status"] == "rolled back"
+
+
+def test_sirisos_can_see_and_act_on_updates(docker, client) -> None:
+    siris, fake = docker
+    _setup_containers(fake)
+    containers.update_many(siris, ["plex"])
+    from app.core.siris import get_siris
+    from app.main import app as api_app
+    api_app.dependency_overrides[get_siris] = lambda: siris
+    try:
+        got = client.get("/siris/upkeep/containers").json()
+        assert got["history"][0]["container"] == "plex" and got["running"] is False
+        assert client.post("/siris/upkeep/containers/plex/explode").status_code == 404
+        assert client.post("/siris/upkeep/containers/plex/roll-back").json() == {"started": True}
+        containers._worker.join(5)
+        assert _named(fake, "plex")["Image"] == "sha256:old"
+    finally:
+        api_app.dependency_overrides.pop(get_siris, None)

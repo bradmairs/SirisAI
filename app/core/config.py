@@ -1021,6 +1021,9 @@ class Settings(BaseSettings):
     container_update_exclude: str = ""
     container_update_health_seconds: float = 90.0
     container_update_watch_minutes: float = 10.0
+    # 4.32: where a container's published ports are tried before and after its update (the Docker host as seen from
+    # SirisAI); empty uses SirisAI's default gateway, which is the host for a container on a bridge network.
+    container_probe_host: str = ""
     # Backups on the SSH servers: "nas:zfs:tank/data,nas:path:/mnt/backups/restic".
     # Checked daily (blank hour = off), read back on the 1st of each month.
     server_backups: str = ""
