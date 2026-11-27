@@ -51,6 +51,7 @@ def test_list_containers_maps_fields() -> None:
             "image": "plexinc/pms-docker",
             "state": "running",
             "status": "Up 2 days",
+            "network_mode": None,
         }
     ]
     client.close()

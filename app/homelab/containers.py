@@ -31,6 +31,13 @@
   every half minute. One that stops, restarts or turns unhealthy is put back
   on the image it had before (kept for exactly this) with the same settings,
   and an alert says so with its last log lines.
+- **Shared networks** (4.31.2): a container that others join with
+  `network_mode: service:x` / `container:x` (gluetun with wg-easy or a
+  torrent client behind it) can't be swapped on its own: Docker pins the
+  others to the old container's id, so they'd be left on a network that's
+  gone. The ones sharing it are recreated on the new one (same settings)
+  before the old one is removed, and rolled back with it if any of them
+  doesn't come up.
 """
 
 import contextvars
@@ -192,6 +199,15 @@ def new_config(container: dict[str, Any], old_image: dict[str, Any], image_ref: 
         config[key] = own or None
     if config.get("Hostname") == container["Id"][:12]:
         config.pop("Hostname")  # Docker's default; the new container gets its own
+    if str((container.get("HostConfig") or {}).get("NetworkMode", "")).startswith("container:"):
+        # Another container's network: Docker refuses a hostname or ports of its own.
+        for key in ("Hostname", "Domainname"):
+            config.pop(key, None)
+        config["ExposedPorts"] = None
+        config["HostConfig"] = container.get("HostConfig") or {}
+        config["NetworkingConfig"] = {}
+        config["_extra_networks"] = {}
+        return config
     networks = (container.get("NetworkSettings") or {}).get("Networks") or {}
     endpoints = {net: _endpoint(container, ep) for net, ep in networks.items()}
     first = next(iter(endpoints), None)
@@ -229,6 +245,34 @@ def _healthy(client: DockerClient, container_id: str, wait_seconds: float, poll:
         time.sleep(poll)
 
 
+def _sharing(client: DockerClient, container: dict[str, Any]) -> list[str]:
+    """The containers that run in this one's network namespace."""
+    cid, name = container["Id"], (container.get("Name") or "").lstrip("/")
+    wanted = {f"container:{cid}", f"container:{name}", f"container:{cid[:12]}"}
+    return [
+        (c.get("names") or [c["id"]])[0]
+        for c in client.list_containers(all_containers=True)
+        if c.get("network_mode") in wanted and not (c.get("names") or [""])[0].endswith(ASIDE)
+    ]
+
+
+def _move(client: DockerClient, name: str, onto: str) -> tuple[dict[str, Any], str]:
+    """Recreate `name` (same image and settings) in `onto`'s network namespace.
+    The old one is stopped and renamed aside, not removed. Returns (old, new id)."""
+    old = client.inspect_container(name)
+    config = new_config(old, client.inspect_image(old["Image"]), old["Config"]["Image"])
+    config.pop("_extra_networks", None)
+    config["HostConfig"] = {**config["HostConfig"], "NetworkMode": f"container:{onto}"}
+    client.stop(old["Id"])
+    client.rename(old["Id"], name + ASIDE)
+    try:
+        new_id = client.create(name, config)
+    except Exception:
+        client.rename(old["Id"], name)
+        raise
+    return old, new_id
+
+
 def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
     client = _client(siris)
     old = client.inspect_container(name)
@@ -244,6 +288,8 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
     config = new_config(old, old_image, ref)
     extra = config.pop("_extra_networks")
     was_running = bool((old.get("State") or {}).get("Running"))
+    sharing = _sharing(client, old)
+    moved: list[tuple[dict[str, Any], str]] = []
     client.stop(old["Id"])
     client.rename(old["Id"], name + ASIDE)
     new_id = None
@@ -255,8 +301,20 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
         ok, how = _healthy(client, new_id, siris.settings.container_update_health_seconds, poll)
         if not ok:
             raise RuntimeError(how)
+        for other in sharing:
+            moved.append(_move(client, other, new_id))
+            client.start(moved[-1][1])
+            ok, other_how = _healthy(client, moved[-1][1], siris.settings.container_update_health_seconds, poll)
+            if not ok:
+                raise RuntimeError(f"{other}, which shares its network, didn't come up on the new one: {other_how}")
     except Exception as exc:  # noqa: BLE001 - every failure rolls back
         logs = ""
+        for other_old, other_new in reversed(moved):
+            try:
+                client.remove(other_new)
+            except Exception:  # noqa: BLE001
+                logger.exception("Removing the new %s failed", other_old["Name"])
+            client.rename(other_old["Id"], other_old["Name"].lstrip("/"))
         if new_id:
             logs = _tail(client, new_id)
             try:
@@ -266,10 +324,26 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
         client.rename(old["Id"], name)
         if was_running:
             client.start(old["Id"])
+            _restart_sharing(client, sharing)
         return {"container": name, "status": "rolled back", "why": str(exc)[:300], "logs": logs}
     _previous[name] = {"config": {**new_config(old, old_image, old["Image"]), "_extra_networks": extra}, "image": old["Image"]}
+    for other_old, _ in moved:
+        client.remove(other_old["Id"])
     client.remove(old["Id"])
-    return {"container": name, "status": "updated", "image": ref, "health": how}
+    result = {"container": name, "status": "updated", "image": ref, "health": how}
+    if sharing:
+        result["also_recreated"] = sharing
+    return result
+
+
+def _restart_sharing(client: DockerClient, names: list[str]) -> None:
+    """The old network namespace went with the stop; joining containers need a restart to get it back."""
+    for other in names:
+        try:
+            client.stop(other)
+            client.start(other)
+        except Exception:  # noqa: BLE001 - best effort; the alert says to check
+            logger.exception("Restarting %s after a roll-back failed", other)
 
 
 # What each container ran before its update, for a roll-back while it's watched.
@@ -413,11 +487,16 @@ def _roll_back(siris: "SirisAI", client: DockerClient, name: str, why: str) -> d
             client.stop(name)
         except Exception:  # noqa: BLE001 - already stopped
             pass
+        sharing = _sharing(client, client.inspect_container(name))
         client.remove(name)
         new_id = client.create(name, config)
         for network, endpoint in extra.items():
             client.connect(network, new_id, endpoint)
         client.start(new_id)
+        for other in sharing:
+            other_old, other_new = _move(client, other, new_id)
+            client.start(other_new)
+            client.remove(other_old["Id"])
         title, outcome = f"{name} was rolled back after its update", "rolled back"
         body = f"The new version ran at first, then {why}. It's back on the image it had before ({prev['image'][:19]})."
     except Exception as exc:  # noqa: BLE001
