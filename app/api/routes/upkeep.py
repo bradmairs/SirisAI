@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.core.auth import require_api_key
 from app.core.siris import SirisAI, get_siris
 from app.core.user_context import resolve_user_id
+from app.homelab import containers
 from app.upkeep import backups, housekeeping, issues, models, updates
 
 router = APIRouter(prefix="/siris/upkeep", tags=["upkeep"], dependencies=[Depends(require_api_key), Depends(resolve_user_id)])
@@ -119,3 +120,22 @@ def setup_check(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
     from app.upkeep import setup_check as check
 
     return check.report(siris)
+
+
+@router.get("/containers")
+def container_overview(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """4.32: the container updates for SirisOS's Home Lab: waiting, held, and the history with what each was on before."""
+    return containers.overview(siris)
+
+
+@router.post("/containers/{name}/{action}")
+def container_action(name: str, action: str, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """`roll-back`: back to the version before its last update (held there); `update`: update it now (and release it)."""
+    if action not in ("roll-back", "update") or not name.replace("-", "").replace("_", "").replace(".", "").isalnum():
+        raise HTTPException(status_code=404, detail="Unknown action")
+    try:
+        return containers.run_one(siris, name, action)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except Exception as exc:  # noqa: BLE001 - no such container
+        raise HTTPException(status_code=404, detail=f"No container called {name}") from exc

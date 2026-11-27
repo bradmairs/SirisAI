@@ -38,6 +38,14 @@
   gone. The ones sharing it are recreated on the new one (same settings)
   before the old one is removed, and rolled back with it if any of them
   doesn't come up.
+- **Does it answer** (4.32): the TCP ports a container publishes are tried
+  just before it's stopped; any that answered then has to answer again
+  (within the health wait) or the update is rolled back. A container can be
+  "healthy" while its web page is gone; this catches that.
+- **History and roll-back later** (4.32): every update, roll-back and failure
+  is kept (the last 200, CONTAINER_HISTORY_KEY), with the image it was on
+  before. `roll_back_to(name)` puts a container back on that image whenever
+  you like, the same way an update swaps it (shared networks included).
 """
 
 import contextvars
@@ -145,6 +153,8 @@ def _skip_reason(info: dict[str, Any], name: str, excluded: set[str]) -> str | N
         return "pinned to a digest"
     if name.endswith(ASIDE):
         return "the old copy from an update"
+    if labels.get(REF_LABEL):
+        return HELD
     return None
 
 
@@ -273,23 +283,140 @@ def _move(client: DockerClient, name: str, onto: str) -> tuple[dict[str, Any], s
     return old, new_id
 
 
-def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
+HISTORY_KEY = "container_update_history"
+REF_LABEL = "siris.ref"  # the tag a container put back on an older image id came from
+HELD = "kept on an earlier version (you put it back): update it from SirisOS to carry on"
+
+
+def _ref(container: dict[str, Any]) -> str:
+    """The image tag a container follows."""
+    return ((container.get("Config") or {}).get("Labels") or {}).get(REF_LABEL) or container["Config"]["Image"]
+
+
+def _record(siris: "SirisAI", result: dict[str, Any], before: str | None = None, after: str | None = None, trigger: str = "update") -> None:
+    """Keep what happened, newest first (4.32)."""
+    entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "container": result["container"], "status": result["status"],
+             "trigger": trigger, "before": before, "after": after, "why": result.get("why"), "also": result.get("also_recreated") or []}
+    try:
+        history = siris.state.get(HISTORY_KEY) or []
+        siris.state.set(HISTORY_KEY, [entry, *history][:200])
+    except Exception:  # noqa: BLE001 - the history is a nicety; never fail an update over it
+        logger.exception("Recording the container update failed")
+
+
+def history(siris: "SirisAI", limit: int = 50) -> list[dict[str, Any]]:
+    return (siris.state.get(HISTORY_KEY) or [])[:limit]
+
+
+def _probe_host(siris: "SirisAI") -> str | None:
+    if siris.settings.container_probe_host:
+        return siris.settings.container_probe_host
+    try:
+        with open("/proc/net/route") as f:
+            for line in f.readlines()[1:]:
+                parts = line.split()
+                if len(parts) > 2 and parts[1] == "00000000":
+                    return socket.inet_ntoa(bytes.fromhex(parts[2])[::-1])
+    except OSError:
+        pass
+    return None
+
+
+def _tcp_ports(container: dict[str, Any]) -> list[int]:
+    bindings = (container.get("HostConfig") or {}).get("PortBindings") or {}
+    out = set()
+    for spec, binds in bindings.items():
+        if spec.endswith("/tcp"):
+            for b in binds or []:
+                if str(b.get("HostPort") or "").isdigit():
+                    out.add(int(b["HostPort"]))
+    return sorted(out)
+
+
+def _answers(host: str, port: int, timeout: float = 1.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _answering(siris: "SirisAI", container: dict[str, Any]) -> tuple[str | None, list[int]]:
+    """The published TCP ports that answer right now (before an update)."""
+    host = _probe_host(siris)
+    if not host:
+        return None, []
+    return host, [p for p in _tcp_ports(container) if _answers(host, p)]
+
+
+def _answer_again(host: str | None, ports: list[int], wait_seconds: float, poll: float) -> list[int]:
+    """The ports still not answering after the wait: [] is good."""
+    if not host or not ports:
+        return []
+    deadline = time.monotonic() + max(wait_seconds, 5.0)
+    left = list(ports)
+    while left:
+        left = [p for p in left if not _answers(host, p)]
+        if not left or time.monotonic() >= deadline:
+            break
+        time.sleep(poll)
+    return left
+
+
+def update(siris: "SirisAI", name: str, poll: float = 2.0, release: bool = False) -> dict[str, Any]:
+    """`release`: update one you'd put back on an earlier version (it's held there otherwise)."""
     client = _client(siris)
     old = client.inspect_container(name)
     reason = _skip_reason(old, name, _excluded(siris))
-    if reason:
+    if reason and not (release and reason == HELD):
         return {"container": name, "status": "skipped", "why": reason}
-    ref = old["Config"]["Image"]
-    old_image = client.inspect_image(old["Image"])
+    ref = _ref(old)
     client.pull(ref)
     fresh = client.inspect_image(ref)
     if fresh.get("Id") == old["Image"]:
         return {"container": name, "status": "up to date"}
+    result = _swap(siris, client, old, ref, poll)
+    _record(siris, result, before=old["Image"], after=fresh.get("Id"))
+    return result
+
+
+def roll_back_to(siris: "SirisAI", name: str, image_id: str | None = None, poll: float = 2.0) -> dict[str, Any]:
+    """Put a container back on the image it had before its last update (or `image_id`), any time (4.32)."""
+    client = _client(siris)
+    old = client.inspect_container(name)
+    if not image_id:
+        last = next((h for h in history(siris, 200) if h["container"] == name and h["status"] == "updated" and h.get("before")), None)
+        if not last:
+            return {"container": name, "status": "failed", "why": "No earlier version is recorded for it."}
+        image_id = last["before"]
+    if image_id == old["Image"]:
+        return {"container": name, "status": "up to date", "why": "It's already on that version."}
+    try:
+        client.inspect_image(image_id)
+    except Exception:  # noqa: BLE001
+        return {"container": name, "status": "failed", "why": "That version's image isn't on the server any more."}
+    result = _swap(siris, client, old, image_id, poll, keep_ref=_ref(old))
+    if result["status"] == "updated":
+        result["status"] = "put back"
+    _record(siris, result, before=old["Image"], after=image_id, trigger="roll back")
+    return result
+
+
+def _swap(siris: "SirisAI", client: DockerClient, old: dict[str, Any], ref: str, poll: float, keep_ref: str | None = None) -> dict[str, Any]:
+    """Replace `old` with a container on image `ref`, same settings; roll back if it doesn't come up."""
+    name = old["Name"].lstrip("/")
+    old_image = client.inspect_image(old["Image"])
     config = new_config(old, old_image, ref)
+    config["Labels"] = {k: v for k, v in (config.get("Labels") or {}).items() if k != REF_LABEL}
+    if keep_ref:
+        # Put back on an image id: the tag now points at the newer image, so remember it, and hold the container
+        # there (the morning's check leaves it alone) until you update it again.
+        config["Labels"][REF_LABEL] = keep_ref
     extra = config.pop("_extra_networks")
     was_running = bool((old.get("State") or {}).get("Running"))
     sharing = _sharing(client, old)
     moved: list[tuple[dict[str, Any], str]] = []
+    host, answering = _answering(siris, old) if was_running else (None, [])
     client.stop(old["Id"])
     client.rename(old["Id"], name + ASIDE)
     new_id = None
@@ -307,6 +434,9 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
             ok, other_how = _healthy(client, moved[-1][1], siris.settings.container_update_health_seconds, poll)
             if not ok:
                 raise RuntimeError(f"{other}, which shares its network, didn't come up on the new one: {other_how}")
+        silent = _answer_again(host, answering, siris.settings.container_update_health_seconds, poll)
+        if silent:
+            raise RuntimeError(f"port {', '.join(map(str, silent))} answered before the update and doesn't now")
     except Exception as exc:  # noqa: BLE001 - every failure rolls back
         logs = ""
         for other_old, other_new in reversed(moved):
@@ -330,7 +460,9 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0) -> dict[str, Any]:
     for other_old, _ in moved:
         client.remove(other_old["Id"])
     client.remove(old["Id"])
-    result = {"container": name, "status": "updated", "image": ref, "health": how}
+    result = {"container": name, "status": "updated", "image": keep_ref or ref, "health": how}
+    if answering:
+        result["answering"] = answering
     if sharing:
         result["also_recreated"] = sharing
     return result
@@ -369,6 +501,7 @@ def update_many(siris: "SirisAI", names: list[str]) -> list[dict[str, Any]]:
             results.append(update(siris, name))
         except Exception as exc:  # noqa: BLE001 - say which one, carry on with the rest
             results.append({"container": name, "status": "failed", "why": str(exc)[:300]})
+            _record(siris, results[-1])
     for r in results:
         if r["status"] in ("rolled back", "failed"):
             back = r["status"] == "rolled back"
@@ -503,6 +636,7 @@ def _roll_back(siris: "SirisAI", client: DockerClient, name: str, why: str) -> d
         title, outcome = f"{name} fell over after its update, and rolling it back failed", "failed"
         body = f"After the update {why}. Putting the old version back failed: {str(exc)[:200]}. Check {name} by hand."
     siris.audit.record("docker_update_rollback", {"container": name, "why": why}, result=outcome, trigger="the container update's watch")
+    _record(siris, {"container": name, "status": outcome, "why": why}, before=None, after=prev["image"], trigger="watch")
     siris.attention.raise_item(f"containers:failed:{name}", "alert", title, source="containers-failed", severity="attention",
                                body=body + (f"\n\nIts last log lines:\n{logs}" if logs else ""))
     return {"container": name, "status": outcome, "why": why}
@@ -520,3 +654,41 @@ def _update_action(siris: "SirisAI", item: dict[str, Any], payload: dict[str, An
 
 
 register_action("containers", "update", _update_action)
+
+
+def run_one(siris: "SirisAI", name: str, action: str) -> dict[str, Any]:
+    """From SirisOS (4.32): put a container back on its earlier version ("roll-back"), or update one ("update",
+    which also releases one you'd put back). Runs in the background; the outcome lands in the history and the feed."""
+    global _worker
+    if action not in ("roll-back", "update"):
+        raise ValueError(action)
+    _client(siris).inspect_container(name)  # KeyError-ish failures surface now, not in the thread
+    if not _running.acquire(blocking=False):
+        return {"started": False, "why": "An update is already running"}
+    ctx = contextvars.copy_context()
+
+    def work() -> None:
+        try:
+            r = roll_back_to(siris, name) if action == "roll-back" else update(siris, name, release=True)
+            ok = r["status"] in ("updated", "put back", "up to date")
+            title = {"put back": f"{name} is back on its earlier version", "updated": f"Updated {name}",
+                     "up to date": f"{name} is already current"}.get(r["status"], f"{name}: {r['status']}")
+            siris.attention.raise_item(f"containers:one:{name}:{int(time.time())}", "notice" if ok else "alert", title, source="containers-done",
+                                       severity="info" if ok else "attention", body=r.get("why"))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Container %s %s failed", action, name)
+            _record(siris, {"container": name, "status": "failed", "why": str(exc)[:300]}, trigger=action)
+        finally:
+            _running.release()
+
+    _worker = threading.Thread(target=lambda: ctx.run(work), daemon=True, name=f"container-{action}")
+    _worker.start()
+    return {"started": True}
+
+
+def overview(siris: "SirisAI") -> dict[str, Any]:
+    """For SirisOS's Home Lab (4.32): the last check, what's waiting, held, and what happened lately."""
+    report = siris.state.get(STATE_KEY) or {}
+    held = {n: why for n, why in (report.get("skipped") or {}).items() if why == HELD}
+    return {"checked_at": report.get("checked_at"), "updates": report.get("updates") or [], "up_to_date": len(report.get("up_to_date") or []),
+            "held": sorted(held), "running": _running.locked(), "history": history(siris, 40)}
