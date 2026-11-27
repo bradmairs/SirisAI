@@ -92,7 +92,8 @@ class FakeDocker:
         path, method = request.url.path, request.method
         self.calls.append(f"{method} {path}")
         if path == "/containers/json":
-            return httpx.Response(200, json=[{"Id": c["Id"], "Names": [c["Name"]], "Image": c["Config"]["Image"], "State": "running"} for c in self.containers.values() if c["State"]["Running"]])
+            return httpx.Response(200, json=[{"Id": c["Id"], "Names": [c["Name"]], "Image": c["Config"]["Image"], "State": "running", "HostConfig": {"NetworkMode": c["HostConfig"].get("NetworkMode", "bridge")}}
+                                           for c in self.containers.values() if c["State"]["Running"] or request.url.params.get("all") == "true"])
         if path.startswith("/distribution/"):
             return httpx.Response(200, json={"Descriptor": {"digest": self.remote[path.removeprefix("/distribution/").removesuffix("/json")]}})
         if path.startswith("/images/") and path.endswith("/json"):
@@ -199,6 +200,51 @@ def test_updating_recreates_with_the_same_settings_and_new_image_defaults(docker
     assert config["HostConfig"]["Binds"] == ["/srv/x:/config"]
     assert config["NetworkingConfig"] == {"EndpointsConfig": {"media": {"Aliases": ["plex"]}}} and plex["connected"] == ["proxy"]
     assert not any(c["Name"].endswith(containers.ASIDE) for c in fake.containers.values())  # the old one's gone
+
+
+def _vpn_pair(fake: FakeDocker) -> tuple[str, str]:
+    """gluetun, and wg-easy in its network (`network_mode: service:gluetun`)."""
+    fake.image("qmcgaw/gluetun:latest", "sha256:g1", "sha256:ga")
+    fake.remote["qmcgaw/gluetun:latest"] = "sha256:gb"
+    fake.pullable["qmcgaw/gluetun:latest"] = {"Id": "sha256:g2", "RepoDigests": ["qmcgaw/gluetun@sha256:gb"], "Config": {"Env": [], "Cmd": ["run"], "Labels": {"maker": "x"}}}
+    fake.image("ghcr.io/wg-easy/wg-easy:15", "sha256:w1", "sha256:wa")
+    vpn = fake.container("gluetun", "qmcgaw/gluetun:latest")
+    wg = fake.container("wg-easy", "ghcr.io/wg-easy/wg-easy:15")
+    fake.containers[wg]["HostConfig"] = {"NetworkMode": f"container:{vpn}", "Binds": ["/srv/wg:/etc/wireguard"]}
+    fake.containers[wg]["Config"]["Hostname"] = vpn[:12]
+    fake.containers[wg]["NetworkSettings"] = {"Networks": {}}
+    return vpn, wg
+
+
+def _named(fake: FakeDocker, name: str) -> dict[str, Any]:
+    [c] = [c for c in fake.containers.values() if c["Name"] == "/" + name]
+    return c
+
+
+def test_containers_in_its_network_move_to_the_new_one(docker) -> None:
+    siris, fake = docker
+    vpn, wg = _vpn_pair(fake)
+    [result] = containers.update_many(siris, ["gluetun"])
+    assert result["status"] == "updated" and result["also_recreated"] == ["wg-easy"], result
+    new_vpn, new_wg = _named(fake, "gluetun"), _named(fake, "wg-easy")
+    assert new_vpn["Id"] != vpn and new_wg["Id"] != wg and new_wg["State"]["Running"]
+    assert new_wg["HostConfig"]["NetworkMode"] == f"container:{new_vpn['Id']}"
+    assert new_wg["HostConfig"]["Binds"] == ["/srv/wg:/etc/wireguard"] and new_wg["Image"] == "sha256:w1"
+    # Docker refuses a hostname or networks of its own on a container: network.
+    assert "Hostname" not in new_wg["Config"] and new_wg["Config"]["NetworkingConfig"] == {}
+    assert vpn not in fake.containers and wg not in fake.containers
+    assert not any(c["Name"].endswith(containers.ASIDE) for c in fake.containers.values())
+
+
+def test_if_the_new_one_fails_the_ones_in_its_network_stay_on_the_old(docker) -> None:
+    siris, fake = docker
+    vpn, wg = _vpn_pair(fake)
+    fake.new_exits = True
+    [result] = containers.update_many(siris, ["gluetun"])
+    assert result["status"] == "rolled back"
+    assert _named(fake, "gluetun")["Id"] == vpn and _named(fake, "wg-easy")["Id"] == wg
+    assert _named(fake, "wg-easy")["State"]["Running"] and len(fake.containers) == 2
+    assert f"POST /containers/{wg[:12]}/start" in fake.calls or any(c.startswith("POST /containers/wg-easy/start") for c in fake.calls)
 
 
 def test_a_new_container_that_fails_rolls_back(docker) -> None:

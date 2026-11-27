@@ -34,6 +34,7 @@ class DockerClient:
                 "image": c.get("Image"),
                 "state": c.get("State"),
                 "status": c.get("Status"),
+                "network_mode": (c.get("HostConfig") or {}).get("NetworkMode"),
             }
             for c in response.json()
         ]

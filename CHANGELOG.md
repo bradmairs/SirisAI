@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.31.2 — 2026-11-28
+
+- Container updates: containers sharing another's network (wg-easy behind gluetun) are recreated on the new one, not left on a network that's gone
+
 ## 4.31.1 — 2026-11-27
 
 - The brief all day: "Since last night" after noon, each item once, and its news summary on the app's loop
