@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.31.1 — 2026-11-27
+
+- The brief all day: "Since last night" after noon, each item once, and its news summary on the app's loop
+
 ## 4.31.0 — 2026-11-27
 
 - "Brief me" answers at once, one card per thing, and Home Assistant calls retried when the Pi is slow to answer
