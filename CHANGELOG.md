@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.32.1 — 2026-11-28
+
+- Stop tracking the local database's journal files
+
 ## 4.32.0 — 2026-11-28
 
 - Container updates: a history with roll-back any time, and ports checked before and after
