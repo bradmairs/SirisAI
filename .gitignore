@@ -15,3 +15,7 @@ data/*.db-journal
 data/ssh/
 docker-compose.override.yml
 models/
+
+# SQLite journals beside the live database (never commit)
+data/*.db-shm
+data/*.db-wal

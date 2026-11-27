@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.32.0 — 2026-11-28
+
+- Container updates: a history with roll-back any time, and ports checked before and after
+
 ## 4.31.2 — 2026-11-28
 
 - Container updates: containers sharing another's network (wg-easy behind gluetun) are recreated on the new one, not left on a network that's gone
