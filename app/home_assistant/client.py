@@ -27,13 +27,23 @@ from typing import Any
 import httpx
 
 
+CONNECT_RETRIES = 3
+
+
 class HomeAssistantClient:
     def __init__(self, base_url: str, token: str, timeout: float = 10.0, transport: httpx.BaseTransport | None = None) -> None:
+        # 4.31.0: a connection that can't be made is tried again (up to 3 more
+        # times, with a short backoff). 13 of 18 Home Assistant failures in a
+        # fortnight were "[Errno 113] No route to host" on the first call after
+        # an idle spell (the 7 am briefing's to-do lists, wind down), while
+        # calls a moment later worked: the Pi is slow to answer the network's
+        # address lookup after a quiet spell. Nothing reached Home Assistant,
+        # so retrying is safe even for commands.
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"),
             timeout=timeout,
             headers={"Authorization": f"Bearer {token}"},
-            transport=transport,
+            transport=transport if transport is not None else httpx.HTTPTransport(retries=CONNECT_RETRIES),
         )
 
     def list_states(self, domain: str | None = None) -> list[dict]:

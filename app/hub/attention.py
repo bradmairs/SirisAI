@@ -300,6 +300,14 @@ def on_push(siris: "SirisAI", arguments: dict[str, Any], trigger: str | None) ->
         return
     priority = arguments.get("priority")
     source = source_from_trigger(trigger)
+    # 4.31.0: a caller that raised its own card and then pushed (the wind-down
+    # suggestion) got a second, "alert" copy of it ("Time to wind down" twice
+    # on Home, 26 Nov). The card it raised already says it.
+    try:
+        if any(i.get("title") == title and i.get("source") == source for i in siris.attention.list("open")):
+            return
+    except Exception:  # noqa: BLE001 - a duplicate beats a missing alert
+        pass
     severity = "urgent" if priority in ("urgent", "high") or source in ("intruder_check", "self-healing") else "attention"
     link = None
     if source == "intruder_check":
