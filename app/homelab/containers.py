@@ -38,11 +38,11 @@
   gone. The ones sharing it are recreated on the new one (same settings)
   before the old one is removed, and rolled back with it if any of them
   doesn't come up.
-- **Does it answer** (4.32): the TCP ports a container publishes are tried
+- **Does it answer** (4.32.0): the TCP ports a container publishes are tried
   just before it's stopped; any that answered then has to answer again
   (within the health wait) or the update is rolled back. A container can be
   "healthy" while its web page is gone; this catches that.
-- **History and roll-back later** (4.32): every update, roll-back and failure
+- **History and roll-back later** (4.32.0): every update, roll-back and failure
   is kept (the last 200, CONTAINER_HISTORY_KEY), with the image it was on
   before. `roll_back_to(name)` puts a container back on that image whenever
   you like, the same way an update swaps it (shared networks included).
@@ -294,7 +294,7 @@ def _ref(container: dict[str, Any]) -> str:
 
 
 def _record(siris: "SirisAI", result: dict[str, Any], before: str | None = None, after: str | None = None, trigger: str = "update") -> None:
-    """Keep what happened, newest first (4.32)."""
+    """Keep what happened, newest first (4.32.0)."""
     entry = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "container": result["container"], "status": result["status"],
              "trigger": trigger, "before": before, "after": after, "why": result.get("why"), "also": result.get("also_recreated") or []}
     try:
@@ -381,7 +381,7 @@ def update(siris: "SirisAI", name: str, poll: float = 2.0, release: bool = False
 
 
 def roll_back_to(siris: "SirisAI", name: str, image_id: str | None = None, poll: float = 2.0) -> dict[str, Any]:
-    """Put a container back on the image it had before its last update (or `image_id`), any time (4.32)."""
+    """Put a container back on the image it had before its last update (or `image_id`), any time (4.32.0)."""
     client = _client(siris)
     old = client.inspect_container(name)
     if not image_id:
@@ -657,7 +657,7 @@ register_action("containers", "update", _update_action)
 
 
 def run_one(siris: "SirisAI", name: str, action: str) -> dict[str, Any]:
-    """From SirisOS (4.32): put a container back on its earlier version ("roll-back"), or update one ("update",
+    """From SirisOS (4.32.0): put a container back on its earlier version ("roll-back"), or update one ("update",
     which also releases one you'd put back). Runs in the background; the outcome lands in the history and the feed."""
     global _worker
     if action not in ("roll-back", "update"):
@@ -687,7 +687,7 @@ def run_one(siris: "SirisAI", name: str, action: str) -> dict[str, Any]:
 
 
 def overview(siris: "SirisAI") -> dict[str, Any]:
-    """For SirisOS's Home Lab (4.32): the last check, what's waiting, held, and what happened lately."""
+    """For SirisOS's Home Lab (4.32.0): the last check, what's waiting, held, and what happened lately."""
     report = siris.state.get(STATE_KEY) or {}
     held = {n: why for n, why in (report.get("skipped") or {}).items() if why == HELD}
     return {"checked_at": report.get("checked_at"), "updates": report.get("updates") or [], "up_to_date": len(report.get("up_to_date") or []),
