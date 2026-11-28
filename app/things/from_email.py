@@ -24,6 +24,8 @@ whatever the model thinks of it, because you filed it there.
   purchase already in Things (an order and its invoice) isn't added twice, though
   both receipts are kept. Things added before receipts were kept get linked to theirs.
 - The email's words only ever become fields: they're data, not instructions.
+- **One receipt per purchase** (4.33.0): an order confirmation, its tax invoice and "your order has shipped" are one
+  purchase; only the email with the actual receipt stays a receipt (app/documents/receipt_dupes.py).
 """
 
 from __future__ import annotations
@@ -293,7 +295,15 @@ async def _scan(siris: "SirisAI", client: Any, days: int, now: datetime, max_rea
         added += things.from_receipt(siris, new, bought, shop, doc["id"], _note(subject), return_days=things.return_days(answer))
     siris.state.set(SEEN_KEY, seen[-MAX_SEEN:])
     siris.state.set(KEPT_KEY, kept[-MAX_SEEN:])
-    out = {"looked_at": len(found), "read": read, "kept": len(receipts), "added": len(added), "linked": linked, "more": max(0, len(wanted) - read),
+    set_aside = 0
+    if receipts:  # 4.33.0: one receipt per purchase (an order, its invoice and "it's shipped" are one)
+        from app.documents import receipt_dupes
+
+        try:
+            set_aside = receipt_dupes.dedupe(siris, {r["sender"] for r in receipts})["set_aside"]
+        except Exception:  # noqa: BLE001 - the receipts are kept either way
+            logger.exception("Setting aside duplicate receipts failed")
+    out = {"looked_at": len(found), "duplicates_set_aside": set_aside, "read": read, "kept": len(receipts), "added": len(added), "linked": linked, "more": max(0, len(wanted) - read),
            "receipts": receipts[:30], "things": [{"id": t["id"], "name": t["name"], "shop": t.get("shop"), "bought": t.get("bought")} for t in added]}
     if problem:
         out["problem"] = problem

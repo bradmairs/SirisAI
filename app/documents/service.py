@@ -353,7 +353,8 @@ def list_documents(siris: "SirisAI", query: str = "", limit: int = 30, kind: str
         if kind:
             stmt = stmt.where(Document.kind == kind)
         if not_kind:
-            stmt = stmt.where(Document.kind != not_kind)
+            # 4.33.0: "not receipts" also leaves out the receipts set aside as duplicates (receipt-duplicate)
+            stmt = stmt.where(Document.kind != not_kind, ~Document.kind.like(f"{not_kind}-%"))
         for word in [w for w in query.lower().split() if len(w) > 1][:5]:
             like = f"%{word}%"
             stmt = stmt.where(or_(Document.title.ilike(like), Document.sender.ilike(like), Document.summary.ilike(like), Document.text.ilike(like)))
