@@ -37,6 +37,29 @@ def list_documents(q: str = "", limit: int = 30, kind: str = "", not_kind: str =
     return service.list_documents(siris, q, limit=max(1, min(limit, 300)), kind=kind, not_kind=not_kind)
 
 
+@router.get("/documents/receipts/duplicates")
+def receipt_duplicates(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """4.33.0: the purchases that have more than one receipt, which one would be kept, and how many are set aside."""
+    from app.documents import receipt_dupes
+
+    return {"plan": receipt_dupes.plan(siris), "set_aside": len(siris.state.get(receipt_dupes.STATE_KEY) or {})}
+
+
+@router.post("/documents/receipts/dedupe")
+def dedupe_receipts(siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    """Keep the actual receipt of each purchase and set the others aside (not deleted; restore puts them back)."""
+    from app.documents import receipt_dupes
+
+    return receipt_dupes.dedupe(siris)
+
+
+@router.post("/documents/receipts/restore")
+def restore_receipts(doc_id: int | None = None, siris: SirisAI = Depends(get_siris)) -> dict[str, Any]:
+    from app.documents import receipt_dupes
+
+    return {"restored": receipt_dupes.restore(siris, doc_id)}
+
+
 @router.get("/documents/{doc_id}/files/{name}")
 def document_file(doc_id: int, name: str, siris: SirisAI = Depends(get_siris)) -> FileResponse:
     """A kept receipt's original. It came from an email, so nothing in it may run."""
