@@ -8,6 +8,10 @@ old number, and [docs/renumbering.md](docs/renumbering.md) lists them all. Each 
 `main` is tagged `v<version>` and released automatically. The README's
 numbered milestones hold the detailed history.
 
+## 4.34.0 — 2026-11-28
+
+- SirisOS facts: walks from SirisTrails
+
 ## 4.33.0 — 2026-11-28
 
 - Receipts: one per purchase, the actual receipt; order, invoice and shipping emails are grouped
