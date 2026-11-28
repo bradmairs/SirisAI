@@ -345,7 +345,7 @@ class EngineeringCalcNoteTool(Tool):
 
 
 class SirisOSFactsTool(Tool):
-    """SirisOS's own data (SirisOS 11.3): what Brad spent, his budget, subscriptions, dinners, goals and today's plan."""
+    """SirisOS's own data (SirisOS 11.3): what Brad spent, his budget, subscriptions, dinners, goals, today's plan and (12.6) his walks."""
 
     name = "sirisos_facts"
     description = (
@@ -353,18 +353,19 @@ class SirisOSFactsTool(Tool):
         "for a period, optionally only what matches q, e.g. q='fuel'), 'budget' (this month's lines: plan, spent, "
         "left, and the cash flow to the next pay day), 'subscriptions' (repeating charges from the bank, price rises), "
         "'meals' (dinners planned lately; q finds when a dish was last on the plan), 'goals' (this year's goals, pace "
-        "and a step for any behind) or 'plan' (today's plan). Use for 'what did I spend on fuel last month', "
+        "and a step for any behind), 'plan' (today's plan) or 'walks' (SirisTrails' walks and hikes: in a period, default this year, "
+        "or every one matching q, a name, place, peak, park or track; with distance, time, climb and weather). Use for 'what did I spend on fuel last month', "
         "'when did we last have spag bol', 'how far behind am I on my CPD goal', 'what's left in the groceries "
-        "budget', 'what subscriptions do I have', 'what's my plan today'."
+        "budget', 'what subscriptions do I have', 'what's my plan today', 'how far have I walked this year', 'when did I last walk Mount Lofty'."
     )
     permission = ToolPermission.READ
     parameters = {
         "type": "object",
         "properties": {
-            "topic": {"type": "string", "enum": ["spending", "budget", "subscriptions", "meals", "goals", "plan"]},
-            "q": {"type": "string", "description": "Words to match: a shop or budget line for spending, a dish for meals."},
+            "topic": {"type": "string", "enum": ["spending", "budget", "subscriptions", "meals", "goals", "plan", "walks"]},
+            "q": {"type": "string", "description": "Words to match: a shop or budget line for spending, a dish for meals, a walk's name or place for walks."},
             "period": {"type": "string", "enum": ["this-week", "last-week", "this-month", "last-month", "last-30-days", "this-year"],
-                       "description": "For spending; default this-month."},
+                       "description": "For spending (default this-month) and walks (default this-year)."},
             "start": {"type": "string", "description": "YYYY-MM-DD, instead of period."},
             "end": {"type": "string", "description": "YYYY-MM-DD, instead of period."},
         },

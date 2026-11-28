@@ -167,3 +167,17 @@ def test_sirisos_facts_reads_spending_and_meals_with_the_key() -> None:
     assert "start" not in seen[-1].url.params  # blanks aren't sent
     assert tool.run(topic="meals", q="spag bol")["last_time"]["title"] == "Spag bol"
     assert "sirisos_facts" in {t.name for t in SirisAI(settings=Settings(sirisos_url="http://sirisos", sirisos_service_key=KEY)).tools.list()}
+
+
+def test_sirisos_facts_answers_about_walks() -> None:
+    """SirisOS 12.6: SirisTrails' walks through the same facts route."""
+    from app.plugins.builtin.sirisos import SirisOSFactsTool
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.params
+        assert p["topic"] == "walks"
+        return httpx.Response(200, json={"topic": "walks", "count": 1, "matched": p.get("q"), "walks": [{"name": "Mount Lofty", "date": "2026-05-24", "km": 9.1}]})
+
+    tool = SirisOSFactsTool(SirisOSClient("http://sirisos", KEY, transport=httpx.MockTransport(handler)))
+    assert "walks" in tool.parameters["properties"]["topic"]["enum"]
+    assert tool.run(topic="walks", q="mount lofty")["walks"][0]["name"] == "Mount Lofty"
